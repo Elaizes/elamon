@@ -64,3 +64,8 @@ dependencies {
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 	debugImplementation("androidx.compose.ui:ui-tooling")
 }
+
+// F-Droid rebuilds the APK to compare with the published one; ART profiles differ from build to build.
+tasks.whenTaskAdded {
+	if (name.contains("ArtProfile")) enabled = false
+}

@@ -66,7 +66,7 @@ fun SensorsTab(state: MachineState, padding: PaddingValues) {
 		}
 		items(groups, key = { "g" + it.kind + it.chip + it.device }) { g ->
 			val title = kindName(g.kind) + (g.device?.let { " · $it" } ?: "")
-			Section(title, iconFor(g.kind), accent = c.hot) {
+			Section(title, iconFor(g.kind), accent = accentFor(g.kind)) {
 				for (t in g.temps) TempRow(t.label, t.value, t.high, t.crit)
 			}
 		}
@@ -96,7 +96,8 @@ private fun TempRow(label: String, value: Float, high: Float?, crit: Float?) {
 	Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
 		Row(verticalAlignment = Alignment.CenterVertically) {
 			Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-			if (crit != null) {
+			// The limit only matters when it gets close; on every row it is noise.
+			if (crit != null && value >= crit - 15f) {
 				Text(
 					stringResource(R.string.temp_limit, Fmt.temp(crit)),
 					style = MaterialTheme.typography.bodySmall,
@@ -127,6 +128,16 @@ private fun kindName(kind: String): String = when (kind) {
 	"board" -> stringResource(R.string.sensor_kind_board)
 	"battery" -> stringResource(R.string.sensor_kind_battery)
 	else -> stringResource(R.string.sensor_kind_other)
+}
+
+@Composable
+private fun accentFor(kind: String) = when (kind) {
+	"cpu" -> Metric.colors.cpu
+	"gpu" -> Metric.colors.gpu
+	"storage" -> Metric.colors.read
+	"wireless" -> Metric.colors.rx
+	"battery" -> Metric.colors.battery
+	else -> MaterialTheme.colorScheme.secondary
 }
 
 private fun iconFor(kind: String) = when (kind) {

@@ -75,16 +75,34 @@
 					};
 				};
 
-			devShells.${system}.default = pkgs.mkShell {
-				packages = [
-					android.androidsdk pkgs.jdk17 pkgs.gradle
-					pkgs.cargo pkgs.rustc pkgs.clippy pkgs.rustfmt
-				];
-				ANDROID_HOME = sdk;
-				ANDROID_SDK_ROOT = sdk;
-				JAVA_HOME = pkgs.jdk17.home;
-				# AGP fetches a dynamically linked aapt2 from Maven, which doesn't run on NixOS
-				GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${sdk}/build-tools/35.0.0/aapt2";
+			devShells.${system} = {
+				default = pkgs.mkShell {
+					packages = [
+						android.androidsdk pkgs.jdk17 pkgs.gradle
+						pkgs.cargo pkgs.rustc pkgs.clippy pkgs.rustfmt
+					];
+					ANDROID_HOME = sdk;
+					ANDROID_SDK_ROOT = sdk;
+					JAVA_HOME = pkgs.jdk17.home;
+					# AGP fetches a dynamically linked aapt2 from Maven, which doesn't run on NixOS
+					GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${sdk}/build-tools/35.0.0/aapt2";
+				};
+
+				# `nix develop .#emulator`: an x86_64 emulator to try the app without a phone.
+				emulator =
+					let
+						emu = pkgs.androidenv.composeAndroidPackages {
+							platformVersions = [ "35" ];
+							includeEmulator = true;
+							includeSystemImages = true;
+							systemImageTypes = [ "default" ];
+							abiVersions = [ "x86_64" ];
+						};
+					in pkgs.mkShell {
+						packages = [ emu.androidsdk ];
+						ANDROID_HOME = "${emu.androidsdk}/libexec/android-sdk";
+						ANDROID_SDK_ROOT = "${emu.androidsdk}/libexec/android-sdk";
+					};
 			};
 		};
 }

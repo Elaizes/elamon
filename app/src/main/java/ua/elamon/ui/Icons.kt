@@ -156,21 +156,18 @@ object ElIcons {
 	}
 
 	val Fan = icon("Fan") {
-		stroke { circle(12f, 12f, 9f) }
 		fill {
-			circle(12f, 12f, 1.75f)
-			moveTo(12f, 12f)
-			quadTo(9.5f, 6f, 12.5f, 5.5f)
-			quadTo(15f, 6.5f, 12f, 12f)
-			moveTo(12f, 12f)
-			quadTo(18f, 9.5f, 18.5f, 12.5f)
-			quadTo(17.5f, 15f, 12f, 12f)
-			moveTo(12f, 12f)
-			quadTo(14.5f, 18f, 11.5f, 18.5f)
-			quadTo(9f, 17.5f, 12f, 12f)
-			moveTo(12f, 12f)
-			quadTo(6f, 14.5f, 5.5f, 11.5f)
-			quadTo(6.5f, 9f, 12f, 12f)
+			circle(12f, 12f, 2f)
+			// Three curved blades, one drawn and turned by 120°.
+			for (k in 0 until 3) {
+				val a = Math.toRadians(120.0 * k)
+				fun x(px: Float, py: Float) = (12 + (px - 12) * Math.cos(a) - (py - 12) * Math.sin(a)).toFloat()
+				fun y(px: Float, py: Float) = (12 + (px - 12) * Math.sin(a) + (py - 12) * Math.cos(a)).toFloat()
+				moveTo(x(12f, 10f), y(12f, 10f))
+				quadTo(x(9f, 6f), y(9f, 6f), x(11f, 2.5f), y(11f, 2.5f))
+				quadTo(x(17f, 3f), y(17f, 3f), x(14f, 10.5f), y(14f, 10.5f))
+				close()
+			}
 		}
 	}
 

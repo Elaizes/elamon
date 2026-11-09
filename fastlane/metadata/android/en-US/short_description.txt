@@ -1,0 +1,1 @@
+Live load, temperatures, memory, processes and monitors of your Linux computer

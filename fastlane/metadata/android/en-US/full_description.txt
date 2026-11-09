@@ -1,0 +1,14 @@
+<p>Elamon shows what your Linux computer is doing, live, on your phone.</p>
+
+<ul>
+<li><b>Overview</b>: processor load with ten minutes of history, per-core bars, clocks and load average; memory and swap; graphics cards; battery health, power draw and time left; network speed; disk usage and throughput; the power profile.</li>
+<li><b>Processes</b>: sorted by CPU, memory, GPU, disk or name, searchable, grouped by program.</li>
+<li><b>Sensors</b>: every temperature the computer reports, grouped by device, and fan speeds.</li>
+<li><b>Displays</b>: connected monitors with maker, model, size, mode, refresh rate and arrangement.</li>
+</ul>
+
+<p>The computer runs <i>elamond</i>, a small open-source service that works on any distribution and any desktop. Run <i>elamond pair</i> on it and point the phone's camera at the QR code, or enter the six-digit code. The app finds computers on the local network by itself and also works over a VPN.</p>
+
+<p>Private by design: the connection is encrypted and tied to your computer's own certificate, each phone gets its own key that the computer can revoke, nothing passes through any server, and the app has no trackers, ads or Google services. A sleeping discrete graphics card is left asleep.</p>
+
+<p>The service and its install instructions are in the project's source repository.</p>

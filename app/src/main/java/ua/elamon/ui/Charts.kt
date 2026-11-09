@@ -50,6 +50,8 @@ fun LineChart(
 	modifier: Modifier = Modifier,
 	maxValue: Float? = null,
 	minScale: Float = 1f,
+	/** Byte amounts: round to 1, 2, 4… KiB/MiB so the label reads 512 KiB/s, not 977. */
+	binary: Boolean = false,
 	height: Dp = 96.dp,
 	label: ((Float) -> String)? = null,
 ) {
@@ -58,7 +60,8 @@ fun LineChart(
 	val measurer = rememberTextMeasurer()
 	Canvas(modifier.fillMaxWidth().height(height)) {
 		val top = series.maxOfOrNull { s -> s.values.filter { !it.isNaN() }.maxOrNull() ?: 0f } ?: 0f
-		val scale = maxValue ?: niceCeiling(max(top * 1.15f, minScale))
+		val wanted = max(top * 1.15f, minScale)
+		val scale = maxValue ?: if (binary) niceBinary(wanted) else niceCeiling(wanted)
 		val w = size.width
 		val h = size.height
 		val dash = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx()))
@@ -119,6 +122,13 @@ fun LineChart(
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawScaleLabel(m: TextMeasurer, text: String, color: Color) {
 	drawText(m, text, topLeft = Offset(2.dp.toPx(), 0f), style = TextStyle(color = color, fontSize = 10.sp))
+}
+
+/** The next power of two at or above [v]: 512 KiB, 1 MiB, 2 MiB… */
+fun niceBinary(v: Float): Float {
+	var p = 1f
+	while (p < v) p *= 2
+	return p
 }
 
 /** 1, 2, 5, 10, 20, 50… so the scale label reads as a round number. */

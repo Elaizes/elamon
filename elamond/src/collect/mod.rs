@@ -354,10 +354,16 @@ fn process_name(comm: &str, argv0: Option<&std::ffi::OsString>) -> String {
 		.and_then(|a| a.split_whitespace().next().map(str::to_string))
 		.map(|a| a.rsplit('/').next().unwrap_or("").trim_end_matches(':').to_string())
 		.filter(|a| !a.is_empty());
-	match arg {
+	let wrapped = comm.starts_with('.') && comm.contains("-wra");
+	let name = match arg {
 		Some(a) if comm.len() >= 15 && a.starts_with(comm) => a,
-		Some(a) if comm.starts_with('.') && comm.contains("-wrap") => a,
+		Some(a) if wrapped => a,
 		_ => comm.to_string(),
+	};
+	// argv[0] of a wrapped program is sometimes the wrapper's own name too.
+	match name.strip_prefix('.').and_then(|n| n.strip_suffix("-wrapped")) {
+		Some(inner) if !inner.is_empty() => inner.to_string(),
+		_ => name,
 	}
 }
 

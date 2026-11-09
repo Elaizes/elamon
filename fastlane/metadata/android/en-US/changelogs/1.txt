@@ -1,0 +1,1 @@
+First release: live overview with history, processes, sensors and displays; pairing by QR code or six-digit code; English and Ukrainian.

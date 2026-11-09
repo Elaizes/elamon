@@ -103,6 +103,7 @@
 	<string name="cores_count">Ядер: %1$d</string>
 	<string name="memory">Пам’ять</string>
 	<string name="used">зайнято</string>
+	<string name="used_label">Зайнято</string>
 	<string name="available">Доступно</string>
 	<string name="swap">Підкачка</string>
 	<string name="gpu">Відеокарта</string>

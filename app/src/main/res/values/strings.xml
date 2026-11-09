@@ -111,6 +111,7 @@
 	<string name="cores_count">Cores: %1$d</string>
 	<string name="memory">Memory</string>
 	<string name="used">used</string>
+	<string name="used_label">Used</string>
 	<string name="available">Available</string>
 	<string name="swap">Swap</string>
 	<string name="gpu">GPU</string>

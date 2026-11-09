@@ -141,7 +141,7 @@ private fun MemoryCard(state: MachineState, s: Sample) {
 				}
 			}
 			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-				BigStat(stringResource(R.string.used), "${Fmt.bytes(ctx, m.used)} / ${Fmt.bytes(ctx, m.total)}")
+				BigStat(stringResource(R.string.used_label), "${Fmt.bytes(ctx, m.used)} / ${Fmt.bytes(ctx, m.total)}")
 				BigStat(stringResource(R.string.available), Fmt.bytes(ctx, m.available))
 				if (m.swapTotal > 0) {
 					BigStat(stringResource(R.string.swap), "${Fmt.bytes(ctx, m.swapUsed)} / ${Fmt.bytes(ctx, m.swapTotal)}", color = c.swap)
@@ -273,6 +273,7 @@ private fun NetworkCard(state: MachineState, s: Sample) {
 			listOf(ChartSeries(state.hist.rx, c.rx), ChartSeries(state.hist.tx, c.tx)),
 			MachineViewModel.HISTORY_CAP,
 			minScale = 64f * 1024,
+			binary = true,
 			label = { Fmt.rate(ctx, it.toDouble()) },
 		)
 		for (n in s.net.filter { it.up && it.kind != "virtual" }) {
@@ -337,6 +338,7 @@ private fun DisksCard(state: MachineState, s: Sample) {
 				listOf(ChartSeries(state.hist.read, c.read), ChartSeries(state.hist.write, c.write)),
 				MachineViewModel.HISTORY_CAP,
 				minScale = 1024f * 1024,
+				binary = true,
 				label = { Fmt.rate(ctx, it.toDouble()) },
 			)
 		}
