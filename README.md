@@ -1,8 +1,15 @@
 # Elamon
 
-Watch a Linux computer from your Android phone, live: processor load and clocks, temperatures
-and fans, memory, graphics cards, battery, network, disks, the processes that use them, and the
-monitors plugged in.
+> **Test software in active development.** This is an early test version: features, settings and
+> the protocol between the app and the service change from one version to the next, and things may
+> break. Use it where that's fine, and update the app and the service together.
+
+Watch and control a Linux computer from your Android phone, live: processor load and clocks,
+temperatures and fans, memory, graphics cards, battery, network, disks, the processes that use
+them and the monitors plugged in; and, if you allow it, its web services, media, power profile,
+your own commands and its power.
+
+**How to set it up and use it: [the user guide](docs/guide.md).**
 
 Two parts:
 
