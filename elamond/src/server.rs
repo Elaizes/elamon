@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 use std::convert::Infallible;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -12,13 +12,14 @@ use axum::extract::{ConnectInfo, Query, Request, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::watch;
 
 use crate::collect::HistoryRing;
+use crate::control;
 use crate::model::Process;
 use crate::store;
 
@@ -40,17 +41,37 @@ pub struct Hub {
 	/// Apps that asked for the process list.
 	pub proc_watchers: AtomicUsize,
 	pub interval: Duration,
+	/// Apps showing media controls, so players are only polled for them.
+	pub media_watchers: AtomicUsize,
+	pub config: Arc<store::Config>,
+	pub bus: crate::bus::Bus,
+	/// Services added from the app.
+	pub app_services: tokio::sync::Mutex<Vec<crate::services::ServiceDef>>,
+	/// Set after an action, so the next tick re-reads what it may have changed.
+	pub refresh: AtomicBool,
 	clients: RwLock<ClientCache>,
 	pair_lock: tokio::sync::Mutex<()>,
 }
 
+/// The paired phone a request comes from, for the log.
+#[derive(Clone)]
+pub struct ClientName(pub String);
+
 struct ClientCache {
 	mtime: Option<SystemTime>,
-	hashes: Vec<String>,
+	/// Token hashes and the phones' names.
+	clients: Vec<(String, String)>,
 }
 
 impl Hub {
-	pub fn new(id: String, name: String, frame: watch::Receiver<Arc<Frame>>, history: HistoryRing, interval: Duration) -> Self {
+	pub fn new(
+		id: String,
+		name: String,
+		frame: watch::Receiver<Arc<Frame>>,
+		history: HistoryRing,
+		interval: Duration,
+		config: Arc<store::Config>,
+	) -> Self {
 		Hub {
 			id,
 			name,
@@ -59,24 +80,38 @@ impl Hub {
 			watchers: AtomicUsize::new(0),
 			proc_watchers: AtomicUsize::new(0),
 			interval,
-			clients: RwLock::new(ClientCache { mtime: None, hashes: Vec::new() }),
+			media_watchers: AtomicUsize::new(0),
+			config,
+			bus: crate::bus::Bus::new(),
+			app_services: tokio::sync::Mutex::new(crate::services::load()),
+			refresh: AtomicBool::new(false),
+			clients: RwLock::new(ClientCache { mtime: None, clients: Vec::new() }),
 			pair_lock: tokio::sync::Mutex::new(()),
 		}
 	}
 
 	/// Checks a token against clients.json, rereading it when `pair` or `revoke` changed it.
-	fn authorized(&self, token: &str) -> bool {
+	/// Returns the phone's name.
+	fn authorized(&self, token: &str) -> Option<String> {
 		let mtime = store::clients_mtime();
 		let stale = self.clients.read().map(|c| c.mtime != mtime || mtime.is_none()).unwrap_or(true);
 		if stale && let Ok(mut c) = self.clients.write() {
-			c.hashes = store::load_clients().into_iter().map(|c| c.token_hash).collect();
+			c.clients = store::load_clients().into_iter().map(|c| (c.token_hash, c.name)).collect();
 			c.mtime = mtime;
 		}
 		let hash = store::sha256_hex(token.as_bytes());
 		self.clients
 			.read()
-			.map(|c| c.hashes.iter().any(|h| store::same(h.as_bytes(), hash.as_bytes())))
-			.unwrap_or(false)
+			.ok()?
+			.clients
+			.iter()
+			.find(|(h, _)| store::same(h.as_bytes(), hash.as_bytes()))
+			.map(|(_, name)| name.clone())
+	}
+
+	/// Asks the collector to re-read services, profiles and media on its next tick.
+	pub fn refresh_soon(&self) {
+		self.refresh.store(true, Ordering::SeqCst);
 	}
 }
 
@@ -86,6 +121,19 @@ pub fn router(hub: Arc<Hub>) -> Router {
 		.route("/api/v1/snapshot", get(snapshot))
 		.route("/api/v1/history", get(history))
 		.route("/api/v1/stream", get(stream))
+		.route("/api/v1/control", get(control::info))
+		.route("/api/v1/control/power", post(control::power))
+		.route("/api/v1/control/profile", post(control::profile))
+		.route("/api/v1/control/signal", post(control::signal))
+		.route("/api/v1/control/action", post(control::action))
+		.route("/api/v1/media", post(control::media))
+		.route("/api/v1/media/volume", post(control::volume))
+		.route("/api/v1/media/art", get(control::art))
+		.route("/api/v1/services", get(control::services_list).post(control::service_put))
+		.route("/api/v1/services/detected", get(control::detected))
+		.route("/api/v1/services/{id}", delete(control::service_delete))
+		.route("/api/v1/services/{id}/unit", post(control::service_unit))
+		.route("/api/v1/units", get(control::units))
 		.route_layer(middleware::from_fn_with_state(hub.clone(), auth));
 	Router::new()
 		.route("/api/v1/hello", get(hello))
@@ -95,20 +143,23 @@ pub fn router(hub: Arc<Hub>) -> Router {
 		.with_state(hub)
 }
 
-fn error(status: StatusCode, code: &str) -> Response {
+pub fn error(status: StatusCode, code: &str) -> Response {
 	(status, Json(json!({ "error": code }))).into_response()
 }
 
-async fn auth(State(hub): State<Arc<Hub>>, req: Request, next: Next) -> Response {
+async fn auth(State(hub): State<Arc<Hub>>, mut req: Request, next: Next) -> Response {
 	let token = req
 		.headers()
 		.get(header::AUTHORIZATION)
 		.and_then(|v| v.to_str().ok())
 		.and_then(|v| v.strip_prefix("Bearer "))
 		.map(str::trim);
-	match token {
-		Some(t) if hub.authorized(t) => next.run(req).await,
-		_ => error(StatusCode::UNAUTHORIZED, "unauthorized"),
+	match token.and_then(|t| hub.authorized(t)) {
+		Some(name) => {
+			req.extensions_mut().insert(ClientName(name));
+			next.run(req).await
+		}
+		None => error(StatusCode::UNAUTHORIZED, "unauthorized"),
 	}
 }
 
@@ -187,21 +238,27 @@ struct StreamParams {
 	sort: Option<String>,
 	/// Send the last minutes of the main series first.
 	history: Option<u8>,
+	/// Include media players and the volume (needs control).
+	media: Option<u8>,
 }
 
 /// Counts an app as watching for as long as it is held.
 struct Watch {
 	hub: Arc<Hub>,
 	procs: bool,
+	media: bool,
 }
 
 impl Watch {
-	fn new(hub: &Arc<Hub>, procs: bool) -> Self {
+	fn new(hub: &Arc<Hub>, procs: bool, media: bool) -> Self {
 		hub.watchers.fetch_add(1, Ordering::SeqCst);
 		if procs {
 			hub.proc_watchers.fetch_add(1, Ordering::SeqCst);
 		}
-		Watch { hub: hub.clone(), procs }
+		if media {
+			hub.media_watchers.fetch_add(1, Ordering::SeqCst);
+		}
+		Watch { hub: hub.clone(), procs, media }
 	}
 }
 
@@ -211,13 +268,16 @@ impl Drop for Watch {
 		if self.procs {
 			self.hub.proc_watchers.fetch_sub(1, Ordering::SeqCst);
 		}
+		if self.media {
+			self.hub.media_watchers.fetch_sub(1, Ordering::SeqCst);
+		}
 	}
 }
 
 async fn snapshot(State(hub): State<Arc<Hub>>, Query(p): Query<StreamParams>) -> Response {
 	let procs = p.procs.unwrap_or(0).min(10_000);
 	let mut rx = hub.frame.clone();
-	let _watch = Watch::new(&hub, procs > 0);
+	let _watch = Watch::new(&hub, procs > 0, p.media.unwrap_or(0) != 0);
 	// A frame from before this request may lack processes or GPU data; wait for the next ones.
 	let mut frame = rx.borrow_and_update().clone();
 	for _ in 0..2 {
@@ -263,7 +323,7 @@ async fn stream(State(hub): State<Arc<Hub>>, Query(p): Query<StreamParams>) -> R
 		interval,
 		procs,
 		sort: p.sort,
-		_watch: Watch::new(&hub, procs > 0),
+		_watch: Watch::new(&hub, procs > 0, p.media.unwrap_or(0) != 0),
 	};
 
 	let body = futures_util::stream::unfold(st, |mut st| async move {

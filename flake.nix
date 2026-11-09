@@ -62,10 +62,20 @@
 				default = elamond;
 			});
 
-			# NixOS: runs the service for every user who logs in.
-			#   services.elamond = { enable = true; openFirewall = true; };
+			# NixOS: runs the service for every user who logs in, opens the firewall, and lets
+			# chosen users act on the computer from the app without a password.
+			#   services.elamond = {
+			#     enable = true;
+			#     openFirewall = true;
+			#     settings.control = true;
+			#     control.users = [ "alice" ];
+			#     control.units = [ "jellyfin.service" ];
+			#   };
 			nixosModules.default = { config, lib, pkgs, ... }:
-				let cfg = config.services.elamond;
+				let
+					cfg = config.services.elamond;
+					toml = pkgs.formats.toml { };
+					configFile = toml.generate "elamond.toml" cfg.settings;
 				in {
 					options.services.elamond = {
 						enable = lib.mkEnableOption "the Elamon service, as a user service";
@@ -74,33 +84,97 @@
 							default = defaultPackage pkgs;
 							defaultText = lib.literalExpression "elamon.packages.\${system}.elamond";
 						};
+						settings = lib.mkOption {
+							type = toml.type;
+							default = { };
+							description = "elamond.toml for every user's service; empty keeps each user's own ~/.config/elamon/elamond.toml.";
+						};
 						openFirewall = lib.mkOption {
 							type = lib.types.bool;
 							default = false;
-							description = "Open TCP 47823 for the app and UDP 5353 so it finds the computer by mDNS.";
+							description = "Open TCP 47823 for the app and UDP 5353 so it finds the computer by mDNS. Works without `enable`, for services run by Home Manager.";
 						};
-					};
-					config = lib.mkIf cfg.enable {
-						environment.systemPackages = [ cfg.package ];
-						systemd.user.services.elamond = {
-							description = "Elamon service";
-							wantedBy = [ "default.target" ];
-							serviceConfig = {
-								ExecStart = "${cfg.package}/bin/elamond serve";
-								Restart = "on-failure";
-								RestartSec = 5;
+						control = {
+							users = lib.mkOption {
+								type = lib.types.listOf lib.types.str;
+								default = [ ];
+								description = ''
+									Users whose service may power off, reboot and suspend the computer and switch
+									the power profile without a password. Their service runs outside a login
+									session, where polkit would otherwise ask for one. Needs `control = true`
+									in the service's settings to be of use.
+								'';
+							};
+							units = lib.mkOption {
+								type = lib.types.listOf lib.types.str;
+								default = [ ];
+								example = [ "jellyfin.service" ];
+								description = "System units those users may start, stop and restart from the app.";
 							};
 						};
-						networking.firewall = lib.mkIf cfg.openFirewall {
-							allowedTCPPorts = [ 47823 ];
-							allowedUDPPorts = [ 5353 ];
-						};
 					};
+
+					config = lib.mkMerge [
+						(lib.mkIf cfg.enable {
+							environment.systemPackages = [ cfg.package ];
+							systemd.user.services.elamond = {
+								description = "Elamon service";
+								wantedBy = [ "default.target" ];
+								environment = lib.mkIf (cfg.settings != { }) { ELAMON_CONFIG = "${configFile}"; };
+								restartTriggers = lib.optional (cfg.settings != { }) configFile;
+								serviceConfig = {
+									ExecStart = "${cfg.package}/bin/elamond serve";
+									Restart = "on-failure";
+									RestartSec = 5;
+								};
+							};
+						})
+						(lib.mkIf cfg.openFirewall {
+							networking.firewall = {
+								allowedTCPPorts = [ 47823 ];
+								allowedUDPPorts = [ 5353 ];
+							};
+						})
+						(lib.mkIf (cfg.control.users != [ ]) {
+							security.polkit.enable = true;
+							security.polkit.extraConfig = ''
+								// Elamon: what paired phones may do through these users' services.
+								polkit.addRule(function (action, subject) {
+									if (${builtins.toJSON cfg.control.users}.indexOf(subject.user) < 0) {
+										return polkit.Result.NOT_HANDLED;
+									}
+									var power = [
+										"org.freedesktop.login1.power-off",
+										"org.freedesktop.login1.power-off-multiple-sessions",
+										"org.freedesktop.login1.reboot",
+										"org.freedesktop.login1.reboot-multiple-sessions",
+										"org.freedesktop.login1.suspend",
+										"org.freedesktop.login1.suspend-multiple-sessions",
+										"org.freedesktop.UPower.PowerProfiles.switch-profile",
+										"net.hadess.PowerProfiles.switch-profile"
+									];
+									if (power.indexOf(action.id) >= 0) {
+										return polkit.Result.YES;
+									}
+									if (action.id == "org.freedesktop.systemd1.manage-units"
+										&& ${builtins.toJSON cfg.control.units}.indexOf(action.lookup("unit")) >= 0
+										&& ["start", "stop", "restart"].indexOf(action.lookup("verb")) >= 0) {
+										return polkit.Result.YES;
+									}
+									return polkit.Result.NOT_HANDLED;
+								});
+							'';
+						})
+					];
 				};
 
-			# Home Manager: runs the service for this user.  services.elamond.enable = true;
+			# Home Manager: runs the service for this user.
+			#   services.elamond = { enable = true; settings.control = true; };
 			homeManagerModules.default = { config, lib, pkgs, ... }:
-				let cfg = config.services.elamond;
+				let
+					cfg = config.services.elamond;
+					toml = pkgs.formats.toml { };
+					configFile = toml.generate "elamond.toml" cfg.settings;
 				in {
 					options.services.elamond = {
 						enable = lib.mkEnableOption "the Elamon service";
@@ -109,11 +183,28 @@
 							default = defaultPackage pkgs;
 							defaultText = lib.literalExpression "elamon.packages.\${system}.elamond";
 						};
+						settings = lib.mkOption {
+							type = toml.type;
+							default = { };
+							example = lib.literalExpression ''
+								{
+									control = true;
+									services = [ { name = "Jellyfin"; url = "http://{host}:8096"; unit = "jellyfin.service"; scope = "system"; } ];
+									actions = [ { name = "Update"; command = [ "nh" "os" "switch" ]; timeout = 900; } ];
+								}
+							'';
+							description = "Written to ~/.config/elamon/elamond.toml; empty leaves that file alone.";
+						};
 					};
 					config = lib.mkIf cfg.enable {
 						home.packages = [ cfg.package ];
+						xdg.configFile."elamon/elamond.toml" = lib.mkIf (cfg.settings != { }) { source = configFile; };
 						systemd.user.services.elamond = {
-							Unit.Description = "Elamon service";
+							Unit = {
+								Description = "Elamon service";
+								# A new elamond.toml restarts the service, which reads it only at start.
+								X-Restart-Triggers = lib.optional (cfg.settings != { }) "${configFile}";
+							};
 							Service = {
 								ExecStart = "${cfg.package}/bin/elamond serve";
 								Restart = "on-failure";

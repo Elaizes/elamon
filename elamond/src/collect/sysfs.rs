@@ -217,6 +217,8 @@ pub fn power() -> Power {
 			.unwrap_or_default(),
 		governor: read(cpufreq.join("scaling_governor")),
 		epp: read(cpufreq.join("energy_performance_preference")),
+		ppd_profile: None,
+		ppd_profiles: Vec::new(),
 	}
 }
 

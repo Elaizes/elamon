@@ -30,6 +30,47 @@ pub struct Config {
 	pub mdns: bool,
 	pub interval_ms: u64,
 	pub history_minutes: u64,
+	/// Let paired phones act on this computer: power, profiles, units, processes,
+	/// media and the actions below. Off unless turned on here.
+	pub control: bool,
+	/// Web services shown in the app, beside those added from the app itself.
+	pub services: Vec<ServiceConfig>,
+	/// Commands the app can run, defined only here: a phone can't add its own.
+	pub actions: Vec<ActionConfig>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct ServiceConfig {
+	pub name: String,
+	/// What the app opens; "{host}" becomes the address the phone reaches this computer at.
+	pub url: String,
+	/// A systemd unit the app may start, stop and restart.
+	pub unit: Option<String>,
+	/// "user" (default) or "system".
+	pub scope: Option<String>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct ActionConfig {
+	pub name: String,
+	/// Program and arguments, run without a shell.
+	pub command: Vec<String>,
+	/// Ask in the app before running.
+	#[serde(default = "yes")]
+	pub confirm: bool,
+	/// Seconds before the command is stopped.
+	#[serde(default = "minute")]
+	pub timeout: u64,
+}
+
+fn yes() -> bool {
+	true
+}
+
+fn minute() -> u64 {
+	60
 }
 
 impl Default for Config {
@@ -41,6 +82,9 @@ impl Default for Config {
 			mdns: true,
 			interval_ms: 1000,
 			history_minutes: 10,
+			control: false,
+			services: Vec::new(),
+			actions: Vec::new(),
 		}
 	}
 }
@@ -68,8 +112,13 @@ fn home() -> PathBuf {
 	std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
 }
 
+/// ELAMON_CONFIG names the file outright (the NixOS module points it into the store).
+pub fn config_path() -> PathBuf {
+	std::env::var_os("ELAMON_CONFIG").map(PathBuf::from).unwrap_or_else(|| config_dir().join("elamond.toml"))
+}
+
 pub fn load_config() -> Result<Config, String> {
-	let path = config_dir().join("elamond.toml");
+	let path = config_path();
 	match fs::read_to_string(&path) {
 		Ok(text) => toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display())),
 		Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),

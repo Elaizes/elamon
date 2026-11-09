@@ -1,8 +1,11 @@
 //! elamond: serves this computer's metrics to the Elamon phone app.
 
+mod bus;
 mod collect;
+mod control;
 mod model;
 mod server;
+mod services;
 mod store;
 
 use std::collections::HashMap;
@@ -75,7 +78,7 @@ fn serve() -> Result<(), String> {
 	let mut collector = collect::Collector::new();
 	// The first reading primes CPU counters; the published one starts a tick later.
 	collector.read(false, false);
-	let info = Arc::new(serde_json::to_string(&collector.info(&identity.id, &name)).unwrap_or_default());
+	let info = Arc::new(serde_json::to_string(&collector.info(&identity.id, &name, config.control)).unwrap_or_default());
 	let first = Arc::new(server::Frame { sample: "{}".into(), processes: None, info });
 	let (tx, rx) = watch::channel(first);
 	let hub = Arc::new(server::Hub::new(
@@ -84,15 +87,26 @@ fn serve() -> Result<(), String> {
 		rx,
 		collect::HistoryRing::new(history_len),
 		interval,
+		Arc::new(config.clone()),
 	));
+	if config.control {
+		eprintln!("control is on: paired phones may act on this computer");
+	}
+
+	let runtime = tokio::runtime::Builder::new_multi_thread()
+		.worker_threads(2)
+		.enable_all()
+		.build()
+		.map_err(|e| e.to_string())?;
 
 	{
 		let hub = hub.clone();
 		let id = identity.id.clone();
 		let name = name.clone();
+		let rt = runtime.handle().clone();
 		std::thread::Builder::new()
 			.name("collector".into())
-			.spawn(move || collect_loop(collector, hub, tx, interval, id, name))
+			.spawn(move || collect_loop(collector, hub, tx, interval, id, name, rt))
 			.map_err(|e| e.to_string())?;
 	}
 
@@ -110,11 +124,6 @@ fn serve() -> Result<(), String> {
 	tls.alpn_protocols = vec![b"http/1.1".to_vec()];
 
 	let ip: IpAddr = config.listen.parse().map_err(|_| format!("listen: \"{}\" is not an IP address", config.listen))?;
-	let runtime = tokio::runtime::Builder::new_multi_thread()
-		.worker_threads(2)
-		.enable_all()
-		.build()
-		.map_err(|e| e.to_string())?;
 	runtime.block_on(async move {
 		let app = server::router(hub).into_make_service_with_connect_info::<SocketAddr>();
 		let tls = RustlsConfig::from_config(Arc::new(tls));
@@ -164,20 +173,24 @@ fn collect_loop(
 	interval: Duration,
 	id: String,
 	name: String,
+	rt: tokio::runtime::Handle,
 ) {
 	let mut info = tx.borrow().info.clone();
 	let mut tick: u64 = 0;
+	let mut extras = control::Extras::new();
 	loop {
 		let started = std::time::Instant::now();
 		let watched = hub.watchers.load(Ordering::SeqCst) > 0;
 		let want_procs = hub.proc_watchers.load(Ordering::SeqCst) > 0;
-		let reading = collector.read(watched, want_procs);
+		let want_media = hub.media_watchers.load(Ordering::SeqCst) > 0;
+		let mut reading = collector.read(watched, want_procs);
+		extras.apply(&hub, &rt, watched, want_media, &mut reading.sample);
 		if let Ok(mut h) = hub.history.lock() {
 			h.push(&reading.sample);
 		}
 		// GPU names improve once NVML has been read, so info is rebuilt now and then.
 		if tick % 10 == 1 {
-			let fresh = serde_json::to_string(&collector.info(&id, &name)).unwrap_or_default();
+			let fresh = serde_json::to_string(&collector.info(&id, &name, hub.config.control)).unwrap_or_default();
 			if fresh != *info {
 				info = Arc::new(fresh);
 			}
@@ -320,7 +333,8 @@ fn snapshot() -> Result<(), String> {
 	c.read(true, true);
 	std::thread::sleep(Duration::from_secs(1));
 	let reading = c.read(true, true);
-	let info = c.info("-", &machine_name(&store::load_config()?));
+	let config = store::load_config()?;
+	let info = c.info("-", &machine_name(&config), config.control);
 	let mut procs = reading.processes.unwrap_or_default();
 	procs.sort_by(|a, b| b.cpu.total_cmp(&a.cpu));
 	procs.truncate(10);

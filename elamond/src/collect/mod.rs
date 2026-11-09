@@ -85,7 +85,7 @@ impl Collector {
 		}
 	}
 
-	pub fn info(&self, id: &str, name: &str) -> Info {
+	pub fn info(&self, id: &str, name: &str, control: bool) -> Info {
 		let cpu_model = self
 			.sys
 			.cpus()
@@ -113,7 +113,13 @@ impl Collector {
 			memory_total: self.sys.total_memory(),
 			boot_time: System::boot_time().unwrap_or(0),
 			gpus,
-			capabilities: vec!["processes", "displays", "history", "sensors"],
+			capabilities: {
+				let mut c = vec!["processes", "displays", "history", "sensors", "services", "media"];
+				if control {
+					c.push("control");
+				}
+				c
+			},
 		}
 	}
 
@@ -202,6 +208,8 @@ impl Collector {
 			disk_io: self.disk_io(secs),
 			net: self.net(secs, watched && slow),
 			displays: self.cached_displays.clone(),
+			services: Vec::new(),
+			media: None,
 		};
 		Reading { sample, processes }
 	}
@@ -348,7 +356,7 @@ impl Collector {
 
 /// The kernel's name for a process is cut at 15 characters, and Nix wrappers rename programs
 /// to ".name-wrapped"; argv[0] then says what people know the program as.
-fn process_name(comm: &str, argv0: Option<&std::ffi::OsString>) -> String {
+pub fn process_name(comm: &str, argv0: Option<&std::ffi::OsString>) -> String {
 	let arg = argv0
 		.map(|a| a.to_string_lossy())
 		.and_then(|a| a.split_whitespace().next().map(str::to_string))

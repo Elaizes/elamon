@@ -50,6 +50,11 @@ pub struct Sample {
 	pub disk_io: Vec<DiskIo>,
 	pub net: Vec<Net>,
 	pub displays: Vec<Display>,
+	/// Web services this computer hosts, while an app is connected.
+	pub services: Vec<crate::services::ServiceStatus>,
+	/// Media players and the volume, for apps that asked for them.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub media: Option<crate::control::Media>,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -139,6 +144,9 @@ pub struct Power {
 	pub governor: Option<String>,
 	/// Intel/AMD energy-performance preference, like "balance_power".
 	pub epp: Option<String>,
+	/// power-profiles-daemon's profile, like "power-saver", which the app can switch.
+	pub ppd_profile: Option<String>,
+	pub ppd_profiles: Vec<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]

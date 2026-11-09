@@ -1,6 +1,6 @@
 [package]
 name = "elamond"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Serves this computer's metrics to the Elamon Android app"
@@ -17,6 +17,7 @@ axum-server = { version = "0.9.0", features = ["tls-rustls-no-provider"] }
 data-encoding = "2.11.1"
 drm = "0.15.0"
 futures-util = "0.3.34"
+libc = "0.2.191"
 mdns-sd = "0.21.7"
 nvml-wrapper = "0.13.0"
 qrcode = "0.14.1"
@@ -27,5 +28,6 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"
 sysinfo = "0.40.1"
-tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal", "fs"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal", "fs", "process", "io-util"] }
 toml = "1.2.1"
+zbus = { version = "5.19.0", default-features = false, features = ["tokio"] }
