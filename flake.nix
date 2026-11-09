@@ -13,7 +13,11 @@
 			elamondFor = pkgs: pkgs.rustPlatform.buildRustPackage {
 				pname = "elamond";
 				version = cargoToml.package.version;
-				src = ./elamond;
+				# Its own store path, so commits that touch only the app leave the service as built.
+				src = builtins.path {
+					path = ./elamond;
+					name = "elamond-source";
+				};
 				cargoLock.lockFile = ./elamond/Cargo.lock;
 				nativeBuildInputs = [ pkgs.makeWrapper ];
 				# GPU names come from the PCI database, which NixOS keeps in the store.
