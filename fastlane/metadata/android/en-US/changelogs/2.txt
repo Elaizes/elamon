@@ -1,0 +1,1 @@
+Help inside the app: installing the service on NixOS, Nix, Fedora, Debian and Ubuntu, Arch, openSUSE and other systems, opening the firewall, pairing, troubleshooting, commands and settings; commands copy with one tap.

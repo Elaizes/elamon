@@ -25,6 +25,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -66,7 +67,7 @@ import ua.elamon.data.discoverServices
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit) {
+fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit, onHelp: () -> Unit) {
 	val ctx = LocalContext.current
 	val servers by ServerStore.get(ctx).servers.collectAsStateWithLifecycle()
 	val discovery = remember { discoverServices(ctx) }
@@ -92,7 +93,13 @@ fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit) {
 	val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 	Scaffold(
 		modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
-		topBar = { LargeTopAppBar(title = { Text(stringResource(R.string.app_name)) }, scrollBehavior = scroll) },
+		topBar = {
+			LargeTopAppBar(
+				title = { Text(stringResource(R.string.app_name)) },
+				actions = { IconButton(onClick = onHelp) { Icon(ElIcons.Help, stringResource(R.string.help_title)) } },
+				scrollBehavior = scroll,
+			)
+		},
 		floatingActionButton = {
 			ExtendedFloatingActionButton(
 				onClick = { addDialog = true },
@@ -128,7 +135,7 @@ fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit) {
 				}
 			}
 			if (servers.isEmpty()) {
-				item(key = "setup") { SetupGuide() }
+				item(key = "setup") { SetupGuide(onHelp) }
 			}
 		}
 	}
@@ -204,7 +211,7 @@ private fun ComputerCard(icon: ImageVector, title: String, subtitle: String, onl
 
 /** How to get from nothing to a paired computer. */
 @Composable
-private fun SetupGuide() {
+private fun SetupGuide(onHelp: () -> Unit) {
 	Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
 		Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
 			Text(stringResource(R.string.setup_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
@@ -213,6 +220,9 @@ private fun SetupGuide() {
 			Step(2, stringResource(R.string.setup_step_start), "systemctl --user enable --now elamond")
 			Step(3, stringResource(R.string.setup_step_pair), "elamond pair")
 			Step(4, stringResource(R.string.setup_step_scan), null)
+			androidx.compose.material3.FilledTonalButton(onClick = onHelp, modifier = Modifier.fillMaxWidth()) {
+				Text(stringResource(R.string.setup_full_guide))
+			}
 		}
 	}
 }

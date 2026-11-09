@@ -61,7 +61,7 @@ private sealed interface Step {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PairScreen(target: PairTarget, onBack: () -> Unit, onPaired: (Server) -> Unit) {
+fun PairScreen(target: PairTarget, onBack: () -> Unit, onPaired: (Server) -> Unit, onHelp: () -> Unit) {
 	val ctx = LocalContext.current
 	val scope = rememberCoroutineScope()
 	var step by remember { mutableStateOf<Step>(Step.Connecting) }
@@ -143,6 +143,7 @@ fun PairScreen(target: PairTarget, onBack: () -> Unit, onPaired: (Server) -> Uni
 				is Step.Failed -> {
 					Notice(Icons.Default.Warning, stringResource(R.string.pair_failed), stringResource(s.message)) {
 						Button(onClick = { attempt++ }) { Text(stringResource(R.string.retry)) }
+						androidx.compose.material3.TextButton(onClick = onHelp) { Text(stringResource(R.string.help_troubleshooting)) }
 					}
 				}
 				is Step.Ready -> {

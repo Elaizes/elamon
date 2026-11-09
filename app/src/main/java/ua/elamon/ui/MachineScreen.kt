@@ -67,7 +67,13 @@ private enum class Tab(val label: Int, val icon: ImageVector) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MachineScreen(server: Server, onBack: () -> Unit, onPairAgain: (PairTarget) -> Unit, onForgotten: () -> Unit) {
+fun MachineScreen(
+	server: Server,
+	onBack: () -> Unit,
+	onPairAgain: (PairTarget) -> Unit,
+	onForgotten: () -> Unit,
+	onHelp: (String?) -> Unit,
+) {
 	val ctx = LocalContext.current
 	val vm: MachineViewModel = viewModel(
 		key = "machine-" + server.id,
@@ -147,6 +153,13 @@ fun MachineScreen(server: Server, onBack: () -> Unit, onPairAgain: (PairTarget) 
 							trailingIcon = { if (keepOn) Icon(Icons.Default.Check, null) },
 						)
 						DropdownMenuItem(
+							text = { Text(stringResource(R.string.help_title)) },
+							onClick = {
+								menu = false
+								onHelp(null)
+							},
+						)
+						DropdownMenuItem(
 							text = { Text(stringResource(R.string.forget_computer)) },
 							onClick = {
 								menu = false
@@ -186,6 +199,7 @@ fun MachineScreen(server: Server, onBack: () -> Unit, onPairAgain: (PairTarget) 
 				state.sample == null && state.conn == Conn.Offline -> Centered(padding) {
 					Notice(ElIcons.Laptop, stringResource(R.string.offline_title, server.name), stringResource(R.string.offline_body)) {
 						Button(onClick = { vm.retry() }) { Text(stringResource(R.string.retry)) }
+						androidx.compose.material3.TextButton(onClick = { onHelp(HelpTopic.TROUBLESHOOTING) }) { Text(stringResource(R.string.help_troubleshooting)) }
 					}
 				}
 				state.sample == null -> Centered(padding) { CircularProgressIndicator() }

@@ -205,6 +205,32 @@ object ElIcons {
 		}
 	}
 
+	val Copy = icon("Copy") {
+		stroke {
+			rect(8f, 8f, 20f, 20f, 2f)
+			moveTo(16f, 8f)
+			lineTo(16f, 6f)
+			quadTo(16f, 4f, 14f, 4f)
+			lineTo(6f, 4f)
+			quadTo(4f, 4f, 4f, 6f)
+			lineTo(4f, 14f)
+			quadTo(4f, 16f, 6f, 16f)
+			lineTo(8f, 16f)
+		}
+	}
+
+	val Help = icon("Help") {
+		stroke {
+			circle(12f, 12f, 9.5f)
+			moveTo(9.25f, 9.5f)
+			quadTo(9.5f, 6.75f, 12f, 6.75f)
+			quadTo(14.75f, 6.75f, 14.75f, 9.25f)
+			quadTo(14.75f, 11f, 12f, 12.25f)
+			lineTo(12f, 13.75f)
+		}
+		fill { circle(12f, 17f, 1.25f) }
+	}
+
 	val Qr = icon("Qr") {
 		stroke {
 			rect(3.5f, 3.5f, 9.5f, 9.5f, 1f)

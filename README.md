@@ -45,12 +45,24 @@ listens on TCP port **47823**; open it in the computer's firewall for the networ
 
 ### Installing the service
 
-**Nix flake**: `packages.x86_64-linux.elamond`, and a Home Manager module:
+**NixOS** (flake): add this repository to your inputs, then
 
 ```nix
-imports = [ elamon.homeManagerModules.default ];
-services.elamond.enable = true;
+imports = [ inputs.elamon.nixosModules.default ];
+services.elamond = {
+  enable = true;
+  openFirewall = true;   # 47823/tcp, and 5353/udp for discovery
+};
 ```
+
+**Home Manager**: `imports = [ inputs.elamon.homeManagerModules.default ];` and
+`services.elamond.enable = true;` (open the firewall in the system configuration).
+
+**Nix on another distribution**: `nix profile install` this flake, then
+`systemctl --user link ~/.nix-profile/lib/systemd/user/elamond.service` and
+`systemctl --user enable --now elamond`.
+
+Packages are built for x86_64-linux and aarch64-linux.
 
 **From source** (Rust 1.88 or newer):
 

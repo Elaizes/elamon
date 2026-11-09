@@ -20,6 +20,8 @@ import androidx.lifecycle.ViewModel
 import ua.elamon.data.PairTarget
 import ua.elamon.data.ServerStore
 import ua.elamon.ui.ElamonTheme
+import ua.elamon.ui.HelpScreen
+import ua.elamon.ui.HelpTopic
 import ua.elamon.ui.HomeScreen
 import ua.elamon.ui.MachineScreen
 import ua.elamon.ui.PairScreen
@@ -28,6 +30,7 @@ sealed interface Screen {
 	data object Home : Screen
 	data class Machine(val id: String) : Screen
 	data class Pair(val target: PairTarget) : Screen
+	data class Help(val topic: String? = null) : Screen
 }
 
 /** The screen stack; lives through rotation, starts over after the process dies. */
@@ -66,6 +69,7 @@ class MainActivity : ComponentActivity() {
 							Screen.Home -> HomeScreen(
 								onOpen = { nav.push(Screen.Machine(it.id)) },
 								onPair = { nav.push(Screen.Pair(it)) },
+								onHelp = { nav.push(Screen.Help()) },
 							)
 							is Screen.Machine -> {
 								val server = ServerStore.get(this@MainActivity).get(screen.id)
@@ -77,6 +81,7 @@ class MainActivity : ComponentActivity() {
 										onBack = { nav.pop() },
 										onPairAgain = { nav.push(Screen.Pair(it)) },
 										onForgotten = { nav.reset(Screen.Home) },
+										onHelp = { nav.push(Screen.Help(it)) },
 									)
 								}
 							}
@@ -84,7 +89,9 @@ class MainActivity : ComponentActivity() {
 								screen.target,
 								onBack = { nav.pop() },
 								onPaired = { nav.reset(Screen.Machine(it.id)) },
+								onHelp = { nav.push(Screen.Help(HelpTopic.TROUBLESHOOTING)) },
 							)
+							is Screen.Help -> HelpScreen(screen.topic, onBack = { nav.pop() })
 						}
 					}
 				}
