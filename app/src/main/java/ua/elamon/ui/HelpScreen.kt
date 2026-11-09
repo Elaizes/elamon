@@ -256,7 +256,7 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 	Scaffold(
 		topBar = {
 			TopAppBar(
-				title = { Text(stringResource(R.string.help_title)) },
+				title = { Text(stringResource(R.string.help_screen_title)) },
 				navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } },
 			)
 		},

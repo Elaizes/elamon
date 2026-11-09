@@ -143,7 +143,7 @@ fun PairScreen(target: PairTarget, onBack: () -> Unit, onPaired: (Server) -> Uni
 				is Step.Failed -> {
 					Notice(Icons.Default.Warning, stringResource(R.string.pair_failed), stringResource(s.message)) {
 						Button(onClick = { attempt++ }) { Text(stringResource(R.string.retry)) }
-						androidx.compose.material3.TextButton(onClick = onHelp) { Text(stringResource(R.string.help_troubleshooting)) }
+						androidx.compose.material3.TextButton(onClick = onHelp) { Text(stringResource(R.string.troubleshooting_button)) }
 					}
 				}
 				is Step.Ready -> {

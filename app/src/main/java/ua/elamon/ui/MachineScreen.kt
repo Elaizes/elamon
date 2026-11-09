@@ -199,7 +199,7 @@ fun MachineScreen(
 				state.sample == null && state.conn == Conn.Offline -> Centered(padding) {
 					Notice(ElIcons.Laptop, stringResource(R.string.offline_title, server.name), stringResource(R.string.offline_body)) {
 						Button(onClick = { vm.retry() }) { Text(stringResource(R.string.retry)) }
-						androidx.compose.material3.TextButton(onClick = { onHelp(HelpTopic.TROUBLESHOOTING) }) { Text(stringResource(R.string.help_troubleshooting)) }
+						androidx.compose.material3.TextButton(onClick = { onHelp(HelpTopic.TROUBLESHOOTING) }) { Text(stringResource(R.string.troubleshooting_button)) }
 					}
 				}
 				state.sample == null -> Centered(padding) { CircularProgressIndicator() }
