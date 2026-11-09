@@ -223,7 +223,7 @@ impl PciNames {
 			"/run/current-system/sw/share/hwdata/pci.ids",
 		];
 		// Packagers can point at their copy, as the Nix package does.
-		let own = std::env::var_os("ELACONTROL_PCI_IDS").and_then(|p| fs::read_to_string(p).ok());
+		let own = std::env::var_os("ELAMON_PCI_IDS").and_then(|p| fs::read_to_string(p).ok());
 		PciNames { text: own.or_else(|| paths.iter().find_map(|p| fs::read_to_string(p).ok())) }
 	}
 

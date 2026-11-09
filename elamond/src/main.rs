@@ -1,4 +1,4 @@
-//! elacontrold: serves this computer's metrics to the Elacontrol phone app.
+//! elamond: serves this computer's metrics to the Elamon phone app.
 
 mod collect;
 mod model;
@@ -17,20 +17,20 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio::sync::watch;
 
 pub const API_VERSION: u32 = 1;
-const SERVICE_TYPE: &str = "_elacontrol._tcp.local.";
+const SERVICE_TYPE: &str = "_elamon._tcp.local.";
 
 const HELP: &str = "\
-elacontrold — serves this computer's metrics to the Elacontrol app
+elamond — serves this computer's metrics to the Elamon app
 
 Usage:
-  elacontrold serve          run the service (what the systemd unit does)
-  elacontrold pair           show a code and QR to pair a phone
-  elacontrold clients        list paired phones
-  elacontrold revoke <id|all> unpair a phone
-  elacontrold snapshot       print one reading as JSON
-  elacontrold --version
+  elamond serve          run the service (what the systemd unit does)
+  elamond pair           show a code and QR to pair a phone
+  elamond clients        list paired phones
+  elamond revoke <id|all> unpair a phone
+  elamond snapshot       print one reading as JSON
+  elamond --version
 
-Settings: ~/.config/elacontrol/elamond.toml   State: ~/.local/share/elacontrol/
+Settings: ~/.config/elamon/elamond.toml   State: ~/.local/share/elamon/
 ";
 
 fn main() {
@@ -42,7 +42,7 @@ fn main() {
 		"revoke" => revoke(args.get(1).map(String::as_str)),
 		"snapshot" => snapshot(),
 		"-V" | "--version" | "version" => {
-			println!("elacontrold {}", env!("CARGO_PKG_VERSION"));
+			println!("elamond {}", env!("CARGO_PKG_VERSION"));
 			Ok(())
 		}
 		"-h" | "--help" | "help" => {
@@ -52,7 +52,7 @@ fn main() {
 		other => Err(format!("unknown command \"{other}\"\n\n{HELP}")),
 	};
 	if let Err(e) = result {
-		eprintln!("elacontrold: {e}");
+		eprintln!("elamond: {e}");
 		std::process::exit(1);
 	}
 }
@@ -128,7 +128,7 @@ fn serve() -> Result<(), String> {
 		};
 		listener.set_nonblocking(true).map_err(|e| e.to_string())?;
 		eprintln!(
-			"elacontrold {} on port {}, certificate {}",
+			"elamond {} on port {}, certificate {}",
 			env!("CARGO_PKG_VERSION"),
 			config.port,
 			store::pretty_fingerprint(&identity.fingerprint)
@@ -195,7 +195,7 @@ fn collect_loop(
 
 fn advertise(name: &str, identity: &store::Identity, port: u16) -> Option<mdns_sd::ServiceDaemon> {
 	let daemon = mdns_sd::ServiceDaemon::new().map_err(|e| eprintln!("mdns: {e}")).ok()?;
-	let host = sysinfo::System::host_name().unwrap_or_else(|_| "elacontrol".into());
+	let host = sysinfo::System::host_name().unwrap_or_else(|_| "elamon".into());
 	let host: String = host.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' }).collect();
 	let props: HashMap<String, String> = [
 		("id".to_string(), identity.id.clone()),
@@ -221,7 +221,7 @@ fn pair() -> Result<(), String> {
 	let addrs = collect::local_addresses();
 	let hosts: Vec<String> = addrs.iter().map(|a| a.to_string()).collect();
 	let uri = format!(
-		"elacontrol://pair?v=1&id={}&name={}&port={}&fp={}&code={}&h={}",
+		"elamon://pair?v=1&id={}&name={}&port={}&fp={}&code={}&h={}",
 		identity.id,
 		percent_encode(&name),
 		config.port,
@@ -249,7 +249,7 @@ fn pair() -> Result<(), String> {
 	}
 	let code = format!("{} {}", &pairing.code[..3], &pairing.code[3..]);
 	println!();
-	println!("  Scan the code with the phone's camera, or in Elacontrol tap Add and enter:");
+	println!("  Scan the code with the phone's camera, or in Elamon tap Add and enter:");
 	println!();
 	println!("      {code}");
 	println!();
@@ -259,7 +259,7 @@ fn pair() -> Result<(), String> {
 	println!("  The app shows the same certificate digits when you pair by code; they must match.");
 	println!();
 	if !service_running(config.port) {
-		println!("  ! The service isn't answering on port {}. Start it: systemctl --user start elacontrold", config.port);
+		println!("  ! The service isn't answering on port {}. Start it: systemctl --user start elamond", config.port);
 		println!();
 	}
 	println!("  Waiting for the phone… (the code works for {} minutes, Ctrl+C to stop)", store::PAIRING_TTL / 60);
@@ -272,11 +272,11 @@ fn pair() -> Result<(), String> {
 			return Ok(());
 		}
 		if store::load_pairing().is_none() {
-			return Err("the code was used up by wrong attempts; run `elacontrold pair` again".into());
+			return Err("the code was used up by wrong attempts; run `elamond pair` again".into());
 		}
 	}
 	store::clear_pairing();
-	Err("the code expired; run `elacontrold pair` again".into())
+	Err("the code expired; run `elamond pair` again".into())
 }
 
 fn service_running(port: u16) -> bool {
@@ -295,7 +295,7 @@ fn percent_encode(s: &str) -> String {
 fn clients() -> Result<(), String> {
 	let clients = store::load_clients();
 	if clients.is_empty() {
-		println!("No phones are paired. Pair one with `elacontrold pair`.");
+		println!("No phones are paired. Pair one with `elamond pair`.");
 	}
 	for c in clients {
 		println!("{}  {}  (paired {})", c.id, c.name, format_date(c.created));
@@ -304,7 +304,7 @@ fn clients() -> Result<(), String> {
 }
 
 fn revoke(which: Option<&str>) -> Result<(), String> {
-	let which = which.ok_or("which phone? `elacontrold clients` lists their ids")?;
+	let which = which.ok_or("which phone? `elamond clients` lists their ids")?;
 	let clients = store::load_clients();
 	let keep: Vec<_> = clients.iter().filter(|c| which != "all" && c.id != which).cloned().collect();
 	if keep.len() == clients.len() {

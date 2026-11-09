@@ -112,10 +112,10 @@ async fn auth(State(hub): State<Arc<Hub>>, req: Request, next: Next) -> Response
 	}
 }
 
-/// Lets the app check that an address is an Elacontrol service, and which one, before pairing.
+/// Lets the app check that an address is an Elamon service, and which one, before pairing.
 async fn hello(State(hub): State<Arc<Hub>>) -> Response {
 	Json(json!({
-		"app": "elacontrol",
+		"app": "elamon",
 		"api": crate::API_VERSION,
 		"id": hub.id,
 		"name": hub.name,

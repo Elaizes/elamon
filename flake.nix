@@ -1,5 +1,5 @@
 {
-	description = "Elacontrol — watch and control a computer from an Android phone";
+	description = "Elamon — watch and control a computer from an Android phone";
 
 	inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -24,49 +24,49 @@
 			cargoToml = builtins.fromTOML (builtins.readFile ./elamond/Cargo.toml);
 		in {
 			packages.${system} = rec {
-				elacontrold = pkgs.rustPlatform.buildRustPackage {
-					pname = "elacontrold";
+				elamond = pkgs.rustPlatform.buildRustPackage {
+					pname = "elamond";
 					version = cargoToml.package.version;
 					src = ./elamond;
 					cargoLock.lockFile = ./elamond/Cargo.lock;
 					nativeBuildInputs = [ pkgs.makeWrapper ];
 					# GPU names come from the PCI database, which NixOS keeps in the store.
 					postFixup = ''
-						wrapProgram $out/bin/elacontrold \
-							--set-default ELACONTROL_PCI_IDS ${pkgs.hwdata}/share/hwdata/pci.ids
+						wrapProgram $out/bin/elamond \
+							--set-default ELAMON_PCI_IDS ${pkgs.hwdata}/share/hwdata/pci.ids
 					'';
 					postInstall = ''
-						install -Dm644 dist/elacontrold.service $out/lib/systemd/user/elacontrold.service
-						substituteInPlace $out/lib/systemd/user/elacontrold.service \
-							--replace-fail /usr/bin/elacontrold $out/bin/elacontrold
+						install -Dm644 dist/elamond.service $out/lib/systemd/user/elamond.service
+						substituteInPlace $out/lib/systemd/user/elamond.service \
+							--replace-fail /usr/bin/elamond $out/bin/elamond
 					'';
 					meta = {
-						description = "Service that serves this computer's metrics to the Elacontrol app";
+						description = "Service that serves this computer's metrics to the Elamon app";
 						license = pkgs.lib.licenses.gpl3Plus;
-						mainProgram = "elacontrold";
+						mainProgram = "elamond";
 						platforms = pkgs.lib.platforms.linux;
 					};
 				};
-				default = elacontrold;
+				default = elamond;
 			};
 
-			# Runs the service as a user service: `services.elacontrold.enable = true;`
+			# Runs the service as a user service: `services.elamond.enable = true;`
 			homeManagerModules.default = { config, lib, ... }:
-				let cfg = config.services.elacontrold;
+				let cfg = config.services.elamond;
 				in {
-					options.services.elacontrold = {
-						enable = lib.mkEnableOption "the Elacontrol service";
+					options.services.elamond = {
+						enable = lib.mkEnableOption "the Elamon service";
 						package = lib.mkOption {
 							type = lib.types.package;
-							default = self.packages.${system}.elacontrold;
+							default = self.packages.${system}.elamond;
 						};
 					};
 					config = lib.mkIf cfg.enable {
 						home.packages = [ cfg.package ];
-						systemd.user.services.elacontrold = {
-							Unit.Description = "Elacontrol service";
+						systemd.user.services.elamond = {
+							Unit.Description = "Elamon service";
 							Service = {
-								ExecStart = "${cfg.package}/bin/elacontrold serve";
+								ExecStart = "${cfg.package}/bin/elamond serve";
 								Restart = "on-failure";
 								RestartSec = 5;
 							};

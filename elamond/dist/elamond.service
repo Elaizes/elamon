@@ -1,0 +1,11 @@
+[Unit]
+Description=Elamon service: this computer's metrics for the Elamon app
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/elamond serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,8 +1,8 @@
 [package]
-name = "elacontrold"
+name = "elamond"
 version = "0.1.0"
 edition = "2024"
-description = "Serves this computer's metrics to the Elacontrol Android app"
+description = "Serves this computer's metrics to the Elamon Android app"
 license = "GPL-3.0-or-later"
 
 [profile.release]

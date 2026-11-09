@@ -1,7 +1,7 @@
 //! Files the service keeps: settings, its TLS identity, paired phones and the pending pairing code.
 //!
-//! Settings:  $XDG_CONFIG_HOME/elacontrol/elamond.toml (optional)
-//! State:     $XDG_DATA_HOME/elacontrol/{id, cert.der, key.der, clients.json, pairing.json}
+//! Settings:  $XDG_CONFIG_HOME/elamon/elamond.toml (optional)
+//! State:     $XDG_DATA_HOME/elamon/{id, cert.der, key.der, clients.json, pairing.json}
 
 use std::fs;
 use std::io::Write;
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub const DEFAULT_PORT: u16 = 47823;
-/// A pairing code is good for this long after `elacontrold pair` prints it.
+/// A pairing code is good for this long after `elamond pair` prints it.
 pub const PAIRING_TTL: u64 = 300;
 /// Wrong guesses before a code is thrown away.
 pub const PAIRING_ATTEMPTS: u32 = 5;
@@ -46,11 +46,11 @@ impl Default for Config {
 }
 
 pub fn config_dir() -> PathBuf {
-	xdg_dir("ELACONTROL_CONFIG_DIR", "XDG_CONFIG_HOME", ".config")
+	xdg_dir("ELAMON_CONFIG_DIR", "XDG_CONFIG_HOME", ".config")
 }
 
 pub fn data_dir() -> PathBuf {
-	xdg_dir("ELACONTROL_DATA_DIR", "XDG_DATA_HOME", ".local/share")
+	xdg_dir("ELAMON_DATA_DIR", "XDG_DATA_HOME", ".local/share")
 }
 
 fn xdg_dir(own: &str, xdg: &str, fallback: &str) -> PathBuf {
@@ -61,7 +61,7 @@ fn xdg_dir(own: &str, xdg: &str, fallback: &str) -> PathBuf {
 		.map(PathBuf::from)
 		.filter(|p| p.is_absolute())
 		.unwrap_or_else(|| home().join(fallback));
-	base.join("elacontrol")
+	base.join("elamon")
 }
 
 fn home() -> PathBuf {
@@ -132,7 +132,7 @@ impl Identity {
 			(Ok(c), Ok(k)) if !c.is_empty() && !k.is_empty() => (c, k),
 			_ => {
 				// The name inside doesn't matter: the app trusts this exact certificate, not a name.
-				let ck = rcgen::generate_simple_self_signed(vec!["elacontrol".to_string()])
+				let ck = rcgen::generate_simple_self_signed(vec!["elamon".to_string()])
 					.map_err(|e| std::io::Error::other(e.to_string()))?;
 				let cert = ck.cert.der().to_vec();
 				let key = ck.signing_key.serialize_der();
