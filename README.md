@@ -4,167 +4,73 @@
 > the protocol between the app and the service change from one version to the next, and things may
 > break. Use it where that's fine, and update the app and the service together.
 
-Watch and control a Linux computer from your Android phone, live: processor load and clocks,
-temperatures and fans, memory, graphics cards, battery, network, disks, the processes that use
-them and the monitors plugged in; and, if you allow it, its web services, media, power profile,
-your own commands and its power.
-
-**How to set it up and use it: [the user guide](docs/guide.md).**
-
-Two parts:
+Watch and control a Linux computer from your Android phone, live.
 
 - **Elamon**, the Android app (Android 8 and newer). No Google services, no trackers, no ads.
-- **elamond**, a small service on the computer (Linux, any distribution, any desktop or none).
-  It reads the kernel's own counters and serves them over HTTPS to phones paired with it.
+- **elamond**, a small service on the computer (Linux, any distribution, any desktop or none). It
+  reads the kernel's own counters and serves them over HTTPS, only to phones paired with it.
 
-## What it shows
+**Setting it up and using it: [the user guide](docs/guide.md).**
 
-- **Overview**: CPU load with ten minutes of history, per-core bars, clocks, load average;
-  memory and swap; each GPU (NVIDIA through NVML, AMD and Intel through sysfs); battery health,
-  draw and time left; network speed per interface; disk usage and throughput; power profile.
-- **Processes**: sorted by CPU, memory, GPU, disk or name; search by name, command or PID;
-  grouped by program; details of each.
-- **Sensors**: every hwmon temperature, grouped by device, with their limits; fan speeds.
-- **Displays**: connected monitors with maker, model, size, current and native mode, highest
-  refresh rate, and their arrangement; free ports. Read from the kernel (DRM and EDID), so it
-  works the same under any compositor.
+## What it does
 
-A discrete GPU that has powered itself down stays asleep: the service reports it as sleeping
-instead of waking it to read it.
+Watching, always:
 
-## Set up
+- a dashboard of the CPU, memory, each graphics card, temperatures, network, storage and battery,
+  each with a page of its own: ten minutes of history on charts you can read with a finger, and
+  the processes using the most;
+- processes, sortable, searchable and grouped by program;
+- every temperature sensor and fan;
+- connected monitors with their modes and arrangement, read from the kernel, so under any desktop.
 
-1. Install the service on the computer (see below) and start it:
+Controlling, once the computer allows it:
 
-       systemctl --user enable --now elamond
+- the web services it hosts: open them, see if they answer, start, stop and restart their units;
+- media players and the volume;
+- the power profile, locking, restarting and shutting down;
+- commands you define on the computer;
+- quitting and killing processes.
 
-2. Pair a phone. On the computer run
+The app: Material You with frosted glass on Android 12 and newer, light, dark or pure black.
 
-       elamond pair
+## Quick start
 
-   It prints a QR code and a six-digit code. Point the phone's camera at the QR code, or open
-   Elamon, tap **Add computer** (or the computer under *Found on this network*) and enter the
-   code. When pairing by code, the app shows the computer's certificate digits; check that they
-   match the `Certificate:` line `elamond pair` printed.
+1. Install the service. On NixOS, from this flake:
 
-The phone reaches the computer over the local network or any VPN the two share. The service
-listens on TCP port **47823**; open it in the computer's firewall for the networks you trust.
+   ```nix
+   imports = [ inputs.elamon.nixosModules.default ];
+   services.elamond = {
+     enable = true;
+     openFirewall = true;
+   };
+   ```
 
-### Installing the service
+   Home Manager, Nix on other distributions, and Fedora, Debian, Ubuntu, Arch, openSUSE and the
+   rest: [section 1 of the guide](docs/guide.md#1-install-the-service).
 
-**NixOS** (flake): add this repository to your inputs, then
+2. Run `elamond pair` on the computer and point the phone's camera at the QR code it prints, or
+   enter its six-digit code in the app ([details](docs/guide.md#3-pair-the-phone)).
 
-```nix
-imports = [ inputs.elamon.nixosModules.default ];
-services.elamond = {
-  enable = true;
-  openFirewall = true;   # 47823/tcp, and 5353/udp for discovery
-};
-```
+3. For the control panel, add `control = true` to the service's settings
+   ([details](docs/guide.md#5-the-control-panel)).
 
-**Home Manager**: `imports = [ inputs.elamon.homeManagerModules.default ];` and
-`services.elamond.enable = true;` (open the firewall in the system configuration).
+The phone and the computer talk directly, over the local network or a VPN they share: TCP 47823,
+and UDP 5353 for finding the computer by itself. Everything is encrypted, each phone has its own
+key that the computer can revoke, and the service only acts on the computer when told it may
+([security](docs/guide.md#9-security)).
 
-**Nix on another distribution**: `nix profile install` this flake, then
-`systemctl --user link ~/.nix-profile/lib/systemd/user/elamond.service` and
-`systemctl --user enable --now elamond`.
+## Technical notes
 
-Packages are built for x86_64-linux and aarch64-linux.
-
-**From source** (Rust 1.88 or newer):
-
-```sh
-cd elamond
-cargo build --release
-install -Dm755 target/release/elamond ~/.local/bin/elamond
-install -Dm644 dist/elamond.service ~/.config/systemd/user/elamond.service
-sed -i "s|/usr/bin/elamond|$HOME/.local/bin/elamond|" ~/.config/systemd/user/elamond.service
-systemctl --user daemon-reload
-systemctl --user enable --now elamond
-```
-
-To keep it running while nobody is logged in, enable lingering: `loginctl enable-linger`.
-
-### Service commands
-
-| Command | |
-|---|---|
-| `elamond serve` | run the service (what the service does) |
-| `elamond pair` | show a QR code and a code for pairing a phone |
-| `elamond clients` | list paired phones |
-| `elamond revoke <id\|all>` | unpair a phone |
-| `elamond snapshot` | print one reading as JSON, to see what the service finds |
-
-### Settings
-
-Optional, in `~/.config/elamon/elamond.toml`:
-
-```toml
-port = 47823            # TCP port
-listen = "::"           # address to listen on; "::" covers IPv4 and IPv6
-name = ""               # name shown in the app; the host name when empty
-mdns = true             # announce the service on the local network
-interval_ms = 1000      # how often the service takes a reading
-history_minutes = 10    # how much history a phone gets when it connects
-```
-
-State lives in `~/.local/share/elamon/`: the service's id and TLS certificate, the paired phones
-(only hashes of their tokens) and a pending pairing code. Deleting the directory unpairs every
-phone and gives the service a new certificate.
-
-## Control
-
-The Control tab acts on the computer: opens and starts or stops the web services it hosts, plays
-and pauses media and sets the volume, switches the power profile, runs commands, locks, restarts
-or shuts the computer down, and ends processes. It's off until `elamond.toml` says
-
-```toml
-control = true
-
-[[services]]                 # also addable from the app
-name = "Media server"
-url = "http://{host}:8096"    # {host}: the address the phone reaches the computer at
-unit = "SERVICE.service"      # optional: lets the app start, stop and restart it
-scope = "system"              # or "user"
-
-[[actions]]                  # only here: a phone can't add commands
-name = "Back up now"
-command = ["/path/to/backup-script", "--now"]
-confirm = true
-timeout = 600
-```
-
-The service runs outside a login session, so polkit asks for a password for power actions, the
-power profile and system units. The NixOS module writes a rule for chosen users and units:
-
-```nix
-services.elamond.control.users = [ "YOUR_USER" ];
-services.elamond.control.units = [ "SERVICE.service" ];
-```
-
-Elsewhere the in-app help has an equivalent rule for `/etc/polkit-1/rules.d`.
-
-## Security
-
-- Everything goes over TLS. The service's certificate is self-signed; the app pins it at pairing
-  (from the QR code, or after you compare the digits) and refuses any other certificate later.
-- A paired phone holds a random 256-bit token; the service keeps only its SHA-256. Each phone has
-  its own and can be unpaired with `elamond revoke`.
-- A pairing code is good for five minutes and five attempts, one attempt at a time.
-- Without a token the service answers only `hello` (its name and id) and pairing.
-- The service needs no root: it runs as your user and sees what your user sees. Unless
-  `control = true`, it only reads; with control on, every action is logged with the phone's name.
-- The app keeps tokens out of Android backups and device transfers.
-
-## Good to know
-
-- Intel graphics don't report their load without extra privileges (perf); the app shows the
-  clock instead.
+- A discrete GPU that has powered itself down is reported as asleep, not woken up to be read.
+- NVIDIA GPUs are read through NVML, AMD and Intel through sysfs. Intel graphics don't report
+  their load without extra privileges (perf); the app shows the clock instead.
 - Per-process GPU use comes from the kernel's DRM fdinfo, so it covers your own processes.
 - Reading a monitor's current mode opens the GPU's DRM node for a moment. With no compositor
   running, whoever opens it first briefly becomes its DRM master; the service closes it right away.
-- The service itself uses about 0.3 % of one CPU core while no phone watches and around 1 % while
-  one does, and 8 MB of memory.
+- Power actions, power profiles and units go through D-Bus (logind, power-profiles-daemon,
+  systemd), media through MPRIS, the volume through `wpctl` or `pactl`.
+- The service uses about 0.4 % of one CPU core while no phone watches and around 1 % while one
+  does, and some 11 MB of memory.
 
 ## Building
 
@@ -173,17 +79,17 @@ With Nix, `nix develop` gives the Android SDK, JDK and Rust:
 ```sh
 nix develop -c ./gradlew assembleRelease     # app: app/build/outputs/apk/release/
 nix develop -c bash -c 'cd elamond && cargo build --release'
-nix build .#elamond                           # service package
+nix build .#elamond                           # service package, for x86_64-linux and aarch64-linux
 nix develop .#emulator                        # an x86_64 Android emulator for trying the app
 ```
 
-Without Nix: Android SDK 35, JDK 17 and Rust from your distribution or rustup.
+Without Nix: Android SDK 35, JDK 17, and Rust 1.88 or newer.
 
-The protocol between the two is described in [docs/protocol.md](docs/protocol.md).
+The protocol between the app and the service: [docs/protocol.md](docs/protocol.md).
 
-## Planned
+## Not there yet
 
-A control panel, opt-in on the computer: power profile, ending processes, suspend and shutdown.
+Services for Windows and macOS, ready-made service binaries, and published app builds.
 
 ## License
 
