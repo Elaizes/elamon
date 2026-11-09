@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+	<string name="app_name" translatable="false">Elamon</string>
+
+	<!-- Units -->
+	<string-array name="byte_units">
+		<item>B</item>
+		<item>KiB</item>
+		<item>MiB</item>
+		<item>GiB</item>
+		<item>TiB</item>
+	</string-array>
+	<string name="unit_per_second">%1$s/s</string>
+	<string name="unit_ghz">%1$s GHz</string>
+	<string name="unit_mhz">%1$d MHz</string>
+	<string name="unit_watts">%1$s W</string>
+	<string name="unit_wh">%1$s Wh</string>
+	<string name="unit_hz">%1$s Hz</string>
+	<string name="unit_mbps">%1$d Mbit/s</string>
+	<string name="unit_rpm">%1$d RPM</string>
+	<string name="duration_days_hours">%1$d d %2$d h</string>
+	<string name="duration_hours_minutes">%1$d h %2$d min</string>
+	<string name="duration_minutes">%1$d min</string>
+	<string name="seconds">%1$d s</string>
+
+	<!-- Common -->
+	<string name="back">Back</string>
+	<string name="more">More</string>
+	<string name="cancel">Cancel</string>
+	<string name="next">Next</string>
+	<string name="retry">Try again</string>
+	<string name="clear">Clear</string>
+	<string name="loading">Loading…</string>
+
+	<!-- Home -->
+	<string name="add_computer">Add computer</string>
+	<string name="found_on_network">Found on this network</string>
+	<string name="tap_to_pair">%1$s · tap to pair</string>
+	<string name="online">Online</string>
+	<string name="offline">Offline</string>
+	<string name="setup_title">Watch a computer</string>
+	<string name="setup_intro">Elamon shows a computer\'s load, temperatures, memory, processes and monitors live. The computer runs a small service that only paired phones can read.</string>
+	<string name="setup_step_install">Install the elamond service on the computer (Linux), from the project\'s releases or your distribution.</string>
+	<string name="setup_step_start">Start it as a service for your user:</string>
+	<string name="setup_step_pair">Run this on the computer. It shows a QR code and a six-digit code:</string>
+	<string name="setup_step_scan">Point this phone\'s camera at the QR code, or tap Add computer here and enter the code.</string>
+	<string name="add_scan_hint">The easiest way: run elamond pair on the computer and point the phone\'s camera at the QR code it shows.</string>
+	<string name="add_address_hint">Or enter the computer\'s address, then the six-digit code.</string>
+	<string name="address">Address</string>
+	<string name="address_placeholder">IP address or host name</string>
+
+	<!-- Pairing -->
+	<string name="pair_title">Pair</string>
+	<string name="pair">Pair</string>
+	<string name="pair_again">Pair again</string>
+	<string name="pair_connecting">Connecting to %1$s…</string>
+	<string name="pair_with">Pair with %1$s</string>
+	<string name="pair_compare">Check that these digits match the certificate line elamond pair shows on the computer:</string>
+	<string name="pair_code">Code from the computer</string>
+	<string name="pair_code_hint">Six digits shown by elamond pair</string>
+	<string name="pair_from_qr">The QR code identified this computer. Pair this phone with it?</string>
+	<string name="pair_failed">Can\'t pair</string>
+	<string name="pair_unreachable">The computer doesn\'t answer. Check that the service is running and that the phone is on the same network or VPN.</string>
+	<string name="pair_cert_mismatch">Something answered at this address, but not with the certificate the computer announced. Pairing was stopped to be safe.</string>
+	<string name="pair_wrong_code">Wrong code. After five wrong codes the computer needs a new one.</string>
+	<string name="pair_no_pairing">The computer isn\'t waiting for a phone. Run elamond pair on it first.</string>
+
+	<!-- Machine screen -->
+	<string name="tab_overview">Overview</string>
+	<string name="tab_processes">Processes</string>
+	<string name="tab_sensors">Sensors</string>
+	<string name="tab_displays">Displays</string>
+	<string name="conn_live">Live · every %1$d s</string>
+	<string name="conn_connecting">Connecting…</string>
+	<string name="conn_offline">Offline</string>
+	<string name="conn_unpaired">Not paired</string>
+	<string name="conn_cert_changed">Certificate changed</string>
+	<string name="reconnecting">Reconnecting…</string>
+	<string name="update_every">Update every</string>
+	<string name="keep_screen_on">Keep screen on</string>
+	<string name="forget_computer">Forget computer</string>
+	<string name="forget_title">Forget %1$s?</string>
+	<string name="forget_body">This phone will stop showing it. To see it again, pair again. To also remove the phone on the computer, run elamond revoke there.</string>
+	<string name="forget">Forget</string>
+	<string name="offline_title">Can\'t reach %1$s</string>
+	<string name="offline_body">The computer may be off or asleep, the service not running, or the phone on another network. Elamon keeps trying.</string>
+	<string name="unpaired_title">This phone isn\'t paired anymore</string>
+	<string name="unpaired_body">The computer no longer accepts it, maybe after elamond revoke. Run elamond pair on the computer and pair again.</string>
+	<string name="cert_changed_title">The computer\'s certificate changed</string>
+	<string name="cert_changed_body">This happens when the service\'s data was reset or reinstalled, but also when something else pretends to be the computer. If you didn\'t reset it, check your network before pairing again.</string>
+
+	<!-- Overview -->
+	<string name="system">System</string>
+	<string name="uptime">Up %1$s</string>
+	<string name="on_ac">On AC power</string>
+	<string name="on_battery">On battery</string>
+	<string name="profile">Profile: %1$s</string>
+	<string name="epp">EPP: %1$s</string>
+	<string name="profile_low_power">power saving</string>
+	<string name="profile_cool">cool</string>
+	<string name="profile_quiet">quiet</string>
+	<string name="profile_balanced">balanced</string>
+	<string name="profile_balanced_performance">balanced performance</string>
+	<string name="profile_performance">performance</string>
+	<string name="cpu">CPU</string>
+	<string name="load">load</string>
+	<string name="temperature">Temperature</string>
+	<string name="clock">Clock</string>
+	<string name="clock_avg_max">Clock, average / top</string>
+	<string name="load_average">Load average 1 · 5 · 15 min</string>
+	<string name="cores_count">Cores: %1$d</string>
+	<string name="memory">Memory</string>
+	<string name="used">used</string>
+	<string name="available">Available</string>
+	<string name="swap">Swap</string>
+	<string name="gpu">GPU</string>
+	<string name="gpu_short">GPU %1$s</string>
+	<string name="gpu_active">Active</string>
+	<string name="gpu_sleeping">Sleeping</string>
+	<string name="gpu_sleeping_body">Powered down because nothing uses it. Elamon doesn\'t wake it to read it; it shows here when a program starts using it.</string>
+	<string name="gpu_idle">idle</string>
+	<string name="gpu_intel_note">Intel graphics don\'t report their load to programs without extra rights; the clock shows how hard it works.</string>
+	<string name="gpu_memory">GPU memory</string>
+	<string name="vram">Video memory</string>
+	<string name="power_draw">Power</string>
+	<string name="fan">Fan</string>
+	<string name="battery">Battery</string>
+	<string name="battery_charging">Charging</string>
+	<string name="battery_discharging">Discharging</string>
+	<string name="battery_full">Full</string>
+	<string name="battery_not_charging">Not charging</string>
+	<string name="battery_unknown">Unknown</string>
+	<string name="battery_health">Health</string>
+	<string name="battery_cycles">Charge cycles</string>
+	<string name="battery_capacity">Full charge</string>
+	<string name="until_full">Until full</string>
+	<string name="until_empty">Left</string>
+	<string name="network">Network</string>
+	<string name="download">Download</string>
+	<string name="upload">Upload</string>
+	<string name="net_wired">cable</string>
+	<string name="net_wireless">Wi-Fi</string>
+	<string name="net_vpn">VPN</string>
+	<string name="storage">Storage</string>
+	<string name="disk_read">Read</string>
+	<string name="disk_write">Write</string>
+
+	<!-- Processes -->
+	<string name="search_processes">Search by name, command or PID</string>
+	<string name="sort_cpu">CPU</string>
+	<string name="sort_memory">Memory</string>
+	<string name="sort_gpu">GPU</string>
+	<string name="sort_io">Disk</string>
+	<string name="sort_name">Name</string>
+	<string name="group_by_app">By app</string>
+	<string name="process_count">Processes: %1$d</string>
+	<string name="proc_pid">PID</string>
+	<string name="proc_parent">Parent PID</string>
+	<string name="proc_user">User</string>
+	<string name="proc_status">State</string>
+	<string name="proc_started">Started</string>
+	<string name="proc_command">Command</string>
+	<string name="proc_running">running</string>
+	<string name="proc_sleeping">sleeping</string>
+	<string name="proc_idle">idle</string>
+	<string name="proc_zombie">zombie</string>
+	<string name="proc_stopped">stopped</string>
+	<string name="proc_disk_wait">waiting for disk</string>
+
+	<!-- Sensors -->
+	<string name="temperatures">Temperatures</string>
+	<string name="temp_limit">limit %1$s</string>
+	<string name="fans">Fans</string>
+	<string name="fan_stopped">stopped</string>
+	<string name="sensor_kind_cpu">Processor</string>
+	<string name="sensor_kind_gpu">Graphics</string>
+	<string name="sensor_kind_storage">Drive</string>
+	<string name="sensor_kind_wireless">Wireless</string>
+	<string name="sensor_kind_board">Board</string>
+	<string name="sensor_kind_battery">Battery</string>
+	<string name="sensor_kind_other">Other</string>
+	<string name="no_sensors">No sensors</string>
+	<string name="no_sensors_body">The computer reports no temperature or fan sensors. Some need a kernel module, often loaded by lm-sensors.</string>
+
+	<!-- Displays -->
+	<string name="display_layout">Arrangement</string>
+	<string name="display_builtin">Built-in display</string>
+	<string name="display_external">Monitor</string>
+	<string name="display_on">On</string>
+	<string name="display_off">Off</string>
+	<string name="display_unused">Not in use</string>
+	<string name="display_connector">Port</string>
+	<string name="display_size">Size</string>
+	<string name="display_native">Native mode</string>
+	<string name="display_max_refresh">Highest refresh</string>
+	<string name="display_position">Position</string>
+	<string name="display_year">Made in</string>
+	<string name="no_displays">No monitors connected</string>
+	<string name="no_displays_body">The computer runs without a screen, or its graphics driver doesn\'t report monitors.</string>
+	<string name="free_ports">Free ports: %1$s</string>
+</resources>

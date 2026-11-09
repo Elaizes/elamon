@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+	<!-- Only the window before Compose draws; the app's look is in ui/Theme.kt. -->
+	<style name="Theme.Elamon" parent="android:Theme.Material.NoActionBar">
+		<item name="android:windowBackground">@color/window</item>
+		<item name="android:statusBarColor">@android:color/transparent</item>
+		<item name="android:navigationBarColor">@android:color/transparent</item>
+	</style>
+</resources>
