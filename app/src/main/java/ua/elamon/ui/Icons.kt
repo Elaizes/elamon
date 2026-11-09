@@ -205,6 +205,197 @@ object ElIcons {
 		}
 	}
 
+	val Power = icon("Power") {
+		stroke {
+			line(12f, 3f, 12f, 11f)
+			moveTo(7f, 6.2f)
+			arcTo(7.5f, 7.5f, 0f, isMoreThanHalf = true, isPositiveArc = false, x1 = 17f, y1 = 6.2f)
+		}
+	}
+
+	val Restart = icon("Restart") {
+		stroke {
+			moveTo(19.5f, 12f)
+			arcTo(7.5f, 7.5f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 17.3f, y1 = 6.7f)
+			moveTo(18f, 3f)
+			lineTo(18f, 7.5f)
+			lineTo(13.5f, 7.5f)
+		}
+	}
+
+	val Moon = icon("Moon") {
+		stroke {
+			moveTo(20f, 14.5f)
+			arcTo(8.5f, 8.5f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 9.5f, y1 = 4f)
+			arcTo(6.5f, 6.5f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 20f, y1 = 14.5f)
+			close()
+		}
+	}
+
+	val Lock = icon("Lock") {
+		stroke {
+			rect(5f, 11f, 19f, 21f, 2.5f)
+			moveTo(8f, 11f)
+			lineTo(8f, 8f)
+			arcTo(4f, 4f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 16f, y1 = 8f)
+			lineTo(16f, 11f)
+		}
+		fill { circle(12f, 16f, 1.5f) }
+	}
+
+	val Play = icon("Play") {
+		fill {
+			moveTo(8f, 5f)
+			lineTo(19f, 12f)
+			lineTo(8f, 19f)
+			close()
+		}
+	}
+
+	val Pause = icon("Pause") {
+		fill {
+			rect(6.5f, 5f, 10f, 19f, 1f)
+			rect(14f, 5f, 17.5f, 19f, 1f)
+		}
+	}
+
+	val Next = icon("Next") {
+		fill {
+			moveTo(5f, 6f)
+			lineTo(14f, 12f)
+			lineTo(5f, 18f)
+			close()
+			rect(15.5f, 6f, 18.5f, 18f, 1f)
+		}
+	}
+
+	val Previous = icon("Previous") {
+		fill {
+			moveTo(19f, 6f)
+			lineTo(10f, 12f)
+			lineTo(19f, 18f)
+			close()
+			rect(5.5f, 6f, 8.5f, 18f, 1f)
+		}
+	}
+
+	val Volume = icon("Volume") {
+		fill {
+			moveTo(4f, 9.5f)
+			lineTo(8f, 9.5f)
+			lineTo(12.5f, 5.5f)
+			lineTo(12.5f, 18.5f)
+			lineTo(8f, 14.5f)
+			lineTo(4f, 14.5f)
+			close()
+		}
+		stroke {
+			moveTo(16f, 9f)
+			quadTo(18f, 12f, 16f, 15f)
+			moveTo(18.5f, 6.5f)
+			quadTo(22f, 12f, 18.5f, 17.5f)
+		}
+	}
+
+	val Mute = icon("Mute") {
+		fill {
+			moveTo(4f, 9.5f)
+			lineTo(8f, 9.5f)
+			lineTo(12.5f, 5.5f)
+			lineTo(12.5f, 18.5f)
+			lineTo(8f, 14.5f)
+			lineTo(4f, 14.5f)
+			close()
+		}
+		stroke {
+			line(16f, 9.5f, 21f, 14.5f)
+			line(21f, 9.5f, 16f, 14.5f)
+		}
+	}
+
+	val Terminal = icon("Terminal") {
+		stroke {
+			rect(3f, 4.5f, 21f, 19.5f, 2.5f)
+			moveTo(7f, 9.5f)
+			lineTo(10f, 12f)
+			lineTo(7f, 14.5f)
+			line(12.5f, 15f, 17f, 15f)
+		}
+	}
+
+	val Globe = icon("Globe") {
+		stroke {
+			circle(12f, 12f, 9f)
+			line(3f, 12f, 21f, 12f)
+			moveTo(12f, 3f)
+			quadTo(7.5f, 12f, 12f, 21f)
+			moveTo(12f, 3f)
+			quadTo(16.5f, 12f, 12f, 21f)
+		}
+	}
+
+	val Leaf = icon("Leaf") {
+		stroke {
+			moveTo(5f, 19f)
+			quadTo(4f, 6f, 19f, 5f)
+			quadTo(18f, 19f, 5f, 19f)
+			close()
+			line(5f, 19f, 13f, 11f)
+		}
+	}
+
+	val Gauge = icon("Gauge") {
+		stroke {
+			moveTo(4.5f, 17f)
+			arcTo(8.5f, 8.5f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 19.5f, y1 = 17f)
+			line(12f, 15f, 15.5f, 9.5f)
+		}
+		fill { circle(12f, 15f, 1.6f) }
+	}
+
+	val Rocket = icon("Rocket") {
+		stroke {
+			moveTo(12f, 2.5f)
+			quadTo(17f, 6f, 16f, 15f)
+			lineTo(8f, 15f)
+			quadTo(7f, 6f, 12f, 2.5f)
+			close()
+			moveTo(8f, 13f)
+			lineTo(5f, 16.5f)
+			lineTo(8f, 17f)
+			moveTo(16f, 13f)
+			lineTo(19f, 16.5f)
+			lineTo(16f, 17f)
+			line(10.5f, 18f, 10.5f, 21f)
+			line(13.5f, 18f, 13.5f, 21f)
+		}
+		fill { circle(12f, 8.5f, 1.6f) }
+	}
+
+	val Music = icon("Music") {
+		stroke {
+			moveTo(9f, 17.5f)
+			lineTo(9f, 5f)
+			lineTo(19f, 3f)
+			lineTo(19f, 15.5f)
+		}
+		fill {
+			circle(6.5f, 17.5f, 2.6f)
+			circle(16.5f, 15.5f, 2.6f)
+		}
+	}
+
+	val Control = icon("Control") {
+		stroke {
+			line(4f, 7f, 20f, 7f)
+			line(4f, 17f, 20f, 17f)
+		}
+		fill {
+			circle(9f, 7f, 2.8f)
+			circle(15f, 17f, 2.8f)
+		}
+	}
+
 	val Copy = icon("Copy") {
 		stroke {
 			rect(8f, 8f, 20f, 20f, 2f)

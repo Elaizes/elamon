@@ -105,6 +105,38 @@ State lives in `~/.local/share/elamon/`: the service's id and TLS certificate, t
 (only hashes of their tokens) and a pending pairing code. Deleting the directory unpairs every
 phone and gives the service a new certificate.
 
+## Control
+
+The Control tab acts on the computer: opens and starts or stops the web services it hosts, plays
+and pauses media and sets the volume, switches the power profile, runs commands, locks, restarts
+or shuts the computer down, and ends processes. It's off until `elamond.toml` says
+
+```toml
+control = true
+
+[[services]]                 # also addable from the app
+name = "Media server"
+url = "http://{host}:8096"    # {host}: the address the phone reaches the computer at
+unit = "SERVICE.service"      # optional: lets the app start, stop and restart it
+scope = "system"              # or "user"
+
+[[actions]]                  # only here: a phone can't add commands
+name = "Back up now"
+command = ["/path/to/backup-script", "--now"]
+confirm = true
+timeout = 600
+```
+
+The service runs outside a login session, so polkit asks for a password for power actions, the
+power profile and system units. The NixOS module writes a rule for chosen users and units:
+
+```nix
+services.elamond.control.users = [ "YOUR_USER" ];
+services.elamond.control.units = [ "SERVICE.service" ];
+```
+
+Elsewhere the in-app help has an equivalent rule for `/etc/polkit-1/rules.d`.
+
 ## Security
 
 - Everything goes over TLS. The service's certificate is self-signed; the app pins it at pairing
@@ -113,7 +145,8 @@ phone and gives the service a new certificate.
   its own and can be unpaired with `elamond revoke`.
 - A pairing code is good for five minutes and five attempts, one attempt at a time.
 - Without a token the service answers only `hello` (its name and id) and pairing.
-- The service only reads. It needs no root: it runs as your user and sees what your user sees.
+- The service needs no root: it runs as your user and sees what your user sees. Unless
+  `control = true`, it only reads; with control on, every action is logged with the phone's name.
 - The app keeps tokens out of Android backups and device transfers.
 
 ## Good to know

@@ -191,6 +191,41 @@ private val DISTROS = listOf(
 	),
 )
 
+
+private const val CONTROL_NIXOS = """services.elamond = {
+  enable = true;
+  openFirewall = true;
+  settings.control = true;
+  control.users = [ "YOUR_USER" ];
+  control.units = [ "SERVICE.service" ];
+};"""
+
+private const val CONTROL_SERVICES = """[[services]]
+name = "Media server"
+url = "http://{host}:8096"
+unit = "SERVICE.service"
+scope = "system"   # or "user""""
+
+private const val CONTROL_ACTIONS = """[[actions]]
+name = "Back up now"
+command = ["/path/to/backup-script", "--now"]
+confirm = true
+timeout = 600"""
+
+private const val CONTROL_POLKIT = """polkit.addRule(function (action, subject) {
+  if (subject.user != "YOUR_USER") return polkit.Result.NOT_HANDLED;
+  var id = action.id;
+  if (id.indexOf("org.freedesktop.login1.power-off") == 0 ||
+      id.indexOf("org.freedesktop.login1.reboot") == 0 ||
+      id.indexOf("org.freedesktop.login1.suspend") == 0 ||
+      id == "org.freedesktop.UPower.PowerProfiles.switch-profile" ||
+      id == "net.hadess.PowerProfiles.switch-profile")
+    return polkit.Result.YES;
+  if (id == "org.freedesktop.systemd1.manage-units" &&
+      ["SERVICE.service"].indexOf(action.lookup("unit")) >= 0)
+    return polkit.Result.YES;
+  return polkit.Result.NOT_HANDLED;
+});"""
 private class Faq(@StringRes val q: Int, val answer: List<Block>)
 
 private val FAQ = listOf(
@@ -249,8 +284,8 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 	val list = rememberLazyListState()
 
 	LaunchedEffect(topic) {
-		// Install, firewall and pairing come first; the questions are the fourth item.
-		if (topic == HelpTopic.TROUBLESHOOTING) list.scrollToItem(4)
+		// Intro, install, firewall, pairing and control come first; the questions are the sixth item.
+		if (topic == HelpTopic.TROUBLESHOOTING) list.scrollToItem(5)
 	}
 
 	Scaffold(
@@ -299,6 +334,24 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 			item(key = "pair") {
 				Section(stringResource(R.string.help_pair), ElIcons.Qr) {
 					Blocks(listOf(t(R.string.help_pair_run), c("elamond pair"), t(R.string.help_pair_scan), t(R.string.help_pair_code)))
+				}
+			}
+			item(key = "control") {
+				Section(stringResource(R.string.help_control), ElIcons.Control) {
+					Blocks(
+						listOf(
+							t(R.string.help_control_intro),
+							c("# ~/.config/elamon/elamond.toml\ncontrol = true"),
+							t(R.string.help_control_nixos),
+							c(CONTROL_NIXOS),
+							t(R.string.help_control_services),
+							c(CONTROL_SERVICES),
+							t(R.string.help_control_actions),
+							c(CONTROL_ACTIONS),
+							t(R.string.help_control_polkit),
+							c(CONTROL_POLKIT),
+						)
+					)
 				}
 			}
 			item(key = "faq") {

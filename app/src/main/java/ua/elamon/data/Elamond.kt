@@ -25,10 +25,12 @@ import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 class ElamondException(val kind: Kind, message: String? = null, cause: Throwable? = null) : IOException(message, cause) {
-	enum class Kind { Unreachable, Unauthorized, WrongCode, NoPairing, CertificateChanged, NotElamond, Protocol }
+	enum class Kind { Unreachable, Unauthorized, WrongCode, NoPairing, CertificateChanged, NotElamond, Protocol, ControlDisabled, NotPermitted, NotFound, Failed }
 }
 
 /**
@@ -99,16 +101,61 @@ class ElamondClient(
 	}
 
 	private fun checkStatus(c: HttpURLConnection) {
-		when (val code = c.responseCode) {
-			in 200..299 -> {}
-			401 -> throw ElamondException(ElamondException.Kind.Unauthorized)
-			403 -> {
-				val body = c.errorStream?.bufferedReader()?.readText().orEmpty()
-				throw ElamondException(
-					if (body.contains("no_pairing")) ElamondException.Kind.NoPairing else ElamondException.Kind.WrongCode
-				)
+		val code = c.responseCode
+		if (code in 200..299) return
+		val body = runCatching { c.errorStream?.bufferedReader()?.readText() }.getOrNull().orEmpty()
+		val error = runCatching { ProtocolJson.parseToJsonElement(body).jsonObject["error"]?.jsonPrimitive?.content }.getOrNull()
+		val message = runCatching { ProtocolJson.parseToJsonElement(body).jsonObject["message"]?.jsonPrimitive?.content }.getOrNull()
+		throw when {
+			code == 401 -> ElamondException(ElamondException.Kind.Unauthorized)
+			error == "no_pairing" -> ElamondException(ElamondException.Kind.NoPairing)
+			error == "wrong_code" -> ElamondException(ElamondException.Kind.WrongCode)
+			error == "control_disabled" -> ElamondException(ElamondException.Kind.ControlDisabled)
+			error == "not_permitted" -> ElamondException(ElamondException.Kind.NotPermitted)
+			code == 404 -> ElamondException(ElamondException.Kind.NotFound, error)
+			error == "failed" -> ElamondException(ElamondException.Kind.Failed, message ?: error)
+			else -> ElamondException(ElamondException.Kind.Protocol, error ?: "HTTP $code")
+		}
+	}
+
+	/** A request with an optional JSON body; returns the response body. */
+	suspend fun request(method: String, path: String, body: String? = null, timeoutMs: Int = 15_000): String = withContext(Dispatchers.IO) {
+		call {
+			val c = open(path, timeoutMs)
+			try {
+				c.requestMethod = method
+				if (body != null) {
+					c.doOutput = true
+					c.setRequestProperty("Content-Type", "application/json")
+					c.outputStream.use { it.write(body.toByteArray()) }
+				}
+				checkStatus(c)
+				c.inputStream.bufferedReader().readText()
+			} finally {
+				c.disconnect()
 			}
-			else -> throw ElamondException(ElamondException.Kind.Protocol, "HTTP $code")
+		}
+	}
+
+	suspend inline fun <reified T> get(path: String): T = ProtocolJson.decodeFromString(request("GET", path))
+
+	suspend inline fun <reified B, reified T> post(path: String, body: B, timeoutMs: Int = 15_000): T =
+		ProtocolJson.decodeFromString(request("POST", path, ProtocolJson.encodeToString(body), timeoutMs))
+
+	suspend fun delete(path: String) {
+		request("DELETE", path)
+	}
+
+	/** Raw bytes, for album art. */
+	suspend fun bytes(path: String): ByteArray = withContext(Dispatchers.IO) {
+		call {
+			val c = open(path, 10_000)
+			try {
+				checkStatus(c)
+				c.inputStream.use { it.readBytes() }
+			} finally {
+				c.disconnect()
+			}
 		}
 	}
 
@@ -147,8 +194,8 @@ class ElamondClient(
 	}
 
 	/** Info, then optionally history, then a sample every [intervalMs] until cancelled. */
-	fun stream(intervalMs: Int, procs: Int, sort: String, history: Boolean): Flow<StreamMessage> = flow {
-		val query = "interval=$intervalMs&procs=$procs&sort=$sort&history=${if (history) 1 else 0}"
+	fun stream(intervalMs: Int, procs: Int, sort: String, history: Boolean, media: Boolean = false): Flow<StreamMessage> = flow {
+		val query = "interval=$intervalMs&procs=$procs&sort=$sort&history=${if (history) 1 else 0}&media=${if (media) 1 else 0}"
 		// A silent service is a dead connection after a few missed samples.
 		val c = call { open("/api/v1/stream?$query", maxOf(15_000, intervalMs * 4)) }
 		coroutineScope {

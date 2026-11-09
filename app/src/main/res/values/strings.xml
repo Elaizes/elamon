@@ -1,58 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-	<string name="app_name" translatable="false">Elamon</string>
-
-	<!-- Units -->
-	<string-array name="byte_units">
-		<item>B</item>
-		<item>KiB</item>
-		<item>MiB</item>
-		<item>GiB</item>
-		<item>TiB</item>
-	</string-array>
-	<string name="unit_per_second">%1$s/s</string>
-	<string name="unit_ghz">%1$s GHz</string>
-	<string name="unit_mhz">%1$d MHz</string>
-	<string name="unit_watts">%1$s W</string>
-	<string name="unit_wh">%1$s Wh</string>
-	<string name="unit_hz">%1$s Hz</string>
-	<string name="unit_mbps">%1$d Mbit/s</string>
-	<string name="unit_rpm">%1$d RPM</string>
-	<string name="duration_days_hours">%1$d d %2$d h</string>
-	<string name="duration_hours_minutes">%1$d h %2$d min</string>
-	<string name="duration_minutes">%1$d min</string>
-	<string name="seconds">%1$d s</string>
+	<string name="app_name">Elamon</string>
 
 	<!-- Common -->
 	<string name="back">Back</string>
-	<string name="more">More</string>
-	<string name="cancel">Cancel</string>
-	<string name="next">Next</string>
 	<string name="retry">Try again</string>
-	<string name="clear">Clear</string>
-	<string name="loading">Loading…</string>
-
-	<!-- Home -->
-	<string name="add_computer">Add computer</string>
-	<string name="found_on_network">Found on this network</string>
-	<string name="tap_to_pair">%1$s · tap to pair</string>
-	<string name="online">Online</string>
-	<string name="offline">Offline</string>
-	<string name="setup_title">Watch a computer</string>
-	<string name="setup_intro">Elamon shows a computer\'s load, temperatures, memory, processes and monitors live. The computer runs a small service that only paired phones can read.</string>
-	<string name="setup_step_install">Install the elamond service on the computer (Linux), from the project\'s releases or your distribution.</string>
-	<string name="setup_step_start">Start it as a service for your user:</string>
-	<string name="setup_step_pair">Run this on the computer. It shows a QR code and a six-digit code:</string>
-	<string name="setup_step_scan">Point this phone\'s camera at the QR code, or tap Add computer here and enter the code.</string>
-	<string name="add_scan_hint">The easiest way: run elamond pair on the computer and point the phone\'s camera at the QR code it shows.</string>
-	<string name="add_address_hint">Or enter the computer\'s address, then the six-digit code.</string>
-	<string name="address">Address</string>
-	<string name="address_placeholder">IP address or host name</string>
 
 	<!-- Pairing -->
 	<string name="pair_title">Pair</string>
 	<string name="pair">Pair</string>
-	<string name="pair_again">Pair again</string>
 	<string name="pair_connecting">Connecting to %1$s…</string>
 	<string name="pair_with">Pair with %1$s</string>
 	<string name="pair_compare">Check that these digits match the certificate line elamond pair shows on the computer:</string>
@@ -65,213 +21,82 @@
 	<string name="pair_wrong_code">Wrong code. After five wrong codes the computer needs a new one.</string>
 	<string name="pair_no_pairing">The computer isn\'t waiting for a phone. Run elamond pair on it first.</string>
 
-	<!-- Machine screen -->
-	<string name="tab_overview">Overview</string>
-	<string name="tab_processes">Processes</string>
-	<string name="tab_sensors">Sensors</string>
-	<string name="tab_displays">Displays</string>
-	<string name="conn_live">Live · every %1$d s</string>
-	<string name="conn_connecting">Connecting…</string>
-	<string name="conn_offline">Offline</string>
-	<string name="conn_unpaired">Not paired</string>
-	<string name="conn_cert_changed">Certificate changed</string>
-	<string name="reconnecting">Reconnecting…</string>
-	<string name="update_every">Update every</string>
-	<string name="keep_screen_on">Keep screen on</string>
-	<string name="forget_computer">Forget computer</string>
-	<string name="forget_title">Forget %1$s?</string>
-	<string name="forget_body">This phone will stop showing it. To see it again, pair again. To also remove the phone on the computer, run elamond revoke there.</string>
-	<string name="forget">Forget</string>
-	<string name="offline_title">Can\'t reach %1$s</string>
-	<string name="offline_body">The computer may be off or asleep, the service not running, or the phone on another network. Elamon keeps trying.</string>
-	<string name="unpaired_title">This phone isn\'t paired anymore</string>
-	<string name="unpaired_body">The computer no longer accepts it, maybe after elamond revoke. Run elamond pair on the computer and pair again.</string>
-	<string name="cert_changed_title">The computer\'s certificate changed</string>
-	<string name="cert_changed_body">This happens when the service\'s data was reset or reinstalled, but also when something else pretends to be the computer. If you didn\'t reset it, check your network before pairing again.</string>
-
-	<!-- Overview -->
-	<string name="system">System</string>
-	<string name="uptime">Up %1$s</string>
-	<string name="on_ac">On AC power</string>
-	<string name="on_battery">On battery</string>
-	<string name="profile">Profile: %1$s</string>
-	<string name="epp">EPP: %1$s</string>
-	<string name="profile_low_power">power saving</string>
-	<string name="profile_cool">cool</string>
-	<string name="profile_quiet">quiet</string>
-	<string name="profile_balanced">balanced</string>
-	<string name="profile_balanced_performance">balanced performance</string>
-	<string name="profile_performance">performance</string>
-	<string name="cpu">CPU</string>
-	<string name="load">load</string>
-	<string name="temperature">Temperature</string>
-	<string name="clock">Clock</string>
-	<string name="clock_avg_max">Clock, average / top</string>
-	<string name="load_average">Load average 1 · 5 · 15 min</string>
-	<string name="cores_count">Cores: %1$d</string>
-	<string name="memory">Memory</string>
-	<string name="used">used</string>
-	<string name="used_label">Used</string>
-	<string name="available">Available</string>
-	<string name="swap">Swap</string>
-	<string name="gpu">GPU</string>
-	<string name="gpu_short">GPU %1$s</string>
-	<string name="gpu_active">Active</string>
-	<string name="gpu_sleeping">Sleeping</string>
-	<string name="gpu_sleeping_body">Powered down because nothing uses it. Elamon doesn\'t wake it to read it; it shows here when a program starts using it.</string>
-	<string name="gpu_idle">idle</string>
-	<string name="gpu_intel_note">Intel graphics don\'t report their load to programs without extra rights; the clock shows how hard it works.</string>
-	<string name="gpu_memory">GPU memory</string>
-	<string name="vram">Video memory</string>
-	<string name="power_draw">Power</string>
-	<string name="fan">Fan</string>
-	<string name="battery">Battery</string>
-	<string name="battery_charging">Charging</string>
-	<string name="battery_discharging">Discharging</string>
-	<string name="battery_full">Full</string>
-	<string name="battery_not_charging">Not charging</string>
-	<string name="battery_unknown">Unknown</string>
-	<string name="battery_health">Health</string>
-	<string name="battery_cycles">Charge cycles</string>
-	<string name="battery_capacity">Full charge</string>
-	<string name="until_full">Until full</string>
-	<string name="until_empty">Left</string>
-	<string name="network">Network</string>
-	<string name="download">Download</string>
-	<string name="upload">Upload</string>
-	<string name="net_wired">cable</string>
-	<string name="net_wireless">Wi-Fi</string>
-	<string name="net_vpn">VPN</string>
-	<string name="storage">Storage</string>
-	<string name="disk_read">Read</string>
-	<string name="disk_write">Write</string>
-
-	<!-- Processes -->
-	<string name="search_processes">Search by name, command or PID</string>
-	<string name="sort_cpu">CPU</string>
-	<string name="sort_memory">Memory</string>
-	<string name="sort_gpu">GPU</string>
-	<string name="sort_io">Disk</string>
-	<string name="sort_name">Name</string>
-	<string name="group_by_app">By app</string>
-	<string name="process_count">Processes: %1$d</string>
-	<string name="proc_pid">PID</string>
-	<string name="proc_parent">Parent PID</string>
-	<string name="proc_user">User</string>
-	<string name="proc_status">State</string>
-	<string name="proc_started">Started</string>
-	<string name="proc_command">Command</string>
-	<string name="proc_running">running</string>
-	<string name="proc_sleeping">sleeping</string>
-	<string name="proc_idle">idle</string>
-	<string name="proc_zombie">zombie</string>
-	<string name="proc_stopped">stopped</string>
-	<string name="proc_disk_wait">waiting for disk</string>
-
-	<!-- Sensors -->
-	<string name="temperatures">Temperatures</string>
-	<string name="temp_limit">limit %1$s</string>
-	<string name="fans">Fans</string>
-	<string name="fan_stopped">stopped</string>
-	<string name="sensor_kind_cpu">Processor</string>
-	<string name="sensor_kind_gpu">Graphics</string>
-	<string name="sensor_kind_storage">Drive</string>
-	<string name="sensor_kind_wireless">Wireless</string>
-	<string name="sensor_kind_board">Board</string>
-	<string name="sensor_kind_battery">Battery</string>
-	<string name="sensor_kind_other">Other</string>
-	<string name="no_sensors">No sensors</string>
-	<string name="no_sensors_body">The computer reports no temperature or fan sensors. Some need a kernel module, often loaded by lm-sensors.</string>
-
-	<!-- Displays -->
-	<string name="display_layout">Arrangement</string>
-	<string name="display_builtin">Built-in display</string>
-	<string name="display_external">Monitor</string>
-	<string name="display_on">On</string>
-	<string name="display_off">Off</string>
-	<string name="display_unused">Not in use</string>
-	<string name="display_connector">Port</string>
-	<string name="display_size">Size</string>
-	<string name="display_native">Native mode</string>
-	<string name="display_max_refresh">Highest refresh</string>
-	<string name="display_position">Position</string>
-	<string name="display_year">Made in</string>
-	<string name="no_displays">No monitors connected</string>
-	<string name="no_displays_body">The computer runs without a screen, or its graphics driver doesn\'t report monitors.</string>
-	<string name="free_ports">Free ports: %1$s</string>
-
-	<!-- Help. The guide itself is English only; the ways into it are translated. -->
-	<string name="help_screen_title" translatable="false">Help</string>
+	<!-- Help -->
+	<string name="help_screen_title">Help</string>
 	<string name="troubleshooting_button">Troubleshooting</string>
-	<string name="help_title">Help</string>
-	<string name="setup_full_guide">Step-by-step guide for your system</string>
-	<string name="copy" translatable="false">Copy</string>
-	<string name="copied" translatable="false">Copied</string>
-	<string name="help_intro" translatable="false">Elamon has two parts: this app, and elamond, a small service on the computer you want to watch. The service reads the computer\'s own counters and sends them only to phones you paired with it. It needs no root and runs as a service of your user.</string>
-	<string name="help_install" translatable="false">1. Install the service</string>
-	<string name="help_pick_system" translatable="false">Pick the computer\'s system:</string>
-	<string name="help_other_system" translatable="false">Other</string>
-	<string name="help_nixos_input" translatable="false">Add the project to your flake\'s inputs:</string>
-	<string name="help_nixos_module" translatable="false">Import its module and turn the service on. openFirewall opens the ports the app needs:</string>
-	<string name="help_nixos_rebuild" translatable="false">Rebuild. The service starts for every user who logs in.</string>
-	<string name="help_linger" translatable="false">To keep it running while nobody is logged in:</string>
-	<string name="help_nixos_hm" translatable="false">With Home Manager instead, for one user. The firewall then stays in the system configuration (see below):</string>
-	<string name="help_nix_profile" translatable="false">Nix with flakes on another distribution: install the service into your profile.</string>
-	<string name="help_nix_unit" translatable="false">The package brings its own user service. Link it and start it:</string>
-	<string name="help_update" translatable="false">To update later:</string>
-	<string name="help_deps" translatable="false">Install git, a C compiler and Rust:</string>
-	<string name="help_deps_debian" translatable="false">The service needs Rust 1.88 or newer, newer than Debian and Ubuntu ship, so Rust comes from rustup:</string>
-	<string name="help_deps_other" translatable="false">Install git, a C compiler (gcc or clang) and Rust 1.88 or newer, from your distribution or from rustup.rs.</string>
-	<string name="help_build" translatable="false">Build the service and install it for your user. Nothing goes outside your home folder:</string>
-	<string name="help_path" translatable="false">If the shell doesn\'t find elamond afterwards, ~/.local/bin isn\'t on your PATH; run it as ~/.local/bin/elamond.</string>
-	<string name="help_firewall" translatable="false">2. Open the port</string>
-	<string name="help_fw_nixos" translatable="false">The openFirewall option above does it. Without the NixOS module, open the ports yourself:</string>
-	<string name="help_fw_firewalld_default" translatable="false">firewalld is on by default here:</string>
-	<string name="help_fw_ufw_debian" translatable="false">Without a firewall nothing needs opening. If ufw is on:</string>
-	<string name="help_fw_generic" translatable="false">Without a firewall nothing needs opening. Otherwise open TCP 47823 and UDP 5353 in the one you use.</string>
-	<string name="help_fw_ufw" translatable="false">With ufw:</string>
-	<string name="help_fw_firewalld" translatable="false">With firewalld:</string>
-	<string name="help_fw_why" translatable="false">TCP 47823 is the service itself. UDP 5353 is mDNS, which lets the app find the computer by itself; without it, add the computer by its address. Over a VPN such as Tailscale or WireGuard only 47823 matters, and a trusted VPN interface needs nothing.</string>
-	<string name="help_pair" translatable="false">3. Pair the phone</string>
-	<string name="help_pair_run" translatable="false">On the computer run:</string>
-	<string name="help_pair_scan" translatable="false">It shows a QR code and a six-digit code, good for five minutes. Point the phone\'s camera at the QR code and open the link: that pairs in one tap.</string>
-	<string name="help_pair_code" translatable="false">Or in this app tap the computer under Found on this network, or Add computer and its address, and enter the code. The app first shows the computer\'s certificate digits: they must match the Certificate line on the computer.</string>
-	<string name="help_troubleshooting" translatable="false">Troubleshooting</string>
-	<string name="faq_not_found_q" translatable="false">The computer isn\'t under Found on this network</string>
-	<string name="faq_not_found_a" translatable="false">The phone and the computer have to be on the same network, with UDP 5353 open on the computer. VPNs and many guest Wi-Fi networks block this kind of discovery. Add the computer by address instead: elamond pair shows its addresses.</string>
-	<string name="faq_no_connect_q" translatable="false">The app can\'t connect</string>
-	<string name="faq_no_connect_a" translatable="false">Check that the service runs, and read its log:</string>
+	<string name="copy">Copy</string>
+	<string name="copied">Copied</string>
+	<string name="help_intro">Elamon has two parts: this app, and elamond, a small service on the computer you want to watch. The service reads the computer\'s own counters and sends them only to phones you paired with it. If you allow it, it also lets them control the computer. It needs no root and runs as a service of your user.</string>
+	<string name="help_install">1. Install the service</string>
+	<string name="help_pick_system">Pick the computer\'s system:</string>
+	<string name="help_other_system">Other</string>
+	<string name="help_nixos_input">Add the project to your flake\'s inputs:</string>
+	<string name="help_nixos_module">Import its module and turn the service on. openFirewall opens the ports the app needs:</string>
+	<string name="help_nixos_rebuild">Rebuild. The service starts for every user who logs in.</string>
+	<string name="help_linger">To keep it running while nobody is logged in:</string>
+	<string name="help_nixos_hm">With Home Manager instead, for one user. The firewall then stays in the system configuration (see below):</string>
+	<string name="help_nix_profile">Nix with flakes on another distribution: install the service into your profile.</string>
+	<string name="help_nix_unit">The package brings its own user service. Link it and start it:</string>
+	<string name="help_update">To update later:</string>
+	<string name="help_deps">Install git, a C compiler and Rust:</string>
+	<string name="help_deps_debian">The service needs Rust 1.88 or newer, newer than Debian and Ubuntu ship, so Rust comes from rustup:</string>
+	<string name="help_deps_other">Install git, a C compiler (gcc or clang) and Rust 1.88 or newer, from your distribution or from rustup.rs.</string>
+	<string name="help_build">Build the service and install it for your user. Nothing goes outside your home folder:</string>
+	<string name="help_path">If the shell doesn\'t find elamond afterwards, ~/.local/bin isn\'t on your PATH; run it as ~/.local/bin/elamond.</string>
+	<string name="help_firewall">2. Open the port</string>
+	<string name="help_fw_nixos">The openFirewall option above does it. Without the NixOS module, open the ports yourself:</string>
+	<string name="help_fw_firewalld_default">firewalld is on by default here:</string>
+	<string name="help_fw_ufw_debian">Without a firewall nothing needs opening. If ufw is on:</string>
+	<string name="help_fw_generic">Without a firewall nothing needs opening. Otherwise open TCP 47823 and UDP 5353 in the one you use.</string>
+	<string name="help_fw_ufw">With ufw:</string>
+	<string name="help_fw_firewalld">With firewalld:</string>
+	<string name="help_fw_why">TCP 47823 is the service itself. UDP 5353 is mDNS, which lets the app find the computer by itself; without it, add the computer by its address. Over a VPN such as Tailscale or WireGuard only 47823 matters, and a trusted VPN interface needs nothing.</string>
+	<string name="help_pair">3. Pair the phone</string>
+	<string name="help_pair_run">On the computer run:</string>
+	<string name="help_pair_scan">It shows a QR code and a six-digit code, good for five minutes. Point the phone\'s camera at the QR code and open the link: that pairs in one tap.</string>
+	<string name="help_pair_code">Or in this app tap the computer under Found on this network, or Add computer and its address, and enter the code. The app first shows the computer\'s certificate digits: they must match the Certificate line on the computer.</string>
+	<string name="help_troubleshooting">Troubleshooting</string>
+	<string name="faq_not_found_q">The computer isn\'t under Found on this network</string>
+	<string name="faq_not_found_a">The phone and the computer have to be on the same network, with UDP 5353 open on the computer. VPNs and many guest Wi-Fi networks block this kind of discovery. Add the computer by address instead: elamond pair shows its addresses.</string>
+	<string name="faq_no_connect_q">The app can\'t connect</string>
+	<string name="faq_no_connect_a">Check that the service runs, and read its log:</string>
 	<string name="faq_no_connect_a2">Then check that TCP 47823 is open in the firewall and that the phone can reach the computer\'s address.</string>
-	<string name="faq_logout_q" translatable="false">It works only while I\'m logged in</string>
-	<string name="faq_logout_a" translatable="false">A user\'s services stop at logout unless lingering is on:</string>
-	<string name="faq_cert_q" translatable="false">The app says the certificate changed</string>
-	<string name="faq_cert_a" translatable="false">The service made a new certificate: its folder ~/.local/share/elamon was deleted, or the system was reinstalled. If so, forget the computer in the app and pair again. If not, something else may be answering at that address; check the network first.</string>
-	<string name="faq_sensors_q" translatable="false">No temperatures or fans</string>
-	<string name="faq_sensors_a" translatable="false">Some sensors need kernel modules. lm-sensors finds and loads them; then restart the service:</string>
-	<string name="faq_gpu_q" translatable="false">The graphics card shows no load</string>
-	<string name="faq_gpu_a" translatable="false">NVIDIA cards need NVIDIA\'s driver, whose management library the service reads. A card marked Sleeping is powered down and is left that way until a program uses it. Intel graphics don\'t report their load without extra privileges, so the app shows the clock instead.</string>
-	<string name="faq_displays_q" translatable="false">A monitor shows no resolution</string>
-	<string name="faq_displays_a" translatable="false">A monitor that is switched off or blanked has no mode. If no monitor shows one, the service can\'t open the graphics device: your user has to be logged in at the computer or be in the video group.</string>
-	<string name="faq_unpair_q" translatable="false">How do I unpair a phone?</string>
-	<string name="faq_unpair_a" translatable="false">In the app: the computer\'s menu, Forget computer. To also drop the phone\'s access on the computer, list the paired phones and revoke one by its ID:</string>
-	<string name="help_commands" translatable="false">Service commands</string>
-	<string name="cmd_pair" translatable="false">pair a phone: shows a QR code and a code</string>
-	<string name="cmd_clients" translatable="false">list paired phones with their IDs</string>
-	<string name="cmd_revoke" translatable="false">unpair one phone</string>
-	<string name="cmd_revoke_all" translatable="false">unpair every phone</string>
-	<string name="cmd_snapshot" translatable="false">print one reading, to see what the service finds</string>
-	<string name="cmd_version" translatable="false">the service\'s version</string>
-	<string name="help_settings" translatable="false">Service settings</string>
-	<string name="help_settings_where" translatable="false">Optional, in ~/.config/elamon/elamond.toml. Restart the service after a change. The defaults:</string>
-	<string name="set_port" translatable="false">the TCP port the app connects to</string>
-	<string name="set_listen" translatable="false">the address to listen on; \"::\" covers IPv4 and IPv6</string>
-	<string name="set_name" translatable="false">the name shown in the app; the host name when empty</string>
-	<string name="set_mdns" translatable="false">announce the service on the local network, so the app finds it</string>
-	<string name="set_interval" translatable="false">milliseconds between readings</string>
-	<string name="set_history" translatable="false">minutes of history a phone gets when it connects</string>
-	<string name="help_settings_state" translatable="false">The service keeps its certificate and the paired phones in ~/.local/share/elamon. Deleting that folder unpairs every phone.</string>
-	<string name="help_privacy" translatable="false">Privacy</string>
-	<string name="help_privacy_body" translatable="false">The phone talks to your computer directly, encrypted, and trusts only the certificate it saw when pairing. Nothing passes through any server, and the app has no trackers, ads or analytics. Each phone has its own key, which the computer can revoke; keys are kept out of Android backups. The service only reads: it can\'t change anything on the computer.</string>
-	<string name="help_version" translatable="false">Elamon %1$s · GPL-3.0-or-later</string>
-	<string name="help_source" translatable="false">Source code</string>
+	<string name="faq_logout_q">It works only while I\'m logged in</string>
+	<string name="faq_logout_a">A user\'s services stop at logout unless lingering is on:</string>
+	<string name="faq_cert_q">The app says the certificate changed</string>
+	<string name="faq_cert_a">The service made a new certificate: its folder ~/.local/share/elamon was deleted, or the system was reinstalled. If so, forget the computer in the app and pair again. If not, something else may be answering at that address; check the network first.</string>
+	<string name="faq_sensors_q">No temperatures or fans</string>
+	<string name="faq_sensors_a">Some sensors need kernel modules. lm-sensors finds and loads them; then restart the service:</string>
+	<string name="faq_gpu_q">The graphics card shows no load</string>
+	<string name="faq_gpu_a">NVIDIA cards need NVIDIA\'s driver, whose management library the service reads. A card marked Sleeping is powered down and is left that way until a program uses it. Intel graphics don\'t report their load without extra privileges, so the app shows the clock instead.</string>
+	<string name="faq_displays_q">A monitor shows no resolution</string>
+	<string name="faq_displays_a">A monitor that is switched off or blanked has no mode. If no monitor shows one, the service can\'t open the graphics device: your user has to be logged in at the computer or be in the video group.</string>
+	<string name="faq_unpair_q">How do I unpair a phone?</string>
+	<string name="faq_unpair_a">In the app: the computer\'s menu, Forget computer. To also drop the phone\'s access on the computer, list the paired phones and revoke one by its ID:</string>
+	<string name="help_control">4. Control panel</string>
+	<string name="help_control_intro">The Control tab starts services, plays music, switches the power profile, runs commands and powers the computer off. It\'s off until you allow it on the computer:</string>
+	<string name="help_control_nixos">On NixOS, in the service\'s settings. control.users also lets power actions, the power profile and the listed system units through without a password:</string>
+	<string name="help_control_services">Web services show up in the Control tab with their state; tap one to open it, hold it for start, stop and restart. Add them in the app, or on the computer:</string>
+	<string name="help_control_actions">Commands are defined only on the computer, so a phone can\'t run anything else. Each becomes a button in the app; its output comes back:</string>
+	<string name="help_control_polkit">Elsewhere, power actions and system units need a polkit rule, because the service runs outside a login session. Without it the app marks them \"needs permission\". Save this as /etc/polkit-1/rules.d/50-elamon.rules, with your user name:</string>
+	<string name="help_commands">Service commands</string>
+	<string name="cmd_pair">pair a phone: shows a QR code and a code</string>
+	<string name="cmd_clients">list paired phones with their IDs</string>
+	<string name="cmd_revoke">unpair one phone</string>
+	<string name="cmd_revoke_all">unpair every phone</string>
+	<string name="cmd_snapshot">print one reading, to see what the service finds</string>
+	<string name="cmd_version">the service\'s version</string>
+	<string name="help_settings">Service settings</string>
+	<string name="help_settings_where">Optional, in ~/.config/elamon/elamond.toml. Restart the service after a change. The defaults:</string>
+	<string name="set_port">the TCP port the app connects to</string>
+	<string name="set_listen">the address to listen on; \"::\" covers IPv4 and IPv6</string>
+	<string name="set_name">the name shown in the app; the host name when empty</string>
+	<string name="set_mdns">announce the service on the local network, so the app finds it</string>
+	<string name="set_interval">milliseconds between readings</string>
+	<string name="set_history">minutes of history a phone gets when it connects</string>
+	<string name="help_settings_state">The service keeps its certificate and the paired phones in ~/.local/share/elamon. Deleting that folder unpairs every phone.</string>
+	<string name="help_privacy">Privacy</string>
+	<string name="help_privacy_body">The phone talks to your computer directly, encrypted, and trusts only the certificate it saw when pairing. Nothing passes through any server, and the app has no trackers, ads or analytics. Each phone has its own key, which the computer can revoke; keys are kept out of Android backups. Unless control is turned on, the service only reads; with it on, it acts as your user, and every action is logged with the name of the phone that asked.</string>
+	<string name="help_version">Elamon %1$s · GPL-3.0-or-later</string>
+	<string name="help_source">Source code</string>
 </resources>

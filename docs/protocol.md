@@ -117,3 +117,33 @@ gpus: [{ id, usage [], temp [] }]
 
 `rx`/`tx` sum wired and wireless links only, so VPN and bridge traffic isn't counted twice.
 Missing values are `null`.
+
+## Control
+
+Everything below needs a token. Requests that change the computer also need `control = true` in
+the service's settings, or the service answers 403 `{ "error": "control_disabled" }`. When polkit
+refuses, it's 403 `{ "error": "not_permitted" }`; other failures are 502
+`{ "error": "failed", "message": "…" }`. Successful actions answer `{ "ok": true }`.
+
+| request | body | |
+|---|---|---|
+| `GET /api/v1/control` | | `{ enabled, power: { poweroff, reboot, suspend: "yes"\|"challenge"\|"no"\|"na", lock }, profiles: { active, available }, actions: [{ id, name, confirm }], volume }` |
+| `POST /api/v1/control/power` | `{ action: "poweroff"\|"reboot"\|"suspend"\|"lock" }` | |
+| `POST /api/v1/control/profile` | `{ profile }` | power-profiles-daemon |
+| `POST /api/v1/control/signal` | `{ pid, signal: "term"\|"kill" }` | |
+| `POST /api/v1/control/action` | `{ id }` | `{ exit_code, timed_out, output }` |
+| `POST /api/v1/media` | `{ player, op: "play_pause"\|"next"\|"previous"\|"seek"\|"volume", value? }` | MPRIS; seek in seconds |
+| `POST /api/v1/media/volume` | `{ level?, muted? }` | the default output, level 0–1 |
+| `GET /api/v1/media/art?player=` | | the cover, when the player has a local file |
+| `GET /api/v1/services` | | the services with their state, as in samples |
+| `POST /api/v1/services` | `{ id?, name, url, unit?, scope? }` | add, or change one added from the app |
+| `DELETE /api/v1/services/{id}` | | |
+| `POST /api/v1/services/{id}/unit` | `{ op: "start"\|"stop"\|"restart" }` | needs control |
+| `GET /api/v1/services/detected` | | `[{ port, local_only, process? }]`: ports something listens on |
+| `GET /api/v1/units?scope=user\|system` | | `[{ name, description, active }]` |
+
+Samples carry `services: [{ id, name, url, unit?, scope, editable, port?, up?, local_only,
+unit_state? }]` while a client is connected, `power.ppd_profile` and `power.ppd_profiles`, and,
+for a stream opened with `media=1`, `media: { players: [{ id, name, status, title?, artist?,
+album?, length?, position?, volume?, has_art, can_next, can_previous, can_play, can_pause,
+can_seek }], volume?: { level, muted } }`.

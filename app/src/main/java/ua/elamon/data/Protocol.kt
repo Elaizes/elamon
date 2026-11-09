@@ -76,6 +76,8 @@ data class Sample(
 	@SerialName("disk_io") val diskIo: List<DiskIo> = emptyList(),
 	val net: List<Net> = emptyList(),
 	val displays: List<Display> = emptyList(),
+	val services: List<ServiceStatus> = emptyList(),
+	val media: Media? = null,
 	@SerialName("process_count") val processCount: Int? = null,
 	val processes: List<Proc>? = null,
 ) : StreamMessage
@@ -148,6 +150,8 @@ data class Power(
 	val profiles: List<String> = emptyList(),
 	val governor: String? = null,
 	val epp: String? = null,
+	@SerialName("ppd_profile") val ppdProfile: String? = null,
+	@SerialName("ppd_profiles") val ppdProfiles: List<String> = emptyList(),
 )
 
 @Serializable
@@ -237,3 +241,95 @@ data class GpuHistory(
 	val usage: List<Float?> = emptyList(),
 	val temp: List<Float?> = emptyList(),
 )
+
+// ---- control -------------------------------------------------------------------------
+
+@Serializable
+data class ServiceStatus(
+	val id: String = "",
+	val name: String = "",
+	val url: String = "",
+	val unit: String? = null,
+	val scope: String = "user",
+	val editable: Boolean = false,
+	val port: Int? = null,
+	val up: Boolean? = null,
+	@SerialName("local_only") val localOnly: Boolean = false,
+	@SerialName("unit_state") val unitState: String? = null,
+)
+
+@Serializable
+data class Media(val players: List<Player> = emptyList(), val volume: Volume? = null)
+
+@Serializable
+data class Volume(val level: Float = 0f, val muted: Boolean = false)
+
+@Serializable
+data class Player(
+	val id: String = "",
+	val name: String = "",
+	val status: String = "Stopped",
+	val title: String? = null,
+	val artist: String? = null,
+	val album: String? = null,
+	/** Microseconds. */
+	val length: Long? = null,
+	val position: Long? = null,
+	val volume: Double? = null,
+	@SerialName("has_art") val hasArt: Boolean = false,
+	@SerialName("can_next") val canNext: Boolean = false,
+	@SerialName("can_previous") val canPrevious: Boolean = false,
+	@SerialName("can_play") val canPlay: Boolean = false,
+	@SerialName("can_pause") val canPause: Boolean = false,
+	@SerialName("can_seek") val canSeek: Boolean = false,
+)
+
+@Serializable
+data class ControlInfo(
+	val enabled: Boolean = false,
+	val power: PowerCaps = PowerCaps(),
+	val profiles: Profiles? = null,
+	val actions: List<ActionInfo> = emptyList(),
+	val volume: Boolean = false,
+)
+
+/** logind's answers: "yes", "challenge" (needs a password), "no" or "na". */
+@Serializable
+data class PowerCaps(
+	val poweroff: String = "na",
+	val reboot: String = "na",
+	val suspend: String = "na",
+	val lock: Boolean = false,
+)
+
+@Serializable
+data class Profiles(val active: String = "", val available: List<String> = emptyList())
+
+@Serializable
+data class ActionInfo(val id: String = "", val name: String = "", val confirm: Boolean = true)
+
+@Serializable
+data class ActionResult(
+	@SerialName("exit_code") val exitCode: Int? = null,
+	@SerialName("timed_out") val timedOut: Boolean = false,
+	val output: String = "",
+)
+
+@Serializable
+data class ServiceDef(
+	val id: String? = null,
+	val name: String,
+	val url: String,
+	val unit: String? = null,
+	val scope: String? = null,
+)
+
+@Serializable
+data class Listener(
+	val port: Int = 0,
+	@SerialName("local_only") val localOnly: Boolean = false,
+	val process: String? = null,
+)
+
+@Serializable
+data class UnitInfo(val name: String = "", val description: String = "", val active: String = "")

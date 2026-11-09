@@ -5,36 +5,34 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -44,99 +42,114 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import ua.elamon.R
 import ua.elamon.data.ElamondClient
 import ua.elamon.data.DEFAULT_PORT
 import ua.elamon.data.Found
 import ua.elamon.data.PairTarget
+import ua.elamon.data.Sample
 import ua.elamon.data.Server
 import ua.elamon.data.ServerStore
 import ua.elamon.data.discoverServices
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** What the home screen knows about a paired computer. */
+private sealed interface Live {
+	data object Unknown : Live
+	data object Offline : Live
+	data class Online(val sample: Sample) : Live
+}
+
 @Composable
-fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit, onHelp: () -> Unit) {
+fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit, onHelp: () -> Unit, onSettings: () -> Unit) {
 	val ctx = LocalContext.current
 	val servers by ServerStore.get(ctx).servers.collectAsStateWithLifecycle()
 	val discovery = remember { discoverServices(ctx) }
 	val found by discovery.collectAsStateWithLifecycle(initialValue = emptyList())
 	val unpaired = found.filter { f -> servers.none { it.id == f.id } }
 	var addDialog by rememberSaveable { mutableStateOf(false) }
-	val online = remember { mutableStateMapOf<String, Boolean>() }
+	val live = remember { mutableStateMapOf<String, Live>() }
+	val haze = remember { HazeState() }
+	val list = rememberLazyListState()
 
-	// Which computers answer, refreshed while this screen is open.
+	// A reading of each computer every few seconds while this screen is open.
 	LaunchedEffect(servers) {
 		while (true) {
 			for (s in servers) {
 				launch {
-					online[s.id] = runCatching {
-						ElamondClient.firstReachable(s.hostsToTry(), s.port, s.fingerprint, s.id) != null
-					}.getOrDefault(false)
+					live[s.id] = runCatching {
+						val reached = ElamondClient.firstReachable(s.hostsToTry(), s.port, s.fingerprint, s.id) ?: return@runCatching Live.Offline
+						val c = ElamondClient(reached.first.host, s.port, s.fingerprint, s.token)
+						Live.Online(c.get<Sample>("/api/v1/snapshot"))
+					}.getOrDefault(Live.Offline)
 				}
 			}
-			delay(15_000)
+			delay(5_000)
 		}
 	}
 
-	val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-	Scaffold(
-		modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
-		topBar = {
-			LargeTopAppBar(
-				title = { Text(stringResource(R.string.app_name)) },
-				actions = { IconButton(onClick = onHelp) { Icon(ElIcons.Help, stringResource(R.string.help_title)) } },
-				scrollBehavior = scroll,
+	CompositionLocalProvider(LocalHaze provides haze) {
+		Box(Modifier.fillMaxSize()) {
+			LazyColumn(
+				Modifier.fillMaxSize().hazeSource(haze),
+				state = list,
+				contentPadding = listPadding(bottomNav = true),
+				verticalArrangement = Arrangement.spacedBy(12.dp),
+			) {
+				item(key = "title") {
+					BigTitle(
+						"Elamon",
+						subtitle = {
+							Text(
+								when (servers.size) {
+									0 -> "Watch your computers from here"
+									1 -> "1 computer"
+									else -> "${servers.size} computers"
+								},
+								style = MaterialTheme.typography.titleSmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+						},
+						list = list,
+					)
+				}
+				items(servers, key = { it.id }) { s -> ComputerCard(s, live[s.id] ?: Live.Unknown) { onOpen(s) } }
+				if (unpaired.isNotEmpty()) {
+					item(key = "found-header") { GroupLabel("Found on this network") }
+					items(unpaired, key = { "found-" + it.id }) { f -> FoundCard(f) { onPair(f.toTarget()) } }
+				}
+				if (servers.isEmpty()) {
+					item(key = "setup") { SetupGuide(onHelp) }
+				}
+			}
+
+			GlassTopBar(
+				title = "Elamon",
+				collapsed = rememberCollapsed(list),
+				actions = {
+					IconButton(onClick = onHelp) { Icon(ElIcons.Help, "Help") }
+					IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") }
+				},
 			)
-		},
-		floatingActionButton = {
+
 			ExtendedFloatingActionButton(
 				onClick = { addDialog = true },
 				icon = { Icon(Icons.Default.Add, null) },
-				text = { Text(stringResource(R.string.add_computer)) },
+				text = { Text("Add computer") },
+				shape = RoundedCornerShape(28.dp),
+				containerColor = MaterialTheme.colorScheme.primaryContainer,
+				modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(20.dp),
 			)
-		},
-	) { padding ->
-		LazyColumn(
-			Modifier.fillMaxSize(),
-			contentPadding = PaddingValues(16.dp, padding.calculateTopPadding() + 8.dp, 16.dp, padding.calculateBottomPadding() + 96.dp),
-			verticalArrangement = Arrangement.spacedBy(12.dp),
-		) {
-			items(servers, key = { it.id }) { s ->
-				ComputerCard(
-					icon = ElIcons.Laptop,
-					title = s.name,
-					subtitle = s.os ?: s.hostsToTry().firstOrNull().orEmpty(),
-					online = online[s.id],
-					onClick = { onOpen(s) },
-				)
-			}
-			if (unpaired.isNotEmpty()) {
-				item(key = "found-header") { Header(stringResource(R.string.found_on_network)) }
-				items(unpaired, key = { "found-" + it.id }) { f ->
-					ComputerCard(
-						icon = ElIcons.Monitor,
-						title = f.name,
-						subtitle = stringResource(R.string.tap_to_pair, f.host),
-						online = null,
-						onClick = { onPair(f.toTarget()) },
-					)
-				}
-			}
-			if (servers.isEmpty()) {
-				item(key = "setup") { SetupGuide(onHelp) }
-			}
 		}
 	}
 
@@ -151,60 +164,69 @@ fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit, onHelp: (
 	}
 }
 
-private fun Found.toTarget() = PairTarget(
-	hosts = listOf(host),
-	port = port,
-	name = name,
-	id = id,
-	fingerprint = null,
-	fingerprintPrefix = fingerprintPrefix,
-)
+private fun Found.toTarget() = PairTarget(hosts = listOf(host), port = port, name = name, id = id, fingerprint = null, fingerprintPrefix = fingerprintPrefix)
 
 @Composable
-private fun Header(text: String) {
-	Text(
-		text,
-		style = MaterialTheme.typography.titleSmall,
-		color = MaterialTheme.colorScheme.primary,
-		modifier = Modifier.padding(start = 8.dp, top = 12.dp),
-	)
+private fun ComputerCard(s: Server, live: Live, onClick: () -> Unit) {
+	val c = Metric.colors
+	val p = LocalPrefs.current
+	val online = live is Live.Online
+	Surface(modifier = Modifier.fillMaxWidth(), shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+		Column(
+			Modifier
+				.background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary.copy(alpha = if (online) 0.12f else 0.04f), Color.Transparent)))
+				.clickable(onClick = onClick)
+				.padding(18.dp),
+			verticalArrangement = Arrangement.spacedBy(14.dp),
+		) {
+			Row(verticalAlignment = Alignment.CenterVertically) {
+				Box(Modifier.size(52.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
+					Icon(ElIcons.Laptop, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+				}
+				Spacer(Modifier.width(14.dp))
+				Column(Modifier.weight(1f)) {
+					Text(s.name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+					Text(s.os ?: s.hostsToTry().firstOrNull().orEmpty(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+				}
+				when (live) {
+					is Live.Online -> Pill("Online", c.good, dot = true)
+					Live.Offline -> Pill("Offline", MaterialTheme.colorScheme.outline, dot = true)
+					Live.Unknown -> {}
+				}
+			}
+			if (live is Live.Online) {
+				val sample = live.sample
+				val m = sample.memory
+				Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+					MiniStat("CPU", Fmt.percent(sample.cpu.usage), sample.cpu.usage / 100f, c.cpu, Modifier.weight(1f))
+					val mf = if (m.total > 0) m.used.toFloat() / m.total else 0f
+					MiniStat("RAM", Fmt.percent(mf * 100), mf, c.memory, Modifier.weight(1f))
+					sample.cpu.temp?.let { MiniStat("Temp", Fmt.temp(it, p.fahrenheit), it / 100f, tempColor(it), Modifier.weight(1f)) }
+				}
+			}
+		}
+	}
 }
 
 @Composable
-private fun ComputerCard(icon: ImageVector, title: String, subtitle: String, online: Boolean?, onClick: () -> Unit) {
-	Surface(
-		modifier = Modifier.fillMaxWidth(),
-		shape = RoundedCornerShape(24.dp),
-		color = MaterialTheme.colorScheme.surfaceContainerLow,
-	) {
-		Row(
-			Modifier.clickable(onClick = onClick).padding(18.dp),
-			verticalAlignment = Alignment.CenterVertically,
-		) {
-			Box(
-				Modifier.size(48.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-				contentAlignment = Alignment.Center,
-			) {
-				Icon(icon, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-			}
-			Spacer(Modifier.width(16.dp))
+private fun MiniStat(label: String, value: String, fraction: Float, color: Color, modifier: Modifier) {
+	Column(modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(16.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+		Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		RollingText(value, MaterialTheme.typography.titleMedium)
+		UsageBar(fraction, color, height = 5.dp)
+	}
+}
+
+@Composable
+private fun FoundCard(f: Found, onClick: () -> Unit) {
+	Surface(modifier = Modifier.fillMaxWidth(), shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+		Row(Modifier.clickable(onClick = onClick).padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+			IconBadge(ElIcons.Monitor, MaterialTheme.colorScheme.tertiary, 44.dp)
+			Spacer(Modifier.width(14.dp))
 			Column(Modifier.weight(1f)) {
-				Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-				Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-				if (online != null) {
-					Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-						val color = if (online) Metric.colors.good else MaterialTheme.colorScheme.outline
-						Box(Modifier.size(8.dp).background(color, CircleShape))
-						Spacer(Modifier.width(6.dp))
-						Text(
-							stringResource(if (online) R.string.online else R.string.offline),
-							style = MaterialTheme.typography.labelMedium,
-							color = color,
-						)
-					}
-				}
+				Text(f.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+				Text("${f.host} · tap to pair", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			}
-			Icon(Icons.Default.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
 	}
 }
@@ -212,17 +234,19 @@ private fun ComputerCard(icon: ImageVector, title: String, subtitle: String, onl
 /** How to get from nothing to a paired computer. */
 @Composable
 private fun SetupGuide(onHelp: () -> Unit) {
-	Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+	Surface(shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
 		Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-			Text(stringResource(R.string.setup_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-			Text(stringResource(R.string.setup_intro), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			Step(1, stringResource(R.string.setup_step_install), null)
-			Step(2, stringResource(R.string.setup_step_start), "systemctl --user enable --now elamond")
-			Step(3, stringResource(R.string.setup_step_pair), "elamond pair")
-			Step(4, stringResource(R.string.setup_step_scan), null)
-			androidx.compose.material3.FilledTonalButton(onClick = onHelp, modifier = Modifier.fillMaxWidth()) {
-				Text(stringResource(R.string.setup_full_guide))
-			}
+			Text("Watch a computer", style = MaterialTheme.typography.titleLarge)
+			Text(
+				"Elamon shows a computer's load, temperatures, memory, processes and monitors live, and controls its services, media and power. The computer runs a small service that only paired phones can reach.",
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			Step(1, "Install the elamond service on the computer (Linux).", null)
+			Step(2, "Start it as a service for your user:", "systemctl --user enable --now elamond")
+			Step(3, "Run this on the computer. It shows a QR code and a six-digit code:", "elamond pair")
+			Step(4, "Point this phone's camera at the QR code, or tap Add computer and enter the code.", null)
+			FilledTonalButton(onClick = onHelp, modifier = Modifier.fillMaxWidth()) { Text("Step-by-step guide for your system") }
 		}
 	}
 }
@@ -230,10 +254,7 @@ private fun SetupGuide(onHelp: () -> Unit) {
 @Composable
 private fun Step(n: Int, text: String, command: String?) {
 	Row {
-		Box(
-			Modifier.size(28.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-			contentAlignment = Alignment.Center,
-		) {
+		Box(Modifier.size(28.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
 			Text(n.toString(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
 		}
 		Spacer(Modifier.width(12.dp))
@@ -244,10 +265,7 @@ private fun Step(n: Int, text: String, command: String?) {
 					command,
 					fontFamily = FontFamily.Monospace,
 					style = MaterialTheme.typography.bodySmall,
-					modifier = Modifier
-						.fillMaxWidth()
-						.background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(8.dp))
-						.padding(horizontal = 10.dp, vertical = 8.dp),
+					modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 8.dp),
 				)
 			}
 		}
@@ -258,29 +276,25 @@ private fun Step(n: Int, text: String, command: String?) {
 private fun AddDialog(onDismiss: () -> Unit, onAddress: (String, Int) -> Unit) {
 	var address by rememberSaveable { mutableStateOf("") }
 	val parsed = ElamondClient.parseAddress(address, DEFAULT_PORT)
-	AlertDialog(
-		onDismissRequest = onDismiss,
-		icon = { Icon(ElIcons.Qr, null) },
-		title = { Text(stringResource(R.string.add_computer)) },
+	GlassDialog(
+		onDismiss = onDismiss,
+		title = "Add computer",
+		icon = ElIcons.Qr,
 		text = {
 			Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-				Text(stringResource(R.string.add_scan_hint))
-				Text(stringResource(R.string.add_address_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
+				Text("The easiest way: run elamond pair on the computer and point the phone's camera at the QR code it shows.")
+				Text("Or enter the computer's address, then the six-digit code.", color = MaterialTheme.colorScheme.onSurfaceVariant)
 				OutlinedTextField(
 					value = address,
 					onValueChange = { address = it },
 					singleLine = true,
-					label = { Text(stringResource(R.string.address)) },
-					placeholder = { Text(stringResource(R.string.address_placeholder)) },
+					label = { Text("Address") },
+					placeholder = { Text("IP address or host name") },
 					keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
 				)
 			}
 		},
-		confirmButton = {
-			TextButton(enabled = parsed != null, onClick = { parsed?.let { onAddress(it.first, it.second) } }) {
-				Text(stringResource(R.string.next))
-			}
-		},
-		dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+		confirm = { TextButton(enabled = parsed != null, onClick = { parsed?.let { onAddress(it.first, it.second) } }) { Text("Next") } },
+		dismiss = { TextButton(onClick = onDismiss) { Text("Cancel") } },
 	)
 }
