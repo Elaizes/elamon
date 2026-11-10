@@ -12,7 +12,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 
-/** An service announcing itself on the local network. */
+/** elamond announcing itself on the local network. */
 data class Found(
 	val id: String,
 	val name: String,
@@ -47,8 +47,8 @@ class CallbackQueue(private val executor: ExecutorService = Executors.newSingleT
 	}
 }
 
-/** Services on the local network, updated as they come and go. Empty where multicast doesn't reach (VPNs). */
-fun discoverServices(context: Context): Flow<List<Found>> = callbackFlow {
+/** Computers running elamond on the local network, updated as they come and go. Empty where multicast doesn't reach (VPNs). */
+fun discoverElamond(context: Context): Flow<List<Found>> = callbackFlow {
 	val nsd = context.applicationContext.getSystemService(Context.NSD_SERVICE) as NsdManager
 	val found = linkedMapOf<String, Found>()
 	val queue = CallbackQueue()

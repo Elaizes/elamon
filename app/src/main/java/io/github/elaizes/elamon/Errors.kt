@@ -15,7 +15,9 @@ private val CODE_MESSAGES = mapOf(
 	"not_found" to R.string.err_not_found,
 	"no_such_process" to R.string.err_no_such_process,
 	"no_such_action" to R.string.err_no_such_action,
-	"no_such_service" to R.string.err_no_such_service,
+	"no_such_link" to R.string.err_no_such_link,
+	// What elamond before 0.5 answers instead.
+	"no_such_service" to R.string.err_no_such_link,
 	"no_art" to R.string.err_no_art,
 	"unknown_signal" to R.string.err_unknown_signal,
 	"empty_command" to R.string.err_empty_command,

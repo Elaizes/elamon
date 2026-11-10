@@ -30,7 +30,7 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.elaizes.elamon.data.PairLink
 import io.github.elaizes.elamon.data.PairTarget
-import io.github.elaizes.elamon.data.ServerStore
+import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.ui.ElamonTheme
 import io.github.elaizes.elamon.ui.HelpScreen
 import io.github.elaizes.elamon.ui.HelpTopic
@@ -153,11 +153,11 @@ class MainActivity : ComponentActivity() {
 								onSettings = { nav.push(Screen.Settings) },
 							)
 							is Screen.Machine -> {
-								val store = ServerStore.get(this@MainActivity)
+								val store = MachineStore.get(this@MainActivity)
 								// Watched, not read once: the entry may go or be replaced while the screen is open.
-								val servers by store.servers.collectAsStateWithLifecycle()
-								val server = servers.find { it.id == screen.id }
-								if (server == null) {
+								val machines by store.machines.collectAsStateWithLifecycle()
+								val machine = machines.find { it.id == screen.id }
+								if (machine == null) {
 									LaunchedEffect(screen) {
 										// Only the screen on top moves; one on its way out is left alone.
 										if (nav.top != screen) return@LaunchedEffect
@@ -168,7 +168,7 @@ class MainActivity : ComponentActivity() {
 									}
 								} else {
 									MachineScreen(
-										server,
+										machine,
 										owner = nav.owner(screen),
 										onBack = { nav.pop() },
 										onPairAgain = { nav.push(Screen.Pair(it)) },

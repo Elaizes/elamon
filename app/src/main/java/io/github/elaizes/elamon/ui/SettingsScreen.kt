@@ -58,7 +58,7 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 	val list = rememberLazyListState()
 	var license by remember { mutableStateOf(false) }
 	var customInterval by remember { mutableStateOf(false) }
-	val serviceInterval by settings.serviceIntervalMs.collectAsStateWithLifecycle()
+	val elamondInterval by settings.elamondIntervalMs.collectAsStateWithLifecycle()
 
 	CompositionLocalProvider(LocalHaze provides haze) {
 		Box(Modifier.fillMaxSize()) {
@@ -148,7 +148,7 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 	if (customInterval) {
 		CustomIntervalDialog(
 			current = p.intervalMs,
-			minMs = (serviceInterval ?: Intervals.MIN_MS).coerceAtMost(Intervals.MAX_MS),
+			minMs = (elamondInterval ?: Intervals.MIN_MS).coerceAtMost(Intervals.MAX_MS),
 			onDismiss = { customInterval = false },
 			onSave = { v ->
 				customInterval = false

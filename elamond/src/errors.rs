@@ -32,8 +32,9 @@ pub enum ErrorCode {
 	BadUrl,
 	BadUnit,
 	BadScope,
-	NoSuchService,
-	/// The service has no unit to start or stop.
+	/// No link with that id; `no_such_service` before 0.5.
+	NoSuchLink,
+	/// The link has no unit to start or stop.
 	NoUnit,
 }
 
@@ -58,7 +59,7 @@ impl ErrorCode {
 		ErrorCode::BadUrl,
 		ErrorCode::BadUnit,
 		ErrorCode::BadScope,
-		ErrorCode::NoSuchService,
+		ErrorCode::NoSuchLink,
 		ErrorCode::NoUnit,
 	];
 
@@ -81,7 +82,7 @@ impl ErrorCode {
 			ErrorCode::BadUrl => ("bad_url", StatusCode::BAD_REQUEST),
 			ErrorCode::BadUnit => ("bad_unit", StatusCode::BAD_REQUEST),
 			ErrorCode::BadScope => ("bad_scope", StatusCode::BAD_REQUEST),
-			ErrorCode::NoSuchService => ("no_such_service", StatusCode::NOT_FOUND),
+			ErrorCode::NoSuchLink => ("no_such_link", StatusCode::NOT_FOUND),
 			ErrorCode::NoUnit => ("no_unit", StatusCode::BAD_REQUEST),
 		}
 	}

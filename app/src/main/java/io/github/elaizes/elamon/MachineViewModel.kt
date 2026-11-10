@@ -41,8 +41,8 @@ import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.data.Listener
 import io.github.elaizes.elamon.data.Proc
 import io.github.elaizes.elamon.data.Sample
-import io.github.elaizes.elamon.data.ServerStore
-import io.github.elaizes.elamon.data.ServiceDef
+import io.github.elaizes.elamon.data.MachineStore
+import io.github.elaizes.elamon.data.LinkDef
 import io.github.elaizes.elamon.data.StreamMessage
 import io.github.elaizes.elamon.data.UnitInfo
 
@@ -123,8 +123,8 @@ private fun decodeArt(bytes: ByteArray, sizePx: Int): Bitmap? {
 	return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
 }
 
-class MachineViewModel(app: Application, private val serverId: String) : AndroidViewModel(app) {
-	private val store = ServerStore.get(app)
+class MachineViewModel(app: Application, private val machineId: String) : AndroidViewModel(app) {
+	private val store = MachineStore.get(app)
 	private val settings = Settings.get(app)
 	private val hist = Hist()
 	private val _state = MutableStateFlow(MachineState(hist = hist))
@@ -171,8 +171,8 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 		// Paired again while this screen stays open (the pairing screen was left before the computer
 		// answered): the stream starts over with the new token instead of staying turned away.
 		viewModelScope.launch {
-			store.servers
-				.map { list -> list.find { it.id == serverId }?.let { it.token to it.fingerprint } }
+			store.machines
+				.map { list -> list.find { it.id == machineId }?.let { it.token to it.fingerprint } }
 				.distinctUntilChanged()
 				.drop(1)
 				.collect { if (it != null) credentialsChanged() }
@@ -246,18 +246,18 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 
 	private suspend fun loop() {
 		while (true) {
-			val server = store.get(serverId) ?: return
+			val machine = store.get(machineId) ?: return
 			val host = workingHost ?: run {
 				_state.update { it.copy(conn = if (it.sample == null) Conn.Connecting else Conn.Reconnecting) }
 				val reached = try {
-					ElamondClient.firstReachable(server.hostsToTry(), server.port, server.fingerprint, server.id)
+					ElamondClient.firstReachable(machine.hostsToTry(), machine.port, machine.fingerprint, machine.id)
 				} catch (e: ElamondException) {
 					_state.update { it.copy(conn = Conn.CertificateChanged) }
 					return
 				}
 				if (reached == null) null else reached.first.host.also {
 					workingHost = it
-					if (it != server.lastHost) store.update(serverId) { s -> s.copy(lastHost = it) }
+					if (it != machine.lastHost) store.update(machineId) { s -> s.copy(lastHost = it) }
 				}
 			}
 			if (host == null) {
@@ -266,7 +266,7 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 				continue
 			}
 
-			val e = streamOn(host, ElamondClient(host, server.port, server.fingerprint, server.token))
+			val e = streamOn(host, ElamondClient(host, machine.port, machine.fingerprint, machine.token))
 			when {
 				e.kind == ElamondException.Kind.Unauthorized -> {
 					_state.update { it.copy(conn = Conn.Unauthorized) }
@@ -321,13 +321,13 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 			is Info -> {
 				hist.windowMs = msg.historySeconds * 1000L
 				hist.stepHintMs = Intervals.effective(current.intervalMs, msg.intervalMs).toLong()
-				settings.noteServiceInterval(msg.intervalMs)
+				settings.noteElamondInterval(msg.intervalMs)
 				_state.update { it.copy(info = msg, histVersion = hist.version) }
 				// Every reopened stream starts with info; the store is written only when it says something new.
-				val saved = store.get(serverId)
+				val saved = store.get(machineId)
 				if (saved != null && (msg.name.isNotEmpty() || msg.os.isNotEmpty())) {
 					val name = msg.name.ifEmpty { saved.name }
-					if (name != saved.name || msg.os != saved.os) store.update(serverId) { it.copy(name = name, os = msg.os) }
+					if (name != saved.name || msg.os != saved.os) store.update(machineId) { it.copy(name = name, os = msg.os) }
 				}
 			}
 			is History -> {
@@ -363,9 +363,9 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 
 	/** A client for one-off requests, on the address the stream found. */
 	private fun client(): ElamondClient? {
-		val server = store.get(serverId) ?: return null
+		val machine = store.get(machineId) ?: return null
 		val host = _state.value.host ?: workingHost ?: return null
-		return ElamondClient(host, server.port, server.fingerprint, server.token)
+		return ElamondClient(host, machine.port, machine.fingerprint, machine.token)
 	}
 
 	/** Reads the control panel; before the stream is live it waits for the first sample, which calls it. */
@@ -483,21 +483,22 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 		return withContext(Dispatchers.Default) { orNull { decodeArt(bytes, sizePx) } }
 	}
 
-	fun saveService(def: ServiceDef) = act(done = R.string.done_saved) {
-		it.post<ServiceDef, ServiceDef>("/api/v1/services", def)
+	fun saveLink(def: LinkDef) = act(done = R.string.done_saved) {
+		it.onLinks { path -> post<LinkDef, LinkDef>(path, def) }
 	}
 
-	fun deleteService(id: String) = act(done = R.string.done_removed) { it.delete("/api/v1/services/$id") }
+	fun deleteLink(id: String) = act(done = R.string.done_removed) { it.onLinks("/$id") { path -> delete(path) } }
 
-	fun unit(serviceId: String, op: String) = act(
+	fun unit(linkId: String, op: String) = act(
 		done = when (op) {
 			"start" -> R.string.done_started
 			"stop" -> R.string.done_stopped
 			else -> R.string.done_restarted
 		},
-	) { it.post<UnitReq, Ok>("/api/v1/services/$serviceId/unit", UnitReq(op)) }
+	) { it.onLinks("/$linkId/unit") { path -> post<UnitReq, Ok>(path, UnitReq(op)) } }
 
-	suspend fun detected(): List<Listener> = client()?.let { orNull { it.get<List<Listener>>("/api/v1/services/detected") } }.orEmpty()
+	suspend fun detected(): List<Listener> =
+		client()?.let { orNull { it.onLinks("/detected") { path -> get<List<Listener>>(path) } } }.orEmpty()
 
 	suspend fun units(scope: String): List<UnitInfo> =
 		client()?.let { orNull { it.get<List<UnitInfo>>("/api/v1/units?scope=$scope") } }.orEmpty()

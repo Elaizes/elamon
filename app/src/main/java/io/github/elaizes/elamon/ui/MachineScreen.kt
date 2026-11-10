@@ -79,8 +79,8 @@ import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.compatibility
 import io.github.elaizes.elamon.data.Info
 import io.github.elaizes.elamon.data.PairTarget
-import io.github.elaizes.elamon.data.Server
-import io.github.elaizes.elamon.data.ServerStore
+import io.github.elaizes.elamon.data.Machine
+import io.github.elaizes.elamon.data.MachineStore
 
 private enum class Tab(@StringRes val label: Int) {
 	Overview(R.string.tab_overview),
@@ -108,7 +108,7 @@ class TabScope(
 
 @Composable
 fun MachineScreen(
-	server: Server,
+	machine: Machine,
 	owner: ViewModelStoreOwner,
 	onBack: () -> Unit,
 	onPairAgain: (PairTarget) -> Unit,
@@ -120,7 +120,7 @@ fun MachineScreen(
 	// Its own store, cleared when the computer is left for good, forgotten or paired again.
 	val vm: MachineViewModel = viewModel(
 		viewModelStoreOwner = owner,
-		factory = MachineViewModel.Factory(ctx.applicationContext as Application, server.id),
+		factory = MachineViewModel.Factory(ctx.applicationContext as Application, machine.id),
 	)
 	val state by vm.state.collectAsStateWithLifecycle()
 	val prefs = LocalPrefs.current
@@ -163,10 +163,10 @@ fun MachineScreen(
 
 	BackHandler(enabled = detail != null) { detail = null }
 
-	val name = state.info?.name ?: server.name
+	val name = state.info?.name ?: machine.name
 	val status = connText(state.conn, Intervals.effective(prefs.intervalMs, state.info?.intervalMs))
 	val compatDismissed by vm.compatDismissed.collectAsStateWithLifecycle()
-	val compat = state.info?.let { compatibility(BuildConfig.VERSION_NAME, it.api, it.serviceVersion, it.minApp) } ?: Compat.Ok
+	val compat = state.info?.let { compatibility(BuildConfig.VERSION_NAME, it.api, it.elamondVersion, it.minApp) } ?: Compat.Ok
 	// Unpaired, another certificate or refused: the screen is a notice, with no tabs to switch
 	// between and no old numbers coming back.
 	val turnedAway = state.conn == Conn.Unauthorized || state.conn == Conn.CertificateChanged || state.conn == Conn.Refused
@@ -192,13 +192,13 @@ fun MachineScreen(
 					when {
 						state.conn == Conn.Unauthorized -> Centered {
 							Notice(Icons.Default.Warning, stringResource(R.string.machine_unpaired_title), stringResource(R.string.machine_unpaired_body)) {
-								Button(onClick = { onPairAgain(server.toTarget()) }) { Text(stringResource(R.string.machine_pair_again)) }
+								Button(onClick = { onPairAgain(machine.toTarget()) }) { Text(stringResource(R.string.machine_pair_again)) }
 							}
 						}
 						state.conn == Conn.CertificateChanged -> Centered {
 							Notice(Icons.Default.Warning, stringResource(R.string.machine_cert_title), stringResource(R.string.machine_cert_body)) {
 								// A reset service has a new certificate and a new id: pair with whatever answers, checked by eye, in this entry's place.
-								Button(onClick = { onPairAgain(server.toTarget().copy(fingerprint = null, id = null)) }) { Text(stringResource(R.string.machine_pair_again)) }
+								Button(onClick = { onPairAgain(machine.toTarget().copy(fingerprint = null, id = null)) }) { Text(stringResource(R.string.machine_pair_again)) }
 							}
 						}
 						state.conn == Conn.Refused -> Centered {
@@ -291,11 +291,11 @@ fun MachineScreen(
 	if (confirmForget) {
 		GlassDialog(
 			onDismiss = { confirmForget = false },
-			title = stringResource(R.string.machine_forget_title, server.name),
+			title = stringResource(R.string.machine_forget_title, machine.name),
 			text = { Text(stringResource(R.string.machine_forget_body)) },
 			confirm = {
 				TextButton(onClick = {
-					ServerStore.get(ctx).remove(server.id)
+					MachineStore.get(ctx).remove(machine.id)
 					confirmForget = false
 					onForgotten()
 				}) { Text(stringResource(R.string.machine_forget_confirm)) }
@@ -387,7 +387,7 @@ private fun CompatBanner(compat: Compat, info: Info, onDismiss: () -> Unit) {
 			Spacer(Modifier.width(Space.sPlus))
 			Text(
 				if (compat == Compat.UpdateApp) stringResource(R.string.compat_update_app)
-				else stringResource(R.string.compat_update_elamond, info.serviceVersion, MIN_ELAMOND),
+				else stringResource(R.string.compat_update_elamond, info.elamondVersion, MIN_ELAMOND),
 				style = MaterialTheme.typography.bodySmall,
 				modifier = Modifier.weight(1f),
 			)
@@ -397,4 +397,4 @@ private fun CompatBanner(compat: Compat, info: Info, onDismiss: () -> Unit) {
 }
 
 /** Pairing this computer again, in its entry's place. */
-fun Server.toTarget() = PairTarget(hosts = hostsToTry(), port = port, name = name, id = id, fingerprint = fingerprint, replaces = id)
+fun Machine.toTarget() = PairTarget(hosts = hostsToTry(), port = port, name = name, id = id, fingerprint = fingerprint, replaces = id)

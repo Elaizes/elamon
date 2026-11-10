@@ -22,6 +22,8 @@ with subtest("a phone pairs"):
 	auth = f"-H 'Authorization: Bearer {token}'"
 	info = json.loads(machine.succeed(f"curl -sk {auth} https://localhost:47823/api/v1/info"))
 	assert info["interval_ms"] > 0 and info["history_seconds"] > 0, info
+	# service_version is the old name, kept for apps 0.4.
+	assert info["service_version"] == info["service_version"] == hello["version"], info
 
 with subtest("a drop-in turns control on without a restart"):
 	assert not json.loads(machine.succeed(f"curl -sk {auth} https://localhost:47823/api/v1/control"))["enabled"]
@@ -31,3 +33,15 @@ with subtest("a drop-in turns control on without a restart"):
 with subtest("systemctl reload rereads the settings"):
 	machine.succeed("systemctl --user -M alice@ reload elamond")
 	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -c 'settings: reread' | grep -qv '^1$'", timeout=30)
+
+with subtest("an elamond.toml from before 0.5, with [[services]], still works"):
+	machine.succeed("""printf '%s\\n' '[[services]]' 'name = "Old style"' 'url = "http://{host}:8080"' > /home/alice/.config/elamon/elamond.toml""")
+	machine.succeed("chown alice: /home/alice/.config/elamon/elamond.toml")
+	# Its old routes and the old name in samples stay for apps 0.4.
+	for path in ["links", "services"]:
+		machine.wait_until_succeeds(f"""curl -sk {auth} https://localhost:47823/api/v1/{path} | jq -e '.[0].name == "Old style"'""", timeout=30)
+	sample = json.loads(machine.succeed(f"curl -sk {auth} https://localhost:47823/api/v1/snapshot"))
+	assert sample["links"][0]["name"] == "Old style" and sample["links"] == sample["services"], sample
+	# The drop-in beside it still applies, and the old name is pointed out once.
+	machine.succeed(f"curl -sk {auth} https://localhost:47823/api/v1/control | jq -e .enabled")
+	machine.succeed("journalctl _UID=1000 -o cat | grep -c 'elamond.toml is read for now' | grep -qx 1")

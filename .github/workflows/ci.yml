@@ -1,4 +1,4 @@
-# The service's lints and tests (with the protocol fixtures), the app's unit tests, lint and
+# elamond's lints and tests (with the protocol fixtures), the app's unit tests, lint and
 # release build, and the NixOS module in a VM.
 name: CI
 
@@ -8,7 +8,7 @@ on:
   pull_request:
 
 jobs:
-  service:
+  elamond:
     runs-on: ubuntu-latest
     defaults:
       run:

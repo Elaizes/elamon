@@ -124,6 +124,7 @@ impl Collector {
 			id: id.to_string(),
 			name: name.to_string(),
 			service_version: env!("CARGO_PKG_VERSION"),
+			service_version: env!("CARGO_PKG_VERSION"),
 			api: protocol::API_VERSION,
 			min_app: protocol::MIN_APP,
 			interval_ms: interval.as_millis() as u64,
@@ -138,7 +139,8 @@ impl Collector {
 			boot_time: System::boot_time().unwrap_or(0),
 			gpus,
 			capabilities: {
-				let mut c = vec!["processes", "displays", "history", "sensors", "services", "media"];
+				// "services" is what "links" were called before 0.5.
+				let mut c = vec!["processes", "displays", "history", "sensors", "links", "services", "media"];
 				if control {
 					c.push("control");
 				}
@@ -229,6 +231,7 @@ impl Collector {
 			disk_io: self.disk_io(secs),
 			net: self.net(secs, watched && slow),
 			displays: self.cached_displays.clone(),
+			links: Vec::new(),
 			services: Vec::new(),
 		};
 		Reading { sample, processes }

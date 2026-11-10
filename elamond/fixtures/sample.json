@@ -98,6 +98,20 @@
       "usage": 33.0
     }
   ],
+  "links": [
+    {
+      "editable": false,
+      "id": "config-0123456789ab",
+      "local_only": false,
+      "name": "Some link",
+      "port": 8080,
+      "scope": "system",
+      "unit": "some.service",
+      "unit_state": "active",
+      "up": true,
+      "url": "http://{host}:8080"
+    }
+  ],
   "media": {
     "players": [
       {
@@ -186,7 +200,7 @@
       "editable": false,
       "id": "config-0123456789ab",
       "local_only": false,
-      "name": "Some service",
+      "name": "Some link",
       "port": 8080,
       "scope": "system",
       "unit": "some.service",

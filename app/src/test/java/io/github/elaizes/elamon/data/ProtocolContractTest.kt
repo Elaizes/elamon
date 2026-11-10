@@ -21,7 +21,8 @@ import kotlinx.serialization.json.jsonObject
 /**
  * The app against elamond/fixtures, which the service's own tests write: every shape it sends, with
  * every optional field filled. A field the service sends that the app doesn't model fails here, and
- * so does a field the app models that the service never sends (a typo in a @SerialName).
+ * so does a field the app models that the service never sends (a typo in a @SerialName). A field
+ * sent under its new name and its old one (links and services) is read by either.
  */
 class ProtocolContractTest {
 	private val dir = File(System.getProperty("elamon.fixtures") ?: error("elamon.fixtures isn't set; run the tests through Gradle"))
@@ -68,14 +69,14 @@ class ProtocolContractTest {
 		else -> e
 	}
 
-	/** Keys in [app] that [service] lacks, through objects and the first item of lists. */
-	private fun missing(app: JsonElement, service: JsonElement, path: String, out: MutableList<String>) {
+	/** Keys in [app] that [sent] lacks, through objects and the first item of lists. */
+	private fun missing(app: JsonElement, sent: JsonElement, path: String, out: MutableList<String>) {
 		when {
-			app is JsonObject && service is JsonObject -> for ((k, v) in app) {
-				val a = service[k]
+			app is JsonObject && sent is JsonObject -> for ((k, v) in app) {
+				val a = sent[k]
 				if (a == null) out += "$path.$k" else missing(v, a, "$path.$k", out)
 			}
-			app is JsonArray && service is JsonArray && app.isNotEmpty() && service.isNotEmpty() -> missing(app[0], service[0], "$path[]", out)
+			app is JsonArray && sent is JsonArray && app.isNotEmpty() && sent.isNotEmpty() -> missing(app[0], sent[0], "$path[]", out)
 		}
 	}
 
@@ -161,9 +162,9 @@ class ProtocolContractTest {
 	@Test
 	fun identityAndTimeAreRequired() {
 		val required = mapOf(
-			"sample" to listOf("t", "uptime", "gpus[].id", "temps[].value", "temps[].kind", "net[].kind", "net[].name", "disks[].mount", "displays[].connector", "processes[].pid", "services[].id", "media.players[].id"),
+			"sample" to listOf("t", "uptime", "gpus[].id", "temps[].value", "temps[].kind", "net[].kind", "net[].name", "disks[].mount", "displays[].connector", "processes[].pid", "links[].id", "services[].id", "media.players[].id"),
 			"history" to listOf("t", "gpus[].id"),
-			"info" to listOf("id", "service_version", "api", "cpu_logical_cores", "memory_total", "boot_time", "gpus[].id"),
+			"info" to listOf("id", "api", "cpu_logical_cores", "memory_total", "boot_time", "gpus[].id"),
 			"hello" to listOf("app", "api", "id", "version"),
 			"control" to listOf("enabled", "actions[].id"),
 		)
@@ -187,6 +188,25 @@ class ProtocolContractTest {
 		assertEquals(DEFAULT_HISTORY_SECONDS, decoded.historySeconds)
 		val hello = ProtocolJson.decodeFromJsonElement(Hello.serializer(), dropping("hello", "min_app"))
 		assertNull(hello.minApp)
+	}
+
+	private fun without(name: String, vararg keys: String) = JsonObject(fixture(name).jsonObject - keys.toSet())
+
+	@Test
+	fun renamedFieldsAreReadByEitherName() {
+		val info = { e: JsonElement -> ProtocolJson.decodeFromJsonElement(Info.serializer(), e) }
+		val sample = { e: JsonElement -> ProtocolJson.decodeFromJsonElement(Sample.serializer(), e) }
+		// elamond 0.5 sends both names; 0.4 only the old ones, and a later API only the new.
+		assertEquals("9.9.9", info(fixture("info")).elamondVersion)
+		assertEquals("9.9.9", info(without("info", "service_version")).elamondVersion)
+		assertEquals("9.9.9", info(without("info", "service_version")).elamondVersion)
+		assertFailsWith<SerializationException>("info without a version should fail") {
+			info(without("info", "service_version", "service_version"))
+		}
+		for (kept in listOf(fixture("sample"), without("sample", "links"), without("sample", "services"))) {
+			assertEquals(listOf("Some link"), sample(kept).links.map { it.name })
+		}
+		assertEquals(emptyList(), sample(without("sample", "links", "services")).links)
 	}
 
 	private fun line(type: String, name: String): String =

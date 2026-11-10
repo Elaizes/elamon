@@ -27,7 +27,7 @@ class ErrorsTest {
 		assertEquals(Kind.WrongCode, answer(403, "wrong_code").kind)
 		assertEquals(Kind.NoPairing, answer(403, "no_pairing").kind)
 		assertEquals(Kind.Forbidden, answer(403, "something_new").kind)
-		for (code in listOf("not_found", "no_such_process", "no_such_action", "no_such_service", "no_art")) {
+		for (code in listOf("not_found", "no_such_process", "no_such_action", "no_such_link", "no_such_service", "no_art")) {
 			assertEquals(Kind.NotFound, answer(404, code).kind, code)
 		}
 		for (code in listOf("unknown_signal", "empty_command", "no_unit", "bad_name", "bad_url", "bad_unit", "bad_scope")) {
@@ -60,7 +60,7 @@ class ErrorsTest {
 			(404 to "not_found") to R.string.err_not_found,
 			(404 to "no_such_process") to R.string.err_no_such_process,
 			(404 to "no_such_action") to R.string.err_no_such_action,
-			(404 to "no_such_service") to R.string.err_no_such_service,
+			(404 to "no_such_link") to R.string.err_no_such_link,
 			(404 to "no_art") to R.string.err_no_art,
 			(400 to "unknown_signal") to R.string.err_unknown_signal,
 			(400 to "empty_command") to R.string.err_empty_command,
@@ -75,6 +75,8 @@ class ErrorsTest {
 			assertEquals(Message.Res(id), messageFor(answer(sent.first, sent.second)), sent.second)
 		}
 		assertEquals(expected.values.size, expected.values.toSet().size, "two codes share their words")
+		// The old name of no_such_link, which elamond before 0.5 answers with.
+		assertEquals(Message.Res(R.string.err_no_such_link), messageFor(answer(404, "no_such_service")))
 	}
 
 	@Test

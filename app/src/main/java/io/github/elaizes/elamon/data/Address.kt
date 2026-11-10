@@ -90,17 +90,17 @@ fun parseAddress(input: String, defaultPort: Int): Pair<String, Int>? {
 	return if (Hosts.isIpv4(host) || Hosts.isDnsName(host)) host to p else null
 }
 
-/** What a service's address says about the computer itself: the phone can't use these. */
+/** What a link's address says about the computer itself: the phone can't use these. */
 private val LOCAL_HOSTS = setOf("{host}", "localhost", "127.0.0.1", "[::1]")
 
 private val SCHEME = Regex("^[A-Za-z][A-Za-z0-9+.-]*://")
 
 /**
- * A service's link as the phone opens it. "{host}", "localhost" and the loopback address in the
+ * A link's address as the phone opens it. "{host}", "localhost" and the loopback address in the
  * host's place become [host], the address this phone reaches the computer at; "{host}" elsewhere
  * becomes it too. A bare host:port gets http://. The rest of the link is left as it is.
  */
-fun serviceUrl(url: String, host: String): String {
+fun linkUrl(url: String, host: String): String {
 	val h = if (host.contains(':')) "[$host]" else host
 	val u = url.trim().let { if (SCHEME.containsMatchIn(it)) it else "http://$it" }
 	val start = u.indexOf("://") + 3

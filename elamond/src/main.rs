@@ -7,9 +7,9 @@ mod control;
 mod errors;
 #[cfg(test)]
 mod fixtures;
+mod links;
 mod model;
 mod server;
-mod services;
 mod store;
 
 use std::collections::HashMap;
@@ -380,7 +380,7 @@ fn pair() -> Result<(), String> {
 	println!("  The app shows the same certificate digits when you pair by code; they must match.");
 	println!();
 	if !service_running(config.port) {
-		println!("  ! The service isn't answering on port {}. Start it: systemctl --user start elamond", config.port);
+		println!("  ! The Elamon service isn't answering on port {}. Start it: systemctl --user start elamond", config.port);
 		println!();
 	}
 	println!("  Waiting for the phone… (the code works for {} minutes, Ctrl+C to stop)", timeout::PAIRING_TTL_SECS / 60);
@@ -421,7 +421,7 @@ fn used_up() -> String {
 }
 
 fn service_running(port: u16) -> bool {
-	std::net::TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), timeout::ELAMOND_CHECK).is_ok()
+	std::net::TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), timeout::SERVICE_CHECK).is_ok()
 }
 
 fn percent_encode(s: &str) -> String {

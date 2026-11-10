@@ -1,11 +1,14 @@
-//! Web services this computer hosts: links for the app, whether they answer, their units.
+//! Links to the web pages this computer hosts: what the app opens, whether they answer, their units.
 //!
-//! Services come from elamond.toml (fixed) and from the app (services.json in the data
-//! directory, editable from any paired phone).
+//! Links come from elamond.toml (fixed) and from the app (links.json in the data directory,
+//! editable from any paired phone). Before 0.5 they were called services, and the file
+//! services.json, which is still read while links.json doesn't exist.
 
 use std::collections::HashMap;
 use std::fs;
+use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +17,7 @@ use crate::errors::ErrorCode;
 use crate::store;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct ServiceDef {
+pub struct LinkDef {
 	pub id: String,
 	pub name: String,
 	pub url: String,
@@ -26,7 +29,7 @@ pub struct ServiceDef {
 }
 
 #[derive(Serialize, Clone, Debug)]
-pub struct ServiceStatus {
+pub struct LinkStatus {
 	pub id: String,
 	pub name: String,
 	pub url: String,
@@ -49,32 +52,47 @@ pub struct Listener {
 	pub process: Option<String>,
 }
 
-fn path() -> std::path::PathBuf {
-	store::data_dir().join("services.json")
-}
+/// The links added from the app, in the data directory.
+const FILE: &str = "links.json";
+/// Its name before 0.5.
+const OLD_FILE: &str = "services.json";
 
-/// The services added from the app; none when there are none yet. A file that doesn't parse
+/// The links added from the app; none when there are none yet. A file that doesn't parse
 /// is an error, and stays on disk until the next save sets it aside.
-pub fn load() -> std::io::Result<Vec<ServiceDef>> {
-	Ok(store::read_json(&path())?.unwrap_or_default())
+pub fn load() -> io::Result<Vec<LinkDef>> {
+	load_in(&store::data_dir())
 }
 
-pub fn save(list: &[ServiceDef]) -> std::io::Result<()> {
-	store::write_json::<Vec<ServiceDef>>(&path(), list)
+pub fn save(list: &[LinkDef]) -> io::Result<()> {
+	save_in(&store::data_dir(), list)
 }
 
-/// Every service, the configured ones first.
-pub fn all(config: &store::Config, app: &[ServiceDef]) -> Vec<(ServiceDef, bool)> {
-	let fixed = config.services.iter().map(|s| {
+/// links.json, or services.json while there is no links.json yet: the first save writes
+/// links.json and leaves the old file as it was.
+fn load_in(dir: &Path) -> io::Result<Vec<LinkDef>> {
+	let list = match store::read_json(&dir.join(FILE))? {
+		Some(list) => Some(list),
+		None => store::read_json(&dir.join(OLD_FILE))?,
+	};
+	Ok(list.unwrap_or_default())
+}
+
+fn save_in(dir: &Path, list: &[LinkDef]) -> io::Result<()> {
+	store::write_json::<Vec<LinkDef>>(&dir.join(FILE), list)
+}
+
+/// Every link, the configured ones first.
+pub fn all(config: &store::Config, app: &[LinkDef]) -> Vec<(LinkDef, bool)> {
+	let fixed = config.links.iter().map(|s| {
 		(
-			ServiceDef { id: format!("config-{}", s.id()), name: s.name.clone(), url: s.url.clone(), unit: s.unit.clone(), scope: s.scope.clone() },
+			LinkDef { id: format!("config-{}", s.id()), name: s.name.clone(), url: s.url.clone(), unit: s.unit.clone(), scope: s.scope.clone() },
 			false,
 		)
 	});
 	fixed.chain(app.iter().cloned().map(|s| (s, true))).collect()
 }
 
-/// The port a service URL points at: explicit, or the scheme's.
+/// The port a link's URL points at: explicit, or the scheme's.
 pub fn port_of(url: &str) -> Option<u16> {
 	let (scheme, rest) = match url.split_once("://") {
 		Some((s, r)) => (s.to_ascii_lowercase(), r),
@@ -105,14 +123,14 @@ pub fn probe(port: u16) -> bool {
 }
 
 /// Statuses without the units' state, which needs D-Bus and is filled in by the caller.
-pub fn statuses(config: &store::Config, app: &[ServiceDef]) -> Vec<ServiceStatus> {
+pub fn statuses(config: &store::Config, app: &[LinkDef]) -> Vec<LinkStatus> {
 	let listening = listening_sockets();
 	all(config, app)
 		.into_iter()
 		.map(|(s, editable)| {
 			let port = port_of(&s.url);
 			let socks: Vec<&(u16, bool, u64)> = listening.iter().filter(|l| Some(l.0) == port).collect();
-			ServiceStatus {
+			LinkStatus {
 				up: port.map(|p| !socks.is_empty() || probe(p)),
 				local_only: !socks.is_empty() && socks.iter().all(|l| l.1),
 				port,
@@ -214,7 +232,7 @@ fn socket_owners() -> HashMap<u64, String> {
 	map
 }
 
-/// A service as the app sends it, checked before it's stored. Control characters are refused
+/// A link as the app sends it, checked before it's stored. Control characters are refused
 /// everywhere: these end up in the log and on other phones.
 pub fn validate(name: &str, url: &str, unit: Option<&str>, scope: Option<&str>) -> Result<(), ErrorCode> {
 	if name.trim().is_empty() || name.chars().count() > limit::NAME_MAX || name.chars().any(char::is_control) {
@@ -272,17 +290,37 @@ mod tests {
 	}
 
 	#[test]
-	fn configured_services_first_with_ids_from_content() {
+	fn configured_links_first_with_ids_from_content() {
 		let config = store::Config {
-			services: vec![store::ServiceConfig { name: "Web".into(), url: "http://{host}".into(), unit: None, scope: None }],
+			links: vec![store::LinkConfig { name: "Web".into(), url: "http://{host}".into(), unit: None, scope: None }],
 			..Default::default()
 		};
-		let app = [ServiceDef { id: "a1b2".into(), name: "Mine".into(), url: "http://{host}:81".into(), unit: None, scope: None }];
+		let app = [LinkDef { id: "a1b2".into(), name: "Mine".into(), url: "http://{host}:81".into(), unit: None, scope: None }];
 		let list = all(&config, &app);
 		assert_eq!(list.len(), 2);
-		assert_eq!(list[0].0.id, format!("config-{}", config.services[0].id()));
+		assert_eq!(list[0].0.id, format!("config-{}", config.links[0].id()));
 		assert_eq!(list[0].0.id.len(), "config-".len() + 12);
 		assert!(!list[0].1);
 		assert_eq!((list[1].0.id.as_str(), list[1].1), ("a1b2", true));
+	}
+
+	#[test]
+	fn links_from_before_0_5_are_read_until_saved_anew() {
+		let dir = std::env::temp_dir().join(format!("elamond-links-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
+		fs::create_dir_all(&dir).unwrap();
+		let def = |id: &str| LinkDef { id: id.into(), name: id.into(), url: "http://{host}:81".into(), unit: None, scope: None };
+		let ids = |list: Vec<LinkDef>| list.into_iter().map(|l| l.id).collect::<Vec<_>>();
+		assert!(load_in(&dir).unwrap().is_empty());
+
+		fs::write(dir.join(OLD_FILE), serde_json::to_vec(&[def("old")]).unwrap()).unwrap();
+		assert_eq!(ids(load_in(&dir).unwrap()), ["old"]);
+
+		save_in(&dir, &[def("old"), def("new")]).unwrap();
+		assert_eq!(ids(load_in(&dir).unwrap()), ["old", "new"]);
+		// The old file is left for an older elamond, and no longer read.
+		assert!(dir.join(OLD_FILE).exists());
+		save_in(&dir, &[]).unwrap();
+		assert!(load_in(&dir).unwrap().is_empty());
+		fs::remove_dir_all(dir).unwrap();
 	}
 }

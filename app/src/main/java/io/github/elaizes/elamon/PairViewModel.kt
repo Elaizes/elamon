@@ -22,8 +22,8 @@ import io.github.elaizes.elamon.data.ElamondException
 import io.github.elaizes.elamon.data.Hello
 import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.data.PairTarget
-import io.github.elaizes.elamon.data.Server
-import io.github.elaizes.elamon.data.ServerStore
+import io.github.elaizes.elamon.data.Machine
+import io.github.elaizes.elamon.data.MachineStore
 
 /** Where the pairing screen is: finding the computer, then asking it for a token. */
 sealed interface PairStep {
@@ -38,7 +38,7 @@ data class PairState(
 	val busy: Boolean = false,
 	@StringRes val codeError: Int? = null,
 	/** Paired and saved: the screen moves on to the computer. */
-	val paired: Server? = null,
+	val paired: Machine? = null,
 )
 
 /**
@@ -97,7 +97,7 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 				// Pinned to the certificate just seen, so it can't be swapped between the two requests.
 				val client = ElamondClient(ready.host, target.port, ready.fingerprint)
 				val resp = client.pair(digits, device)
-				val server = Server(
+				val machine = Machine(
 					id = resp.id.ifEmpty { ready.hello.id },
 					name = resp.name.ifEmpty { ready.hello.name },
 					hosts = (listOf(ready.host) + target.hosts).distinct(),
@@ -107,8 +107,8 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 					lastHost = ready.host,
 					addedAt = System.currentTimeMillis(),
 				)
-				ServerStore.get(app).put(server, replacing = target.replaces)
-				_state.update { it.copy(busy = false, paired = server) }
+				MachineStore.get(app).put(machine, replacing = target.replaces)
+				_state.update { it.copy(busy = false, paired = machine) }
 			} catch (e: CancellationException) {
 				throw e
 			} catch (e: Exception) {

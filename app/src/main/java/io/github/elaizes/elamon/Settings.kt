@@ -52,7 +52,7 @@ object Intervals {
 	}
 
 	/** How often samples really come: the service never sends faster than it reads. */
-	fun effective(settingMs: Int, serviceMs: Int?): Int = maxOf(settingMs, serviceMs ?: 0)
+	fun effective(settingMs: Int, elamondMs: Int?): Int = maxOf(settingMs, elamondMs ?: 0)
 }
 
 class Settings private constructor(context: Context) {
@@ -63,13 +63,13 @@ class Settings private constructor(context: Context) {
 	val current: Prefs get() = _state.value
 	val intervalMs: Int get() = _state.value.intervalMs
 
-	private val _serviceIntervalMs = MutableStateFlow<Int?>(null)
+	private val _elamondIntervalMs = MutableStateFlow<Int?>(null)
 
 	/** The tick of the service last connected to, the floor for a custom interval; not kept across restarts. */
-	val serviceIntervalMs: StateFlow<Int?> = _serviceIntervalMs.asStateFlow()
+	val elamondIntervalMs: StateFlow<Int?> = _elamondIntervalMs.asStateFlow()
 
-	fun noteServiceInterval(ms: Int) {
-		_serviceIntervalMs.value = ms
+	fun noteElamondInterval(ms: Int) {
+		_elamondIntervalMs.value = ms
 	}
 
 	private fun load(): Prefs {

@@ -1,7 +1,7 @@
-//! Acting on the computer from the app: power, profiles, processes, actions, media, services.
+//! Acting on the computer from the app: power, profiles, processes, actions, media, links.
 //!
 //! Everything that changes the computer needs `control = true` in elamond.toml; the list of
-//! web services is the exception, it only changes what the app shows. Every action is
+//! links is the exception, it only changes what the app shows. Every action is
 //! logged with the name of the phone that asked, once the request has been checked.
 
 use std::collections::VecDeque;
@@ -25,7 +25,7 @@ use crate::consts::{limit, timeout};
 use crate::errors::{reason, ErrorCode};
 use crate::model::Sample;
 use crate::server::{error, failed, ClientName, Hub};
-use crate::services::{self, ServiceDef, ServiceStatus};
+use crate::links::{self, LinkDef, LinkStatus};
 use crate::store;
 
 fn denied(hub: &Hub) -> Option<Response> {
@@ -450,14 +450,14 @@ fn run(argv: &[&str]) -> Option<String> {
 	status.success().then_some(out)
 }
 
-// ---- services --------------------------------------------------------------------------
+// ---- links -----------------------------------------------------------------------------
 
-pub async fn services_list(State(hub): State<Arc<Hub>>) -> Response {
-	Json(hub.service_statuses().await).into_response()
+pub async fn links_list(State(hub): State<Arc<Hub>>) -> Response {
+	Json(hub.link_statuses().await).into_response()
 }
 
 #[derive(Deserialize)]
-pub struct ServiceReq {
+pub struct LinkReq {
 	id: Option<String>,
 	name: String,
 	url: String,
@@ -465,14 +465,14 @@ pub struct ServiceReq {
 	scope: Option<String>,
 }
 
-pub async fn service_put(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<ServiceReq>) -> Response {
+pub async fn link_put(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<LinkReq>) -> Response {
 	let unit = r.unit.as_deref().map(str::trim).filter(|u| !u.is_empty());
-	if let Err(code) = services::validate(&r.name, &r.url, unit, r.scope.as_deref()) {
+	if let Err(code) = links::validate(&r.name, &r.url, unit, r.scope.as_deref()) {
 		return error(code);
 	}
-	let mut list = hub.app_services.lock().await;
-	let def = ServiceDef {
-		id: r.id.clone().unwrap_or_else(|| data_encoding::HEXLOWER.encode(&store::random_bytes::<{ crate::consts::protocol::SERVICE_ID_BYTES }>())),
+	let mut list = hub.app_links.lock().await;
+	let def = LinkDef {
+		id: r.id.clone().unwrap_or_else(|| data_encoding::HEXLOWER.encode(&store::random_bytes::<{ crate::consts::protocol::LINK_ID_BYTES }>())),
 		name: r.name.trim().to_string(),
 		url: r.url.trim().to_string(),
 		unit: unit.map(str::to_string),
@@ -481,30 +481,30 @@ pub async fn service_put(State(hub): State<Arc<Hub>>, Extension(who): Extension<
 	match list.iter_mut().find(|s| s.id == def.id) {
 		Some(s) => *s = def.clone(),
 		None if r.id.is_none() => list.push(def.clone()),
-		None => return error(ErrorCode::NoSuchService),
+		None => return error(ErrorCode::NoSuchLink),
 	}
-	if let Err(e) = services::save(&list) {
-		eprintln!("services: can't save: {e}");
+	if let Err(e) = links::save(&list) {
+		eprintln!("links: can't save: {e}");
 		return error(ErrorCode::Storage);
 	}
-	eprintln!("services: {} saved \"{}\"", who.0, def.name);
+	eprintln!("links: {} saved \"{}\"", who.0, def.name);
 	drop(list);
 	hub.refresh_soon();
 	Json(def).into_response()
 }
 
-pub async fn service_delete(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Path(id): Path<String>) -> Response {
-	let mut list = hub.app_services.lock().await;
+pub async fn link_delete(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Path(id): Path<String>) -> Response {
+	let mut list = hub.app_links.lock().await;
 	let before = list.len();
 	list.retain(|s| s.id != id);
 	if list.len() == before {
-		return error(ErrorCode::NoSuchService);
+		return error(ErrorCode::NoSuchLink);
 	}
-	if let Err(e) = services::save(&list) {
-		eprintln!("services: can't save: {e}");
+	if let Err(e) = links::save(&list) {
+		eprintln!("links: can't save: {e}");
 		return error(ErrorCode::Storage);
 	}
-	eprintln!("services: {} removed {id}", who.0);
+	eprintln!("links: {} removed {id}", who.0);
 	drop(list);
 	hub.refresh_soon();
 	Json(json!({ "ok": true })).into_response()
@@ -515,7 +515,7 @@ pub struct UnitReq {
 	op: String,
 }
 
-pub async fn service_unit(
+pub async fn link_unit(
 	State(hub): State<Arc<Hub>>,
 	Extension(who): Extension<ClientName>,
 	Path(id): Path<String>,
@@ -524,9 +524,9 @@ pub async fn service_unit(
 	if let Some(e) = denied(&hub) {
 		return e;
 	}
-	let app = hub.app_services.lock().await.clone();
-	let Some((def, _)) = services::all(&hub.config(), &app).into_iter().find(|(s, _)| s.id == id) else {
-		return error(ErrorCode::NoSuchService);
+	let app = hub.app_links.lock().await.clone();
+	let Some((def, _)) = links::all(&hub.config(), &app).into_iter().find(|(s, _)| s.id == id) else {
+		return error(ErrorCode::NoSuchLink);
 	};
 	let Some(unit) = def.unit else { return error(ErrorCode::NoUnit) };
 	if Bus::unit_method(&r.op).is_none() {
@@ -539,7 +539,7 @@ pub async fn service_unit(
 }
 
 pub async fn detected(State(_hub): State<Arc<Hub>>) -> Response {
-	let list = tokio::task::spawn_blocking(services::detect).await.unwrap_or_default();
+	let list = tokio::task::spawn_blocking(links::detect).await.unwrap_or_default();
 	Json(list).into_response()
 }
 
@@ -559,7 +559,7 @@ pub async fn units(State(hub): State<Arc<Hub>>, Query(q): Query<UnitsQuery>) -> 
 
 /// The slower, D-Bus-backed parts of a sample, refreshed by the collector thread.
 pub struct Extras {
-	services: Vec<ServiceStatus>,
+	links: Vec<LinkStatus>,
 	profiles: Option<Profiles>,
 	volume: Option<Volume>,
 	every: Ticks,
@@ -571,16 +571,16 @@ pub struct Extras {
 
 impl Extras {
 	pub fn new(every: Ticks) -> Self {
-		Extras { services: Vec::new(), profiles: None, volume: None, every, tick: 0, was_watched: false, had_media: false }
+		Extras { links: Vec::new(), profiles: None, volume: None, every, tick: 0, was_watched: false, had_media: false }
 	}
 
-	/// Fills in services and power profiles while an app is connected, and returns the media
+	/// Fills in links and power profiles while an app is connected, and returns the media
 	/// for the apps that asked for it. Called once per tick off the async runtime.
 	pub fn apply(&mut self, hub: &Hub, rt: &tokio::runtime::Handle, watched: bool, want_media: bool, sample: &mut Sample) -> Option<Media> {
 		// An action asked for a fresh look; that waits for someone to look.
 		let urgent = watched && hub.refresh.swap(false, Ordering::SeqCst);
-		if watched && (urgent || !self.was_watched || self.tick.is_multiple_of(self.every.services)) {
-			self.services = rt.block_on(hub.service_statuses());
+		if watched && (urgent || !self.was_watched || self.tick.is_multiple_of(self.every.links)) {
+			self.links = rt.block_on(hub.link_statuses());
 			self.profiles = rt.block_on(hub.bus.profiles());
 		}
 		let media = if want_media {
@@ -596,7 +596,8 @@ impl Extras {
 		self.had_media = want_media;
 		self.tick = self.tick.wrapping_add(1);
 		if watched {
-			sample.services = self.services.clone();
+			sample.links = self.links.clone();
+			sample.services = self.links.clone();
 			if let Some(p) = &self.profiles {
 				sample.power.ppd_profile = Some(p.active.clone());
 				sample.power.ppd_profiles = p.available.clone();
@@ -607,11 +608,11 @@ impl Extras {
 }
 
 impl Hub {
-	/// Service statuses with their units' states.
-	pub async fn service_statuses(&self) -> Vec<ServiceStatus> {
-		let app = self.app_services.lock().await.clone();
+	/// Link statuses with their units' states.
+	pub async fn link_statuses(&self) -> Vec<LinkStatus> {
+		let app = self.app_links.lock().await.clone();
 		let config = self.config();
-		let mut list = tokio::task::spawn_blocking(move || services::statuses(&config, &app)).await.unwrap_or_default();
+		let mut list = tokio::task::spawn_blocking(move || links::statuses(&config, &app)).await.unwrap_or_default();
 		for s in &mut list {
 			if let Some(u) = &s.unit {
 				s.unit_state = self.bus.unit_state(Scope::parse(Some(&s.scope)), u).await;

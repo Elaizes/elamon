@@ -54,11 +54,11 @@ import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.data.ElamondClient
 import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.data.PairTarget
-import io.github.elaizes.elamon.data.Server
+import io.github.elaizes.elamon.data.Machine
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PairScreen(target: PairTarget, owner: ViewModelStoreOwner, onBack: () -> Unit, onPaired: (Server) -> Unit, onHelp: () -> Unit) {
+fun PairScreen(target: PairTarget, owner: ViewModelStoreOwner, onBack: () -> Unit, onPaired: (Machine) -> Unit, onHelp: () -> Unit) {
 	val ctx = LocalContext.current
 	val vm: PairViewModel = viewModel(
 		viewModelStoreOwner = owner,
@@ -68,7 +68,7 @@ fun PairScreen(target: PairTarget, owner: ViewModelStoreOwner, onBack: () -> Uni
 	var code by rememberSaveable { mutableStateOf(target.code.orEmpty()) }
 
 	val paired by rememberUpdatedState(onPaired)
-	state.paired?.let { server -> LaunchedEffect(server) { paired(server) } }
+	state.paired?.let { machine -> LaunchedEffect(machine) { paired(machine) } }
 
 	Scaffold(
 		topBar = {

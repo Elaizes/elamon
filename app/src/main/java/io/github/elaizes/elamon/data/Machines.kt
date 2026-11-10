@@ -13,7 +13,7 @@ const val DEFAULT_PORT = 47823
 
 /** A paired computer. The token never leaves the phone: backups exclude the app's data. */
 @Serializable
-data class Server(
+data class Machine(
 	val id: String,
 	val name: String,
 	val hosts: List<String>,
@@ -28,60 +28,62 @@ data class Server(
 	fun hostsToTry(): List<String> = (listOfNotNull(lastHost) + hosts).distinct()
 }
 
-class ServerStore(context: Context) {
+class MachineStore(context: Context) {
+	// Still the file "servers" and the key "list", as when a Machine was called a Server (0.4 and
+	// before): an updated app finds its pairings where it left them.
 	private val prefs = context.getSharedPreferences("servers", Context.MODE_PRIVATE)
-	private val _servers = MutableStateFlow(load())
-	val servers: StateFlow<List<Server>> = _servers.asStateFlow()
+	private val _machines = MutableStateFlow(load())
+	val machines: StateFlow<List<Machine>> = _machines.asStateFlow()
 
 	/** Entries paired again under a new id, by the id they had; for as long as the app runs. */
 	private val replacedBy = ConcurrentHashMap<String, String>()
 
-	private fun load(): List<Server> = runCatching {
-		ProtocolJson.decodeFromString<List<Server>>(prefs.getString("list", null) ?: "[]")
+	private fun load(): List<Machine> = runCatching {
+		ProtocolJson.decodeFromString<List<Machine>>(prefs.getString("list", null) ?: "[]")
 	}.getOrDefault(emptyList())
 
-	private fun save(list: List<Server>) {
+	private fun save(list: List<Machine>) {
 		prefs.edit().putString("list", ProtocolJson.encodeToString(list)).apply()
-		_servers.value = list
+		_machines.value = list
 	}
 
-	fun get(id: String): Server? = _servers.value.find { it.id == id }
+	fun get(id: String): Machine? = _machines.value.find { it.id == id }
 
 	/** Adds a computer, replacing an older pairing with it or the entry [replacing] (a reset computer has a new id). */
-	fun put(server: Server, replacing: String? = null) {
-		val list = _servers.value
-		if (replacing != null && replacing != server.id && list.any { it.id == replacing }) replacedBy[replacing] = server.id
-		save(withServer(list, server, replacing))
+	fun put(machine: Machine, replacing: String? = null) {
+		val list = _machines.value
+		if (replacing != null && replacing != machine.id && list.any { it.id == replacing }) replacedBy[replacing] = machine.id
+		save(withMachine(list, machine, replacing))
 	}
 
 	/** The entry that took the place of the gone entry [id] (paired again, the computer had a new id), if one is still here. */
 	fun successor(id: String): String? = successorOf(id, replacedBy) { get(it) != null }
 
-	fun update(id: String, change: (Server) -> Server) {
-		save(_servers.value.map { if (it.id == id) change(it) else it })
+	fun update(id: String, change: (Machine) -> Machine) {
+		save(_machines.value.map { if (it.id == id) change(it) else it })
 	}
 
 	fun remove(id: String) {
-		save(_servers.value.filter { it.id != id })
+		save(_machines.value.filter { it.id != id })
 	}
 
 	companion object {
-		@Volatile private var instance: ServerStore? = null
-		fun get(context: Context): ServerStore =
-			instance ?: synchronized(this) { instance ?: ServerStore(context.applicationContext).also { instance = it } }
+		@Volatile private var instance: MachineStore? = null
+		fun get(context: Context): MachineStore =
+			instance ?: synchronized(this) { instance ?: MachineStore(context.applicationContext).also { instance = it } }
 	}
 }
 
 /**
- * [list] with [server] where the entry with its id was, or else where [replacing] was, or else at
+ * [list] with [machine] where the entry with its id was, or else where [replacing] was, or else at
  * the end; the entries it replaces are gone.
  */
-fun withServer(list: List<Server>, server: Server, replacing: String? = null): List<Server> {
-	val gone = { s: Server -> s.id == server.id || (replacing != null && s.id == replacing) }
+fun withMachine(list: List<Machine>, machine: Machine, replacing: String? = null): List<Machine> {
+	val gone = { s: Machine -> s.id == machine.id || (replacing != null && s.id == replacing) }
 	val at = list.indexOfFirst(gone)
 	val rest = list.filterNot(gone)
 	// Nothing before the first match is removed, so its index is where the new entry goes.
-	return if (at < 0) rest + server else rest.toMutableList().apply { add(at, server) }
+	return if (at < 0) rest + machine else rest.toMutableList().apply { add(at, machine) }
 }
 
 /**
@@ -132,19 +134,19 @@ data class PairTarget(
 			val v = param("v")?.trim() ?: return PairLink.Invalid
 			if (v != LINK_VERSION.toString()) {
 				// A number past ours is a newer elamond; anything else is a broken link.
-				val n = v.takeIf { it.length in 1..Limits.LINK_VERSION_DIGITS && it.all { c -> c in '0'..'9' } }?.toInt()
+				val n = v.takeIf { it.length in 1..Limits.PAIR_LINK_VERSION_DIGITS && it.all { c -> c in '0'..'9' } }?.toInt()
 				return if (n != null && n > LINK_VERSION) PairLink.Newer else PairLink.Invalid
 			}
 			val id = param("id")?.takeIf { HEX_ID.matches(it) } ?: return PairLink.Invalid
 			val fp = param("fp")?.takeIf { HEX_FINGERPRINT.matches(it) }?.lowercase() ?: return PairLink.Invalid
 			val code = param("code")?.takeIf { CODE.matches(it) } ?: return PairLink.Invalid
 			val hosts = param("h")?.split(',')?.map { it.trim().removeSurrounding("[", "]") }?.filter { it.isNotEmpty() }.orEmpty()
-			if (hosts.isEmpty() || hosts.size > Limits.LINK_MAX_HOSTS || !hosts.all(Hosts::isValid)) return PairLink.Invalid
+			if (hosts.isEmpty() || hosts.size > Limits.PAIR_LINK_MAX_HOSTS || !hosts.all(Hosts::isValid)) return PairLink.Invalid
 			val port = when (val p = param("port")) {
 				null -> DEFAULT_PORT
 				else -> parsePort(p) ?: return PairLink.Invalid
 			}
-			val name = param("name")?.filterNot { it.isISOControl() }?.trim()?.take(Limits.LINK_MAX_NAME)?.ifEmpty { null }
+			val name = param("name")?.filterNot { it.isISOControl() }?.trim()?.take(Limits.PAIR_LINK_MAX_NAME)?.ifEmpty { null }
 			return PairLink.Target(PairTarget(hosts = hosts.distinct(), port = port, name = name, id = id, fingerprint = fp, code = code))
 		}
 	}

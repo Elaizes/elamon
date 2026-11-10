@@ -40,6 +40,9 @@ class ElamondException(
 	/** The HTTP status, when the service answered at all. */
 	val status: Int = 0,
 ) : IOException(message, cause) {
+	/** The service doesn't know the path at all: an older elamond, asked for something newer. */
+	val unknownPath: Boolean get() = status == 404 && code == "not_found"
+
 	enum class Kind { Unreachable, Unauthorized, WrongCode, NoPairing, CertificateChanged, NotElamond, Protocol, ControlDisabled, NotPermitted, Forbidden, NotFound, BadRequest, Failed }
 
 	companion object {
@@ -95,9 +98,9 @@ internal suspend fun <T> closeOnCancel(close: () -> Unit, block: suspend Corouti
 }
 
 /**
- * Talks to one service at [host]:[port] over HTTPS.
+ * Talks to elamond at [host]:[port] over HTTPS.
  *
- * The service's certificate is self-signed, so instead of a certificate authority the app trusts
+ * Its certificate is self-signed, so instead of a certificate authority the app trusts
  * exactly one certificate: [pin], its SHA-256. Without a pin (pairing by code) any certificate is
  * accepted and remembered in [seenCertificate] for the user to compare with the computer's.
  */
@@ -222,6 +225,13 @@ class ElamondClient(
 		request("DELETE", path)
 	}
 
+	/**
+	 * [call] with [path] under /api/v1/links, or, from elamond before 0.5, which doesn't know that,
+	 * under /api/v1/services, what links were called there.
+	 */
+	suspend fun <T> onLinks(path: String = "", call: suspend ElamondClient.(String) -> T): T =
+		newOrOld(LINKS_PATH + path, OLD_LINKS_PATH + path) { call(it) }
+
 	/** Raw bytes, for album art. */
 	suspend fun bytes(path: String): ByteArray = exchange(path, Limits.BYTES_TIMEOUT_MS) { c ->
 		checkStatus(c)
@@ -276,7 +286,7 @@ class ElamondClient(
 			fp.take(Limits.FINGERPRINT_SHOWN).uppercase().chunked(Limits.FINGERPRINT_GROUP).joinToString(" ")
 
 		/**
-		 * Tries every address at once and returns the first that answers as the expected service.
+		 * Tries every address at once and returns the first that answers as the expected elamond.
 		 * A computer has several (Wi-Fi, cable, VPN) and only some are reachable from where the phone is.
 		 */
 		suspend fun firstReachable(
@@ -302,6 +312,24 @@ class ElamondClient(
 			return result
 		}
 	}
+}
+
+/** Where links are added, changed and started. */
+const val LINKS_PATH = "/api/v1/links"
+
+/** The same before 0.5, which elamond still answers at for apps 0.4. */
+const val OLD_LINKS_PATH = "/api/v1/services"
+
+/**
+ * [call] with the path [new], and again with [old] when the service doesn't know [new] at all,
+ * as an older elamond answers for a path it doesn't have. Any other answer is the answer, a 404
+ * for a link that isn't there among them.
+ */
+internal suspend fun <T> newOrOld(new: String, old: String, call: suspend (String) -> T): T = try {
+	call(new)
+} catch (e: ElamondException) {
+	if (!e.unknownPath) throw e
+	call(old)
 }
 
 /**

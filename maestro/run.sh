@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end run on an emulator or phone that adb sees: builds nothing, starts a throwaway service
+# End-to-end run on an emulator or phone that adb sees: builds nothing, starts a throwaway elamond
 # from elamond/target/release on 127.0.0.1 (the emulator reaches it as 10.0.2.2), installs the
 # debug APK, pairs, walks every screen and leaves the screenshots in $OUT.
 #   cargo build --release (in elamond/) and ./gradlew :app:assembleDebug first.
@@ -26,17 +26,17 @@ name = "Say hello"
 command = ["echo", "hello from the test service"]
 confirm = false
 
-[[services]]
+[[links]]
 name = "Local web"
 url = "http://{host}:$((PORT + 1))"
 TOML
-# Always started in the background: exec makes $! the service itself, so the trap can stop it.
+# Always started in the background: exec makes $! elamond itself, so the trap can stop it.
 run_elamond() {
 	exec env -i PATH="$PATH" HOME="$work" ELAMON_CONFIG_DIR="$work/cfg" ELAMON_DATA_DIR="$work/data" \
 		ELAMON_CONFIG="$work/cfg/elamond.toml" ${ELAMON_PCI_IDS:+ELAMON_PCI_IDS="$ELAMON_PCI_IDS"} \
 		elamond/target/release/elamond "$@"
 }
-run_elamond serve > "$OUT/service.log" 2>&1 &
+run_elamond serve > "$OUT/elamond.log" 2>&1 &
 service=$!
 sleep 2
 

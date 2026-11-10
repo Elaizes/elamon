@@ -10,19 +10,19 @@ pub mod protocol {
 	pub const DEFAULT_PORT: u16 = 47823;
 	/// What the service announces itself as over mDNS.
 	pub const SERVICE_TYPE: &str = "_elamon._tcp.local.";
-	/// Hex digits of the certificate's fingerprint in the mDNS record, enough to tell services apart.
+	/// Hex digits of the certificate's fingerprint in the mDNS record, enough to tell computers apart.
 	pub const MDNS_FINGERPRINT: usize = 16;
 	/// Bus names of media players start with this; nothing else may be asked to play or show art.
 	pub const MPRIS_PREFIX: &str = "org.mpris.MediaPlayer2.";
 	/// Random bytes in the service's id (shown as hex).
-	pub const ELAMOND_ID_BYTES: usize = 16;
+	pub const SERVICE_ID_BYTES: usize = 16;
 	/// Random bytes in a phone's token (shown as base64).
 	pub const TOKEN_BYTES: usize = 32;
 	/// Random bytes in a paired phone's id (shown as hex).
 	pub const CLIENT_ID_BYTES: usize = 4;
-	/// Random bytes in the id of a service added from the app (shown as hex).
-	pub const SERVICE_ID_BYTES: usize = 6;
-	/// Hex digits in the ids of configured actions and services, taken from their content.
+	/// Random bytes in the id of a link added from the app (shown as hex).
+	pub const LINK_ID_BYTES: usize = 6;
+	/// Hex digits in the ids of configured actions and links, taken from their content.
 	pub const CONTENT_ID_LEN: usize = 12;
 	/// Digits in a pairing code.
 	pub const PAIRING_DIGITS: u32 = 6;
@@ -38,8 +38,8 @@ pub mod cadence {
 	pub const SLOW: Duration = Duration::from_secs(5);
 	/// A look for new sensors (a plugged-in drive, a GPU driver loaded late).
 	pub const RESCAN: Duration = Duration::from_secs(60);
-	/// Services and power profiles while an app is connected.
-	pub const SERVICES: Duration = Duration::from_secs(5);
+	/// Links and power profiles while an app is connected.
+	pub const LINKS: Duration = Duration::from_secs(5);
 	/// The volume, which costs running a command.
 	pub const VOLUME: Duration = Duration::from_secs(2);
 	/// `info` is rebuilt: GPU names improve once NVML has been read.
@@ -65,7 +65,7 @@ pub mod cadence {
 	pub struct Ticks {
 		pub slow: u32,
 		pub rescan: u32,
-		pub services: u32,
+		pub links: u32,
 		pub volume: u32,
 		pub info: u32,
 	}
@@ -74,7 +74,7 @@ pub mod cadence {
 		pub fn new(interval: Duration) -> Self {
 			let step = interval.as_millis().max(1);
 			let n = |d: Duration| ((d.as_millis() + step / 2) / step).clamp(1, u32::MAX as u128) as u32;
-			Ticks { slow: n(SLOW), rescan: n(RESCAN), services: n(SERVICES), volume: n(VOLUME), info: n(INFO) }
+			Ticks { slow: n(SLOW), rescan: n(RESCAN), links: n(LINKS), volume: n(VOLUME), info: n(INFO) }
 		}
 	}
 }
@@ -97,10 +97,10 @@ pub mod timeout {
 	pub const ACTION_DEFAULT_SECS: u64 = 60;
 	/// After an action's command exits, how long to keep reading what it left running.
 	pub const ACTION_DRAIN: Duration = Duration::from_secs(1);
-	/// A service's port is tried for this long to tell whether it answers.
+	/// A link's port is tried for this long to tell whether it answers.
 	pub const PROBE: Duration = Duration::from_millis(250);
 	/// `elamond pair` tries the service's port for this long to tell whether it runs.
-	pub const ELAMOND_CHECK: Duration = Duration::from_millis(300);
+	pub const SERVICE_CHECK: Duration = Duration::from_millis(300);
 	/// Open connections get this long to finish when the service stops.
 	pub const SHUTDOWN: Duration = Duration::from_secs(2);
 	/// A pairing attempt without a pending code is answered after this, a wrong code after the next.
@@ -133,9 +133,9 @@ pub mod limit {
 	/// History is kept within these many readings, whatever the settings say.
 	pub const HISTORY_MIN: usize = 10;
 	pub const HISTORY_MAX: usize = 7200;
-	/// Characters in a phone's or a service's name.
+	/// Characters in a phone's or a link's name.
 	pub const NAME_MAX: usize = 64;
-	/// Bytes in a service's URL.
+	/// Bytes in a link's URL.
 	pub const URL_MAX: usize = 512;
 	/// Bytes in a systemd unit's name.
 	pub const UNIT_MAX: usize = 256;
@@ -153,7 +153,7 @@ mod tests {
 	#[test]
 	fn cadences_follow_the_interval() {
 		let t = Ticks::new(Duration::from_secs(1));
-		assert_eq!((t.slow, t.rescan, t.services, t.volume, t.info), (5, 60, 5, 2, 10));
+		assert_eq!((t.slow, t.rescan, t.links, t.volume, t.info), (5, 60, 5, 2, 10));
 		let t = Ticks::new(Duration::from_millis(250));
 		assert_eq!((t.slow, t.volume), (20, 8));
 		// Slower than a cadence: every tick.

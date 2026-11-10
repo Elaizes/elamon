@@ -92,10 +92,10 @@ import io.github.elaizes.elamon.data.ControlInfo
 import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.data.Listener
 import io.github.elaizes.elamon.data.Player
-import io.github.elaizes.elamon.data.ServiceDef
-import io.github.elaizes.elamon.data.ServiceStatus
+import io.github.elaizes.elamon.data.LinkDef
+import io.github.elaizes.elamon.data.LinkStatus
 import io.github.elaizes.elamon.data.UnitInfo
-import io.github.elaizes.elamon.data.serviceUrl
+import io.github.elaizes.elamon.data.linkUrl
 import io.github.elaizes.elamon.data.takeCodePoints
 import io.github.elaizes.elamon.data.takeUtf8Bytes
 
@@ -105,16 +105,16 @@ fun ControlTab(t: TabScope) {
 	val control by vm.control.collectAsStateWithLifecycle()
 	val controlError by vm.controlError.collectAsStateWithLifecycle()
 	val s = t.state.sample ?: return
-	// What is open is kept by the service's id, so it outlives a rotation; the service itself is
+	// What is open is kept by the link's id, so it outlives a rotation; the link itself is
 	// looked up in each sample, and one gone from the computer closes what was open for it.
 	var openId by rememberSaveable { mutableStateOf<String?>(null) }
 	var editId by rememberSaveable { mutableStateOf<String?>(null) }
 	var adding by rememberSaveable { mutableStateOf(false) }
 	var localOnlyId by rememberSaveable { mutableStateOf<String?>(null) }
-	fun service(id: String?) = id?.let { i -> s.services.find { it.id == i } }
-	val open = service(openId)
-	val edit = service(editId)
-	val localOnly = service(localOnlyId)
+	fun linkById(id: String?) = id?.let { i -> s.links.find { it.id == i } }
+	val open = linkById(openId)
+	val edit = linkById(editId)
+	val localOnly = linkById(localOnlyId)
 	val ctx = LocalContext.current
 
 	DisposableEffect(Unit) {
@@ -123,9 +123,9 @@ fun ControlTab(t: TabScope) {
 		onDispose { vm.setMedia(false) }
 	}
 
-	fun launch(svc: ServiceStatus) {
+	fun launch(link: LinkStatus) {
 		val host = t.state.host ?: return
-		runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(serviceUrl(svc.url, host)))) }
+		runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(linkUrl(link.url, host)))) }
 	}
 
 	val enabled = control?.enabled == true
@@ -142,9 +142,9 @@ fun ControlTab(t: TabScope) {
 		if (control != null && !enabled) {
 			item(key = "off") { ControlOff { t.openHelp(null) } }
 		}
-		item(key = "services") {
-			ServicesSection(
-				services = s.services,
+		item(key = "links") {
+			LinksSection(
+				links = s.links,
 				onOpen = { if (it.localOnly) localOnlyId = it.id else launch(it) },
 				onMenu = { openId = it.id },
 				onAdd = { adding = true },
@@ -166,33 +166,33 @@ fun ControlTab(t: TabScope) {
 		}
 	}
 
-	open?.let { svc ->
-		ServiceSheet(
-			t, svc, enabled,
+	open?.let { link ->
+		LinkSheet(
+			t, link, enabled,
 			onDismiss = { openId = null },
-			onOpen = { openId = null; if (svc.localOnly) localOnlyId = svc.id else launch(svc) },
-			onEdit = { openId = null; editId = svc.id },
+			onOpen = { openId = null; if (link.localOnly) localOnlyId = link.id else launch(link) },
+			onEdit = { openId = null; editId = link.id },
 		)
 	}
 	if (adding || edit != null) {
-		ServiceEditor(t, edit, onDismiss = { adding = false; editId = null })
+		LinkEditor(t, edit, onDismiss = { adding = false; editId = null })
 	}
-	localOnly?.let { svc ->
+	localOnly?.let { link ->
 		GlassDialog(
 			onDismiss = { localOnlyId = null },
 			title = stringResource(R.string.control_local_only_title),
 			icon = Icons.Default.Warning,
 			text = {
-				Text(stringResource(R.string.control_local_only_body, svc.name))
+				Text(stringResource(R.string.control_local_only_body, link.name))
 			},
-			confirm = { TextButton(onClick = { localOnlyId = null; launch(svc) }) { Text(stringResource(R.string.control_open_anyway)) } },
+			confirm = { TextButton(onClick = { localOnlyId = null; launch(link) }) { Text(stringResource(R.string.control_open_anyway)) } },
 			dismiss = { TextButton(onClick = { localOnlyId = null }) { Text(stringResource(R.string.cancel)) } },
 		)
 	}
 }
 
-/** A new service's address before its port: the computer's own address, over plain HTTP. */
-private const val SERVICE_URL_START = "http://{host}:"
+/** A new link's address before its port: the computer's own address, over plain HTTP. */
+private const val LINK_URL_START = "http://{host}:"
 
 /** Tiles inside a card: profiles, actions, power. */
 private val InnerTileShape = RoundedCornerShape(Radius.lPlus)
@@ -225,24 +225,24 @@ private fun ControlError(message: String, onRetry: () -> Unit) {
 	}
 }
 
-// ---- services --------------------------------------------------------------------------
+// ---- links -----------------------------------------------------------------------------
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ServicesSection(services: List<ServiceStatus>, onOpen: (ServiceStatus) -> Unit, onMenu: (ServiceStatus) -> Unit, onAdd: () -> Unit) {
+private fun LinksSection(links: List<LinkStatus>, onOpen: (LinkStatus) -> Unit, onMenu: (LinkStatus) -> Unit, onAdd: () -> Unit) {
 	Column(verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
 		Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = Space.xs)) {
-			Text(stringResource(R.string.control_services), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+			Text(stringResource(R.string.control_links), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
 			FilledIconButton(onClick = onAdd, colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)) {
-				Icon(Icons.Default.Add, stringResource(R.string.control_add_service))
+				Icon(Icons.Default.Add, stringResource(R.string.control_add_link))
 			}
 		}
-		if (services.isEmpty()) {
+		if (links.isEmpty()) {
 			Surface(shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
 				Column(Modifier.padding(Space.xl), verticalArrangement = Arrangement.spacedBy(Space.xsPlus)) {
-					Text(stringResource(R.string.control_services_empty), style = MaterialTheme.typography.titleMedium)
+					Text(stringResource(R.string.control_links_empty), style = MaterialTheme.typography.titleMedium)
 					Text(
-						stringResource(R.string.control_services_empty_body),
+						stringResource(R.string.control_links_empty_body),
 						style = MaterialTheme.typography.bodyMedium,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
@@ -250,37 +250,37 @@ private fun ServicesSection(services: List<ServiceStatus>, onOpen: (ServiceStatu
 			}
 		} else {
 			FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sPlus), verticalArrangement = Arrangement.spacedBy(Space.sPlus), maxItemsInEachRow = 2) {
-				for (svc in services) ServiceTile(svc, Modifier.weight(1f), onOpen = { onOpen(svc) }, onMenu = { onMenu(svc) })
-				if (services.size % 2 == 1) Spacer(Modifier.weight(1f))
+				for (link in links) LinkTile(link, Modifier.weight(1f), onOpen = { onOpen(link) }, onMenu = { onMenu(link) })
+				if (links.size % 2 == 1) Spacer(Modifier.weight(1f))
 			}
 		}
 	}
 }
 
 @Composable
-private fun serviceState(svc: ServiceStatus): Pair<String, Color> {
+private fun linkState(link: LinkStatus): Pair<String, Color> {
 	val c = Metric.colors
 	val (label, color) = when {
-		svc.unitState == "failed" -> R.string.service_failed to c.hot
-		svc.unitState == "missing" -> R.string.service_no_unit to c.warn
-		svc.unitState == "activating" || svc.unitState == "reloading" -> R.string.service_starting to c.warn
-		svc.unitState == "deactivating" -> R.string.service_stopping to c.warn
-		svc.up == true && svc.localOnly -> R.string.service_local_only to c.warn
-		svc.up == true -> R.string.service_running to c.good
-		svc.unitState == "active" -> R.string.service_running to c.good
-		svc.up == false -> R.string.service_stopped to MaterialTheme.colorScheme.outline
-		else -> R.string.service_unknown to MaterialTheme.colorScheme.outline
+		link.unitState == "failed" -> R.string.link_failed to c.hot
+		link.unitState == "missing" -> R.string.link_no_unit to c.warn
+		link.unitState == "activating" || link.unitState == "reloading" -> R.string.link_starting to c.warn
+		link.unitState == "deactivating" -> R.string.link_stopping to c.warn
+		link.up == true && link.localOnly -> R.string.link_local_only to c.warn
+		link.up == true -> R.string.link_running to c.good
+		link.unitState == "active" -> R.string.link_running to c.good
+		link.up == false -> R.string.link_stopped to MaterialTheme.colorScheme.outline
+		else -> R.string.link_unknown to MaterialTheme.colorScheme.outline
 	}
 	return stringResource(label) to color
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun ServiceTile(svc: ServiceStatus, modifier: Modifier, onOpen: () -> Unit, onMenu: () -> Unit) {
+private fun LinkTile(link: LinkStatus, modifier: Modifier, onOpen: () -> Unit, onMenu: () -> Unit) {
 	val haptics = LocalHapticFeedback.current
 	val prefs = LocalPrefs.current
-	val (label, color) = serviceState(svc)
-	val menu = stringResource(R.string.control_service_menu)
+	val (label, color) = linkState(link)
+	val menu = stringResource(R.string.control_link_menu)
 	Surface(modifier = modifier, shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
 		Box {
 			Column(
@@ -299,10 +299,10 @@ private fun ServiceTile(svc: ServiceStatus, modifier: Modifier, onOpen: () -> Un
 					.padding(Space.mPlus),
 				verticalArrangement = Arrangement.spacedBy(Space.sPlus),
 			) {
-				LetterAvatar(svc.name, Sizes.avatar)
+				LetterAvatar(link.name, Sizes.avatar)
 				Column {
-					Text(svc.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-					Text(svc.port?.let { ":$it" } ?: svc.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+					Text(link.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+					Text(link.port?.let { ":$it" } ?: link.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
 				}
 				Pill(label, color, dot = true)
 			}
@@ -322,39 +322,39 @@ private fun ServiceTile(svc: ServiceStatus, modifier: Modifier, onOpen: () -> Un
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ServiceSheet(t: TabScope, svc: ServiceStatus, control: Boolean, onDismiss: () -> Unit, onOpen: () -> Unit, onEdit: () -> Unit) {
+private fun LinkSheet(t: TabScope, link: LinkStatus, control: Boolean, onDismiss: () -> Unit, onOpen: () -> Unit, onEdit: () -> Unit) {
 	val prefs = LocalPrefs.current
 	var confirm by rememberSaveable { mutableStateOf<String?>(null) }
 	ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
 		Column(Modifier.padding(start = Space.xxl, end = Space.xxl, bottom = Space.xxxl), verticalArrangement = Arrangement.spacedBy(Space.m)) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
-				LetterAvatar(svc.name, Sizes.avatarSheet)
+				LetterAvatar(link.name, Sizes.avatarSheet)
 				Spacer(Modifier.width(Space.mPlus))
 				Column(Modifier.weight(1f)) {
-					Text(svc.name, style = MaterialTheme.typography.headlineSmall)
-					Text(svc.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+					Text(link.name, style = MaterialTheme.typography.headlineSmall)
+					Text(link.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
 				}
-				val (label, color) = serviceState(svc)
+				val (label, color) = linkState(link)
 				Pill(label, color, dot = true)
 			}
-			svc.unit?.let { StatRow(stringResource(R.string.control_unit), "$it · ${svc.scope}") }
-			svc.unitState?.let { StatRow(stringResource(R.string.control_unit_state), it) }
-			svc.port?.let { StatRow(stringResource(R.string.control_port), if (svc.localOnly) stringResource(R.string.control_port_computer_only, it) else it.toString()) }
+			link.unit?.let { StatRow(stringResource(R.string.control_unit), "$it · ${link.scope}") }
+			link.unitState?.let { StatRow(stringResource(R.string.control_unit_state), it) }
+			link.port?.let { StatRow(stringResource(R.string.control_port), if (link.localOnly) stringResource(R.string.control_port_computer_only, it) else it.toString()) }
 			Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
 				Icon(ElIcons.Globe, null, Modifier.size(Sizes.iconM))
 				Spacer(Modifier.width(Space.s))
 				Text(stringResource(R.string.control_open))
 			}
-			if (svc.unit != null) {
+			if (link.unit != null) {
 				if (control) {
 					Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-						val running = svc.unitState == "active" || svc.unitState == "activating"
-						FilledTonalButton(onClick = { t.vm.unit(svc.id, if (running) "stop" else "start") }, modifier = Modifier.weight(1f)) {
+						val running = link.unitState == "active" || link.unitState == "activating"
+						FilledTonalButton(onClick = { t.vm.unit(link.id, if (running) "stop" else "start") }, modifier = Modifier.weight(1f)) {
 							Icon(if (running) ElIcons.Pause else ElIcons.Play, null, Modifier.size(Sizes.iconS))
 							Spacer(Modifier.width(Space.xsPlus))
 							Text(stringResource(if (running) R.string.control_stop else R.string.control_start))
 						}
-						FilledTonalButton(onClick = { if (prefs.confirmActions) confirm = "restart" else t.vm.unit(svc.id, "restart") }, modifier = Modifier.weight(1f)) {
+						FilledTonalButton(onClick = { if (prefs.confirmActions) confirm = "restart" else t.vm.unit(link.id, "restart") }, modifier = Modifier.weight(1f)) {
 							Icon(ElIcons.Restart, null, Modifier.size(Sizes.iconS))
 							Spacer(Modifier.width(Space.xsPlus))
 							Text(stringResource(R.string.control_restart))
@@ -364,7 +364,7 @@ private fun ServiceSheet(t: TabScope, svc: ServiceStatus, control: Boolean, onDi
 					Text(stringResource(R.string.control_needs_control), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				}
 			}
-			if (svc.editable) {
+			if (link.editable) {
 				Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 					TextButton(onClick = onEdit) {
 						Icon(Icons.Default.Edit, null, Modifier.size(Sizes.iconS))
@@ -385,11 +385,11 @@ private fun ServiceSheet(t: TabScope, svc: ServiceStatus, control: Boolean, onDi
 	confirm?.let { what ->
 		GlassDialog(
 			onDismiss = { confirm = null },
-			title = stringResource(if (what == "remove") R.string.control_remove_title else R.string.control_restart_title, svc.name),
+			title = stringResource(if (what == "remove") R.string.control_remove_title else R.string.control_restart_title, link.name),
 			text = { Text(stringResource(if (what == "remove") R.string.control_remove_body else R.string.control_restart_body)) },
 			confirm = {
 				TextButton(onClick = {
-					if (what == "remove") t.vm.deleteService(svc.id) else t.vm.unit(svc.id, "restart")
+					if (what == "remove") t.vm.deleteLink(link.id) else t.vm.unit(link.id, "restart")
 					confirm = null
 					onDismiss()
 				}) { Text(stringResource(if (what == "remove") R.string.control_remove else R.string.control_restart)) }
@@ -401,15 +401,15 @@ private fun ServiceSheet(t: TabScope, svc: ServiceStatus, control: Boolean, onDi
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun ServiceEditor(t: TabScope, existing: ServiceStatus?, onDismiss: () -> Unit) {
+private fun LinkEditor(t: TabScope, existing: LinkStatus?, onDismiss: () -> Unit) {
 	// What has been typed outlives a rotation; what the computer suggests is asked for again.
 	var name by rememberSaveable { mutableStateOf(existing?.name.orEmpty()) }
-	var url by rememberSaveable { mutableStateOf(existing?.url ?: SERVICE_URL_START) }
+	var url by rememberSaveable { mutableStateOf(existing?.url ?: LINK_URL_START) }
 	var unit by rememberSaveable { mutableStateOf(existing?.unit.orEmpty()) }
 	var scope by rememberSaveable { mutableStateOf(existing?.scope ?: "user") }
 	var detected by remember { mutableStateOf<List<Listener>>(emptyList()) }
 	var units by remember { mutableStateOf<List<UnitInfo>>(emptyList()) }
-	val taken = t.state.sample?.services.orEmpty().mapNotNull { it.port }.toSet()
+	val taken = t.state.sample?.links.orEmpty().mapNotNull { it.port }.toSet()
 
 	LaunchedEffect(Unit) { detected = t.vm.detected() }
 	LaunchedEffect(scope) { units = t.vm.units(scope) }
@@ -428,7 +428,7 @@ private fun ServiceEditor(t: TabScope, existing: ServiceStatus?, onDismiss: () -
 						FilterChip(
 							selected = url.endsWith(":${l.port}") || url.contains(":${l.port}/"),
 							onClick = {
-								url = "$SERVICE_URL_START${l.port}"
+								url = "$LINK_URL_START${l.port}"
 								if (name.isBlank()) l.process?.let { p -> name = p.replaceFirstChar { it.uppercase() } }
 							},
 							label = {
@@ -439,10 +439,10 @@ private fun ServiceEditor(t: TabScope, existing: ServiceStatus?, onDismiss: () -
 					}
 				}
 			}
-			OutlinedTextField(value = name, onValueChange = { name = it.takeCodePoints(Limits.SERVICE_NAME_MAX) }, label = { Text(stringResource(R.string.control_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+			OutlinedTextField(value = name, onValueChange = { name = it.takeCodePoints(Limits.LINK_NAME_MAX) }, label = { Text(stringResource(R.string.control_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
 			OutlinedTextField(
 				value = url,
-				onValueChange = { url = it.takeUtf8Bytes(Limits.SERVICE_URL_MAX) },
+				onValueChange = { url = it.takeUtf8Bytes(Limits.LINK_URL_MAX) },
 				label = { Text(stringResource(R.string.control_address)) },
 				supportingText = { Text(stringResource(R.string.control_address_hint)) },
 				singleLine = true,
@@ -466,7 +466,7 @@ private fun ServiceEditor(t: TabScope, existing: ServiceStatus?, onDismiss: () -
 				Button(
 					enabled = name.isNotBlank() && url.length >= URL_MIN,
 					onClick = {
-						t.vm.saveService(ServiceDef(existing?.id, name.trim(), url.trim(), unit.ifBlank { null }, scope))
+						t.vm.saveLink(LinkDef(existing?.id, name.trim(), url.trim(), unit.ifBlank { null }, scope))
 						onDismiss()
 					},
 					modifier = Modifier.weight(1f),

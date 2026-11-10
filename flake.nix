@@ -5,7 +5,7 @@
 
 	outputs = { self, nixpkgs, ... }:
 		let
-			# The service runs on PCs and on ARM boards alike.
+			# elamond runs on PCs and on ARM boards alike.
 			systems = [ "x86_64-linux" "aarch64-linux" ];
 			forAll = f: nixpkgs.lib.genAttrs systems (s: f nixpkgs.legacyPackages.${s});
 			cargoToml = builtins.fromTOML (builtins.readFile ./elamond/Cargo.toml);
@@ -13,7 +13,7 @@
 			elamondFor = pkgs: pkgs.rustPlatform.buildRustPackage {
 				pname = "elamond";
 				version = cargoToml.package.version;
-				# Its own store path, so commits that touch only the app leave the service as built.
+				# Its own store path, so commits that touch only the app leave elamond as built.
 				src = builtins.path {
 					path = ./elamond;
 					name = "elamond-source";
@@ -31,7 +31,7 @@
 						--replace-fail /usr/bin/elamond $out/bin/elamond
 				'';
 				meta = {
-					description = "Service that serves this computer's metrics to the Elamon app";
+					description = "The Elamon service: serves this computer's metrics to the Elamon app";
 					license = pkgs.lib.licenses.gpl3Plus;
 					mainProgram = "elamond";
 					platforms = pkgs.lib.platforms.linux;
@@ -62,7 +62,7 @@
 				default = elamond;
 			});
 
-			# NixOS: runs the service for every user who logs in, opens the firewall, and lets
+			# NixOS: runs the Elamon service for every user who logs in, opens the firewall, and lets
 			# chosen users act on the computer from the app without a password.
 			#   services.elamond = {
 			#     enable = true;
@@ -78,7 +78,7 @@
 					configFile = toml.generate "elamond.toml" cfg.settings;
 				in {
 					options.services.elamond = {
-						enable = lib.mkEnableOption "the Elamon service, as a user service";
+						enable = lib.mkEnableOption "the Elamon service (elamond) as a user unit";
 						package = lib.mkOption {
 							type = lib.types.package;
 							default = defaultPackage pkgs;
@@ -102,7 +102,7 @@
 						openFirewall = lib.mkOption {
 							type = lib.types.bool;
 							default = false;
-							description = "Open the service's TCP port (`settings.port`, 47823 by default) for the app and UDP 5353 so it finds the computer by mDNS. Works without `enable`, for services run by Home Manager.";
+							description = "Open the service's TCP port (`settings.port`, 47823 by default) for the app and UDP 5353 so it finds the computer by mDNS. Works without `enable`, for a service run by Home Manager.";
 						};
 						control = {
 							users = lib.mkOption {
@@ -157,7 +157,7 @@
 						(lib.mkIf (cfg.control.users != [ ]) {
 							security.polkit.enable = true;
 							security.polkit.extraConfig = ''
-								// Elamon: what paired phones may do through these users' services.
+								// Elamon: what paired phones may do through these users' Elamon services.
 								polkit.addRule(function (action, subject) {
 									if (${builtins.toJSON cfg.control.users}.indexOf(subject.user) < 0) {
 										return polkit.Result.NOT_HANDLED;
@@ -187,7 +187,7 @@
 					];
 				};
 
-			# Home Manager: runs the service for this user.
+			# Home Manager: runs the Elamon service for this user.
 			#   services.elamond = { enable = true; settings.control = true; };
 			homeManagerModules.default = { config, lib, pkgs, ... }:
 				let
@@ -196,7 +196,7 @@
 					configFile = toml.generate "elamond.toml" cfg.settings;
 				in {
 					options.services.elamond = {
-						enable = lib.mkEnableOption "the Elamon service";
+						enable = lib.mkEnableOption "the Elamon service (elamond)";
 						package = lib.mkOption {
 							type = lib.types.package;
 							default = defaultPackage pkgs;
@@ -208,7 +208,7 @@
 							example = lib.literalExpression ''
 								{
 									control = true;
-									services = [ { name = "Jellyfin"; url = "http://{host}:8096"; unit = "jellyfin.service"; scope = "system"; } ];
+									links = [ { name = "Jellyfin"; url = "http://{host}:8096"; unit = "jellyfin.service"; scope = "system"; } ];
 									actions = [ { name = "Update"; command = [ "nh" "os" "switch" ]; timeout = 900; } ];
 								}
 							'';

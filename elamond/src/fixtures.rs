@@ -12,10 +12,10 @@ use serde::Serialize;
 
 use crate::bus::{Player, PowerCaps, Profiles, UnitInfo};
 use crate::control::{ActionInfo, ActionResult, ControlInfo, Media, Volume};
-use crate::model::*;
 use crate::errors::ErrorCode;
+use crate::links::{LinkStatus, Listener};
+use crate::model::*;
 use crate::server::{hello_body, paired_body, render_sample, Frame, Want};
-use crate::services::{Listener, ServiceStatus};
 
 fn check(name: &str, value: &impl Serialize) {
 	let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
@@ -43,6 +43,7 @@ pub fn info() -> Info {
 		id: "0123456789abcdef0123456789abcdef".into(),
 		name: "fixture".into(),
 		service_version: "9.9.9",
+		service_version: "9.9.9",
 		api: crate::consts::protocol::API_VERSION,
 		min_app: "9.9.0",
 		interval_ms: 1000,
@@ -62,7 +63,7 @@ pub fn info() -> Info {
 			driver: "nvidia".into(),
 			boot_display: false,
 		}],
-		capabilities: vec!["processes", "displays", "history", "sensors", "services", "media", "control"],
+		capabilities: vec!["processes", "displays", "history", "sensors", "links", "services", "media", "control"],
 	}
 }
 
@@ -146,18 +147,23 @@ pub fn sample() -> Sample {
 			max_refresh: Some(180.0),
 			position: Some([1920, 0]),
 		}],
-		services: vec![ServiceStatus {
-			id: "config-0123456789ab".into(),
-			name: "Some service".into(),
-			url: "http://{host}:8080".into(),
-			unit: some("some.service"),
-			scope: "system".into(),
-			editable: false,
-			port: Some(8080),
-			up: Some(true),
-			local_only: false,
-			unit_state: some("active"),
-		}],
+		links: vec![link()],
+		services: vec![link()],
+	}
+}
+
+fn link() -> LinkStatus {
+	LinkStatus {
+		id: "config-0123456789ab".into(),
+		name: "Some link".into(),
+		url: "http://{host}:8080".into(),
+		unit: some("some.service"),
+		scope: "system".into(),
+		editable: false,
+		port: Some(8080),
+		up: Some(true),
+		local_only: false,
+		unit_state: some("active"),
 	}
 }
 

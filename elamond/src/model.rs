@@ -8,6 +8,9 @@ use serde::Serialize;
 pub struct Info {
 	pub id: String,
 	pub name: String,
+	/// The version of elamond.
+	pub service_version: &'static str,
+	/// The same, under its name before 0.5, for apps 0.4; dropped only with a new API.
 	pub service_version: &'static str,
 	pub api: u32,
 	/// The oldest app version that understands this service.
@@ -57,8 +60,10 @@ pub struct Sample {
 	pub disk_io: Vec<DiskIo>,
 	pub net: Vec<Net>,
 	pub displays: Vec<Display>,
-	/// Web services this computer hosts, while an app is connected.
-	pub services: Vec<crate::services::ServiceStatus>,
+	/// Links to the web pages this computer hosts, while an app is connected.
+	pub links: Vec<crate::links::LinkStatus>,
+	/// The same as `links`, under its name before 0.5, for apps 0.4; dropped only with a new API.
+	pub services: Vec<crate::links::LinkStatus>,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]

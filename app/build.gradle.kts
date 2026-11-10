@@ -110,7 +110,7 @@ dependencies {
 	testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 }
 
-// The service's tests write a JSON file for every shape it sends; the app's decode each of them.
+// elamond's tests write a JSON file for every shape it sends; the app's decode each of them.
 val protocolFixtures: Directory = rootProject.layout.projectDirectory.dir("elamond/fixtures")
 tasks.withType<Test>().configureEach {
 	inputs.dir(protocolFixtures).withPropertyName("protocolFixtures").withPathSensitivity(PathSensitivity.RELATIVE)

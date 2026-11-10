@@ -69,9 +69,9 @@ import io.github.elaizes.elamon.data.Found
 import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.data.PairTarget
 import io.github.elaizes.elamon.data.Sample
-import io.github.elaizes.elamon.data.Server
-import io.github.elaizes.elamon.data.ServerStore
-import io.github.elaizes.elamon.data.discoverServices
+import io.github.elaizes.elamon.data.Machine
+import io.github.elaizes.elamon.data.MachineStore
+import io.github.elaizes.elamon.data.discoverElamond
 import io.github.elaizes.elamon.data.parseAddress
 
 /** What the home screen knows about a paired computer. */
@@ -82,12 +82,12 @@ private sealed interface Live {
 }
 
 @Composable
-fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit, onHelp: () -> Unit, onSettings: () -> Unit) {
+fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: () -> Unit, onSettings: () -> Unit) {
 	val ctx = LocalContext.current
-	val servers by ServerStore.get(ctx).servers.collectAsStateWithLifecycle()
-	val discovery = remember { discoverServices(ctx) }
+	val machines by MachineStore.get(ctx).machines.collectAsStateWithLifecycle()
+	val discovery = remember { discoverElamond(ctx) }
 	val found by discovery.collectAsStateWithLifecycle(initialValue = emptyList())
-	val unpaired = found.filter { f -> servers.none { it.id == f.id } }
+	val unpaired = found.filter { f -> machines.none { it.id == f.id } }
 	var addDialog by rememberSaveable { mutableStateOf(false) }
 	val live = remember { mutableStateMapOf<String, Live>() }
 	val haze = remember { HazeState() }
@@ -95,9 +95,9 @@ fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit, onHelp: (
 
 	// A reading of each computer every few seconds while this screen can be seen.
 	val lifecycle = LocalLifecycleOwner.current.lifecycle
-	LaunchedEffect(servers, lifecycle) {
+	LaunchedEffect(machines, lifecycle) {
 		lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-			pollEach(servers, Limits.HOME_POLL_MS, probe = ::reading, report = { s, l -> live[s.id] = l })
+			pollEach(machines, Limits.HOME_POLL_MS, probe = ::reading, report = { s, l -> live[s.id] = l })
 		}
 	}
 
@@ -131,8 +131,8 @@ fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit, onHelp: (
 							stringResource(R.string.app_name),
 							subtitle = {
 								Text(
-									if (servers.isEmpty()) stringResource(R.string.home_subtitle_empty)
-									else pluralStringResource(R.plurals.home_computers, servers.size, servers.size),
+									if (machines.isEmpty()) stringResource(R.string.home_subtitle_empty)
+									else pluralStringResource(R.plurals.home_computers, machines.size, machines.size),
 									style = MaterialTheme.typography.titleSmall,
 									color = MaterialTheme.colorScheme.onSurfaceVariant,
 								)
@@ -140,12 +140,12 @@ fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit, onHelp: (
 							list = list,
 						)
 					}
-					items(servers, key = { it.id }) { s -> ComputerCard(s, live[s.id] ?: Live.Unknown) { onOpen(s) } }
+					items(machines, key = { it.id }) { s -> ComputerCard(s, live[s.id] ?: Live.Unknown) { onOpen(s) } }
 					if (unpaired.isNotEmpty()) {
 						item(key = "found-header") { GroupLabel(stringResource(R.string.home_found)) }
 						items(unpaired, key = { "found-" + it.id }) { f -> FoundCard(f) { onPair(f.toTarget()) } }
 					}
-					if (servers.isEmpty()) {
+					if (machines.isEmpty()) {
 						item(key = "setup") { SetupGuide(onHelp) }
 					}
 				}
@@ -174,7 +174,7 @@ fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit, onHelp: (
 }
 
 /** One reading of [s], on whichever of its addresses answers. */
-private suspend fun reading(s: Server): Live = orNull {
+private suspend fun reading(s: Machine): Live = orNull {
 	val reached = ElamondClient.firstReachable(s.hostsToTry(), s.port, s.fingerprint, s.id) ?: return@orNull Live.Offline
 	val c = ElamondClient(reached.first.host, s.port, s.fingerprint, s.token)
 	Live.Online(c.get<Sample>("/api/v1/snapshot"))
@@ -183,7 +183,7 @@ private suspend fun reading(s: Server): Live = orNull {
 private fun Found.toTarget() = PairTarget(hosts = listOf(host), port = port, name = name, id = id, fingerprint = null, fingerprintPrefix = fingerprintPrefix)
 
 @Composable
-private fun ComputerCard(s: Server, live: Live, onClick: () -> Unit) {
+private fun ComputerCard(s: Machine, live: Live, onClick: () -> Unit) {
 	val c = Metric.colors
 	val p = LocalPrefs.current
 	val online = live is Live.Online

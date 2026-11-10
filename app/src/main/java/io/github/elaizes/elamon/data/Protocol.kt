@@ -1,14 +1,19 @@
+@file:OptIn(ExperimentalSerializationApi::class)
+
 package io.github.elaizes.elamon.data
 
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNames
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * What the service sends; mirrors elamond/src/model.rs. Unknown fields are ignored so newer services
- * still work. Ids and times have no default: a message without them is broken, not zero.
+ * What elamond sends; mirrors elamond/src/model.rs. Unknown fields are ignored so newer versions
+ * still work. Ids and times have no default: a message without them is broken, not zero. A field
+ * renamed in 0.5 is read by its new name or its old one (JsonNames): elamond 0.4 sends only the old.
  */
 val ProtocolJson = Json {
 	ignoreUnknownKeys = true
@@ -20,7 +25,7 @@ val ProtocolJson = Json {
 /** The API this app speaks; a higher one from the service means the app is out of date. */
 const val APP_API = 1
 
-/** What services before 0.4 run at without saying so. */
+/** What elamond before 0.4 runs at without saying so. */
 const val DEFAULT_INTERVAL_MS = 1000
 const val DEFAULT_HISTORY_SECONDS = 600
 
@@ -31,11 +36,11 @@ private val STREAM_TYPES = setOf("info", "history", "sample")
 private val TYPE_PREFIX = Regex("""^\s*\{\s*"type"\s*:\s*"([^"]*)"""")
 
 /**
- * One line of the stream. Null for a kind of message this app doesn't know, which a newer service
+ * One line of the stream. Null for a kind of message this app doesn't know, which a newer elamond
  * may send; a known kind that doesn't decode throws, so a broken message isn't read as zeros.
  */
 fun decodeStreamLine(line: String, json: Json = ProtocolJson): StreamMessage? {
-	// The service puts the type first; reading it there saves parsing a whole sample twice.
+	// elamond puts the type first; reading it there saves parsing a whole sample twice.
 	val type = TYPE_PREFIX.find(line)?.groupValues?.get(1)
 		?: json.parseToJsonElement(line).jsonObject["type"]?.jsonPrimitive?.content
 	if (type !in STREAM_TYPES) return null
@@ -49,7 +54,7 @@ data class Hello(
 	val id: String,
 	val name: String,
 	val version: String,
-	/** The oldest app version the service works with; services before 0.4 don't say. */
+	/** The oldest app version the service works with; elamond before 0.4 doesn't say. */
 	@SerialName("min_app") val minApp: String? = null,
 )
 
@@ -66,7 +71,8 @@ data class PairResponse(
 data class Info(
 	val id: String,
 	val name: String = "",
-	@SerialName("service_version") val serviceVersion: String,
+	/** "service_version" before 0.5, and still sent beside it for apps 0.4. */
+	@SerialName("service_version") @JsonNames("service_version") val elamondVersion: String,
 	val api: Int,
 	@SerialName("min_app") val minApp: String? = null,
 	/** The service's own tick: no stream comes faster. */
@@ -111,7 +117,8 @@ data class Sample(
 	@SerialName("disk_io") val diskIo: List<DiskIo> = emptyList(),
 	val net: List<Net> = emptyList(),
 	val displays: List<Display> = emptyList(),
-	val services: List<ServiceStatus> = emptyList(),
+	/** "services" before 0.5, and still sent beside it for apps 0.4. */
+	@JsonNames("services") val links: List<LinkStatus> = emptyList(),
 	val media: Media? = null,
 	@SerialName("process_count") val processCount: Int? = null,
 	val processes: List<Proc>? = null,
@@ -281,7 +288,7 @@ data class GpuHistory(
 // ---- control -------------------------------------------------------------------------
 
 @Serializable
-data class ServiceStatus(
+data class LinkStatus(
 	val id: String,
 	val name: String = "",
 	val url: String = "",
@@ -353,7 +360,7 @@ data class ActionResult(
 )
 
 @Serializable
-data class ServiceDef(
+data class LinkDef(
 	val id: String? = null,
 	val name: String,
 	val url: String,

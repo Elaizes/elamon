@@ -1,10 +1,10 @@
 package io.github.elaizes.elamon.data
 
-/** How long the app waits, how often it asks, and how much it takes: the numbers of talking to services, in one place. */
+/** How long the app waits, how often it asks, and how much it takes: the numbers of talking to elamond, in one place. */
 object Limits {
 	// ---- timeouts, ms ---------------------------------------------------------------------------
 
-	/** Connecting to an service, any request. */
+	/** Connecting to elamond, any request. */
 	const val CONNECT_TIMEOUT_MS = 4_000
 
 	/** Reading an answer: hello, a pairing request, a cover, anything else. */
@@ -66,7 +66,7 @@ object Limits {
 	/** Digits in a pairing code. */
 	const val PAIRING_DIGITS = 6
 
-	/** Hex digits of an service's id, and of its certificate's fingerprint. */
+	/** Hex digits of the service's id, and of its certificate's fingerprint. */
 	const val ID_HEX = 32
 	const val FINGERPRINT_HEX = 64
 
@@ -75,30 +75,30 @@ object Limits {
 	const val FINGERPRINT_GROUP = 4
 
 	/** The most addresses a pairing link may list, and the longest name it may give. */
-	const val LINK_MAX_HOSTS = 8
-	const val LINK_MAX_NAME = 64
+	const val PAIR_LINK_MAX_HOSTS = 8
+	const val PAIR_LINK_MAX_NAME = 64
 
-	/** Digits a link's version may have; anything longer is broken, not new. */
-	const val LINK_VERSION_DIGITS = 9
+	/** Digits a pairing link's version may have; anything longer is broken, not new. */
+	const val PAIR_LINK_VERSION_DIGITS = 9
 
 	// ---- addresses --------------------------------------------------------------------------------
 
 	const val PORT_MAX = 65_535
 	const val PORT_DIGITS = 5
 
-	/** Ports from here up are handed out for programs talking out, not for services listening. */
+	/** Ports from here up are handed out for programs talking out, not for programs that listen. */
 	const val EPHEMERAL_PORT_MIN = 32_768
 
 	/** The port mDNS answers on, the same everywhere: what finds computers on the network. */
 	const val MDNS_PORT = 5353
 
-	// ---- services, as the service checks them -------------------------------------------------------
+	// ---- links, as the service checks them --------------------------------------------------------
 
-	/** Characters in a service's name. */
-	const val SERVICE_NAME_MAX = 64
+	/** Characters in a link's name. */
+	const val LINK_NAME_MAX = 64
 
 	/** UTF-8 bytes in its address, and in its unit's name. */
-	const val SERVICE_URL_MAX = 512
+	const val LINK_URL_MAX = 512
 	const val UNIT_MAX = 256
 
 	/** Units suggested as a name is typed. */

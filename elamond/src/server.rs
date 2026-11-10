@@ -34,7 +34,7 @@ pub struct Frame {
 	pub media: Option<String>,
 	pub processes: Option<Arc<Vec<Process>>>,
 	pub info: Arc<String>,
-	/// Read while an app was connected, so services, displays, profiles and GPUs are in it.
+	/// Read while an app was connected, so links, displays, profiles and GPUs are in it.
 	pub watched: bool,
 }
 
@@ -55,8 +55,8 @@ pub struct Hub {
 	/// Points kept in the history ring.
 	pub history_len: usize,
 	pub bus: crate::bus::Bus,
-	/// Services added from the app.
-	pub app_services: tokio::sync::Mutex<Vec<crate::services::ServiceDef>>,
+	/// Links added from the app.
+	pub app_links: tokio::sync::Mutex<Vec<crate::links::LinkDef>>,
 	/// Set after an action, so the next watched tick re-reads what it may have changed.
 	pub refresh: AtomicBool,
 	clients: RwLock<ClientCache>,
@@ -86,8 +86,8 @@ impl Hub {
 		interval: Duration,
 		config: Arc<store::Config>,
 	) -> Self {
-		let app_services = crate::services::load().unwrap_or_else(|e| {
-			eprintln!("services: {e}\n  the services added from the app are left out; the file is kept until one is saved");
+		let app_links = crate::links::load().unwrap_or_else(|e| {
+			eprintln!("links: {e}\n  the links added from the app are left out; the file is kept until one is saved");
 			Vec::new()
 		});
 		Hub {
@@ -102,7 +102,7 @@ impl Hub {
 			media_watchers: AtomicUsize::new(0),
 			config: RwLock::new(config),
 			bus: crate::bus::Bus::new(),
-			app_services: tokio::sync::Mutex::new(app_services),
+			app_links: tokio::sync::Mutex::new(app_links),
 			refresh: AtomicBool::new(false),
 			clients: RwLock::new(ClientCache { stamp: None, clients: Vec::new() }),
 			pair_lock: tokio::sync::Mutex::new(()),
@@ -166,7 +166,7 @@ impl Hub {
 		self.refresh_soon();
 	}
 
-	/// Asks the collector to re-read services, profiles and media on its next watched tick.
+	/// Asks the collector to re-read links, profiles and media on its next watched tick.
 	pub fn refresh_soon(&self) {
 		self.refresh.store(true, Ordering::SeqCst);
 	}
@@ -186,10 +186,15 @@ pub fn router(hub: Arc<Hub>) -> Router {
 		.route("/api/v1/media", post(control::media))
 		.route("/api/v1/media/volume", post(control::volume))
 		.route("/api/v1/media/art", get(control::art))
-		.route("/api/v1/services", get(control::services_list).post(control::service_put))
+		.route("/api/v1/links", get(control::links_list).post(control::link_put))
+		.route("/api/v1/links/detected", get(control::detected))
+		.route("/api/v1/links/{id}", delete(control::link_delete))
+		.route("/api/v1/links/{id}/unit", post(control::link_unit))
+		// What the links were called before 0.5, for apps 0.4.
+		.route("/api/v1/services", get(control::links_list).post(control::link_put))
 		.route("/api/v1/services/detected", get(control::detected))
-		.route("/api/v1/services/{id}", delete(control::service_delete))
-		.route("/api/v1/services/{id}/unit", post(control::service_unit))
+		.route("/api/v1/services/{id}", delete(control::link_delete))
+		.route("/api/v1/services/{id}/unit", post(control::link_unit))
 		.route("/api/v1/units", get(control::units))
 		.route_layer(middleware::from_fn_with_state(hub.clone(), auth));
 	Router::new()
@@ -374,7 +379,7 @@ impl Drop for Watch {
 	}
 }
 
-/// One sample. The request counts as watching until a reading made for it arrives (services,
+/// One sample. The request counts as watching until a reading made for it arrives (links,
 /// displays, profiles, GPUs, and processes or media when asked for), a few ticks at most.
 async fn snapshot(State(hub): State<Arc<Hub>>, Query(p): Query<StreamParams>) -> Response {
 	let want = Want::new(&p);

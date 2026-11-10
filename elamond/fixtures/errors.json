@@ -68,7 +68,7 @@
     "status": 400
   },
   {
-    "error": "no_such_service",
+    "error": "no_such_link",
     "status": 404
   },
   {

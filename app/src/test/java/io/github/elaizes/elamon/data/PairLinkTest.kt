@@ -98,22 +98,22 @@ class PairLinkTest {
 		assertEquals(64, assertIs<PairLink.Target>(changed("name" to "x".repeat(200))).target.name?.length)
 	}
 
-	private fun server(id: String) = Server(id = id, name = id, hosts = listOf("h"), port = 1, fingerprint = "f", token = "t")
+	private fun machine(id: String) = Machine(id = id, name = id, hosts = listOf("h"), port = 1, fingerprint = "f", token = "t")
 
 	@Test
 	fun pairingAgainKeepsThePlace() {
-		val list = listOf(server("a"), server("b"), server("c"))
+		val list = listOf(machine("a"), machine("b"), machine("c"))
 		// The same computer: in its own place, with the new token.
-		val again = server("b").copy(token = "new")
-		assertEquals(listOf("a", "b", "c"), withServer(list, again).map { it.id })
-		assertEquals("new", withServer(list, again)[1].token)
+		val again = machine("b").copy(token = "new")
+		assertEquals(listOf("a", "b", "c"), withMachine(list, again).map { it.id })
+		assertEquals("new", withMachine(list, again)[1].token)
 		// A reset computer with a new id takes the old entry's place, and the old entry is gone.
-		assertEquals(listOf("a", "d", "c"), withServer(list, server("d"), replacing = "b").map { it.id })
+		assertEquals(listOf("a", "d", "c"), withMachine(list, machine("d"), replacing = "b").map { it.id })
 		// Nothing to replace: added at the end.
-		assertEquals(listOf("a", "b", "c", "d"), withServer(list, server("d")).map { it.id })
-		assertEquals(listOf("a", "b", "c", "d"), withServer(list, server("d"), replacing = "gone").map { it.id })
+		assertEquals(listOf("a", "b", "c", "d"), withMachine(list, machine("d")).map { it.id })
+		assertEquals(listOf("a", "b", "c", "d"), withMachine(list, machine("d"), replacing = "gone").map { it.id })
 		// The new id already paired too (both entries go, one stays, where the first was).
-		assertEquals(listOf("a", "c"), withServer(list, server("a"), replacing = "b").map { it.id })
+		assertEquals(listOf("a", "c"), withMachine(list, machine("a"), replacing = "b").map { it.id })
 	}
 
 	@Test

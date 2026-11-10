@@ -44,9 +44,9 @@
 	<string name="home_online">Online</string>
 	<string name="home_temp">Temp</string>
 	<string name="home_setup_title">Watch a computer</string>
-	<string name="home_setup_intro">Elamon shows a computer\'s load, temperatures, memory, processes and monitors live, and controls its services, media and power. The computer runs a small service that only paired phones can reach.</string>
-	<string name="home_setup_install">Install the elamond service on the computer (Linux).</string>
-	<string name="home_setup_start">Start it as a service for your user:</string>
+	<string name="home_setup_intro">Elamon shows a computer\'s load, temperatures, memory, processes and monitors live, and controls its links, media and power. The computer runs a small service, elamond, that only paired phones can reach.</string>
+	<string name="home_setup_install">Install the Elamon service, elamond, on the computer (Linux).</string>
+	<string name="home_setup_start">Start it for your user:</string>
 	<string name="home_setup_pair">Run this on the computer. It shows a QR code and a six-digit code:</string>
 	<string name="home_setup_scan">Point this phone\'s camera at the QR code, or tap Add computer and enter the code.</string>
 	<string name="home_setup_guide">Step-by-step guide for your system</string>
@@ -66,7 +66,7 @@
 	<string name="pair_code_hint">Six digits shown by elamond pair</string>
 	<string name="pair_from_qr">The QR code identified this computer. Pair this phone with it?</string>
 	<string name="pair_failed">Can\'t pair</string>
-	<string name="pair_unreachable">The computer doesn\'t answer. Check that the service is running and that the phone is on the same network or VPN.</string>
+	<string name="pair_unreachable">The computer doesn\'t answer. Check that the Elamon service is running and that the phone is on the same network or VPN.</string>
 	<string name="pair_cert_mismatch">Something answered at this address, but not with the certificate the computer announced. Pairing was stopped to be safe.</string>
 	<string name="pair_wrong_code">Wrong code. After five wrong codes the computer needs a new one.</string>
 	<string name="pair_no_pairing">The computer isn\'t waiting for a phone. Run elamond pair on it first.</string>
@@ -86,10 +86,10 @@
 	<string name="machine_unpaired_title">This phone isn\'t paired anymore</string>
 	<string name="machine_unpaired_body">The computer no longer accepts it, maybe after elamond revoke. Run elamond pair on the computer and pair again.</string>
 	<string name="machine_cert_title">The computer\'s certificate changed</string>
-	<string name="machine_cert_body">This happens when the service\'s data was reset or reinstalled, but also when something else pretends to be the computer. If you didn\'t reset it, check your network before pairing again.</string>
+	<string name="machine_cert_body">This happens when the Elamon service\'s data was reset or reinstalled, but also when something else pretends to be the computer. If you didn\'t reset it, check your network before pairing again.</string>
 	<string name="machine_pair_again">Pair again</string>
 	<string name="machine_unreachable_title">Can\'t reach %1$s</string>
-	<string name="machine_unreachable_body">The computer may be off or asleep, the service not running, or the phone on another network. Elamon keeps trying.</string>
+	<string name="machine_unreachable_body">The computer may be off or asleep, the Elamon service not running, or the phone on another network. Elamon keeps trying.</string>
 	<string name="machine_offline_retrying">Offline · retrying</string>
 	<!-- The real interval in seconds, maybe with decimals: "Live · every 1 s", "Live · every 0.5 s". -->
 	<string name="conn_live">Live · every %1$s s</string>
@@ -99,8 +99,8 @@
 	<string name="conn_certificate_changed">Certificate changed</string>
 	<string name="conn_refused">Refused</string>
 	<string name="machine_refused_title">The computer turned this phone away</string>
-	<!-- A small note under the computer's name when the app and the service are of different ages. -->
-	<string name="compat_update_app">This computer\'s service is newer than this app. Update Elamon to see everything it sends.</string>
+	<!-- A small note under the computer's name when the app and the Elamon service are of different ages. -->
+	<string name="compat_update_app">This computer\'s Elamon service is newer than this app. Update Elamon to see everything it sends.</string>
 	<string name="compat_update_elamond">This computer runs elamond %1$s. Update it to %2$s or newer: some readings need it.</string>
 	<string name="compat_dismiss">Dismiss</string>
 	<string name="machine_uptime">Up %1$s</string>
@@ -280,25 +280,25 @@
 	<!-- Control tab -->
 	<string name="control_off">Control is off</string>
 	<string name="control_error_title">Can\'t read the control panel</string>
-	<string name="control_off_body">This computer only lets the app watch. To also control power, services, processes and media from here, turn it on in the service\'s settings and restart it:</string>
+	<string name="control_off_body">This computer only lets the app watch. To also control power, links, processes and media from here, turn it on in the service\'s settings and restart it:</string>
 	<string name="control_off_where">in ~/.config/elamon/elamond.toml, or services.elamond.settings.control = true on NixOS.</string>
-	<string name="control_services">Services</string>
-	<string name="control_add_service">Add service</string>
-	<string name="control_services_empty">No services yet</string>
-	<string name="control_services_empty_body">Add the web pages this computer hosts — a media server, a dashboard, a download manager — to open them from here and start or stop them.</string>
-	<string name="control_service_menu">Actions</string>
+	<string name="control_links">Links</string>
+	<string name="control_add_link">Add link</string>
+	<string name="control_links_empty">No links yet</string>
+	<string name="control_links_empty_body">Add the web pages this computer hosts — a media server, a dashboard, a download manager — to open them from here and start or stop them.</string>
+	<string name="control_link_menu">Actions</string>
 	<string name="control_local_only_title">Only on the computer</string>
 	<string name="control_local_only_body">%1$s listens on the computer\'s own address (127.0.0.1), so other devices can\'t open it. Set it to listen on all addresses, or reach it through an SSH tunnel.</string>
 	<string name="control_open_anyway">Open anyway</string>
-	<!-- A service's state on its tile. -->
-	<string name="service_failed">Failed</string>
-	<string name="service_no_unit">No such unit</string>
-	<string name="service_starting">Starting</string>
-	<string name="service_stopping">Stopping</string>
-	<string name="service_local_only">Local only</string>
-	<string name="service_running">Running</string>
-	<string name="service_stopped">Stopped</string>
-	<string name="service_unknown">Unknown</string>
+	<!-- A link's state on its tile. -->
+	<string name="link_failed">Failed</string>
+	<string name="link_no_unit">No such unit</string>
+	<string name="link_starting">Starting</string>
+	<string name="link_stopping">Stopping</string>
+	<string name="link_local_only">Local only</string>
+	<string name="link_running">Running</string>
+	<string name="link_stopped">Stopped</string>
+	<string name="link_unknown">Unknown</string>
 	<string name="control_unit">Unit</string>
 	<string name="control_unit_state">Unit state</string>
 	<string name="control_port">Port</string>
@@ -312,10 +312,10 @@
 	<string name="control_remove">Remove</string>
 	<string name="control_set_on_computer">Set in the service\'s settings on the computer.</string>
 	<string name="control_remove_title">Remove %1$s?</string>
-	<string name="control_remove_body">It disappears from every phone paired with this computer. The service itself keeps running.</string>
+	<string name="control_remove_body">It disappears from every phone paired with this computer. What it links to keeps running.</string>
 	<string name="control_restart_title">Restart %1$s?</string>
 	<string name="control_restart_body">It stops for a moment; whoever uses it gets disconnected.</string>
-	<string name="control_add_title">Add a service</string>
+	<string name="control_add_title">Add a link</string>
 	<string name="control_edit_title">Edit %1$s</string>
 	<string name="control_listening">Listening on this computer</string>
 	<!-- A port found listening that only the computer itself can reach: ":8096 jellyfin · local". -->
@@ -359,7 +359,7 @@
 	<string name="power_shut_down_explain">Unsaved work is lost, and only someone at the computer can turn it back on.</string>
 	<string name="power_needs_permission">needs permission</string>
 	<string name="power_needs_permission_title">%1$s needs permission</string>
-	<string name="power_needs_permission_body">The service runs outside a login session, so the system asks for a password it can\'t give. Allow it with a polkit rule: on NixOS, services.elamond.control.users = [ \"you\" ]; elsewhere, a rule that permits org.freedesktop.login1 power actions for your user.</string>
+	<string name="power_needs_permission_body">The Elamon service runs outside a login session, so the system asks for a password it can\'t give. Allow it with a polkit rule: on NixOS, services.elamond.control.users = [ \"you\" ]; elsewhere, a rule that permits org.freedesktop.login1 power actions for your user.</string>
 	<string name="power_try_anyway">Try anyway</string>
 
 	<!-- What became of a control request, shown in a snackbar -->
@@ -381,11 +381,11 @@
 	<string name="err_not_found">It\'s gone</string>
 	<string name="err_no_such_process">That process has already ended</string>
 	<string name="err_no_such_action">That action is no longer in the computer\'s settings</string>
-	<string name="err_no_such_service">That service is gone</string>
+	<string name="err_no_such_link">That link is gone</string>
 	<string name="err_no_art">The player has no cover for this track</string>
 	<string name="err_unknown_signal">The computer doesn\'t know that signal</string>
 	<string name="err_empty_command">That action has no command to run</string>
-	<string name="err_no_unit">That service has no systemd unit</string>
+	<string name="err_no_unit">That link has no systemd unit</string>
 	<string name="err_bad_name">The name must be 1 to 64 characters</string>
 	<string name="err_bad_url">That address isn\'t valid</string>
 	<string name="err_bad_unit">That isn\'t a valid systemd unit name</string>
@@ -467,7 +467,7 @@
 	<string name="troubleshooting_button">Troubleshooting</string>
 	<string name="copy">Copy</string>
 	<string name="copied">Copied</string>
-	<string name="help_intro">Elamon has two parts: this app, and elamond, a small service on the computer you want to watch. The service reads the computer\'s own counters and sends them only to phones you paired with it. If you allow it, it also lets them control the computer. It needs no root and runs as a service of your user.</string>
+	<string name="help_intro">Elamon has two parts: this app, and elamond, a small service on the computer you want to watch. It reads the computer\'s own counters and sends them only to phones you paired with it. If you allow it, it also lets them control the computer. It needs no root and runs as your user.</string>
 	<string name="help_install">1. Install the service</string>
 	<string name="help_pick_system">Pick the computer\'s system:</string>
 	<string name="help_other_system">Other</string>
@@ -476,11 +476,11 @@
 	<string name="help_nixos_rebuild">Rebuild. The service starts for every user who logs in.</string>
 	<string name="help_linger">To keep it running while nobody is logged in:</string>
 	<string name="help_nixos_hm">With Home Manager instead, for one user. The firewall then stays in the system configuration (see below):</string>
-	<string name="help_nix_profile">Nix with flakes on another distribution: install the service into your profile.</string>
-	<string name="help_nix_unit">The package brings its own user service. Link it and start it:</string>
+	<string name="help_nix_profile">Nix with flakes on another distribution: install elamond into your profile.</string>
+	<string name="help_nix_unit">The package brings its own systemd user unit. Link it and start it:</string>
 	<string name="help_update">To update later:</string>
 	<string name="help_deps">Install git, a C compiler and Rust:</string>
-	<string name="help_deps_debian">The service needs Rust 1.88 or newer, newer than Debian and Ubuntu ship, so Rust comes from rustup:</string>
+	<string name="help_deps_debian">Building the service takes Rust 1.88 or newer, newer than Debian and Ubuntu ship, so Rust comes from rustup:</string>
 	<string name="help_deps_other">Install git, a C compiler (gcc or clang) and Rust 1.88 or newer, from your distribution or from rustup.rs.</string>
 	<string name="help_build">Build the service and install it for your user. Nothing goes outside your home folder:</string>
 	<string name="help_path">If the shell doesn\'t find elamond afterwards, ~/.local/bin isn\'t on your PATH; run it as ~/.local/bin/elamond.</string>
@@ -491,7 +491,7 @@
 	<string name="help_fw_generic">Without a firewall nothing needs opening. Otherwise open TCP %1$s and UDP %2$s in the one you use.</string>
 	<string name="help_fw_ufw">With ufw:</string>
 	<string name="help_fw_firewalld">With firewalld:</string>
-	<string name="help_fw_why">TCP %1$s is the service itself. UDP %2$s is mDNS, which lets the app find the computer by itself; without it, add the computer by its address. Over a VPN such as Tailscale or WireGuard only %1$s matters, and a trusted VPN interface needs nothing.</string>
+	<string name="help_fw_why">TCP %1$s is the Elamon service itself. UDP %2$s is mDNS, which lets the app find the computer by itself; without it, add the computer by its address. Over a VPN such as Tailscale or WireGuard only %1$s matters, and a trusted VPN interface needs nothing.</string>
 	<string name="help_pair">3. Pair the phone</string>
 	<string name="help_pair_run">On the computer run:</string>
 	<string name="help_pair_scan">It shows a QR code and a six-digit code, good for five minutes. Point the phone\'s camera at the QR code and open the link: that pairs in one tap.</string>
@@ -515,9 +515,9 @@
 	<string name="faq_unpair_q">How do I unpair a phone?</string>
 	<string name="faq_unpair_a">In the app: the computer\'s menu, Forget computer. To also drop the phone\'s access on the computer, list the paired phones and revoke one by its ID:</string>
 	<string name="help_control">4. Control panel</string>
-	<string name="help_control_intro">The Control tab starts services, plays music, switches the power profile, runs commands and powers the computer off. It\'s off until you allow it on the computer:</string>
+	<string name="help_control_intro">The Control tab opens links and starts what\'s behind them, plays music, switches the power profile, runs commands and powers the computer off. It\'s off until you allow it on the computer:</string>
 	<string name="help_control_nixos">On NixOS, in the service\'s settings. control.users also lets power actions, the power profile and the listed system units through without a password:</string>
-	<string name="help_control_services">Web services show up in the Control tab with their state; tap one to open it, hold it for start, stop and restart. Add them in the app, or on the computer:</string>
+	<string name="help_control_links">Links to the web pages the computer hosts show up in the Control tab with their state; tap one to open it, hold it for start, stop and restart. Add them in the app, or on the computer:</string>
 	<string name="help_control_actions">Commands are defined only on the computer, so a phone can\'t run anything else. Each becomes a button in the app; its output comes back:</string>
 	<string name="help_control_polkit">Elsewhere, power actions and system units need a polkit rule, because the service runs outside a login session. Without it the app marks them \"needs permission\". Save this as /etc/polkit-1/rules.d/50-elamon.rules, with your user name:</string>
 	<string name="help_commands">Service commands</string>

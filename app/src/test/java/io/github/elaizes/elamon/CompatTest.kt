@@ -28,21 +28,21 @@ class CompatTest {
 
 	@Test
 	fun appTooOld() {
-		assertEquals(Compat.UpdateApp, compatibility("0.4.0", serviceApi = 2, serviceVersion = "1.0.0", minApp = null))
-		assertEquals(Compat.UpdateApp, compatibility("0.4.0", serviceApi = 1, serviceVersion = "0.5.0", minApp = "0.5.0"))
+		assertEquals(Compat.UpdateApp, compatibility("0.4.0", elamondApi = 2, elamondVersion = "1.0.0", minApp = null))
+		assertEquals(Compat.UpdateApp, compatibility("0.4.0", elamondApi = 1, elamondVersion = "0.5.0", minApp = "0.5.0"))
 		// Both out of date: the app comes first, it's the one that can't read everything.
-		assertEquals(Compat.UpdateApp, compatibility("0.2.0", serviceApi = 1, serviceVersion = "0.3.0", minApp = "0.3.0"))
+		assertEquals(Compat.UpdateApp, compatibility("0.2.0", elamondApi = 1, elamondVersion = "0.3.0", minApp = "0.3.0"))
 	}
 
 	@Test
-	fun serviceTooOld() {
-		assertEquals(Compat.UpdateElamond, compatibility("0.4.0", serviceApi = 1, serviceVersion = "0.3.0", minApp = null))
-		assertEquals(Compat.UpdateElamond, compatibility("0.4.0", serviceApi = 1, serviceVersion = "0.2.1", minApp = null))
+	fun elamondTooOld() {
+		assertEquals(Compat.UpdateElamond, compatibility("0.4.0", elamondApi = 1, elamondVersion = "0.3.0", minApp = null))
+		assertEquals(Compat.UpdateElamond, compatibility("0.4.0", elamondApi = 1, elamondVersion = "0.2.1", minApp = null))
 	}
 
 	@Test
 	fun inStep() {
-		assertEquals(Compat.Ok, compatibility("0.4.0", serviceApi = 1, serviceVersion = "0.4.0", minApp = "0.3.0"))
-		assertEquals(Compat.Ok, compatibility("0.4.0", serviceApi = 1, serviceVersion = "0.4.2", minApp = "0.4"))
+		assertEquals(Compat.Ok, compatibility("0.4.0", elamondApi = 1, elamondVersion = "0.4.0", minApp = "0.3.0"))
+		assertEquals(Compat.Ok, compatibility("0.4.0", elamondApi = 1, elamondVersion = "0.4.2", minApp = "0.4"))
 	}
 }

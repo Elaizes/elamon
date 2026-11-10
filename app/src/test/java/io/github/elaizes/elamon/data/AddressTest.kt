@@ -64,36 +64,36 @@ class AddressTest {
 	}
 
 	@Test
-	fun serviceLinks() {
+	fun linkAddresses() {
 		val h = "192.168.200.5"
-		assertEquals("http://192.168.200.5:8080", serviceUrl("http://{host}:8080", h))
-		assertEquals("http://192.168.200.5:3000", serviceUrl("{host}:3000", h))
-		assertEquals("https://192.168.200.5/admin", serviceUrl("https://{host}/admin", h))
-		assertEquals("http://192.168.200.5:8096/web/", serviceUrl("http://localhost:8096/web/", h))
-		assertEquals("http://192.168.200.5:81", serviceUrl("http://127.0.0.1:81", h))
-		assertEquals("HTTP://192.168.200.5:1", serviceUrl("HTTP://LOCALHOST:1", h))
-		assertEquals("http://user:pw@192.168.200.5:81/", serviceUrl("http://user:pw@localhost:81/", h))
-		assertEquals("http://192.168.200.5:9090/x", serviceUrl("http://[::1]:9090/x", h))
-		assertEquals("http://192.168.200.5", serviceUrl("localhost", h))
+		assertEquals("http://192.168.200.5:8080", linkUrl("http://{host}:8080", h))
+		assertEquals("http://192.168.200.5:3000", linkUrl("{host}:3000", h))
+		assertEquals("https://192.168.200.5/admin", linkUrl("https://{host}/admin", h))
+		assertEquals("http://192.168.200.5:8096/web/", linkUrl("http://localhost:8096/web/", h))
+		assertEquals("http://192.168.200.5:81", linkUrl("http://127.0.0.1:81", h))
+		assertEquals("HTTP://192.168.200.5:1", linkUrl("HTTP://LOCALHOST:1", h))
+		assertEquals("http://user:pw@192.168.200.5:81/", linkUrl("http://user:pw@localhost:81/", h))
+		assertEquals("http://192.168.200.5:9090/x", linkUrl("http://[::1]:9090/x", h))
+		assertEquals("http://192.168.200.5", linkUrl("localhost", h))
 	}
 
 	@Test
-	fun serviceLinksLeaveTheRestAlone() {
+	fun linkAddressesLeaveTheRestAlone() {
 		val h = "192.168.200.5"
 		// Only the host is the computer's own name; another loopback address or a path is left as it is.
-		assertEquals("http://127.0.0.10:80/", serviceUrl("http://127.0.0.10:80/", h))
-		assertEquals("http://192.168.200.5:8080/?next=http://localhost/x#127.0.0.1", serviceUrl("http://localhost:8080/?next=http://localhost/x#127.0.0.1", h))
-		assertEquals("http://localhost.example.org/", serviceUrl("http://localhost.example.org/", h))
-		assertEquals("https://example.org/localhost", serviceUrl("https://example.org/localhost", h))
-		assertEquals("http://192.168.200.5:3000/?u=http://x", serviceUrl("{host}:3000/?u=http://x", h))
+		assertEquals("http://127.0.0.10:80/", linkUrl("http://127.0.0.10:80/", h))
+		assertEquals("http://192.168.200.5:8080/?next=http://localhost/x#127.0.0.1", linkUrl("http://localhost:8080/?next=http://localhost/x#127.0.0.1", h))
+		assertEquals("http://localhost.example.org/", linkUrl("http://localhost.example.org/", h))
+		assertEquals("https://example.org/localhost", linkUrl("https://example.org/localhost", h))
+		assertEquals("http://192.168.200.5:3000/?u=http://x", linkUrl("{host}:3000/?u=http://x", h))
 		// The placeholder means this address wherever it is.
-		assertEquals("http://192.168.200.5:8384/?s=192.168.200.5", serviceUrl("http://{host}:8384/?s={host}", h))
+		assertEquals("http://192.168.200.5:8384/?s=192.168.200.5", linkUrl("http://{host}:8384/?s={host}", h))
 	}
 
 	@Test
-	fun serviceLinksOverIpv6() {
-		assertEquals("http://[fd00::1]:8384", serviceUrl("http://{host}:8384", "fd00::1"))
-		assertEquals("http://[fd00::1]:9090/x", serviceUrl("http://[::1]:9090/x", "fd00::1"))
-		assertEquals("http://[fd00::2]:80", serviceUrl("http://[fd00::2]:80", "fd00::1"))
+	fun linkAddressesOverIpv6() {
+		assertEquals("http://[fd00::1]:8384", linkUrl("http://{host}:8384", "fd00::1"))
+		assertEquals("http://[fd00::1]:9090/x", linkUrl("http://[::1]:9090/x", "fd00::1"))
+		assertEquals("http://[fd00::2]:80", linkUrl("http://[fd00::2]:80", "fd00::1"))
 	}
 }

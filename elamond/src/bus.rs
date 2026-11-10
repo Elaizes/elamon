@@ -1,6 +1,6 @@
 //! D-Bus: logind for power, systemd for units, power-profiles-daemon, MPRIS players.
 //!
-//! The service is a user service outside any login session, so polkit treats it as
+//! elamond runs as a user service outside any login session, so polkit treats it as
 //! "inactive": power actions, profile switching and system units come back as
 //! "challenge" unless a polkit rule allows them (the NixOS module can add one).
 
@@ -372,7 +372,7 @@ impl Bus {
 		m.call::<_, _, OwnedObjectPath>(method, &(name, "replace")).await.map(|_| ()).map_err(|e| self.failed(scope, e))
 	}
 
-	/// Loaded service units, for picking one when adding a service.
+	/// Loaded service units, for picking one when adding a link.
 	pub async fn units(&self, scope: Scope) -> Result<Vec<UnitInfo>, String> {
 		type Row = (String, String, String, String, String, String, OwnedObjectPath, u32, String, OwnedObjectPath);
 		let m = self.systemd(scope).await?;

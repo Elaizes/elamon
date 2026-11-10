@@ -2,7 +2,7 @@ package io.github.elaizes.elamon
 
 import io.github.elaizes.elamon.data.APP_API
 
-/** Whether this app and a computer's service understand each other fully. */
+/** Whether this app and the Elamon service on a computer understand each other fully. */
 enum class Compat {
 	Ok,
 
@@ -13,7 +13,7 @@ enum class Compat {
 	UpdateElamond,
 }
 
-/** The service version whose fields this app reads; older ones work with fallbacks. */
+/** The elamond version whose fields this app reads; older ones work with fallbacks. */
 const val MIN_ELAMOND = "0.4.0"
 
 object Versions {
@@ -37,10 +37,10 @@ object Versions {
 			.split('.').filter { it.isNotEmpty() }.map { it.toIntOrNull() ?: Int.MAX_VALUE }
 }
 
-/** What to tell about this app ([appVersion]) and an service of [serviceVersion] speaking [serviceApi]. */
-fun compatibility(appVersion: String, serviceApi: Int, serviceVersion: String, minApp: String?): Compat = when {
-	serviceApi > APP_API -> Compat.UpdateApp
+/** What to tell about this app ([appVersion]) and elamond [elamondVersion] speaking [elamondApi]. */
+fun compatibility(appVersion: String, elamondApi: Int, elamondVersion: String, minApp: String?): Compat = when {
+	elamondApi > APP_API -> Compat.UpdateApp
 	minApp != null && Versions.compare(appVersion, minApp) < 0 -> Compat.UpdateApp
-	Versions.compare(serviceVersion, MIN_ELAMOND) < 0 -> Compat.UpdateElamond
+	Versions.compare(elamondVersion, MIN_ELAMOND) < 0 -> Compat.UpdateElamond
 	else -> Compat.Ok
 }

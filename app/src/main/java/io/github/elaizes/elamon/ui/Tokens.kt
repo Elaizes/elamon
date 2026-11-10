@@ -120,7 +120,7 @@ object Sizes {
 	val art = 72.dp
 	val playButton = 64.dp
 
-	/** The menu button on a service's tile, as drawn; its touch target is still [touchTarget]. */
+	/** The menu button on a link's tile, as drawn; its touch target is still [touchTarget]. */
 	val tileMenu = 32.dp
 
 	/** A tag's dot, and a legend's. */

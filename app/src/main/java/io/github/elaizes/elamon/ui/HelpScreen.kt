@@ -67,7 +67,7 @@ import io.github.elaizes.elamon.data.DEFAULT_HISTORY_SECONDS
 import io.github.elaizes.elamon.data.DEFAULT_INTERVAL_MS
 import io.github.elaizes.elamon.data.DEFAULT_PORT
 import io.github.elaizes.elamon.data.Limits.MDNS_PORT
-import io.github.elaizes.elamon.data.ServerStore
+import io.github.elaizes.elamon.data.MachineStore
 
 /** Where the project lives; the one place to change if it moves. */
 object Project {
@@ -97,13 +97,13 @@ private fun c(code: String) = Block.Code(code)
  * The ports the guide's words name, from the same constants as its commands. As text: formatted as
  * numbers they could come out in the phone's own digits, and they are to be typed as they are.
  */
-private val SERVICE_PORT_TEXT = DEFAULT_PORT.toString()
+private val ELAMOND_PORT_TEXT = DEFAULT_PORT.toString()
 private val MDNS_PORT_TEXT = MDNS_PORT.toString()
 
 /** [label] is the system's own name, the same in every language, like the commands; null is "Other", from resources. */
 private data class Distro(val key: String, val label: String?, val install: List<Block>, val firewall: List<Block>)
 
-// Commands shared by the distributions that build the service from source.
+// Commands shared by the distributions that build elamond from source.
 private val BUILD = """
 	git clone ${Project.GIT}
 	cd elamon/elamond
@@ -137,7 +137,7 @@ private fun fromSource(deps: List<Block>) = deps + listOf(
 )
 
 private val GENERIC_FIREWALL = listOf(
-	t(R.string.help_fw_generic, SERVICE_PORT_TEXT, MDNS_PORT_TEXT),
+	t(R.string.help_fw_generic, ELAMOND_PORT_TEXT, MDNS_PORT_TEXT),
 	t(R.string.help_fw_ufw),
 	c(UFW),
 	t(R.string.help_fw_firewalld),
@@ -219,7 +219,7 @@ private const val CONTROL_NIXOS = """services.elamond = {
   control.units = [ "SERVICE.service" ];
 };"""
 
-private const val CONTROL_SERVICES = """[[services]]
+private const val CONTROL_LINKS = """[[links]]
 name = "Media server"
 url = "http://{host}:8096"
 unit = "SERVICE.service"
@@ -251,7 +251,7 @@ private val FAQ = listOf(
 	Faq(R.string.faq_not_found_q, listOf(t(R.string.faq_not_found_a, MDNS_PORT_TEXT))),
 	Faq(
 		R.string.faq_no_connect_q,
-		listOf(t(R.string.faq_no_connect_a), c("systemctl --user status elamond\njournalctl --user -u elamond -e"), t(R.string.faq_no_connect_a2, SERVICE_PORT_TEXT)),
+		listOf(t(R.string.faq_no_connect_a), c("systemctl --user status elamond\njournalctl --user -u elamond -e"), t(R.string.faq_no_connect_a2, ELAMOND_PORT_TEXT)),
 	),
 	Faq(R.string.faq_logout_q, listOf(t(R.string.faq_logout_a), c("loginctl enable-linger"))),
 	Faq(R.string.faq_cert_q, listOf(t(R.string.faq_cert_a))),
@@ -284,7 +284,7 @@ private val SETTING_NOTES = listOf(
 
 /** The first paired computer's distribution, so the guide opens on the right commands. */
 private fun guessDistro(context: Context): String {
-	val os = ServerStore.get(context).servers.value.firstNotNullOfOrNull { it.os }?.lowercase() ?: return "debian"
+	val os = MachineStore.get(context).machines.value.firstNotNullOfOrNull { it.os }?.lowercase() ?: return "debian"
 	return when {
 		"nixos" in os -> "nixos"
 		"fedora" in os || "nobara" in os || "bazzite" in os -> "fedora"
@@ -352,7 +352,7 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 					HelpItem.Firewall -> {
 						Section(stringResource(R.string.help_firewall), Icons.Default.Lock) {
 							Blocks(distro.firewall)
-							Text(stringResource(R.string.help_fw_why, SERVICE_PORT_TEXT, MDNS_PORT_TEXT), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+							Text(stringResource(R.string.help_fw_why, ELAMOND_PORT_TEXT, MDNS_PORT_TEXT), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 						}
 					}
 					HelpItem.Pair -> {
@@ -368,8 +368,8 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 									c("# ~/.config/elamon/elamond.toml\ncontrol = true"),
 									t(R.string.help_control_nixos),
 									c(CONTROL_NIXOS),
-									t(R.string.help_control_services),
-									c(CONTROL_SERVICES),
+									t(R.string.help_control_links),
+									c(CONTROL_LINKS),
 									t(R.string.help_control_actions),
 									c(CONTROL_ACTIONS),
 									t(R.string.help_control_polkit),
