@@ -31,8 +31,12 @@ with subtest("a drop-in turns control on without a restart"):
 	machine.wait_until_succeeds(f"curl -sk {auth} https://localhost:47823/api/v1/control | jq -e .enabled", timeout=30)
 
 with subtest("systemctl reload rereads the settings"):
+	# Nothing changes on disk here, so only the reload can add a reread to the log.
+	rereads = "journalctl _UID=1000 -o cat | grep -c 'settings: reread' || true"
+	machine.sleep(6)
+	before = int(machine.succeed(rereads).strip() or 0)
 	machine.succeed("systemctl --user -M alice@ reload elamond")
-	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -c 'settings: reread' | grep -qv '^1$'", timeout=30)
+	machine.wait_until_succeeds(f"test $({rereads}) -gt {before}", timeout=30)
 
 with subtest("an elamond.toml from before 0.5, with [[services]], still works"):
 	machine.succeed("""printf '%s\\n' '[[services]]' 'name = "Old style"' 'url = "http://{host}:8080"' > /home/alice/.config/elamon/elamond.toml""")
