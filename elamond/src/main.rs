@@ -2,6 +2,8 @@
 
 mod bus;
 mod collect;
+#[cfg(test)]
+mod fixtures;
 mod control;
 mod model;
 mod server;

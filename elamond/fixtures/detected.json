@@ -1,0 +1,7 @@
+[
+  {
+    "port": 8080,
+    "local_only": true,
+    "process": "some"
+  }
+]

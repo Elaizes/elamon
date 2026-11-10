@@ -201,15 +201,22 @@ async fn auth(State(hub): State<Arc<Hub>>, mut req: Request, next: Next) -> Resp
 
 /// Lets the app check that an address is an Elamon service, and which one, before pairing.
 async fn hello(State(hub): State<Arc<Hub>>) -> Response {
-	Json(json!({
+	Json(hello_body(&hub.id, &hub.name)).into_response()
+}
+
+pub(crate) fn hello_body(id: &str, name: &str) -> serde_json::Value {
+	json!({
 		"app": "elamon",
 		"api": crate::API_VERSION,
-		"id": hub.id,
-		"name": hub.name,
+		"id": id,
+		"name": name,
 		"version": env!("CARGO_PKG_VERSION"),
 		"min_app": crate::MIN_APP,
-	}))
-	.into_response()
+	})
+}
+
+pub(crate) fn paired_body(token: &str, client_id: &str, id: &str, name: &str) -> serde_json::Value {
+	json!({ "token": token, "client_id": client_id, "id": id, "name": name })
 }
 
 #[derive(Deserialize)]
@@ -246,7 +253,7 @@ async fn pair(
 	match store::add_client(&req.device) {
 		Ok((client, token)) => {
 			eprintln!("pairing: added \"{}\" ({}) from {}", client.name, client.id, peer.ip());
-			Json(json!({ "token": token, "client_id": client.id, "id": hub.id, "name": hub.name })).into_response()
+			Json(paired_body(&token, &client.id, &hub.id, &hub.name)).into_response()
 		}
 		Err(e) => {
 			eprintln!("pairing: can't save the client: {e}");
@@ -401,7 +408,7 @@ fn tagged(kind: &str, obj: &str) -> String {
 	format!("{{\"type\":\"{kind}\"{sep}{inner}\n")
 }
 
-fn render_sample(frame: &Frame, procs: usize, sort: Option<&str>, line: bool) -> String {
+pub(crate) fn render_sample(frame: &Frame, procs: usize, sort: Option<&str>, line: bool) -> String {
 	let mut s = frame.sample.clone();
 	if procs > 0
 		&& let Some(list) = &frame.processes

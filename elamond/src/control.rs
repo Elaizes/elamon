@@ -39,19 +39,19 @@ fn done(result: Result<(), String>) -> Response {
 }
 
 #[derive(Serialize)]
-struct ControlInfo {
-	enabled: bool,
-	power: PowerCaps,
-	profiles: Option<Profiles>,
-	actions: Vec<ActionInfo>,
-	volume: bool,
+pub(crate) struct ControlInfo {
+	pub(crate) enabled: bool,
+	pub(crate) power: PowerCaps,
+	pub(crate) profiles: Option<Profiles>,
+	pub(crate) actions: Vec<ActionInfo>,
+	pub(crate) volume: bool,
 }
 
 #[derive(Serialize)]
-struct ActionInfo {
-	id: String,
-	name: String,
-	confirm: bool,
+pub(crate) struct ActionInfo {
+	pub(crate) id: String,
+	pub(crate) name: String,
+	pub(crate) confirm: bool,
 }
 
 /// What the app may offer on this computer right now.
@@ -133,10 +133,10 @@ pub struct ActionReq {
 }
 
 #[derive(Serialize)]
-struct ActionResult {
-	exit_code: Option<i32>,
-	timed_out: bool,
-	output: String,
+pub(crate) struct ActionResult {
+	pub(crate) exit_code: Option<i32>,
+	pub(crate) timed_out: bool,
+	pub(crate) output: String,
 }
 
 pub async fn action(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<ActionReq>) -> Response {

@@ -1,0 +1,24 @@
+{
+  "enabled": true,
+  "power": {
+    "poweroff": "yes",
+    "reboot": "yes",
+    "suspend": "challenge",
+    "lock": true
+  },
+  "profiles": {
+    "active": "balanced",
+    "available": [
+      "power-saver",
+      "balanced"
+    ]
+  },
+  "actions": [
+    {
+      "id": "0123456789ab",
+      "name": "Some action",
+      "confirm": true
+    }
+  ],
+  "volume": true
+}
