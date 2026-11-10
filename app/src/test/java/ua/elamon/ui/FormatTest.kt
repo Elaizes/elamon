@@ -1,7 +1,9 @@
 package ua.elamon.ui
 
+import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class FormatTest {
 	@Test
@@ -83,5 +85,29 @@ class FormatTest {
 		assertEquals("53 × 30 cm", Fmt.centimetres(530, 300))
 		assertEquals("2500 RPM", Fmt.rpm(2500))
 		assertEquals("1000 Mbit/s", Fmt.linkSpeed(1000))
+	}
+
+	@Test
+	fun sameDecimalPointWhateverTheLanguage() {
+		val before = Locale.getDefault()
+		try {
+			Locale.setDefault(Locale.GERMANY)
+			// Next to figures that always use a point, a comma here would read as a different kind of number.
+			assertEquals("52.4 Wh", Fmt.wattHours(52.4f))
+			assertEquals("0.52", Fmt.load(0.523f))
+			assertEquals("12.3 W", Fmt.watts(12.34f))
+		} finally {
+			Locale.setDefault(before)
+		}
+	}
+
+	@Test
+	fun avatarHues() {
+		// Its hash is Int.MIN_VALUE, whose abs() is negative: Color.hsl threw on it.
+		assertEquals(Int.MIN_VALUE, "polygenelubricants".hashCode())
+		val hue = avatarHue("polygenelubricants")
+		assertTrue(hue >= 0f && hue < 360f)
+		assertEquals(avatarHue("Firefox"), avatarHue("firefox"))
+		for (name in listOf("", "a", "systemd", "kworker/0:1")) assertTrue(avatarHue(name) in 0f..359f, name)
 	}
 }

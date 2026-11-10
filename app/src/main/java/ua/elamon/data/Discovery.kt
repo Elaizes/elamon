@@ -8,7 +8,9 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import java.net.Inet4Address
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 /** An service announcing itself on the local network. */
 data class Found(
@@ -21,13 +23,37 @@ data class Found(
 
 private const val SERVICE_TYPE = "_elamon._tcp."
 
+/**
+ * Runs callbacks one at a time on a thread of its own. Once closed, whatever is posted is dropped:
+ * NsdManager may still call back after discovery has been stopped.
+ */
+class CallbackQueue(private val executor: ExecutorService = Executors.newSingleThreadExecutor()) {
+	@Volatile
+	var closed = false
+		private set
+
+	fun post(task: () -> Unit) {
+		if (closed) return
+		try {
+			executor.execute { if (!closed) task() }
+		} catch (e: RejectedExecutionException) {
+			// Closed between the check and here.
+		}
+	}
+
+	fun close() {
+		closed = true
+		executor.shutdown()
+	}
+}
+
 /** Services on the local network, updated as they come and go. Empty where multicast doesn't reach (VPNs). */
 fun discoverServices(context: Context): Flow<List<Found>> = callbackFlow {
-	val nsd = context.getSystemService(Context.NSD_SERVICE) as NsdManager
+	val nsd = context.applicationContext.getSystemService(Context.NSD_SERVICE) as NsdManager
 	val found = linkedMapOf<String, Found>()
-	val executor = Executors.newSingleThreadExecutor()
+	val queue = CallbackQueue()
 	// Before Android 14 a resolver handles one service at a time; queue the rest.
-	val queue = ArrayDeque<NsdServiceInfo>()
+	val pending = ArrayDeque<NsdServiceInfo>()
 	var resolving = false
 
 	fun publish() {
@@ -35,20 +61,19 @@ fun discoverServices(context: Context): Flow<List<Found>> = callbackFlow {
 	}
 
 	fun resolveNext() {
-		if (resolving) return
-		val next = queue.removeFirstOrNull() ?: return
+		if (resolving || queue.closed) return
+		val next = pending.removeFirstOrNull() ?: return
 		resolving = true
-		@Suppress("DEPRECATION")
-		nsd.resolveService(next, object : NsdManager.ResolveListener {
+		val listener = object : NsdManager.ResolveListener {
 			override fun onResolveFailed(info: NsdServiceInfo, errorCode: Int) {
-				executor.execute {
+				queue.post {
 					resolving = false
 					resolveNext()
 				}
 			}
 
 			override fun onServiceResolved(info: NsdServiceInfo) {
-				executor.execute {
+				queue.post {
 					resolving = false
 					val attrs = info.attributes
 					fun attr(k: String) = attrs[k]?.let { String(it, Charsets.UTF_8) }
@@ -61,7 +86,15 @@ fun discoverServices(context: Context): Flow<List<Found>> = callbackFlow {
 					resolveNext()
 				}
 			}
-		})
+		}
+		try {
+			@Suppress("DEPRECATION")
+			nsd.resolveService(next, listener)
+		} catch (e: RuntimeException) {
+			// A resolver the system refuses: skip this one, the next may do.
+			resolving = false
+			queue.post { resolveNext() }
+		}
 	}
 
 	val listener = object : NsdManager.DiscoveryListener {
@@ -71,14 +104,14 @@ fun discoverServices(context: Context): Flow<List<Found>> = callbackFlow {
 		override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {}
 
 		override fun onServiceFound(info: NsdServiceInfo) {
-			executor.execute {
-				queue.addLast(info)
+			queue.post {
+				pending.addLast(info)
 				resolveNext()
 			}
 		}
 
 		override fun onServiceLost(info: NsdServiceInfo) {
-			executor.execute {
+			queue.post {
 				if (found.remove(info.serviceName) != null) publish()
 			}
 		}
@@ -87,8 +120,8 @@ fun discoverServices(context: Context): Flow<List<Found>> = callbackFlow {
 	trySend(emptyList())
 	runCatching { nsd.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener) }
 	awaitClose {
+		queue.close()
 		runCatching { nsd.stopServiceDiscovery(listener) }
-		executor.shutdown()
 	}
 }
 

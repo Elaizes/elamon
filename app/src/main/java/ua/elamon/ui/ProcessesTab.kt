@@ -34,6 +34,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,7 +61,7 @@ fun ProcessesTab(t: TabScope) {
 	var sort by rememberSaveable { mutableStateOf("cpu") }
 	var query by rememberSaveable { mutableStateOf("") }
 	var grouped by rememberSaveable { mutableStateOf(false) }
-	var selected by remember { mutableStateOf<Int?>(null) }
+	var selected by remember { mutableStateOf<Proc?>(null) }
 	val vm = t.vm
 
 	// Searching or grouping needs every process, not just the heaviest ones.
@@ -137,13 +138,16 @@ fun ProcessesTab(t: TabScope) {
 		}
 		item(key = "list-top") { Spacer(Modifier.height(4.dp)) }
 		items(rows, key = { it.key }) { r ->
-			ProcRow(r, onClick = r.proc?.let { p -> { selected = p.pid } } ?: { query = r.name; grouped = false })
+			ProcRow(r, onClick = r.proc?.let { p -> { selected = p } } ?: { query = r.name; grouped = false })
 		}
 	}
 
-	selected?.let { pid ->
-		val live = procs?.find { it.pid == pid }
-		if (live != null) ProcessSheet(t, live, onDismiss = { selected = null }) else LaunchedEffect(pid) { selected = null }
+	// The sheet stays until it is closed: a process that leaves the list (it ended, or fell out of
+	// the heaviest ones) keeps its last readings, marked as such.
+	selected?.let { last ->
+		val live = procs?.find { it.pid == last.pid }
+		if (live != null && live != last) SideEffect { selected = live }
+		ProcessSheet(t, live ?: last, gone = procs != null && live == null, onDismiss = { selected = null })
 	}
 }
 
@@ -181,7 +185,7 @@ private fun ProcRow(r: ProcItem, onClick: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ProcessSheet(t: TabScope, p: Proc, onDismiss: () -> Unit) {
+private fun ProcessSheet(t: TabScope, p: Proc, gone: Boolean, onDismiss: () -> Unit) {
 	val control by t.vm.control.collectAsStateWithLifecycle()
 	val prefs = LocalPrefs.current
 	var confirm by remember { mutableStateOf<String?>(null) }
@@ -194,6 +198,9 @@ private fun ProcessSheet(t: TabScope, p: Proc, onDismiss: () -> Unit) {
 					Text(p.name, style = MaterialTheme.typography.headlineSmall)
 					Text(listOfNotNull(p.user, stringResource(R.string.processes_pid, p.pid)).joinToString(" · "), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				}
+			}
+			if (gone) {
+				Text(stringResource(R.string.processes_gone), style = MaterialTheme.typography.bodySmall, color = Metric.colors.warn)
 			}
 			Row(horizontalArrangement = Arrangement.spacedBy(24.dp), modifier = Modifier.padding(vertical = 6.dp)) {
 				BigStat(stringResource(R.string.cpu), Fmt.percent(p.cpu, 1), color = Metric.colors.cpu)

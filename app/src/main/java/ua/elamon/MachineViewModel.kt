@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import ua.elamon.data.ActionResult
 import ua.elamon.data.ElamondClient
@@ -95,6 +97,26 @@ fun <T> Flow<T>.settle(ms: Long): Flow<T> {
 			0L
 		} else ms
 	}
+}
+
+/**
+ * The largest power of two to divide a [width] by [height] image by that still leaves both sides
+ * at least [want] pixels: what BitmapFactory's inSampleSize takes.
+ */
+fun sampleSize(width: Int, height: Int, want: Int): Int {
+	if (want <= 0) return 1
+	var s = 1
+	while (s < (1 shl 16) && width / (s * 2) >= want && height / (s * 2) >= want) s *= 2
+	return s
+}
+
+/** An image's bytes as a bitmap about [sizePx] across, read at a fraction of its size when it is larger. */
+private fun decodeArt(bytes: ByteArray, sizePx: Int): Bitmap? {
+	val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+	BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+	if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+	val opts = BitmapFactory.Options().apply { inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, sizePx) }
+	return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
 }
 
 class MachineViewModel(app: Application, private val serverId: String) : AndroidViewModel(app) {
@@ -422,12 +444,21 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 		it.post<VolumeReq, Ok>("/api/v1/media/volume", VolumeReq(level, muted))
 	}
 
-	suspend fun art(player: String): Bitmap? {
+	/** A player's cover, decoded off the main thread at about [sizePx] square; null when there's none to show. */
+	suspend fun art(player: String, sizePx: Int): Bitmap? {
 		val c = client() ?: return null
-		return runCatching {
-			val bytes = c.bytes("/api/v1/media/art?player=" + java.net.URLEncoder.encode(player, "UTF-8"))
-			BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-		}.getOrNull()
+		val bytes = try {
+			c.bytes("/api/v1/media/art?player=" + java.net.URLEncoder.encode(player, "UTF-8"))
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: ElamondException) {
+			// Covers need control; turned off since the panel was read, it should say so instead of the player.
+			if (e.code == "control_disabled") refreshControl()
+			return null
+		} catch (e: Exception) {
+			return null
+		}
+		return withContext(Dispatchers.Default) { orNull { decodeArt(bytes, sizePx) } }
 	}
 
 	fun saveService(def: ServiceDef) = act(done = R.string.done_saved) {
@@ -444,10 +475,10 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 		},
 	) { it.post<UnitReq, Ok>("/api/v1/services/$serviceId/unit", UnitReq(op)) }
 
-	suspend fun detected(): List<Listener> = client()?.let { runCatching { it.get<List<Listener>>("/api/v1/services/detected") }.getOrNull() }.orEmpty()
+	suspend fun detected(): List<Listener> = client()?.let { orNull { it.get<List<Listener>>("/api/v1/services/detected") } }.orEmpty()
 
 	suspend fun units(scope: String): List<UnitInfo> =
-		client()?.let { runCatching { it.get<List<UnitInfo>>("/api/v1/units?scope=$scope") }.getOrNull() }.orEmpty()
+		client()?.let { orNull { it.get<List<UnitInfo>>("/api/v1/units?scope=$scope") } }.orEmpty()
 
 	class Factory(private val app: Application, private val id: String) : ViewModelProvider.Factory {
 		@Suppress("UNCHECKED_CAST")

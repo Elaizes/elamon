@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -59,7 +58,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -73,12 +72,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
+import ua.elamon.Conn
 import ua.elamon.R
 import ua.elamon.data.ActionInfo
 import ua.elamon.data.ActionResult
@@ -88,6 +90,7 @@ import ua.elamon.data.Player
 import ua.elamon.data.ServiceDef
 import ua.elamon.data.ServiceStatus
 import ua.elamon.data.UnitInfo
+import ua.elamon.data.serviceUrl
 
 @Composable
 fun ControlTab(t: TabScope) {
@@ -134,6 +137,7 @@ fun ControlTab(t: TabScope) {
 				onAdd = { adding = true },
 			)
 		}
+		item(key = "displays") { DisplaysSection(t.state) }
 		val media = s.media
 		if (enabled && media != null && (media.players.isNotEmpty() || media.volume != null)) {
 			item(key = "media") { MediaSection(t, media.players, media.volume) }
@@ -176,13 +180,6 @@ fun ControlTab(t: TabScope) {
 
 /** A new service's address before its port: the computer's own address, over plain HTTP. */
 private const val SERVICE_URL_START = "http://{host}:"
-
-/** "{host}" becomes the address this phone reaches the computer at; bare host:port gets http. */
-fun serviceUrl(url: String, host: String): String {
-	val h = if (host.contains(':')) "[$host]" else host
-	val u = url.replace("{host}", h).replace("localhost", h).replace("127.0.0.1", h)
-	return if (u.contains("://")) u else "http://$u"
-}
 
 @Composable
 private fun ControlOff(onHelp: () -> Unit) {
@@ -466,14 +463,30 @@ private fun MediaSection(t: TabScope, players: List<Player>, volume: ua.elamon.d
 	}
 }
 
+/** How big a cover shows, and so how big it is decoded. */
+private val ART_SIZE = 72.dp
+
+/** How often a playing track's position moves on between samples. */
+private const val POSITION_TICK_MS = 500L
+
 @Composable
 private fun NowPlaying(t: TabScope, p: Player) {
+	val artPx = with(LocalDensity.current) { ART_SIZE.roundToPx() }
 	var art by remember(p.id, p.title) { mutableStateOf<Bitmap?>(null) }
-	LaunchedEffect(p.id, p.title, p.hasArt) { art = if (p.hasArt) t.vm.art(p.id) else null }
+	LaunchedEffect(p.id, p.title, p.hasArt) { art = if (p.hasArt) t.vm.art(p.id, artPx) else null }
 	val playing = p.status == "Playing"
+	// The service reports once a sample, maybe seconds apart; in between the position moves on by itself.
+	val moving = playing && t.state.conn == Conn.Live
+	var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+	LaunchedEffect(moving) {
+		while (moving) {
+			now = System.currentTimeMillis()
+			delay(POSITION_TICK_MS)
+		}
+	}
 	Row(verticalAlignment = Alignment.CenterVertically) {
 		Box(
-			Modifier.size(72.dp).clip(RoundedCornerShape(16.dp)).background(
+			Modifier.size(ART_SIZE).clip(RoundedCornerShape(16.dp)).background(
 				Brush.linearGradient(listOf(MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.primaryContainer))
 			),
 			contentAlignment = Alignment.Center,
@@ -492,9 +505,8 @@ private fun NowPlaying(t: TabScope, p: Player) {
 	}
 	val length = p.length
 	if (length != null && length > 0) {
-		// The service reports once a tick; between ticks the position moves on by itself.
-		val elapsed = if (playing) (System.currentTimeMillis() - t.state.receivedAt).coerceIn(0, 2000) * 1000 else 0
-		val pos = ((p.position ?: 0) + elapsed).coerceAtMost(length)
+		// A new sample may be newer than the last tick: it is where the position starts again.
+		val pos = playbackPosition(p.position, length, t.state.receivedAt, maxOf(now, t.state.receivedAt), moving)
 		var dragging by remember { mutableStateOf<Float?>(null) }
 		Column {
 			Slider(

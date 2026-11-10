@@ -48,7 +48,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -73,6 +72,9 @@ object Project {
 object HelpTopic {
 	const val TROUBLESHOOTING = "troubleshooting"
 }
+
+/** The guide's parts in the order they show; a part's ordinal is its place in the list. */
+private enum class HelpItem { Intro, Install, Firewall, Pair, Control, Faq, Commands, Settings, Privacy }
 
 private sealed interface Block {
 	data class Text(@StringRes val res: Int) : Block
@@ -284,9 +286,11 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 	val distro = DISTROS.first { it.key == distroKey }
 	val list = rememberLazyListState()
 
+	// Opened at a topic: scrolled there once, not again after a rotation, which keeps its own place.
+	var scrolled by rememberSaveable { mutableStateOf(false) }
 	LaunchedEffect(topic) {
-		// Intro, install, firewall, pairing and control come first; the questions are the sixth item.
-		if (topic == HelpTopic.TROUBLESHOOTING) list.scrollToItem(5)
+		if (topic == HelpTopic.TROUBLESHOOTING && !scrolled) list.scrollToItem(HelpItem.Faq.ordinal)
+		scrolled = true
 	}
 
 	Scaffold(
@@ -303,87 +307,91 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 			contentPadding = PaddingValues(16.dp, padding.calculateTopPadding() + 8.dp, 16.dp, padding.calculateBottomPadding() + 24.dp),
 			verticalArrangement = Arrangement.spacedBy(12.dp),
 		) {
-			item(key = "intro") {
-				Text(
-					stringResource(R.string.help_intro),
-					style = MaterialTheme.typography.bodyLarge,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.padding(horizontal = 4.dp),
-				)
-			}
-			item(key = "install") {
-				Section(stringResource(R.string.help_install), ElIcons.Laptop) {
-					Text(stringResource(R.string.help_pick_system), style = MaterialTheme.typography.bodyMedium)
-					FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-						for (d in DISTROS) {
-							FilterChip(
-								selected = d.key == distroKey,
-								onClick = { distroKey = d.key },
-								label = { Text(d.label ?: stringResource(R.string.help_other_system)) },
+			for (part in HelpItem.entries) item(key = part.name) {
+				when (part) {
+					HelpItem.Intro -> {
+						Text(
+							stringResource(R.string.help_intro),
+							style = MaterialTheme.typography.bodyLarge,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.padding(horizontal = 4.dp),
+						)
+					}
+					HelpItem.Install -> {
+						Section(stringResource(R.string.help_install), ElIcons.Laptop) {
+							Text(stringResource(R.string.help_pick_system), style = MaterialTheme.typography.bodyMedium)
+							FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+								for (d in DISTROS) {
+									FilterChip(
+										selected = d.key == distroKey,
+										onClick = { distroKey = d.key },
+										label = { Text(d.label ?: stringResource(R.string.help_other_system)) },
+									)
+								}
+							}
+							Blocks(distro.install)
+						}
+					}
+					HelpItem.Firewall -> {
+						Section(stringResource(R.string.help_firewall), Icons.Default.Lock) {
+							Blocks(distro.firewall)
+							Text(stringResource(R.string.help_fw_why), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+						}
+					}
+					HelpItem.Pair -> {
+						Section(stringResource(R.string.help_pair), ElIcons.Qr) {
+							Blocks(listOf(t(R.string.help_pair_run), c("elamond pair"), t(R.string.help_pair_scan), t(R.string.help_pair_code)))
+						}
+					}
+					HelpItem.Control -> {
+						Section(stringResource(R.string.help_control), ElIcons.Control) {
+							Blocks(
+								listOf(
+									t(R.string.help_control_intro),
+									c("# ~/.config/elamon/elamond.toml\ncontrol = true"),
+									t(R.string.help_control_nixos),
+									c(CONTROL_NIXOS),
+									t(R.string.help_control_services),
+									c(CONTROL_SERVICES),
+									t(R.string.help_control_actions),
+									c(CONTROL_ACTIONS),
+									t(R.string.help_control_polkit),
+									c(CONTROL_POLKIT),
+								)
 							)
 						}
 					}
-					Blocks(distro.install)
-				}
-			}
-			item(key = "firewall") {
-				Section(stringResource(R.string.help_firewall), Icons.Default.Lock) {
-					Blocks(distro.firewall)
-					Text(stringResource(R.string.help_fw_why), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-				}
-			}
-			item(key = "pair") {
-				Section(stringResource(R.string.help_pair), ElIcons.Qr) {
-					Blocks(listOf(t(R.string.help_pair_run), c("elamond pair"), t(R.string.help_pair_scan), t(R.string.help_pair_code)))
-				}
-			}
-			item(key = "control") {
-				Section(stringResource(R.string.help_control), ElIcons.Control) {
-					Blocks(
-						listOf(
-							t(R.string.help_control_intro),
-							c("# ~/.config/elamon/elamond.toml\ncontrol = true"),
-							t(R.string.help_control_nixos),
-							c(CONTROL_NIXOS),
-							t(R.string.help_control_services),
-							c(CONTROL_SERVICES),
-							t(R.string.help_control_actions),
-							c(CONTROL_ACTIONS),
-							t(R.string.help_control_polkit),
-							c(CONTROL_POLKIT),
-						)
-					)
-				}
-			}
-			item(key = "faq") {
-				Section(stringResource(R.string.help_troubleshooting), Icons.Default.Build) {
-					FAQ.forEachIndexed { i, f ->
-						if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-						FaqItem(f)
+					HelpItem.Faq -> {
+						Section(stringResource(R.string.help_troubleshooting), Icons.Default.Build) {
+							FAQ.forEachIndexed { i, f ->
+								if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+								FaqItem(f)
+							}
+						}
 					}
-				}
-			}
-			item(key = "commands") {
-				Section(stringResource(R.string.help_commands), ElIcons.Processes) {
-					for ((cmd, desc) in COMMANDS) Reference(cmd, stringResource(desc))
-				}
-			}
-			item(key = "settings") {
-				Section(stringResource(R.string.help_settings), Icons.Default.Settings) {
-					Blocks(listOf(t(R.string.help_settings_where), c(SETTINGS)))
-					for ((key, desc) in SETTING_NOTES) Reference(key, stringResource(desc))
-					Text(stringResource(R.string.help_settings_state), style = MaterialTheme.typography.bodyMedium)
-				}
-			}
-			item(key = "privacy") {
-				Section(stringResource(R.string.help_privacy), Icons.Default.Info) {
-					Text(stringResource(R.string.help_privacy_body), style = MaterialTheme.typography.bodyMedium)
-					Text(
-						stringResource(R.string.help_version, BuildConfig.VERSION_NAME),
-						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-					)
-					OutlinedButton(onClick = { openUrl(ctx, Project.URL) }) { Text(stringResource(R.string.help_source)) }
+					HelpItem.Commands -> {
+						Section(stringResource(R.string.help_commands), ElIcons.Processes) {
+							for ((cmd, desc) in COMMANDS) Reference(cmd, stringResource(desc))
+						}
+					}
+					HelpItem.Settings -> {
+						Section(stringResource(R.string.help_settings), Icons.Default.Settings) {
+							Blocks(listOf(t(R.string.help_settings_where), c(SETTINGS)))
+							for ((key, desc) in SETTING_NOTES) Reference(key, stringResource(desc))
+							Text(stringResource(R.string.help_settings_state), style = MaterialTheme.typography.bodyMedium)
+						}
+					}
+					HelpItem.Privacy -> {
+						Section(stringResource(R.string.help_privacy), Icons.Default.Info) {
+							Text(stringResource(R.string.help_privacy_body), style = MaterialTheme.typography.bodyMedium)
+							Text(
+								stringResource(R.string.help_version, BuildConfig.VERSION_NAME),
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+							OutlinedButton(onClick = { openUrl(ctx, Project.URL) }) { Text(stringResource(R.string.help_source)) }
+						}
+					}
 				}
 			}
 		}

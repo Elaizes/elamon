@@ -5,16 +5,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -30,45 +28,43 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ua.elamon.MachineState
 import ua.elamon.R
 import ua.elamon.data.Display
 import kotlin.math.max
 import kotlin.math.min
 
+/**
+ * The computer's monitors, as a section of the control panel: what's connected, how it's arranged
+ * and the free ports. Only information, so it shows whether control is on or not.
+ */
 @Composable
-fun DisplaysTab(t: TabScope) {
-	val s = t.state.sample ?: return
+fun DisplaysSection(state: MachineState) {
+	val s = state.sample ?: return
 	val connected = s.displays.filter { it.connected }
 	val free = s.displays.filter { !it.connected }
-	val gpuNames = t.state.info?.gpus.orEmpty().associate { it.id to shortGpuName(it.name) }
+	val gpuNames = state.info?.gpus.orEmpty().associate { it.id to shortGpuName(it.name) }
 	val active = connected.filter { it.active && it.mode != null && it.position != null }
 
-	LazyColumn(
-		Modifier.fillMaxSize(),
-		state = t.list,
-		contentPadding = listPadding(),
-		verticalArrangement = Arrangement.spacedBy(12.dp),
-	) {
-		item(key = "header") { t.header() }
+	Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+		Text(stringResource(R.string.displays_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 4.dp))
 		if (active.size > 1) {
-			item(key = "layout") {
-				Section(stringResource(R.string.displays_arrangement), ElIcons.Overview) { DisplayLayout(active) }
-			}
+			Section(stringResource(R.string.displays_arrangement), ElIcons.Overview) { DisplayLayout(active) }
 		}
-		items(connected, key = { it.gpu + it.connector }) { d -> DisplayCard(d, gpuNames[d.gpu]) }
+		for (d in connected) key(d.gpu + d.connector) { DisplayCard(d, gpuNames[d.gpu]) }
 		if (connected.isEmpty()) {
-			item { Notice(ElIcons.Monitor, stringResource(R.string.displays_none), stringResource(R.string.displays_none_body)) }
+			Section(stringResource(R.string.displays_none), ElIcons.Monitor) {
+				Text(stringResource(R.string.displays_none_body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			}
 		}
 		if (free.isNotEmpty()) {
-			item(key = "free") {
-				Text(
-					stringResource(R.string.displays_free_ports, free.joinToString(", ") { it.connector }),
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-					textAlign = TextAlign.Center,
-				)
-			}
+			Text(
+				stringResource(R.string.displays_free_ports, free.joinToString(", ") { it.connector }),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.fillMaxWidth(),
+				textAlign = TextAlign.Center,
+			)
 		}
 	}
 }

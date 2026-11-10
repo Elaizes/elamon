@@ -51,12 +51,15 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import ua.elamon.R
+import ua.elamon.orNull
+import ua.elamon.pollEach
 import ua.elamon.data.ElamondClient
 import ua.elamon.data.DEFAULT_PORT
 import ua.elamon.data.Found
@@ -65,6 +68,7 @@ import ua.elamon.data.Sample
 import ua.elamon.data.Server
 import ua.elamon.data.ServerStore
 import ua.elamon.data.discoverServices
+import ua.elamon.data.parseAddress
 
 /** What the home screen knows about a paired computer. */
 private sealed interface Live {
@@ -85,19 +89,11 @@ fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit, onHelp: (
 	val haze = remember { HazeState() }
 	val list = rememberLazyListState()
 
-	// A reading of each computer every few seconds while this screen is open.
-	LaunchedEffect(servers) {
-		while (true) {
-			for (s in servers) {
-				launch {
-					live[s.id] = runCatching {
-						val reached = ElamondClient.firstReachable(s.hostsToTry(), s.port, s.fingerprint, s.id) ?: return@runCatching Live.Offline
-						val c = ElamondClient(reached.first.host, s.port, s.fingerprint, s.token)
-						Live.Online(c.get<Sample>("/api/v1/snapshot"))
-					}.getOrDefault(Live.Offline)
-				}
-			}
-			delay(5_000)
+	// A reading of each computer every few seconds while this screen can be seen.
+	val lifecycle = LocalLifecycleOwner.current.lifecycle
+	LaunchedEffect(servers, lifecycle) {
+		lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+			pollEach(servers, HOME_POLL_MS, probe = ::reading, report = { s, l -> live[s.id] = l })
 		}
 	}
 
@@ -163,6 +159,16 @@ fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit, onHelp: (
 		)
 	}
 }
+
+/** How often the home screen reads each computer. */
+private const val HOME_POLL_MS = 5_000L
+
+/** One reading of [s], on whichever of its addresses answers. */
+private suspend fun reading(s: Server): Live = orNull {
+	val reached = ElamondClient.firstReachable(s.hostsToTry(), s.port, s.fingerprint, s.id) ?: return@orNull Live.Offline
+	val c = ElamondClient(reached.first.host, s.port, s.fingerprint, s.token)
+	Live.Online(c.get<Sample>("/api/v1/snapshot"))
+} ?: Live.Offline
 
 private fun Found.toTarget() = PairTarget(hosts = listOf(host), port = port, name = name, id = id, fingerprint = null, fingerprintPrefix = fingerprintPrefix)
 
@@ -275,7 +281,7 @@ private fun Step(n: Int, text: String, command: String?) {
 @Composable
 private fun AddDialog(onDismiss: () -> Unit, onAddress: (String, Int) -> Unit) {
 	var address by rememberSaveable { mutableStateOf("") }
-	val parsed = ElamondClient.parseAddress(address, DEFAULT_PORT)
+	val parsed = parseAddress(address, DEFAULT_PORT)
 	GlassDialog(
 		onDismiss = onDismiss,
 		title = stringResource(R.string.home_add_computer),

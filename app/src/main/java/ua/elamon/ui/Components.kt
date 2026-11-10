@@ -34,7 +34,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import kotlin.math.abs
 
 val CardShape = RoundedCornerShape(26.dp)
 
@@ -269,21 +268,13 @@ fun SwitchRow(title: String, summary: String? = null, checked: Boolean, enabled:
 	})
 }
 
-/** A status dot: green when up, red when down, grey when unknown. */
-@Composable
-fun StatusDot(up: Boolean?, modifier: Modifier = Modifier) {
-	val c = when (up) {
-		true -> Metric.colors.good
-		false -> Metric.colors.hot
-		null -> MaterialTheme.colorScheme.outline
-	}
-	Box(modifier.size(9.dp).clip(CircleShape).background(c))
-}
+/** A name's own hue, from 0 to 359, the same every time; never negative, whatever the hash. */
+fun avatarHue(name: String): Float = Math.floorMod(name.lowercase().hashCode(), 360).toFloat()
 
 /** A coloured disc with a name's first letter: the stand-in for icons we can't have. */
 @Composable
 fun LetterAvatar(name: String, size: Dp = 40.dp) {
-	val hue = (abs(name.lowercase().hashCode()) % 360).toFloat()
+	val hue = avatarHue(name)
 	val dark = LocalDark.current
 	val bg = Color.hsl(hue, 0.55f, if (dark) 0.32f else 0.86f)
 	val fg = Color.hsl(hue, 0.7f, if (dark) 0.84f else 0.3f)

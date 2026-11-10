@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,7 +21,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -103,7 +101,7 @@ private fun LazyListScope.cpu(state: MachineState) {
 			}
 			s.cpu.temp?.let { StatRow(stringResource(R.string.temperature), Fmt.temp(it, p.fahrenheit), valueColor = tempColor(it)) }
 			if (s.cpu.freq.isNotEmpty()) StatRow(stringResource(R.string.details_clock_average_top), "${Fmt.mhz(s.cpu.freq.average().toInt())} / ${Fmt.mhz(s.cpu.freq.max())}")
-			if (s.cpu.load.size == 3) StatRow(stringResource(R.string.details_load_average), s.cpu.load.joinToString("  ") { "%.2f".format(it) })
+			if (s.cpu.load.size == 3) StatRow(stringResource(R.string.details_load_average), s.cpu.load.joinToString("  ") { Fmt.load(it) })
 			StatRow(stringResource(R.string.details_uptime), Fmt.duration(resources(), s.uptime))
 		}
 	}

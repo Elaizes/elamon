@@ -290,23 +290,5 @@ class ElamondClient(
 			if (result == null && certificateChanged) throw ElamondException(ElamondException.Kind.CertificateChanged)
 			result
 		}
-
-		/** "host", "host:port", "[v6]:port" or a bare IPv6 address. */
-		fun parseAddress(input: String, defaultPort: Int): Pair<String, Int>? {
-			val s = input.trim().removePrefix("https://").removeSuffix("/")
-			if (s.isEmpty()) return null
-			if (s.startsWith("[")) {
-				val end = s.indexOf(']')
-				if (end < 0) return null
-				val host = s.substring(1, end)
-				val port = s.substring(end + 1).removePrefix(":").toIntOrNull() ?: defaultPort
-				return host to port
-			}
-			if (s.count { it == ':' } > 1) return s to defaultPort
-			val parts = s.split(':')
-			val port = parts.getOrNull(1)?.toIntOrNull() ?: defaultPort
-			if (port !in 1..65535) return null
-			return parts[0] to port
-		}
 	}
 }

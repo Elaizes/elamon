@@ -1,7 +1,6 @@
 package ua.elamon.ui
 
-import android.os.Build
-import androidx.annotation.StringRes
+import android.app.Application
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,13 +25,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -45,82 +44,29 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import ua.elamon.PairStep
+import ua.elamon.PairViewModel
 import ua.elamon.R
 import ua.elamon.data.ElamondClient
-import ua.elamon.data.ElamondException
-import ua.elamon.data.Hello
 import ua.elamon.data.PairTarget
 import ua.elamon.data.Server
-import ua.elamon.data.ServerStore
-
-private sealed interface Step {
-	data object Connecting : Step
-	data class Ready(val host: String, val hello: Hello, val fingerprint: String) : Step
-	data class Failed(@StringRes val message: Int) : Step
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PairScreen(target: PairTarget, onBack: () -> Unit, onPaired: (Server) -> Unit, onHelp: () -> Unit) {
+fun PairScreen(target: PairTarget, owner: ViewModelStoreOwner, onBack: () -> Unit, onPaired: (Server) -> Unit, onHelp: () -> Unit) {
 	val ctx = LocalContext.current
-	val scope = rememberCoroutineScope()
-	var step by remember { mutableStateOf<Step>(Step.Connecting) }
+	val vm: PairViewModel = viewModel(
+		viewModelStoreOwner = owner,
+		factory = PairViewModel.Factory(ctx.applicationContext as Application, target),
+	)
+	val state by vm.state.collectAsStateWithLifecycle()
 	var code by rememberSaveable { mutableStateOf(target.code.orEmpty()) }
-	var busy by remember { mutableStateOf(false) }
-	var codeError by remember { mutableStateOf<Int?>(null) }
-	var attempt by remember { mutableStateOf(0) }
 
-	LaunchedEffect(target, attempt) {
-		step = Step.Connecting
-		step = try {
-			val reached = ElamondClient.firstReachable(target.hosts, target.port, target.fingerprint, target.id)
-			if (reached == null) {
-				Step.Failed(R.string.pair_unreachable)
-			} else {
-				val (client, hello) = reached
-				val fp = client.seenCertificate.get().orEmpty()
-				val prefix = target.fingerprintPrefix
-				if (prefix != null && !fp.startsWith(prefix.lowercase())) Step.Failed(R.string.pair_cert_mismatch)
-				else Step.Ready(client.host, hello, fp)
-			}
-		} catch (e: ElamondException) {
-			Step.Failed(if (e.kind == ElamondException.Kind.CertificateChanged) R.string.pair_cert_mismatch else R.string.pair_unreachable)
-		}
-	}
-
-	fun pair(ready: Step.Ready) {
-		if (busy) return
-		busy = true
-		codeError = null
-		scope.launch {
-			try {
-				// Pinned to the certificate just seen, so it can't be swapped between the two requests.
-				val client = ElamondClient(ready.host, target.port, ready.fingerprint)
-				val resp = client.pair(code.filter { it.isDigit() }, deviceName(ctx))
-				val server = Server(
-					id = resp.id.ifEmpty { ready.hello.id },
-					name = resp.name.ifEmpty { ready.hello.name },
-					hosts = (listOf(ready.host) + target.hosts).distinct(),
-					port = target.port,
-					fingerprint = ready.fingerprint,
-					token = resp.token,
-					lastHost = ready.host,
-					addedAt = System.currentTimeMillis(),
-				)
-				ServerStore.get(ctx).put(server)
-				onPaired(server)
-			} catch (e: ElamondException) {
-				codeError = when (e.kind) {
-					ElamondException.Kind.WrongCode -> R.string.pair_wrong_code
-					ElamondException.Kind.NoPairing -> R.string.pair_no_pairing
-					else -> R.string.pair_unreachable
-				}
-			} finally {
-				busy = false
-			}
-		}
-	}
+	val paired by rememberUpdatedState(onPaired)
+	state.paired?.let { server -> LaunchedEffect(server) { paired(server) } }
 
 	Scaffold(
 		topBar = {
@@ -136,18 +82,18 @@ fun PairScreen(target: PairTarget, onBack: () -> Unit, onPaired: (Server) -> Uni
 			verticalArrangement = Arrangement.spacedBy(16.dp),
 		) {
 			Icon(ElIcons.Laptop, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
-			when (val s = step) {
-				Step.Connecting -> {
+			when (val s = state.step) {
+				PairStep.Connecting -> {
 					Text(stringResource(R.string.pair_connecting, target.name ?: target.hosts.first()), textAlign = TextAlign.Center)
 					CircularProgressIndicator()
 				}
-				is Step.Failed -> {
+				is PairStep.Failed -> {
 					Notice(Icons.Default.Warning, stringResource(R.string.pair_failed), stringResource(s.message)) {
-						Button(onClick = { attempt++ }) { Text(stringResource(R.string.retry)) }
-						androidx.compose.material3.TextButton(onClick = onHelp) { Text(stringResource(R.string.troubleshooting_button)) }
+						Button(onClick = { vm.connect() }) { Text(stringResource(R.string.retry)) }
+						TextButton(onClick = onHelp) { Text(stringResource(R.string.troubleshooting_button)) }
 					}
 				}
-				is Step.Ready -> {
+				is PairStep.Ready -> {
 					Text(
 						stringResource(R.string.pair_with, s.hello.name),
 						style = MaterialTheme.typography.headlineSmall,
@@ -177,21 +123,22 @@ fun PairScreen(target: PairTarget, onBack: () -> Unit, onPaired: (Server) -> Uni
 						}
 						OutlinedTextField(
 							value = code,
-							onValueChange = { v -> code = v.filter { it.isDigit() }.take(6) },
+							onValueChange = { v -> code = v.filter { it in '0'..'9' }.take(6) },
 							label = { Text(stringResource(R.string.pair_code)) },
 							singleLine = true,
-							isError = codeError != null,
-							supportingText = { Text(stringResource(codeError ?: R.string.pair_code_hint)) },
+							isError = state.codeError != null,
+							supportingText = { Text(stringResource(state.codeError ?: R.string.pair_code_hint)) },
 							keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
-							keyboardActions = KeyboardActions(onDone = { if (code.length == 6) pair(s) }),
+							keyboardActions = KeyboardActions(onDone = { if (code.length == 6) vm.pair(code) }),
 							textStyle = MaterialTheme.typography.headlineSmall.copy(textAlign = TextAlign.Center, fontFamily = FontFamily.Monospace),
 							modifier = Modifier.fillMaxWidth(),
 						)
 					} else {
 						Text(stringResource(R.string.pair_from_qr), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium)
-						codeError?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center) }
+						state.codeError?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center) }
 					}
-					Button(onClick = { pair(s) }, enabled = !busy && code.length == 6, modifier = Modifier.fillMaxWidth()) {
+					val busy = state.busy || state.paired != null
+					Button(onClick = { vm.pair(code) }, enabled = !busy && code.length == 6, modifier = Modifier.fillMaxWidth()) {
 						if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
 						else Text(stringResource(R.string.pair))
 					}
@@ -200,9 +147,3 @@ fun PairScreen(target: PairTarget, onBack: () -> Unit, onPaired: (Server) -> Uni
 		}
 	}
 }
-
-/** What the computer's list of paired phones will call this one. */
-private fun deviceName(ctx: android.content.Context): String =
-	runCatching { android.provider.Settings.Global.getString(ctx.contentResolver, "device_name") }.getOrNull()
-		?.takeIf { it.isNotBlank() }
-		?: listOf(Build.MANUFACTURER.replaceFirstChar { it.uppercase() }, Build.MODEL).distinct().joinToString(" ")

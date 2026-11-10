@@ -1,5 +1,9 @@
 package ua.elamon.ui
 
+import android.app.Activity
+import android.content.Context
+import android.content.res.Configuration
+import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
@@ -12,20 +16,26 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.drawable.toDrawable
+import androidx.core.view.WindowCompat
 import ua.elamon.Prefs
 import ua.elamon.R
 import ua.elamon.ThemeMode
 
+// Neutral greys with the primary's blue in them, so nothing of Material's default purple shows through.
 private val DarkFallback = darkColorScheme(
 	primary = Color(0xFF8AB4FF),
 	onPrimary = Color(0xFF00285C),
@@ -36,6 +46,9 @@ private val DarkFallback = darkColorScheme(
 	tertiary = Color(0xFFDDBCE0),
 	background = Color(0xFF111318),
 	surface = Color(0xFF111318),
+	onSurfaceVariant = Color(0xFFC4C6D0),
+	outline = Color(0xFF8E9099),
+	outlineVariant = Color(0xFF44474F),
 	surfaceContainerLowest = Color(0xFF0C0E13),
 	surfaceContainerLow = Color(0xFF191C20),
 	surfaceContainer = Color(0xFF1D2024),
@@ -52,6 +65,9 @@ private val LightFallback = lightColorScheme(
 	tertiary = Color(0xFF715573),
 	background = Color(0xFFF7F8FC),
 	surface = Color(0xFFF7F8FC),
+	onSurfaceVariant = Color(0xFF44474F),
+	outline = Color(0xFF74777F),
+	outlineVariant = Color(0xFFC4C6D0),
 	surfaceContainerLowest = Color.White,
 	surfaceContainerLow = Color(0xFFFFFFFF),
 	surfaceContainer = Color(0xFFEFF1F7),
@@ -193,6 +209,28 @@ private fun typography(): Typography {
 
 private val AppTypography = typography()
 
+/** Whether the app is dark with [prefs], outside composition too (the window before Compose draws). */
+fun isDark(context: Context, prefs: Prefs): Boolean = when (prefs.theme) {
+	ThemeMode.System -> (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+	ThemeMode.Light -> false
+	ThemeMode.Dark -> true
+}
+
+/** The app's colours with [prefs]; MainActivity takes the window's background from them before Compose starts. */
+fun appColorScheme(context: Context, prefs: Prefs, dark: Boolean): ColorScheme {
+	val base = when {
+		prefs.dynamicColor && Build.VERSION.SDK_INT >= 31 ->
+			if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+		dark -> DarkFallback
+		else -> LightFallback
+	}
+	return when {
+		dark && prefs.pureBlack -> base.pureBlack()
+		!dark -> base.cardsOnTint()
+		else -> base
+	}
+}
+
 @Composable
 fun ElamonTheme(prefs: Prefs, content: @Composable () -> Unit) {
 	val dark = when (prefs.theme) {
@@ -201,25 +239,17 @@ fun ElamonTheme(prefs: Prefs, content: @Composable () -> Unit) {
 		ThemeMode.Dark -> true
 	}
 	val context = LocalContext.current
-	val base = when {
-		prefs.dynamicColor && Build.VERSION.SDK_INT >= 31 ->
-			if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-		dark -> DarkFallback
-		else -> LightFallback
-	}
-	val scheme = when {
-		dark && prefs.pureBlack -> base.pureBlack()
-		!dark -> base.cardsOnTint()
-		else -> base
-	}
-	// The system bars follow the app's theme, which may differ from the phone's.
-	val view = androidx.compose.ui.platform.LocalView.current
+	val scheme = appColorScheme(context, prefs, dark)
+	// The system bars and the window behind everything follow the app's theme, which may differ from the phone's.
+	val view = LocalView.current
 	if (!view.isInEditMode) {
-		androidx.compose.runtime.SideEffect {
-			val window = (view.context as? android.app.Activity)?.window ?: return@SideEffect
-			val bars = androidx.core.view.WindowCompat.getInsetsController(window, view)
+		val background = scheme.surface.toArgb()
+		SideEffect {
+			val window = (view.context as? Activity)?.window ?: return@SideEffect
+			val bars = WindowCompat.getInsetsController(window, view)
 			bars.isAppearanceLightStatusBars = !dark
 			bars.isAppearanceLightNavigationBars = !dark
+			if ((window.decorView.background as? ColorDrawable)?.color != background) window.setBackgroundDrawable(background.toDrawable())
 			// The app draws its own glass under the navigation bar.
 			if (Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
 		}

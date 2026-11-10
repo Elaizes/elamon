@@ -91,8 +91,11 @@ object Fmt {
 
 	fun watts(w: Float): String = "${num(w.toDouble(), 1)} $WATT"
 
-	/** Battery energy, with the phone's own decimal separator. */
-	fun wattHours(wh: Float): String = "%.1f $WATT_HOUR".format(wh)
+	/** Battery energy. */
+	fun wattHours(wh: Float): String = "${num(wh.toDouble(), 1)} $WATT_HOUR"
+
+	/** A load average, as uptime and top print it. */
+	fun load(v: Float): String = num(v.toDouble(), 2)
 
 	fun hz(hz: Float): String {
 		val whole = hz.roundToInt()

@@ -70,12 +70,13 @@
 	<string name="pair_cert_mismatch">Something answered at this address, but not with the certificate the computer announced. Pairing was stopped to be safe.</string>
 	<string name="pair_wrong_code">Wrong code. After five wrong codes the computer needs a new one.</string>
 	<string name="pair_no_pairing">The computer isn\'t waiting for a phone. Run elamond pair on it first.</string>
+	<string name="pair_link_newer">This pairing code is from a newer elamond than this app reads. Update the app, then scan it again.</string>
+	<string name="pair_link_invalid">This pairing link is incomplete or damaged. Run elamond pair on the computer and scan the new code.</string>
 
 	<!-- Computer: tabs, menu, connection -->
 	<string name="tab_overview">Overview</string>
 	<string name="tab_processes">Processes</string>
 	<string name="tab_sensors">Sensors</string>
-	<string name="tab_displays">Displays</string>
 	<string name="tab_control">Control</string>
 	<string name="machine_more">More</string>
 	<string name="machine_forget">Forget computer</string>
@@ -232,6 +233,7 @@
 	<string name="processes_disk_write">Disk write</string>
 	<string name="processes_gpu_memory">GPU memory</string>
 	<string name="processes_command">Command</string>
+	<string name="processes_gone">No longer in the list: it ended or isn\'t among the busiest any more. These are its last readings.</string>
 	<string name="processes_quit">Quit</string>
 	<string name="processes_force_kill">Force kill</string>
 	<string name="processes_quit_title">Quit %1$s?</string>
@@ -257,7 +259,8 @@
 	<string name="sensors_none">No sensors</string>
 	<string name="sensors_none_body">The computer reports no temperature or fan sensors. Some need a kernel module, often loaded by lm-sensors.</string>
 
-	<!-- Displays tab -->
+	<!-- Control: displays -->
+	<string name="displays_title">Displays</string>
 	<string name="displays_arrangement">Arrangement</string>
 	<string name="displays_none">No monitors connected</string>
 	<string name="displays_none_body">The computer runs without a screen, or its graphics driver doesn\'t report monitors.</string>

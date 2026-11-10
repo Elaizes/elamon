@@ -1,9 +1,30 @@
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
 	id("com.android.application")
 	id("org.jetbrains.kotlin.plugin.compose")
 	id("org.jetbrains.kotlin.plugin.serialization")
+}
+
+/**
+ * The release key, from a file outside the repository: storeFile, storePassword, keyAlias and
+ * keyPassword, a relative storeFile counting from the file's folder. By default
+ * ~/.android/elamon-release.properties, or wherever -Pelamon.signing=… says. Without the file the
+ * release APK stays unsigned, as F-Droid builds it (it signs with its own key). The passwords
+ * only go to the signing config, never to the output.
+ */
+val releaseSigning: Properties? = run {
+	// A relative -Pelamon.signing counts from the project's root.
+	val file = providers.gradleProperty("elamon.signing").orNull?.let { rootProject.file(it) }
+		?: File(System.getProperty("user.home"), ".android/elamon-release.properties")
+	if (!file.isFile) return@run null
+	Properties().apply {
+		file.inputStream().use { load(it) }
+		val missing = listOf("storeFile", "storePassword", "keyAlias", "keyPassword").filter { getProperty(it).isNullOrEmpty() }
+		if (missing.isNotEmpty()) throw GradleException("$file lacks ${missing.joinToString()}")
+		setProperty("storeFile", file.absoluteFile.parentFile.resolve(getProperty("storeFile")).path)
+	}
 }
 
 android {
@@ -15,8 +36,19 @@ android {
 		applicationId = "ua.elamon"
 		minSdk = 26
 		targetSdk = 36
-		versionCode = 3
-		versionName = "0.3.0"
+		versionCode = 4
+		versionName = "0.4.0"
+	}
+
+	signingConfigs {
+		if (releaseSigning != null) {
+			create("release") {
+				storeFile = file(releaseSigning.getProperty("storeFile"))
+				storePassword = releaseSigning.getProperty("storePassword")
+				keyAlias = releaseSigning.getProperty("keyAlias")
+				keyPassword = releaseSigning.getProperty("keyPassword")
+			}
+		}
 	}
 
 	buildTypes {
@@ -24,6 +56,7 @@ android {
 			isMinifyEnabled = true
 			isShrinkResources = true
 			proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+			if (releaseSigning != null) signingConfig = signingConfigs.getByName("release")
 		}
 	}
 

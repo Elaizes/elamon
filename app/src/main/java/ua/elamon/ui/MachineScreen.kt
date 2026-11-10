@@ -20,9 +20,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -61,6 +63,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -85,7 +88,6 @@ private enum class Tab(@StringRes val label: Int) {
 	Overview(R.string.tab_overview),
 	Processes(R.string.tab_processes),
 	Sensors(R.string.tab_sensors),
-	Displays(R.string.tab_displays),
 	Control(R.string.tab_control),
 }
 
@@ -93,7 +95,6 @@ private fun Tab.icon() = when (this) {
 	Tab.Overview -> ElIcons.Overview
 	Tab.Processes -> ElIcons.Processes
 	Tab.Sensors -> ElIcons.Thermometer
-	Tab.Displays -> ElIcons.Monitor
 	Tab.Control -> ElIcons.Control
 }
 
@@ -110,6 +111,7 @@ class TabScope(
 @Composable
 fun MachineScreen(
 	server: Server,
+	owner: ViewModelStoreOwner,
 	onBack: () -> Unit,
 	onPairAgain: (PairTarget) -> Unit,
 	onForgotten: () -> Unit,
@@ -117,8 +119,9 @@ fun MachineScreen(
 	onSettings: () -> Unit,
 ) {
 	val ctx = LocalContext.current
+	// Its own store, cleared when the computer is left for good, forgotten or paired again.
 	val vm: MachineViewModel = viewModel(
-		key = "machine-" + server.id,
+		viewModelStoreOwner = owner,
 		factory = MachineViewModel.Factory(ctx.applicationContext as Application, server.id),
 	)
 	val state by vm.state.collectAsStateWithLifecycle()
@@ -180,7 +183,8 @@ fun MachineScreen(
 					}
 					state.conn == Conn.CertificateChanged -> Centered {
 						Notice(Icons.Default.Warning, stringResource(R.string.machine_cert_title), stringResource(R.string.machine_cert_body)) {
-							Button(onClick = { onPairAgain(server.toTarget().copy(fingerprint = null)) }) { Text(stringResource(R.string.machine_pair_again)) }
+							// A reset service has a new certificate and a new id: pair with whatever answers, checked by eye, in this entry's place.
+							Button(onClick = { onPairAgain(server.toTarget().copy(fingerprint = null, id = null)) }) { Text(stringResource(R.string.machine_pair_again)) }
 						}
 					}
 					state.conn == Conn.Refused -> Centered {
@@ -223,7 +227,6 @@ fun MachineScreen(
 									Tab.Overview -> OverviewTab(s)
 									Tab.Processes -> ProcessesTab(s)
 									Tab.Sensors -> SensorsTab(s)
-									Tab.Displays -> DisplaysTab(s)
 									Tab.Control -> ControlTab(s)
 								}
 							}
@@ -247,12 +250,20 @@ fun MachineScreen(
 				},
 			)
 
-			// Old numbers stay visible while the connection comes back, marked as such.
-			AnimatedVisibility(
-				visible = state.sample != null && state.conn != Conn.Live,
-				modifier = Modifier.align(Alignment.TopCenter).padding(top = 110.dp),
+			// Old numbers stay visible while the connection comes back, marked as such: in the bar's
+			// empty middle while the big title shows, under the bar once it has the small one.
+			val barHeight = topBarHeight()
+			Box(
+				Modifier
+					.align(Alignment.TopCenter)
+					.statusBarsPadding()
+					.padding(horizontal = 56.dp)
+					.then(if (collapsed) Modifier.padding(top = barHeight + 8.dp) else Modifier.height(barHeight)),
+				contentAlignment = Alignment.Center,
 			) {
-				Pill(stringResource(if (state.conn == Conn.Offline) R.string.machine_offline_retrying else R.string.conn_reconnecting), Metric.colors.warn, dot = true)
+				AnimatedVisibility(visible = state.sample != null && state.conn != Conn.Live) {
+					Pill(stringResource(if (state.conn == Conn.Offline) R.string.machine_offline_retrying else R.string.conn_reconnecting), Metric.colors.warn, dot = true)
+				}
 			}
 
 			if (state.sample != null) BottomGlass(Modifier.align(Alignment.BottomCenter), extra = if (detail == null) 92.dp else 0.dp)
@@ -373,4 +384,5 @@ private fun CompatBanner(compat: Compat, info: Info, onDismiss: () -> Unit) {
 	}
 }
 
-fun Server.toTarget() = PairTarget(hosts = hostsToTry(), port = port, name = name, id = id, fingerprint = fingerprint)
+/** Pairing this computer again, in its entry's place. */
+fun Server.toTarget() = PairTarget(hosts = hostsToTry(), port = port, name = name, id = id, fingerprint = fingerprint, replaces = id)

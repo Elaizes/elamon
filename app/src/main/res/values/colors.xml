@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-	<color name="window">#F6FAFD</color>
+	<!-- Close to the app's own page colour (ui/Theme.kt), for the moment before it sets the window from the settings. -->
+	<color name="window">#F2F3F8</color>
 	<color name="ic_launcher_background">#0E1417</color>
 </resources>

@@ -14,7 +14,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -25,10 +24,8 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -52,7 +49,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -97,14 +93,26 @@ fun Modifier.glass(alpha: Float = 1f, fadeDown: Boolean = false, fadeUp: Boolean
 	}
 }
 
+/** How far a list scrolls before its big title has gone under the bar: about the title's line. */
+@Composable
+private fun titleTravelPx(): Float = with(LocalDensity.current) { MaterialTheme.typography.headlineMedium.lineHeight.toPx() }
+
 /** True once a list has scrolled its big title out from under the bar. */
 @Composable
-fun rememberCollapsed(list: LazyListState, threshold: Dp = 56.dp): Boolean {
-	val px = with(LocalDensity.current) { threshold.toPx() }
-	val collapsed by remember(list) {
+fun rememberCollapsed(list: LazyListState): Boolean {
+	val px = titleTravelPx() * 0.6f
+	val collapsed by remember(list, px) {
 		derivedStateOf { list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > px }
 	}
 	return collapsed
+}
+
+/** The top bar's height under the status bar: 64 dp, more when large text needs it. */
+@Composable
+fun topBarHeight(): Dp {
+	val t = MaterialTheme.typography
+	val text = with(LocalDensity.current) { t.titleLarge.lineHeight.toDp() + t.labelMedium.lineHeight.toDp() }
+	return maxOf(64.dp, text + 16.dp)
 }
 
 /**
@@ -122,7 +130,7 @@ fun GlassTopBar(
 	val a by animateFloatAsState(if (collapsed) 1f else 0f, tween(220), label = "bar")
 	Box(Modifier.fillMaxWidth().glass(alpha = a, fadeDown = true)) {
 		Row(
-			Modifier.statusBarsPadding().fillMaxWidth().height(64.dp).padding(horizontal = 4.dp),
+			Modifier.statusBarsPadding().fillMaxWidth().height(topBarHeight()).padding(horizontal = 4.dp),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
 			if (onBack != null) {
@@ -145,7 +153,10 @@ fun GlassTopBar(
 	}
 }
 
-/** One UI's big title: a third of the screen, so what's on top is within thumb reach. */
+/**
+ * A screen's big title, right under the bar and as tall as what it holds; it fades as it scrolls
+ * under the bar, where the small title takes over.
+ */
 @Composable
 fun BigTitle(
 	title: String,
@@ -153,10 +164,8 @@ fun BigTitle(
 	extra: (@Composable () -> Unit)? = null,
 	list: LazyListState? = null,
 ) {
-	val h = (LocalConfiguration.current.screenHeightDp * 0.27f).dp.coerceIn(170.dp, 300.dp)
-	val fadePx = with(LocalDensity.current) { (h * 0.45f).toPx() }
-	// It fades as it scrolls under the bar, where the small title takes over.
-	val alpha by remember(list) {
+	val fadePx = titleTravelPx()
+	val alpha by remember(list, fadePx) {
 		derivedStateOf {
 			when {
 				list == null -> 1f
@@ -166,12 +175,15 @@ fun BigTitle(
 		}
 	}
 	Column(
-		Modifier.fillMaxWidth().height(h).graphicsLayer { this.alpha = alpha }.padding(horizontal = 24.dp),
-		verticalArrangement = Arrangement.Center,
+		Modifier
+			.fillMaxWidth()
+			.padding(top = topBarHeight())
+			.graphicsLayer { this.alpha = alpha }
+			.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 12.dp),
 	) {
-		Text(title, style = MaterialTheme.typography.displaySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+		Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
 		if (subtitle != null) {
-			Spacer(Modifier.height(6.dp))
+			Spacer(Modifier.height(4.dp))
 			subtitle()
 		}
 		if (extra != null) {
@@ -179,20 +191,6 @@ fun BigTitle(
 			extra()
 		}
 	}
-}
-
-/** Space a list keeps clear for the bars that float over it. */
-@Composable
-fun barPadding(top: Boolean = true, bottomNav: Boolean = false): PaddingValues {
-	val d = LocalDensity.current
-	val status = with(d) { WindowInsets.statusBars.getTop(d).toDp() }
-	val nav = with(d) { WindowInsets.navigationBars.getBottom(d).toDp() }
-	return PaddingValues(
-		start = 16.dp,
-		end = 16.dp,
-		top = if (top) status + 64.dp else 0.dp,
-		bottom = nav + if (bottomNav) 104.dp else 24.dp,
-	)
 }
 
 class NavItem(val label: String, val icon: ImageVector)
@@ -260,12 +258,6 @@ fun BottomGlass(modifier: Modifier = Modifier, extra: Dp = 92.dp) {
 	} else {
 		Box(m.background(Brush.verticalGradient(listOf(Color.Transparent, surface.copy(alpha = 0.92f)))))
 	}
-}
-
-/** Strip at the very top that keeps the status bar readable over scrolled content. */
-@Composable
-fun StatusBarGlass() {
-	Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).glass(fadeDown = true))
 }
 
 /** Blurs whatever is behind the dialog this is called in (Android 12+, where the device allows it). */
