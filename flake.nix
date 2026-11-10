@@ -84,10 +84,20 @@
 							default = defaultPackage pkgs;
 							defaultText = lib.literalExpression "elamon.packages.\${system}.elamond";
 						};
+						users = lib.mkOption {
+							type = lib.types.listOf lib.types.str;
+							default = [ ];
+							example = [ "alice" ];
+							description = ''
+								Users whose sessions run the service. Empty: every regular user. System users
+								(a display manager's greeter, for one) never do; they would take the port first.
+								Only one user's service can hold the port at a time.
+							'';
+						};
 						settings = lib.mkOption {
 							type = toml.type;
 							default = { };
-							description = "elamond.toml for every user's service; empty keeps each user's own ~/.config/elamon/elamond.toml.";
+							description = "elamond.toml for every user's service; empty keeps each user's own ~/.config/elamon/elamond.toml. Each user's ~/.config/elamon/elamond.d/*.toml still adds to it.";
 						};
 						openFirewall = lib.mkOption {
 							type = lib.types.bool;
@@ -120,10 +130,14 @@
 							systemd.user.services.elamond = {
 								description = "Elamon service";
 								wantedBy = [ "default.target" ];
+								# Every user manager has this unit; these say whose may start it. "|" entries
+								# need one of them to hold, the plain one always.
+								unitConfig.ConditionUser = [ "!@system" ] ++ map (u: "|${u}") cfg.users;
 								environment = lib.mkIf (cfg.settings != { }) { ELAMON_CONFIG = "${configFile}"; };
 								restartTriggers = lib.optional (cfg.settings != { }) configFile;
 								serviceConfig = {
 									ExecStart = "${cfg.package}/bin/elamond serve";
+									ExecReload = "${pkgs.coreutils}/bin/kill -HUP $MAINPID";
 									Restart = "on-failure";
 									RestartSec = 5;
 								};
@@ -207,6 +221,7 @@
 							};
 							Service = {
 								ExecStart = "${cfg.package}/bin/elamond serve";
+								ExecReload = "${pkgs.coreutils}/bin/kill -HUP $MAINPID";
 								Restart = "on-failure";
 								RestartSec = 5;
 							};
@@ -214,6 +229,27 @@
 						};
 					};
 				};
+
+			# `nix flake check`: the NixOS module in a VM, as on a machine with a greeter and
+			# more than one user.
+			checks.x86_64-linux.module = nixpkgs.legacyPackages.x86_64-linux.testers.runNixOSTest {
+				name = "elamond-module";
+				nodes.machine = { pkgs, ... }: {
+					imports = [ self.nixosModules.default ];
+					services.elamond = {
+						enable = true;
+						openFirewall = true;
+						users = [ "alice" ];
+					};
+					users.users.alice = { isNormalUser = true; uid = 1000; };
+					users.users.bob = { isNormalUser = true; uid = 1001; };
+					# A display manager's greeter: a system user with a user manager of its own.
+					users.users.greeter = { isSystemUser = true; uid = 990; group = "greeter"; };
+					users.groups.greeter = { };
+					environment.systemPackages = [ pkgs.curl pkgs.jq ];
+				};
+				testScript = builtins.readFile ./nix/module-test.py;
+			};
 
 			devShells.x86_64-linux = {
 				default = dev.mkShell {

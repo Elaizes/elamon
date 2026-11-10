@@ -1,9 +1,13 @@
 [Unit]
 Description=Elamon service: this computer's metrics for the Elamon app
 After=network-online.target
+# A display manager's greeter is a system user with a user manager of its own; it must not
+# take the port before the person who logs in.
+ConditionUser=!@system
 
 [Service]
 ExecStart=/usr/bin/elamond serve
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5
 
