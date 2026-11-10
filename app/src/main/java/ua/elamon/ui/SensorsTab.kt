@@ -17,9 +17,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ua.elamon.MachineState
-import ua.elamon.MachineViewModel
 import ua.elamon.R
 import ua.elamon.data.Temp
+import ua.elamon.hasData
 
 private val KIND_ORDER = listOf("cpu", "gpu", "storage", "wireless", "board", "battery", "other")
 
@@ -52,9 +52,9 @@ fun LazyListScope.sensorItems(state: MachineState) {
 		val res = resources()
 		Section(stringResource(R.string.temperatures), ElIcons.Thermometer, accent = c.hot) {
 			val series = mutableListOf(ChartSeries(state.hist.cpuTemp, c.cpu, fill = false, format = { res.getString(R.string.cpu_value, Fmt.temp(it, p.fahrenheit)) }))
-			val gpuTemps = state.hist.gpuTemp.filterValues { v -> v.any { !it.isNaN() } }
-			gpuTemps.values.forEach { series += ChartSeries(it, c.gpu, fill = false, format = { res.getString(R.string.gpu_value, Fmt.temp(it, p.fahrenheit)) }) }
-			LineChart(series, MachineViewModel.HISTORY_CAP, minScale = 60f, height = 170.dp, label = { Fmt.temp(it, p.fahrenheit) })
+			val gpuTemps = state.hist.gpuIds.map { state.hist.gpuTemp(it) }.filter { it.hasData() }
+			gpuTemps.forEach { series += ChartSeries(it, c.gpu, fill = false, format = { res.getString(R.string.gpu_value, Fmt.temp(it, p.fahrenheit)) }) }
+			LineChart(series, minScale = 60f, height = 170.dp, label = { Fmt.temp(it, p.fahrenheit) })
 			Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
 				Legend(c.cpu, stringResource(R.string.cpu))
 				if (gpuTemps.isNotEmpty()) Legend(c.gpu, stringResource(R.string.gpu))

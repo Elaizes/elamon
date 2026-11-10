@@ -71,6 +71,17 @@ dependencies {
 	implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 	debugImplementation("androidx.compose.ui:ui-tooling")
+
+	testImplementation("junit:junit:4.13.2")
+	testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.4.21")
+	testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
+}
+
+// The service's tests write a JSON file for every shape it sends; the app's decode each of them.
+val protocolFixtures: Directory = rootProject.layout.projectDirectory.dir("elamond/fixtures")
+tasks.withType<Test>().configureEach {
+	inputs.dir(protocolFixtures).withPropertyName("protocolFixtures").withPathSensitivity(PathSensitivity.RELATIVE)
+	systemProperty("elamon.fixtures", protocolFixtures.asFile.absolutePath)
 }
 
 // F-Droid rebuilds the APK to compare with the published one; ART profiles differ from build to build.

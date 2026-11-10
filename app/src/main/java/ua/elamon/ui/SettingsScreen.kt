@@ -13,11 +13,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -33,10 +35,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import ua.elamon.BuildConfig
+import ua.elamon.Intervals
 import ua.elamon.R
 import ua.elamon.Settings
 import ua.elamon.ThemeMode
@@ -50,6 +55,8 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 	val haze = remember { HazeState() }
 	val list = rememberLazyListState()
 	var license by remember { mutableStateOf(false) }
+	var customInterval by remember { mutableStateOf(false) }
+	val serviceInterval by settings.serviceIntervalMs.collectAsStateWithLifecycle()
 
 	CompositionLocalProvider(LocalHaze provides haze) {
 		Box(Modifier.fillMaxSize()) {
@@ -97,7 +104,7 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 				item { GroupLabel(stringResource(R.string.settings_data)) }
 				item {
 					ListGroup {
-						Choice(stringResource(R.string.settings_interval), Settings.INTERVALS.map { it to stringResource(R.string.settings_interval_seconds, it / 1000) }, p.intervalMs) { v -> settings.update { it.copy(intervalMs = v) } }
+						IntervalChoice(p.intervalMs, onCustom = { customInterval = true }) { v -> settings.update { it.copy(intervalMs = v) } }
 						GroupDivider()
 						Choice(stringResource(R.string.settings_temperature), listOf(false to Fmt.CELSIUS, true to Fmt.FAHRENHEIT), p.fahrenheit) { v -> settings.update { it.copy(fahrenheit = v) } }
 						GroupDivider()
@@ -136,6 +143,18 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 		}
 	}
 
+	if (customInterval) {
+		CustomIntervalDialog(
+			current = p.intervalMs,
+			minMs = (serviceInterval ?: Intervals.MIN_MS).coerceAtMost(Intervals.MAX_MS),
+			onDismiss = { customInterval = false },
+			onSave = { v ->
+				customInterval = false
+				settings.update { it.copy(intervalMs = v) }
+			},
+		)
+	}
+
 	if (license) {
 		val text = remember { runCatching { ctx.assets.open("licenses/inter-OFL.txt").bufferedReader().readText() }.getOrDefault("") }
 		GlassDialog(
@@ -151,6 +170,52 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 			confirm = { TextButton(onClick = { license = false }) { Text(stringResource(R.string.settings_close)) } },
 		)
 	}
+}
+
+/** The usual intervals side by side, and a last one for any other value, which shows it once set. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun IntervalChoice(value: Int, onCustom: () -> Unit, onPick: (Int) -> Unit) {
+	val custom = value !in Intervals.CHOICES
+	val count = Intervals.CHOICES.size + 1
+	Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+		Text(stringResource(R.string.settings_interval), style = MaterialTheme.typography.bodyLarge)
+		SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+			Intervals.CHOICES.forEachIndexed { i, ms ->
+				SegmentedButton(selected = ms == value, onClick = { onPick(ms) }, shape = SegmentedButtonDefaults.itemShape(i, count)) {
+					Text(stringResource(R.string.settings_interval_seconds, Fmt.seconds(ms)), maxLines = 1)
+				}
+			}
+			SegmentedButton(selected = custom, onClick = onCustom, shape = SegmentedButtonDefaults.itemShape(count - 1, count)) {
+				Text(if (custom) stringResource(R.string.settings_interval_seconds, Fmt.seconds(value)) else stringResource(R.string.settings_interval_custom), maxLines = 1)
+			}
+		}
+	}
+}
+
+/** Any interval in seconds, down to the service's own tick when it's known. */
+@Composable
+private fun CustomIntervalDialog(current: Int, minMs: Int, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
+	var text by remember { mutableStateOf(Fmt.seconds(current)) }
+	val parsed = Intervals.parse(text, minMs)
+	GlassDialog(
+		onDismiss = onDismiss,
+		title = stringResource(R.string.settings_interval),
+		text = {
+			OutlinedTextField(
+				value = text,
+				onValueChange = { text = it.take(8) },
+				label = { Text(stringResource(R.string.settings_interval_custom_label)) },
+				supportingText = { Text(stringResource(R.string.settings_interval_custom_range, Fmt.seconds(minMs), Fmt.seconds(Intervals.MAX_MS))) },
+				isError = parsed == null,
+				singleLine = true,
+				keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+				modifier = Modifier.fillMaxWidth(),
+			)
+		},
+		confirm = { TextButton(onClick = { parsed?.let(onSave) }, enabled = parsed != null) { Text(stringResource(R.string.settings_save)) } },
+		dismiss = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+	)
 }
 
 /** A setting with a few values side by side. */

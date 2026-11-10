@@ -93,6 +93,7 @@ import ua.elamon.data.UnitInfo
 fun ControlTab(t: TabScope) {
 	val vm = t.vm
 	val control by vm.control.collectAsStateWithLifecycle()
+	val controlError by vm.controlError.collectAsStateWithLifecycle()
 	val s = t.state.sample ?: return
 	var open by remember { mutableStateOf<ServiceStatus?>(null) }
 	var edit by remember { mutableStateOf<ServiceStatus?>(null) }
@@ -119,6 +120,9 @@ fun ControlTab(t: TabScope) {
 		verticalArrangement = Arrangement.spacedBy(12.dp),
 	) {
 		item(key = "header") { t.header() }
+		controlError?.let { e ->
+			item(key = "error") { ControlError(e.text(resources())) { vm.refreshControl() } }
+		}
 		if (control != null && !enabled) {
 			item(key = "off") { ControlOff { t.openHelp(null) } }
 		}
@@ -190,6 +194,15 @@ private fun ControlOff(onHelp: () -> Unit) {
 		CodeBlock("control = true")
 		Text(stringResource(R.string.control_off_where), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		TextButton(onClick = onHelp) { Text(stringResource(R.string.help)) }
+	}
+}
+
+/** The control panel couldn't be read; what's shown below may be old or missing. */
+@Composable
+private fun ControlError(message: String, onRetry: () -> Unit) {
+	Section(stringResource(R.string.control_error_title), Icons.Default.Warning, accent = Metric.colors.warn) {
+		Text(message, style = MaterialTheme.typography.bodyMedium)
+		TextButton(onClick = onRetry) { Text(stringResource(R.string.retry)) }
 	}
 }
 
@@ -567,28 +580,25 @@ private fun Modifier.combinedClickableCompat(onClick: () -> Unit) = this.then(Mo
 @Composable
 private fun ActionsSection(t: TabScope, actions: List<ActionInfo>) {
 	val prefs = LocalPrefs.current
+	val state by t.vm.actions.collectAsStateWithLifecycle()
 	var confirm by remember { mutableStateOf<ActionInfo?>(null) }
-	var running by remember { mutableStateOf<String?>(null) }
-	var result by remember { mutableStateOf<Pair<ActionInfo, ActionResult>?>(null) }
-	fun run(a: ActionInfo) {
-		running = a.id
-		t.vm.runAction(a.id) { r ->
-			running = null
-			result = a to r
-		}
-	}
 	Section(stringResource(R.string.control_actions), ElIcons.Terminal, accent = MaterialTheme.colorScheme.tertiary) {
 		for (a in actions) {
+			val last = state.results[a.id]
 			Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
 				Row(
-					Modifier.combinedClickableCompat { if (running == null) { if (a.confirm && prefs.confirmActions) confirm = a else run(a) } }
+					Modifier.combinedClickableCompat { if (state.running == null) { if (a.confirm && prefs.confirmActions) confirm = a else t.vm.runAction(a.id) } }
 						.padding(horizontal = 16.dp, vertical = 14.dp),
 					verticalAlignment = Alignment.CenterVertically,
 				) {
 					Icon(ElIcons.Play, null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(18.dp))
 					Spacer(Modifier.width(12.dp))
 					Text(a.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-					if (running == a.id) androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+					when {
+						state.running == a.id -> androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+						// The last run's outcome; its output opens on a tap.
+						last != null -> ActionOutcome(last, Modifier.clip(RoundedCornerShape(50)).combinedClickableCompat { t.vm.showActionResult(a.id) })
+					}
 				}
 			}
 		}
@@ -598,20 +608,17 @@ private fun ActionsSection(t: TabScope, actions: List<ActionInfo>) {
 			onDismiss = { confirm = null },
 			title = stringResource(R.string.control_run_title, a.name),
 			icon = ElIcons.Terminal,
-			confirm = { TextButton(onClick = { confirm = null; run(a) }) { Text(stringResource(R.string.control_run)) } },
+			confirm = { TextButton(onClick = { confirm = null; t.vm.runAction(a.id) }) { Text(stringResource(R.string.control_run)) } },
 			dismiss = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.cancel)) } },
 		)
 	}
-	result?.let { (a, r) ->
-		ModalBottomSheet(onDismissRequest = { result = null }, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+	val shown = state.shown?.let { id -> actions.find { it.id == id }?.let { a -> state.results[id]?.let { a to it } } }
+	shown?.let { (a, r) ->
+		ModalBottomSheet(onDismissRequest = { t.vm.showActionResult(null) }, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
 			Column(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
 				Row(verticalAlignment = Alignment.CenterVertically) {
 					Text(a.name, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-					when {
-						r.timedOut -> Pill(stringResource(R.string.control_timed_out), Metric.colors.warn, dot = true)
-						r.exitCode == 0 -> Pill(stringResource(R.string.control_done), Metric.colors.good, dot = true)
-						else -> Pill(stringResource(R.string.control_exit_code, r.exitCode?.toString() ?: "?"), Metric.colors.hot, dot = true)
-					}
+					ActionOutcome(r)
 				}
 				Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
 					SelectionContainer {
@@ -625,6 +632,15 @@ private fun ActionsSection(t: TabScope, actions: List<ActionInfo>) {
 				}
 			}
 		}
+	}
+}
+
+@Composable
+private fun ActionOutcome(r: ActionResult, modifier: Modifier = Modifier) {
+	when {
+		r.timedOut -> Pill(stringResource(R.string.control_timed_out), Metric.colors.warn, modifier, dot = true)
+		r.exitCode == 0 -> Pill(stringResource(R.string.control_done), Metric.colors.good, modifier, dot = true)
+		else -> Pill(stringResource(R.string.control_exit_code, r.exitCode?.toString() ?: "?"), Metric.colors.hot, modifier, dot = true)
 	}
 }
 

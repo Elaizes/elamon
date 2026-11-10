@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
@@ -51,14 +52,16 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.max
-import kotlin.math.roundToInt
+import ua.elamon.Points
+import ua.elamon.lastTime
 
 class ChartSeries(
-	val values: List<Float>,
+	val points: Points,
 	val color: Color,
 	val fill: Boolean = true,
 	/** How the value reads when someone touches the chart. */
@@ -66,21 +69,20 @@ class ChartSeries(
 )
 
 /**
- * A time chart that fills from the right: the newest value sits at the right edge and the time
- * scale stays the same whether it holds ten seconds or ten minutes. Dragging a finger along it
- * shows the values at that moment. [maxValue] fixes the scale (100 for percentages); otherwise it
- * follows the data with headroom, to round numbers ([binary] for bytes).
+ * A time chart that ends at the newest point on the right and spans the series' window, so a
+ * point sits where its moment falls whatever the update interval. A long pause breaks the line.
+ * Dragging a finger along it shows the values at the nearest moment. [maxValue] fixes the scale
+ * (100 for percentages); otherwise it follows the data with headroom, to round numbers ([binary]
+ * for bytes).
  */
 @Composable
 fun LineChart(
 	series: List<ChartSeries>,
-	capacity: Int,
 	modifier: Modifier = Modifier,
 	maxValue: Float? = null,
 	minScale: Float = 1f,
 	binary: Boolean = false,
 	height: Dp = 120.dp,
-	secondsPerPoint: Float = 1f,
 	grid: Boolean = true,
 	label: ((Float) -> String)? = null,
 	interactive: Boolean = true,
@@ -113,11 +115,23 @@ fun LineChart(
 	} else Modifier
 
 	Canvas(modifier.fillMaxWidth().height(height).then(touch)) {
-		val top = series.maxOfOrNull { s -> s.values.filter { !it.isNaN() }.maxOrNull() ?: 0f } ?: 0f
-		val wanted = max(top * 1.15f, minScale)
-		val scale = maxValue ?: if (binary) niceBinary(wanted) else niceCeiling(wanted)
 		val w = size.width
 		val h = size.height
+		val tLast = series.maxOfOrNull { it.points.lastTime() } ?: Long.MIN_VALUE
+		val window = series.firstOrNull()?.points?.windowMs ?: 1L
+		val tStart = tLast - window
+		var top = 0f
+		if (tLast != Long.MIN_VALUE) {
+			for (s in series) {
+				val p = s.points
+				for (i in firstVisibleIndex(p, tStart) until p.size) {
+					val v = p.v(i)
+					if (!v.isNaN() && v > top) top = v
+				}
+			}
+		}
+		val wanted = max(top * 1.15f, minScale)
+		val scale = maxValue ?: if (binary) niceBinary(wanted) else niceCeiling(wanted)
 		if (grid) {
 			val dash = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 5.dp.toPx()))
 			for (i in 1..3) {
@@ -125,61 +139,81 @@ fun LineChart(
 				drawLine(gridColor, Offset(0f, y), Offset(w, y), strokeWidth = 1.dp.toPx(), pathEffect = dash)
 			}
 		}
-		val step = w / (capacity - 1).coerceAtLeast(1)
-		for (s in series) drawSeries(s, scale, step, w, h)
+		if (tLast != Long.MIN_VALUE) {
+			// The line entering from the left stops at the edge; the newest dot's halo may stick out.
+			val halo = 8.dp.toPx()
+			clipRect(top = -halo, right = w + halo, bottom = h + halo) {
+				for (s in series) drawSeries(s, scale, tLast, window, w, h)
+			}
+		}
 		if (label != null && grid) {
 			drawText(measurer, label(scale), topLeft = Offset(2.dp.toPx(), 0f), style = TextStyle(color = labelColor, fontSize = 10.sp, fontFamily = Inter))
 		}
 
 		val tx = touchX ?: return@Canvas
-		val longest = series.maxOfOrNull { it.values.size } ?: return@Canvas
-		if (longest == 0) return@Canvas
-		// The touched point, counted back from the newest.
-		val back = ((w - tx) / step).roundToInt().coerceIn(0, longest - 1)
-		val x = w - back * step
+		val ref = series.firstOrNull { it.points.size > 0 }?.points ?: return@Canvas
+		val i = nearestIndex(ref, timeAtX(tx, tLast, window, w))
+		val t = ref.t(i)
+		val x = chartX(t, tLast, window, w).coerceIn(0f, w)
 		drawLine(labelColor.copy(alpha = 0.6f), Offset(x, 0f), Offset(x, h), strokeWidth = 1.5.dp.toPx())
-		val parts = mutableListOf(Fmt.ago(res, (back * secondsPerPoint).roundToInt().toLong()))
+		val parts = mutableListOf(Fmt.ago(res, ((tLast - t) / 1000).coerceAtLeast(0)))
 		for (s in series) {
-			val i = s.values.size - 1 - back
-			val v = s.values.getOrNull(i) ?: continue
+			val p = s.points
+			val j = if (p === ref) i else nearestIndex(p, t)
+			if (j < 0 || p.t(j) != t) continue
+			val v = p.v(j)
 			if (v.isNaN()) continue
 			val y = h - (v / scale).coerceIn(0f, 1f) * h
 			drawCircle(s.color, 5.dp.toPx(), Offset(x, y))
 			drawCircle(tipFg, 2.dp.toPx(), Offset(x, y))
 			s.format?.let { parts += it(v) }
 		}
-		val text = measurer.measure(parts.joinToString("  ·  "), TextStyle(color = tipFg, fontSize = 11.sp, fontFamily = Inter, fontWeight = FontWeight.SemiBold))
 		val pad = 6.dp.toPx()
+		// At a large font the label may not fit on one line: it wraps inside the chart instead.
+		val text = measurer.measure(
+			parts.joinToString("  ·  "),
+			TextStyle(color = tipFg, fontSize = 11.sp, fontFamily = Inter, fontWeight = FontWeight.SemiBold),
+			constraints = Constraints(maxWidth = (w - pad * 2).toInt().coerceAtLeast(1)),
+		)
 		val bw = text.size.width + pad * 2
-		val bx = (x - bw / 2).coerceIn(0f, w - bw)
+		val bx = tooltipLeft(x, bw, w)
 		drawRoundRect(tipBg, Offset(bx, 0f), Size(bw, text.size.height + pad * 1.4f), CornerRadius(8.dp.toPx()))
 		drawText(text, topLeft = Offset(bx + pad, pad * 0.7f))
 	}
 }
 
-private fun DrawScope.drawSeries(s: ChartSeries, scale: Float, step: Float, w: Float, h: Float) {
-	val v = s.values
-	if (v.isEmpty()) return
+private fun DrawScope.drawSeries(s: ChartSeries, scale: Float, tLast: Long, window: Long, w: Float, h: Float) {
+	val p = s.points
+	if (p.size == 0) return
+	val gap = p.gapMs
 	val line = Path()
 	val area = Path()
 	var open = false
 	var startX = 0f
 	var px = 0f
 	var py = 0f
+	var pt = 0L
 	fun close() {
-		if (open && s.fill) {
+		if (!open) return
+		// The smoothing stops halfway to the last point; finish there. A lone point becomes a dot.
+		line.lineTo(px, py)
+		if (s.fill) {
+			area.lineTo(px, py)
 			area.lineTo(px, h)
 			area.lineTo(startX, h)
 			area.close()
 		}
 		open = false
 	}
-	v.forEachIndexed { i, value ->
-		val x = w - (v.size - 1 - i) * step
-		if (value.isNaN() || x < -step) {
+	for (i in firstVisibleIndex(p, tLast - window) until p.size) {
+		val t = p.t(i)
+		val value = p.v(i)
+		if (value.isNaN()) {
 			close()
-			return@forEachIndexed
+			continue
 		}
+		if (open && isGap(pt, t, gap)) close()
+		val x = chartX(t, tLast, window, w)
 		val y = h - (value / scale).coerceIn(0f, 1f) * h
 		if (!open) {
 			line.moveTo(x, y)
@@ -196,30 +230,27 @@ private fun DrawScope.drawSeries(s: ChartSeries, scale: Float, step: Float, w: F
 		}
 		px = x
 		py = y
-	}
-	if (open) {
-		line.lineTo(px, py)
-		area.lineTo(px, py)
+		pt = t
 	}
 	close()
 	if (s.fill) {
 		drawPath(area, Brush.verticalGradient(listOf(s.color.copy(alpha = 0.34f), s.color.copy(alpha = 0.0f))))
 	}
 	drawPath(line, s.color, style = Stroke(2.2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
-	val last = v.last()
+	val last = p.v(p.size - 1)
 	if (!last.isNaN()) {
+		val x = chartX(p.t(p.size - 1), tLast, window, w)
 		val y = h - (last / scale).coerceIn(0f, 1f) * h
-		drawCircle(s.color.copy(alpha = 0.25f), 7.dp.toPx(), Offset(w, y))
-		drawCircle(s.color, 3.5.dp.toPx(), Offset(w, y))
+		drawCircle(s.color.copy(alpha = 0.25f), 7.dp.toPx(), Offset(x, y))
+		drawCircle(s.color, 3.5.dp.toPx(), Offset(x, y))
 	}
 }
 
 /** A compact chart without grid or labels, for tiles. */
 @Composable
-fun Sparkline(values: List<Float>, color: Color, capacity: Int, modifier: Modifier = Modifier, maxValue: Float? = null, binary: Boolean = false, height: Dp = 36.dp) {
+fun Sparkline(points: Points, color: Color, modifier: Modifier = Modifier, maxValue: Float? = null, binary: Boolean = false, height: Dp = 36.dp) {
 	LineChart(
-		listOf(ChartSeries(values, color)),
-		capacity,
+		listOf(ChartSeries(points, color)),
 		modifier,
 		maxValue = maxValue,
 		binary = binary,

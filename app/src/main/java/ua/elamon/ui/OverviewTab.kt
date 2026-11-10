@@ -29,7 +29,6 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import ua.elamon.MachineViewModel
 import ua.elamon.R
 import ua.elamon.data.Gpu
 import ua.elamon.data.GpuInfo
@@ -148,7 +147,7 @@ private fun GpuTile(t: TabScope, g: Gpu, info: GpuInfo?, modifier: Modifier) {
 			}
 			g.usage != null -> {
 				BigValue(Fmt.percent(g.usage).dropLast(1), Fmt.PERCENT)
-				Sparkline(t.state.hist.gpuUsage[g.id].orEmpty(), c.gpu, MachineViewModel.HISTORY_CAP, maxValue = 100f)
+				Sparkline(t.state.hist.gpuUsage(g.id), c.gpu, maxValue = 100f)
 				TileFooter(listOfNotNull(g.temp?.let { Fmt.temp(it, p.fahrenheit) }, g.power?.let { Fmt.watts(it) }).joinToString(" · ").ifEmpty { active })
 			}
 			g.freq != null -> {
@@ -185,7 +184,7 @@ private fun TempTile(t: TabScope, s: Sample, modifier: Modifier) {
 		} else {
 			Text("—", style = MaterialTheme.typography.headlineLarge)
 		}
-		Sparkline(t.state.hist.cpuTemp, tempColor(temp ?: 40f), MachineViewModel.HISTORY_CAP, maxValue = 100f)
+		Sparkline(t.state.hist.cpuTemp, tempColor(temp ?: 40f), maxValue = 100f)
 		val fans = s.fans.filter { it.rpm > 0 }
 		TileFooter(
 			when {
@@ -218,7 +217,6 @@ private fun NetworkTile(t: TabScope, s: Sample) {
 		}
 		LineChart(
 			listOf(ChartSeries(t.state.hist.rx, c.rx), ChartSeries(t.state.hist.tx, c.tx)),
-			MachineViewModel.HISTORY_CAP,
 			minScale = 64f * 1024,
 			binary = true,
 			height = 56.dp,

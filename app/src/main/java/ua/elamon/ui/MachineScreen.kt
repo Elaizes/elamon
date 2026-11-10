@@ -1,6 +1,7 @@
 package ua.elamon.ui
 
 import android.app.Application
+import android.content.res.Resources
 import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
@@ -12,14 +13,22 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -31,6 +40,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,6 +50,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,11 +66,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
+import ua.elamon.BuildConfig
+import ua.elamon.Compat
 import ua.elamon.Conn
+import ua.elamon.Intervals
+import ua.elamon.MIN_ELAMOND
 import ua.elamon.MachineState
 import ua.elamon.MachineViewModel
 import ua.elamon.Message
 import ua.elamon.R
+import ua.elamon.compatibility
+import ua.elamon.data.Info
 import ua.elamon.data.PairTarget
 import ua.elamon.data.Server
 import ua.elamon.data.ServerStore
@@ -132,17 +149,10 @@ fun MachineScreen(
 			vm.setVisible(false)
 		}
 	}
+	val res by rememberUpdatedState(resources())
 	LaunchedEffect(Unit) {
-		vm.messages.collect { m ->
-			snackbar.showSnackbar(
-				when (m) {
-					is Message.Res -> ctx.getString(m.id)
-					is Message.Text -> m.text
-				}
-			)
-		}
+		vm.messages.collect { m -> snackbar.showSnackbar(m.text(res)) }
 	}
-	LaunchedEffect(Unit) { vm.refreshControl() }
 
 	val view = LocalView.current
 	DisposableEffect(prefs.keepScreenOn) {
@@ -153,7 +163,9 @@ fun MachineScreen(
 	BackHandler(enabled = detail != null) { detail = null }
 
 	val name = state.info?.name ?: server.name
-	val status = connText(state.conn, prefs.intervalMs)
+	val status = connText(state.conn, Intervals.effective(prefs.intervalMs, state.info?.intervalMs))
+	val compatDismissed by vm.compatDismissed.collectAsStateWithLifecycle()
+	val compat = state.info?.let { compatibility(BuildConfig.VERSION_NAME, it.api, it.serviceVersion, it.minApp) } ?: Compat.Ok
 	val currentList = if (detail != null) detailList else lists.getValue(tab)
 	val collapsed = rememberCollapsed(currentList)
 
@@ -169,6 +181,11 @@ fun MachineScreen(
 					state.conn == Conn.CertificateChanged -> Centered {
 						Notice(Icons.Default.Warning, stringResource(R.string.machine_cert_title), stringResource(R.string.machine_cert_body)) {
 							Button(onClick = { onPairAgain(server.toTarget().copy(fingerprint = null)) }) { Text(stringResource(R.string.machine_pair_again)) }
+						}
+					}
+					state.conn == Conn.Refused -> Centered {
+						Notice(Icons.Default.Warning, stringResource(R.string.machine_refused_title), state.refused?.text(resources())) {
+							Button(onClick = { vm.retry() }) { Text(stringResource(R.string.retry)) }
 						}
 					}
 					state.sample == null && state.conn == Conn.Offline -> Centered {
@@ -194,7 +211,14 @@ fun MachineScreen(
 								transitionSpec = { fadeIn(tween(if (prefs.animations) 200 else 0)) togetherWith fadeOut(tween(if (prefs.animations) 120 else 0)) },
 								label = "tab",
 							) { t ->
-								val s = TabScope(state, vm, lists.getValue(t), { MachineHeader(name, state, status, lists.getValue(t)) }, { detail = it }, onHelp)
+								val header = @Composable {
+									Column {
+										MachineHeader(name, state, status, lists.getValue(t))
+										val info = state.info
+										if (compat != Compat.Ok && !compatDismissed && info != null) CompatBanner(compat, info) { vm.dismissCompat() }
+									}
+								}
+								val s = TabScope(state, vm, lists.getValue(t), header, { detail = it }, onHelp)
 								when (t) {
 									Tab.Overview -> OverviewTab(s)
 									Tab.Processes -> ProcessesTab(s)
@@ -311,13 +335,42 @@ private fun Centered(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun connText(conn: Conn, interval: Int): String = when (conn) {
-	Conn.Live -> stringResource(R.string.conn_live, interval / 1000)
+private fun connText(conn: Conn, intervalMs: Int): String = when (conn) {
+	Conn.Live -> stringResource(R.string.conn_live, Fmt.seconds(intervalMs))
 	Conn.Connecting -> stringResource(R.string.conn_connecting)
 	Conn.Reconnecting -> stringResource(R.string.conn_reconnecting)
 	Conn.Offline -> stringResource(R.string.offline)
 	Conn.Unauthorized -> stringResource(R.string.conn_unauthorized)
 	Conn.CertificateChanged -> stringResource(R.string.conn_certificate_changed)
+	Conn.Refused -> stringResource(R.string.conn_refused)
+}
+
+fun Message.text(res: Resources): String = when (this) {
+	is Message.Res -> res.getString(id, *args.toTypedArray())
+	is Message.Text -> text
+}
+
+/** A note under the title when the app or the service is out of date; it works either way. */
+@Composable
+private fun CompatBanner(compat: Compat, info: Info, onDismiss: () -> Unit) {
+	val warn = Metric.colors.warn
+	Surface(
+		shape = RoundedCornerShape(18.dp),
+		color = warn.copy(alpha = 0.14f),
+		modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+	) {
+		Row(Modifier.padding(start = 14.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+			Icon(Icons.Default.Warning, null, tint = warn, modifier = Modifier.size(18.dp))
+			Spacer(Modifier.width(10.dp))
+			Text(
+				if (compat == Compat.UpdateApp) stringResource(R.string.compat_update_app)
+				else stringResource(R.string.compat_update_elamond, info.serviceVersion, MIN_ELAMOND),
+				style = MaterialTheme.typography.bodySmall,
+				modifier = Modifier.weight(1f),
+			)
+			IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, stringResource(R.string.compat_dismiss), Modifier.size(18.dp)) }
+		}
+	}
 }
 
 fun Server.toTarget() = PairTarget(hosts = hostsToTry(), port = port, name = name, id = id, fingerprint = fingerprint)

@@ -65,7 +65,7 @@ fun ProcessesTab(t: TabScope) {
 
 	// Searching or grouping needs every process, not just the heaviest ones.
 	val all = grouped || query.isNotBlank()
-	LaunchedEffect(sort, all) { vm.setProcesses(ProcRequest(if (sort == "name") "cpu" else sort, all)) }
+	LaunchedEffect(sort, all) { vm.setProcesses(ProcRequest(if (sort == "name") "cpu" else sort, if (all) ProcRequest.ALL else ProcRequest.LIST)) }
 	DisposableEffect(Unit) { onDispose { vm.setProcesses(null) } }
 
 	val procs = t.state.processes

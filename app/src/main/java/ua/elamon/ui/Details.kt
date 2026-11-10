@@ -56,7 +56,7 @@ fun DetailPage(kind: String, state: MachineState, vm: MachineViewModel, list: La
 	}
 	// The heaviest processes for what this page is about.
 	DisposableEffect(kind) {
-		if (sort != null) vm.setProcesses(ProcRequest(sort, false))
+		if (sort != null) vm.setProcesses(ProcRequest(sort, ProcRequest.TOP))
 		onDispose { if (sort != null) vm.setProcesses(null) }
 	}
 	val s = state.sample ?: return
@@ -80,8 +80,6 @@ fun DetailPage(kind: String, state: MachineState, vm: MachineViewModel, list: La
 	}
 }
 
-private const val CAP = MachineViewModel.HISTORY_CAP
-
 private fun LazyListScope.cpu(state: MachineState) {
 	val s = state.sample ?: return
 	item(key = "chart") {
@@ -89,7 +87,7 @@ private fun LazyListScope.cpu(state: MachineState) {
 		Section(stringResource(R.string.details_load), ElIcons.Chip, accent = c.cpu, trailing = { RollingText(Fmt.percent(s.cpu.usage), MaterialTheme.typography.titleLarge, color = c.cpu) }) {
 			LineChart(
 				listOf(ChartSeries(state.hist.cpu, c.cpu, format = { Fmt.percent(it) })),
-				CAP, maxValue = 100f, height = 200.dp, label = { Fmt.percent(100f) },
+				maxValue = 100f, height = 200.dp, label = { Fmt.percent(100f) },
 			)
 		}
 	}
@@ -145,7 +143,7 @@ private fun LazyListScope.memory(state: MachineState) {
 					ChartSeries(state.hist.mem, c.memory, format = { res.getString(R.string.details_chart_ram, Fmt.bytes(it.toDouble())) }),
 					ChartSeries(state.hist.swap, c.swap, fill = false, format = { res.getString(R.string.details_chart_swap, Fmt.bytes(it.toDouble())) }),
 				),
-				CAP, maxValue = m.total.toFloat().coerceAtLeast(1f), height = 200.dp, label = { Fmt.bytes(it.toDouble()) },
+				maxValue = m.total.toFloat().coerceAtLeast(1f), height = 200.dp, label = { Fmt.bytes(it.toDouble()) },
 			)
 			Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
 				Legend(c.memory, stringResource(R.string.memory))
@@ -184,16 +182,17 @@ private fun LazyListScope.gpu(state: MachineState, id: String) {
 			}
 		} else {
 			Section(stringResource(R.string.details_load), ElIcons.Gpu, accent = c.gpu, trailing = { g.usage?.let { RollingText(Fmt.percent(it), MaterialTheme.typography.titleLarge, color = c.gpu) } }) {
+				// Load and °C share the 0–100 scale; its top is 212 °F for those who read Fahrenheit.
 				LineChart(
 					listOf(
-						ChartSeries(state.hist.gpuUsage[id].orEmpty(), c.gpu, format = { Fmt.percent(it) }),
-						ChartSeries(state.hist.gpuTemp[id].orEmpty(), c.hot, fill = false, format = { Fmt.temp(it, p.fahrenheit) }),
+						ChartSeries(state.hist.gpuUsage(id), c.gpu, format = { Fmt.percent(it) }),
+						ChartSeries(state.hist.gpuTemp(id), c.hot, fill = false, format = { Fmt.temp(it, p.fahrenheit) }),
 					),
-					CAP, maxValue = 100f, height = 200.dp, label = { "100" },
+					maxValue = 100f, height = 200.dp, label = { "${Fmt.percent(it)} · ${Fmt.temp(it, p.fahrenheit)}" },
 				)
 				Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
 					Legend(c.gpu, stringResource(R.string.details_legend_load, Fmt.PERCENT))
-					Legend(c.hot, stringResource(R.string.details_legend_temperature, Fmt.CELSIUS))
+					Legend(c.hot, stringResource(R.string.details_legend_temperature, if (p.fahrenheit) Fmt.FAHRENHEIT else Fmt.CELSIUS))
 				}
 				if (g.usage == null && info?.vendor == "intel") {
 					Text(
@@ -244,7 +243,7 @@ private fun LazyListScope.network(state: MachineState) {
 					ChartSeries(state.hist.rx, c.rx, format = { "↓ " + Fmt.rate(it.toDouble(), bits) }),
 					ChartSeries(state.hist.tx, c.tx, format = { "↑ " + Fmt.rate(it.toDouble(), bits) }),
 				),
-				CAP, minScale = 64f * 1024, binary = true, height = 200.dp, label = { Fmt.rate(it.toDouble(), bits) },
+				minScale = 64f * 1024, binary = true, height = 200.dp, label = { Fmt.rate(it.toDouble(), bits) },
 			)
 			Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
 				Legend(c.rx, stringResource(R.string.details_download))
@@ -289,7 +288,7 @@ private fun LazyListScope.storage(state: MachineState) {
 					ChartSeries(state.hist.read, c.read, format = { res.getString(R.string.details_chart_read, Fmt.rate(it.toDouble())) }),
 					ChartSeries(state.hist.write, c.write, format = { res.getString(R.string.details_chart_write, Fmt.rate(it.toDouble())) }),
 				),
-				CAP, minScale = 1024f * 1024, binary = true, height = 200.dp, label = { Fmt.rate(it.toDouble()) },
+				minScale = 1024f * 1024, binary = true, height = 200.dp, label = { Fmt.rate(it.toDouble()) },
 			)
 			Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
 				Legend(c.read, stringResource(R.string.details_read))
@@ -327,7 +326,7 @@ private fun LazyListScope.battery(state: MachineState) {
 		Section(stringResource(R.string.details_power_draw), ElIcons.Bolt, accent = c.battery) {
 			LineChart(
 				listOf(ChartSeries(state.hist.batteryPower, c.battery, format = { Fmt.watts(it) })),
-				CAP, minScale = 5f, height = 180.dp, label = { Fmt.watts(it) },
+				minScale = 5f, height = 180.dp, label = { Fmt.watts(it) },
 			)
 		}
 	}
@@ -358,7 +357,7 @@ private fun LazyListScope.topProcesses(procs: List<Proc>?, sort: String) {
 					"gpu" -> procs.filter { it.gpu != null || it.gpuMem != null }.sortedByDescending { (it.gpu ?: 0f) * 1e12f + (it.gpuMem ?: 0) }
 					"io" -> procs.sortedByDescending { it.read + it.write }
 					else -> procs.sortedByDescending { it.cpu }
-				}.take(8)
+				}.take(ProcRequest.TOP)
 				if (top.isEmpty()) {
 					Text(stringResource(R.string.details_top_none), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				}

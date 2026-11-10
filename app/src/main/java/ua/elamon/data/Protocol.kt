@@ -3,8 +3,13 @@ package ua.elamon.data
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
-/** What the service sends; mirrors elamond/src/model.rs. Unknown fields are ignored so newer services still work. */
+/**
+ * What the service sends; mirrors elamond/src/model.rs. Unknown fields are ignored so newer services
+ * still work. Ids and times have no default: a message without them is broken, not zero.
+ */
 val ProtocolJson = Json {
 	ignoreUnknownKeys = true
 	classDiscriminator = "type"
@@ -12,16 +17,40 @@ val ProtocolJson = Json {
 	coerceInputValues = true
 }
 
+/** The API this app speaks; a higher one from the service means the app is out of date. */
+const val APP_API = 1
+
+/** What services before 0.4 run at without saying so. */
+const val DEFAULT_INTERVAL_MS = 1000
+const val DEFAULT_HISTORY_SECONDS = 600
+
 @Serializable
 sealed interface StreamMessage
 
+private val STREAM_TYPES = setOf("info", "history", "sample")
+private val TYPE_PREFIX = Regex("""^\s*\{\s*"type"\s*:\s*"([^"]*)"""")
+
+/**
+ * One line of the stream. Null for a kind of message this app doesn't know, which a newer service
+ * may send; a known kind that doesn't decode throws, so a broken message isn't read as zeros.
+ */
+fun decodeStreamLine(line: String, json: Json = ProtocolJson): StreamMessage? {
+	// The service puts the type first; reading it there saves parsing a whole sample twice.
+	val type = TYPE_PREFIX.find(line)?.groupValues?.get(1)
+		?: json.parseToJsonElement(line).jsonObject["type"]?.jsonPrimitive?.content
+	if (type !in STREAM_TYPES) return null
+	return json.decodeFromString(StreamMessage.serializer(), line)
+}
+
 @Serializable
 data class Hello(
-	val app: String = "",
-	val api: Int = 0,
-	val id: String = "",
-	val name: String = "",
-	val version: String = "",
+	val app: String,
+	val api: Int,
+	val id: String,
+	val name: String,
+	val version: String,
+	/** The oldest app version the service works with; services before 0.4 don't say. */
+	@SerialName("min_app") val minApp: String? = null,
 )
 
 @Serializable
@@ -35,25 +64,30 @@ data class PairResponse(
 @Serializable
 @SerialName("info")
 data class Info(
-	val id: String = "",
+	val id: String,
 	val name: String = "",
-	@SerialName("service_version") val serviceVersion: String = "",
-	val api: Int = 0,
+	@SerialName("service_version") val serviceVersion: String,
+	val api: Int,
+	@SerialName("min_app") val minApp: String? = null,
+	/** The service's own tick: no stream comes faster. */
+	@SerialName("interval_ms") val intervalMs: Int = DEFAULT_INTERVAL_MS,
+	/** How far back history reaches. */
+	@SerialName("history_seconds") val historySeconds: Int = DEFAULT_HISTORY_SECONDS,
 	val os: String = "",
 	val kernel: String = "",
 	val arch: String = "",
 	@SerialName("cpu_model") val cpuModel: String = "",
 	@SerialName("cpu_physical_cores") val cpuPhysicalCores: Int? = null,
-	@SerialName("cpu_logical_cores") val cpuLogicalCores: Int = 0,
-	@SerialName("memory_total") val memoryTotal: Long = 0,
-	@SerialName("boot_time") val bootTime: Long = 0,
+	@SerialName("cpu_logical_cores") val cpuLogicalCores: Int,
+	@SerialName("memory_total") val memoryTotal: Long,
+	@SerialName("boot_time") val bootTime: Long,
 	val gpus: List<GpuInfo> = emptyList(),
 	val capabilities: List<String> = emptyList(),
 ) : StreamMessage
 
 @Serializable
 data class GpuInfo(
-	val id: String = "",
+	val id: String,
 	val vendor: String = "",
 	val name: String = "",
 	val driver: String = "",
@@ -63,8 +97,9 @@ data class GpuInfo(
 @Serializable
 @SerialName("sample")
 data class Sample(
-	val t: Long = 0,
-	val uptime: Long = 0,
+	/** Unix milliseconds on the service's clock. */
+	val t: Long,
+	val uptime: Long,
 	val cpu: Cpu = Cpu(),
 	val memory: Memory = Memory(),
 	val gpus: List<Gpu> = emptyList(),
@@ -102,7 +137,7 @@ data class Memory(
 
 @Serializable
 data class Gpu(
-	val id: String = "",
+	val id: String,
 	val state: String = "unknown",
 	val usage: Float? = null,
 	@SerialName("mem_used") val memUsed: Long? = null,
@@ -117,17 +152,17 @@ data class Gpu(
 
 @Serializable
 data class Temp(
-	val chip: String = "",
-	val kind: String = "other",
+	val chip: String,
+	val kind: String,
 	val device: String? = null,
-	val label: String = "",
-	val value: Float = 0f,
+	val label: String,
+	val value: Float,
 	val high: Float? = null,
 	val crit: Float? = null,
 )
 
 @Serializable
-data class Fan(val chip: String = "", val label: String = "", val rpm: Int = 0)
+data class Fan(val chip: String, val label: String, val rpm: Int)
 
 @Serializable
 data class Battery(
@@ -156,8 +191,8 @@ data class Power(
 
 @Serializable
 data class Disk(
-	val device: String = "",
-	val mount: String = "",
+	val device: String,
+	val mount: String,
 	val fs: String = "",
 	val total: Long = 0,
 	val available: Long = 0,
@@ -165,12 +200,12 @@ data class Disk(
 )
 
 @Serializable
-data class DiskIo(val name: String = "", val model: String? = null, val read: Double = 0.0, val write: Double = 0.0)
+data class DiskIo(val name: String, val model: String? = null, val read: Double = 0.0, val write: Double = 0.0)
 
 @Serializable
 data class Net(
-	val name: String = "",
-	val kind: String = "virtual",
+	val name: String,
+	val kind: String,
 	val up: Boolean = false,
 	val addrs: List<String> = emptyList(),
 	val rx: Double = 0.0,
@@ -182,7 +217,7 @@ data class Net(
 
 @Serializable
 data class Display(
-	val connector: String = "",
+	val connector: String,
 	val gpu: String = "",
 	val connected: Boolean = false,
 	val active: Boolean = false,
@@ -200,13 +235,13 @@ data class Display(
 )
 
 @Serializable
-data class Mode(val width: Int = 0, val height: Int = 0, val refresh: Float = 0f)
+data class Mode(val width: Int, val height: Int, val refresh: Float)
 
 @Serializable
 data class Proc(
-	val pid: Int = 0,
+	val pid: Int,
 	val ppid: Int? = null,
-	val name: String = "",
+	val name: String,
 	val cmd: String = "",
 	val user: String? = null,
 	val cpu: Float = 0f,
@@ -222,7 +257,8 @@ data class Proc(
 @Serializable
 @SerialName("history")
 data class History(
-	val t: List<Long> = emptyList(),
+	/** Unix milliseconds on the service's clock, one per entry of every other list. */
+	val t: List<Long>,
 	val cpu: List<Float> = emptyList(),
 	@SerialName("cpu_temp") val cpuTemp: List<Float?> = emptyList(),
 	val mem: List<Long> = emptyList(),
@@ -237,7 +273,7 @@ data class History(
 
 @Serializable
 data class GpuHistory(
-	val id: String = "",
+	val id: String,
 	val usage: List<Float?> = emptyList(),
 	val temp: List<Float?> = emptyList(),
 )
@@ -246,7 +282,7 @@ data class GpuHistory(
 
 @Serializable
 data class ServiceStatus(
-	val id: String = "",
+	val id: String,
 	val name: String = "",
 	val url: String = "",
 	val unit: String? = null,
@@ -266,7 +302,7 @@ data class Volume(val level: Float = 0f, val muted: Boolean = false)
 
 @Serializable
 data class Player(
-	val id: String = "",
+	val id: String,
 	val name: String = "",
 	val status: String = "Stopped",
 	val title: String? = null,
@@ -286,7 +322,7 @@ data class Player(
 
 @Serializable
 data class ControlInfo(
-	val enabled: Boolean = false,
+	val enabled: Boolean,
 	val power: PowerCaps = PowerCaps(),
 	val profiles: Profiles? = null,
 	val actions: List<ActionInfo> = emptyList(),
@@ -305,8 +341,9 @@ data class PowerCaps(
 @Serializable
 data class Profiles(val active: String = "", val available: List<String> = emptyList())
 
+/** An action from the service's settings; its id is opaque, a hash of what it runs. */
 @Serializable
-data class ActionInfo(val id: String = "", val name: String = "", val confirm: Boolean = true)
+data class ActionInfo(val id: String, val name: String = "", val confirm: Boolean = true)
 
 @Serializable
 data class ActionResult(
@@ -326,10 +363,10 @@ data class ServiceDef(
 
 @Serializable
 data class Listener(
-	val port: Int = 0,
+	val port: Int,
 	@SerialName("local_only") val localOnly: Boolean = false,
 	val process: String? = null,
 )
 
 @Serializable
-data class UnitInfo(val name: String = "", val description: String = "", val active: String = "")
+data class UnitInfo(val name: String, val description: String = "", val active: String = "")

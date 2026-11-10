@@ -3,8 +3,8 @@ package ua.elamon.ui
 import android.content.res.Resources
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
+import java.math.BigDecimal
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -33,42 +33,47 @@ object Fmt {
 	private const val RPM = "RPM"
 	private const val MBIT_PER_SECOND = "Mbit/s"
 
-	/** Value and unit apart, for layouts that set the unit smaller. */
-	fun bytesParts(b: Double): Pair<String, String> {
-		var v = abs(b)
+	/**
+	 * [value] in the largest of [units] (each [base] times the one before) that keeps it at or above 1,
+	 * with two decimals under 10, one under 100, none above. The rounded figure decides, so
+	 * 1023.7 KiB reads "1.00 MiB", not "1024 KiB", and 9.996 reads "10.0", not "10.00".
+	 */
+	private fun scaled(value: Double, base: Double, units: List<String>): Pair<String, String> {
+		var v = abs(value)
 		var i = 0
-		while (v >= 1024 && i < BYTE_UNITS.lastIndex) {
-			v /= 1024
+		while (v >= base && i < units.lastIndex) {
+			v /= base
 			i++
 		}
-		val d = when {
-			i == 0 -> 0
-			v < 10 -> 2
-			v < 100 -> 1
-			else -> 0
+		var text = num(v, decimals(i, v))
+		val rounded = text.toDouble()
+		if (rounded >= base && i < units.lastIndex) {
+			v /= base
+			i++
+			text = num(v, decimals(i, v))
+		} else if (decimals(i, rounded) != decimals(i, v)) {
+			text = num(v, decimals(i, rounded))
 		}
-		return num(v, d) to BYTE_UNITS[i]
+		return text to units[i]
 	}
+
+	private fun decimals(unit: Int, v: Double): Int = when {
+		unit == 0 -> 0
+		v < 10 -> 2
+		v < 100 -> 1
+		else -> 0
+	}
+
+	/** Value and unit apart, for layouts that set the unit smaller. */
+	fun bytesParts(b: Double): Pair<String, String> = scaled(b, 1024.0, BYTE_UNITS)
 
 	fun bytes(b: Double): String = bytesParts(b).let { "${it.first} ${it.second}" }
 	fun bytes(b: Long): String = bytes(b.toDouble())
 
 	/** Network speed in bytes or, as providers state it, in decimal bits. */
 	fun rateParts(bytesPerSecond: Double, bits: Boolean): Pair<String, String> {
-		if (!bits) return bytesParts(bytesPerSecond).let { it.first to "${it.second}$PER_SECOND" }
-		var v = abs(bytesPerSecond) * 8
-		var i = 0
-		while (v >= 1000 && i < BIT_UNITS.lastIndex) {
-			v /= 1000
-			i++
-		}
-		val d = when {
-			i == 0 -> 0
-			v < 10 -> 2
-			v < 100 -> 1
-			else -> 0
-		}
-		return num(v, d) to "${BIT_UNITS[i]}$PER_SECOND"
+		val (v, unit) = if (bits) scaled(bytesPerSecond * 8, 1000.0, BIT_UNITS) else bytesParts(bytesPerSecond)
+		return v to "$unit$PER_SECOND"
 	}
 
 	fun rate(bytesPerSecond: Double, bits: Boolean = false): String =
@@ -93,6 +98,9 @@ object Fmt {
 		val whole = hz.roundToInt()
 		return if (abs(hz - whole) < 0.05f) "$whole $HZ" else "${num(hz.toDouble(), 2)} $HZ"
 	}
+
+	/** Milliseconds as plain seconds, without trailing zeros: "1", "0.25", "1.5". */
+	fun seconds(ms: Int): String = BigDecimal(ms).movePointLeft(3).stripTrailingZeros().toPlainString()
 
 	/** "3:07" or "1:02:45". */
 	fun clock(micros: Long): String {
@@ -141,7 +149,4 @@ object Fmt {
  */
 @Composable
 @ReadOnlyComposable
-fun resources(): Resources {
-	LocalConfiguration.current
-	return LocalContext.current.resources
-}
+fun resources(): Resources = LocalResources.current

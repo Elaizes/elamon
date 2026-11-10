@@ -90,11 +90,18 @@
 	<string name="machine_unreachable_title">Can\'t reach %1$s</string>
 	<string name="machine_unreachable_body">The computer may be off or asleep, the service not running, or the phone on another network. Elamon keeps trying.</string>
 	<string name="machine_offline_retrying">Offline · retrying</string>
-	<string name="conn_live">Live · every %1$d s</string>
+	<!-- The real interval in seconds, maybe with decimals: "Live · every 1 s", "Live · every 0.5 s". -->
+	<string name="conn_live">Live · every %1$s s</string>
 	<string name="conn_connecting">Connecting…</string>
 	<string name="conn_reconnecting">Reconnecting…</string>
 	<string name="conn_unauthorized">Not paired</string>
 	<string name="conn_certificate_changed">Certificate changed</string>
+	<string name="conn_refused">Refused</string>
+	<string name="machine_refused_title">The computer turned this phone away</string>
+	<!-- A small note under the computer's name when the app and the service are of different ages. -->
+	<string name="compat_update_app">This computer\'s service is newer than this app. Update Elamon to see everything it sends.</string>
+	<string name="compat_update_elamond">This computer runs elamond %1$s. Update it to %2$s or newer: some readings need it.</string>
+	<string name="compat_dismiss">Dismiss</string>
 	<string name="machine_uptime">Up %1$s</string>
 	<string name="machine_on_ac">On AC power</string>
 	<string name="machine_on_battery">On battery</string>
@@ -269,6 +276,7 @@
 
 	<!-- Control tab -->
 	<string name="control_off">Control is off</string>
+	<string name="control_error_title">Can\'t read the control panel</string>
 	<string name="control_off_body">This computer only lets the app watch. To also control power, services, processes and media from here, turn it on in the service\'s settings and restart it:</string>
 	<string name="control_off_where">in ~/.config/elamon/elamond.toml, or services.elamond.settings.control = true on NixOS.</string>
 	<string name="control_services">Services</string>
@@ -363,11 +371,34 @@
 	<string name="done_started">Started</string>
 	<string name="done_stopped">Stopped</string>
 	<string name="done_restarted">Restarted</string>
+	<!-- Errors, mostly by the code the service answers with. -->
 	<string name="err_control_disabled">Control is off on this computer</string>
 	<string name="err_not_permitted">The computer didn\'t allow that</string>
+	<string name="err_protected_process">The computer protects that process</string>
 	<string name="err_not_found">It\'s gone</string>
+	<string name="err_no_such_process">That process has already ended</string>
+	<string name="err_no_such_action">That action is no longer in the computer\'s settings</string>
+	<string name="err_no_such_service">That service is gone</string>
+	<string name="err_no_art">The player has no cover for this track</string>
+	<string name="err_unknown_signal">The computer doesn\'t know that signal</string>
+	<string name="err_empty_command">That action has no command to run</string>
+	<string name="err_no_unit">That service has no systemd unit</string>
+	<string name="err_bad_name">The name must be 1 to 64 characters</string>
+	<string name="err_bad_url">That address isn\'t valid</string>
+	<string name="err_bad_unit">That isn\'t a valid systemd unit name</string>
+	<string name="err_bad_scope">A unit is either the user\'s or the system\'s</string>
+	<string name="err_storage">The computer couldn\'t save it</string>
 	<string name="err_failed">It didn\'t work</string>
 	<string name="err_unreachable">Can\'t reach the computer</string>
+	<string name="err_unauthorized">The computer no longer accepts this phone. Pair again.</string>
+	<string name="err_certificate_changed">The computer\'s certificate changed. Pair again if you reset it.</string>
+	<string name="err_wrong_code">Wrong code</string>
+	<string name="err_no_pairing">The computer isn\'t waiting for a phone</string>
+	<string name="err_not_elamond">That isn\'t an Elamon service</string>
+	<string name="err_refused">The computer refused</string>
+	<string name="err_protocol">The computer answered in a way this app doesn\'t understand</string>
+	<!-- An error code from a newer service, shown as it is: "The computer said: rate_limited". -->
+	<string name="err_code">The computer said: %1$s</string>
 	<string name="err_unknown">Something went wrong</string>
 
 	<!-- Settings -->
@@ -387,7 +418,12 @@
 	<string name="settings_animations_summary">Rolling numbers and moving gauges</string>
 	<string name="settings_data">Data</string>
 	<string name="settings_interval">Update every</string>
-	<string name="settings_interval_seconds">%1$d s</string>
+	<!-- Seconds, maybe with decimals: "1 s", "0.25 s". -->
+	<string name="settings_interval_seconds">%1$s s</string>
+	<string name="settings_interval_custom">Custom</string>
+	<string name="settings_interval_custom_label">Seconds</string>
+	<string name="settings_interval_custom_range">From %1$s s to %2$s s</string>
+	<string name="settings_save">Save</string>
 	<string name="settings_temperature">Temperature</string>
 	<string name="settings_network_speed">Network speed</string>
 	<string name="settings_bytes">Bytes</string>

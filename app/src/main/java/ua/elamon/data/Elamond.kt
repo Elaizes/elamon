@@ -29,8 +29,40 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
-class ElamondException(val kind: Kind, message: String? = null, cause: Throwable? = null) : IOException(message, cause) {
-	enum class Kind { Unreachable, Unauthorized, WrongCode, NoPairing, CertificateChanged, NotElamond, Protocol, ControlDisabled, NotPermitted, NotFound, Failed }
+class ElamondException(
+	val kind: Kind,
+	message: String? = null,
+	cause: Throwable? = null,
+	/** The service's error code, like "no_such_process", when it gave one. */
+	val code: String? = null,
+	/** The HTTP status, when the service answered at all. */
+	val status: Int = 0,
+) : IOException(message, cause) {
+	enum class Kind { Unreachable, Unauthorized, WrongCode, NoPairing, CertificateChanged, NotElamond, Protocol, ControlDisabled, NotPermitted, Forbidden, NotFound, BadRequest, Failed }
+
+	companion object {
+		/** An error answer: its status and the body, {"error": code} or {"error": "failed", "message": text}. */
+		fun fromResponse(status: Int, body: String): ElamondException {
+			val obj = runCatching { ProtocolJson.parseToJsonElement(body).jsonObject }.getOrNull()
+			val error = runCatching { obj?.get("error")?.jsonPrimitive?.content }.getOrNull()
+			val message = runCatching { obj?.get("message")?.jsonPrimitive?.content }.getOrNull()
+			val kind = when {
+				status == 401 || error == "unauthorized" -> Kind.Unauthorized
+				error == "wrong_code" -> Kind.WrongCode
+				error == "no_pairing" -> Kind.NoPairing
+				error == "control_disabled" -> Kind.ControlDisabled
+				error == "not_permitted" || error == "protected_process" -> Kind.NotPermitted
+				status == 403 -> Kind.Forbidden
+				status == 404 -> Kind.NotFound
+				status == 400 -> Kind.BadRequest
+				error == "failed" || status >= 500 -> Kind.Failed
+				else -> Kind.Protocol
+			}
+			// A failed command carries the computer's own words; anything else is known by its code.
+			val text = if (error == "failed") message else error ?: "HTTP $status"
+			return ElamondException(kind, text, code = error, status = status)
+		}
+	}
 }
 
 /**
@@ -104,18 +136,7 @@ class ElamondClient(
 		val code = c.responseCode
 		if (code in 200..299) return
 		val body = runCatching { c.errorStream?.bufferedReader()?.readText() }.getOrNull().orEmpty()
-		val error = runCatching { ProtocolJson.parseToJsonElement(body).jsonObject["error"]?.jsonPrimitive?.content }.getOrNull()
-		val message = runCatching { ProtocolJson.parseToJsonElement(body).jsonObject["message"]?.jsonPrimitive?.content }.getOrNull()
-		throw when {
-			code == 401 -> ElamondException(ElamondException.Kind.Unauthorized)
-			error == "no_pairing" -> ElamondException(ElamondException.Kind.NoPairing)
-			error == "wrong_code" -> ElamondException(ElamondException.Kind.WrongCode)
-			error == "control_disabled" -> ElamondException(ElamondException.Kind.ControlDisabled)
-			error == "not_permitted" -> ElamondException(ElamondException.Kind.NotPermitted)
-			code == 404 -> ElamondException(ElamondException.Kind.NotFound, error)
-			error == "failed" -> ElamondException(ElamondException.Kind.Failed, message ?: error)
-			else -> ElamondException(ElamondException.Kind.Protocol, error ?: "HTTP $code")
-		}
+		throw ElamondException.fromResponse(code, body)
 	}
 
 	/** A request with an optional JSON body; returns the response body. */
@@ -213,12 +234,8 @@ class ElamondClient(
 				while (currentCoroutineContext().isActive) {
 					val line = call { reader.readLine() } ?: throw ElamondException(ElamondException.Kind.Unreachable, "closed")
 					if (line.isBlank()) continue
-					val msg = try {
-						ProtocolJson.decodeFromString<StreamMessage>(line)
-					} catch (e: kotlinx.serialization.SerializationException) {
-						// A message type from a newer service: skip it.
-						continue
-					}
+					// A kind of message from a newer service is skipped; a broken one ends the stream.
+					val msg = call { decodeStreamLine(line) } ?: continue
 					emit(msg)
 				}
 			} finally {

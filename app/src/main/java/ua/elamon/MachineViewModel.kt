@@ -8,18 +8,19 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -37,119 +38,139 @@ import ua.elamon.data.ServiceDef
 import ua.elamon.data.StreamMessage
 import ua.elamon.data.UnitInfo
 
-enum class Conn { Connecting, Live, Reconnecting, Offline, Unauthorized, CertificateChanged }
-
-/** The main series for charts, oldest first; NaN where a value was missing. */
-data class Hist(
-	val cpu: List<Float> = emptyList(),
-	val cpuTemp: List<Float> = emptyList(),
-	val mem: List<Float> = emptyList(),
-	val swap: List<Float> = emptyList(),
-	val rx: List<Float> = emptyList(),
-	val tx: List<Float> = emptyList(),
-	val read: List<Float> = emptyList(),
-	val write: List<Float> = emptyList(),
-	val batteryPower: List<Float> = emptyList(),
-	val gpuUsage: Map<String, List<Float>> = emptyMap(),
-	val gpuTemp: Map<String, List<Float>> = emptyMap(),
-) {
-	val size get() = cpu.size
-
-	fun append(s: Sample, cap: Int): Hist {
-		fun <T> List<T>.add(v: T) = (if (size >= cap) drop(size - cap + 1) else this) + v
-		val realNet = s.net.filter { it.kind == "wired" || it.kind == "wireless" }
-		val n = size
-		fun gpuSeries(old: Map<String, List<Float>>, pick: (ua.elamon.data.Gpu) -> Float?): Map<String, List<Float>> {
-			val ids = old.keys + s.gpus.map { it.id }
-			return ids.associateWith { id ->
-				val prev = old[id] ?: List(n) { Float.NaN }
-				prev.add(s.gpus.find { it.id == id }?.let(pick) ?: Float.NaN)
-			}
-		}
-		return Hist(
-			cpu = cpu.add(s.cpu.usage),
-			cpuTemp = cpuTemp.add(s.cpu.temp ?: Float.NaN),
-			mem = mem.add(s.memory.used.toFloat()),
-			swap = swap.add(s.memory.swapUsed.toFloat()),
-			rx = rx.add(realNet.sumOf { it.rx }.toFloat()),
-			tx = tx.add(realNet.sumOf { it.tx }.toFloat()),
-			read = read.add(s.diskIo.sumOf { it.read }.toFloat()),
-			write = write.add(s.diskIo.sumOf { it.write }.toFloat()),
-			batteryPower = batteryPower.add(s.battery?.power ?: Float.NaN),
-			gpuUsage = gpuSeries(gpuUsage) { it.usage },
-			gpuTemp = gpuSeries(gpuTemp) { it.temp },
-		)
-	}
-
-	companion object {
-		fun from(h: History, cap: Int): Hist {
-			fun List<Float?>.f() = map { it ?: Float.NaN }.takeLast(cap)
-			return Hist(
-				cpu = h.cpu.takeLast(cap),
-				cpuTemp = h.cpuTemp.f(),
-				mem = h.mem.map { it.toFloat() }.takeLast(cap),
-				swap = h.swap.map { it.toFloat() }.takeLast(cap),
-				rx = h.rx.map { it.toFloat() }.takeLast(cap),
-				tx = h.tx.map { it.toFloat() }.takeLast(cap),
-				read = h.read.map { it.toFloat() }.takeLast(cap),
-				write = h.write.map { it.toFloat() }.takeLast(cap),
-				batteryPower = h.batteryPower.f(),
-				gpuUsage = h.gpus.associate { it.id to it.usage.f() },
-				gpuTemp = h.gpus.associate { it.id to it.temp.f() },
-			)
-		}
-	}
-}
+enum class Conn { Connecting, Live, Reconnecting, Offline, Unauthorized, CertificateChanged, Refused }
 
 data class MachineState(
 	val conn: Conn = Conn.Connecting,
 	val host: String? = null,
 	val info: Info? = null,
 	val sample: Sample? = null,
+	/** The same buffers throughout; [histVersion] tells their changes apart. */
 	val hist: Hist = Hist(),
+	val histVersion: Long = 0,
 	val processes: List<Proc>? = null,
 	val processCount: Int = 0,
 	/** When the last sample arrived, for extrapolating media positions. */
 	val receivedAt: Long = 0,
+	/** Why the computer turned the stream away, with [Conn.Refused]. */
+	val refused: Message? = null,
 )
 
-/** What the process list needs from the service. */
-data class ProcRequest(val sort: String, val all: Boolean)
+/** What a list of processes needs from the service: the order, and how many of the heaviest. */
+data class ProcRequest(val sort: String, val count: Int) {
+	companion object {
+		/** A detail page's top list. */
+		const val TOP = 8
+		const val LIST = 200
+
+		/** Searching or grouping needs every process. */
+		const val ALL = 10_000
+	}
+}
+
+/** What the stream is opened with; a change reopens it on the same address. */
+private data class StreamParams(val intervalMs: Int, val procs: Int, val sort: String, val media: Boolean)
 
 /** A line for the snackbar: one of the app's strings, or what the computer said, as it said it. */
 sealed interface Message {
-	data class Res(@StringRes val id: Int) : Message
+	data class Res(@StringRes val id: Int, val args: List<String> = emptyList()) : Message
 	data class Text(val text: String) : Message
+}
+
+/** The actions panel: the one running, and what each printed last time. */
+data class ActionsState(
+	val running: String? = null,
+	val results: Map<String, ActionResult> = emptyMap(),
+	/** The action whose output is on screen. */
+	val shown: String? = null,
+)
+
+/** The first value at once, then each one that stays for [ms]: quick to start, calm while settings change. */
+@OptIn(FlowPreview::class)
+fun <T> Flow<T>.settle(ms: Long): Flow<T> {
+	var first = true
+	return debounce {
+		if (first) {
+			first = false
+			0L
+		} else ms
+	}
 }
 
 class MachineViewModel(app: Application, private val serverId: String) : AndroidViewModel(app) {
 	private val store = ServerStore.get(app)
 	private val settings = Settings.get(app)
-	private val _state = MutableStateFlow(MachineState())
+	private val hist = Hist()
+	private val _state = MutableStateFlow(MachineState(hist = hist))
 	val state: StateFlow<MachineState> = _state.asStateFlow()
 
 	private val _control = MutableStateFlow<ControlInfo?>(null)
 	val control: StateFlow<ControlInfo?> = _control.asStateFlow()
 
-	private val _messages = MutableSharedFlow<Message>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-	/** One-line results and errors for a snackbar. */
-	val messages: SharedFlow<Message> = _messages.asSharedFlow()
+	private val _controlError = MutableStateFlow<Message?>(null)
 
-	private var job: Job? = null
-	private var visible = false
+	/** Why the control panel couldn't be read, until it can. */
+	val controlError: StateFlow<Message?> = _controlError.asStateFlow()
+
+	private val _actions = MutableStateFlow(ActionsState())
+	val actions: StateFlow<ActionsState> = _actions.asStateFlow()
+
+	private val _compatDismissed = MutableStateFlow(false)
+
+	/** The banner about versions, closed for as long as this screen lives. */
+	val compatDismissed: StateFlow<Boolean> = _compatDismissed.asStateFlow()
+
+	// Kept until the screen collects them, even across a rotation.
+	private val _messages = Channel<Message>(capacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+	/** One-line results and errors for a snackbar. */
+	val messages: Flow<Message> = _messages.receiveAsFlow()
+
 	private var procRequest: ProcRequest? = null
 	private var wantMedia = false
+	private val wanted = MutableStateFlow(params())
+	private var current = wanted.value
+
+	private var job: Job? = null
+	private var stopping: Job? = null
+	private var visible = false
+
+	/** The address the stream last worked on: a new set of parameters goes straight there. */
+	private var workingHost: String? = null
+	private var attempt = 0
 
 	init {
-		// A new update interval takes a new stream.
-		viewModelScope.launch { settings.state.map { it.intervalMs }.distinctUntilChanged().drop(1).collect { restart() } }
+		// A new update interval takes a new stream, on the same address.
+		viewModelScope.launch { settings.state.collect { wanted.value = params() } }
 	}
 
-	/** The screen is shown: stream while it is, stop when the phone locks or the app goes away. */
+	private fun params() = StreamParams(
+		intervalMs = settings.intervalMs,
+		procs = procRequest?.count ?: 0,
+		sort = procRequest?.sort ?: "cpu",
+		media = wantMedia,
+	)
+
+	/**
+	 * The screen is shown: stream while it is. When it stops, the stream stays for a few seconds,
+	 * so turning the phone doesn't cost a reconnection; then it ends until the screen is back.
+	 */
 	fun setVisible(v: Boolean) {
-		if (visible == v) return
 		visible = v
-		restart()
+		if (v) {
+			stopping?.cancel()
+			stopping = null
+			if (job?.isActive != true) start()
+		} else if (job?.isActive == true && stopping == null) {
+			stopping = viewModelScope.launch {
+				delay(STOP_GRACE_MS)
+				job?.cancel()
+				job = null
+				stopping = null
+				// What's on screen when it comes back is old until the stream is.
+				_state.update { if (it.conn == Conn.Live) it.copy(conn = Conn.Reconnecting) else it }
+			}
+		}
 	}
 
 	/** Null when no list of processes is on screen, so the service doesn't collect it. */
@@ -157,140 +178,185 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 		if (procRequest == request) return
 		procRequest = request
 		if (request == null) _state.update { it.copy(processes = null) }
-		// The service picks the heaviest processes by the chosen order, so a new order needs a new stream.
-		restart()
+		wanted.value = params()
 	}
 
 	/** Media players ride the stream only while the control panel shows them. */
 	fun setMedia(want: Boolean) {
 		if (wantMedia == want) return
 		wantMedia = want
-		restart()
+		wanted.value = params()
 	}
 
-	fun retry() = restart()
-
-	private fun restart() {
+	fun retry() {
+		if (!visible) return
 		job?.cancel()
-		job = if (visible) viewModelScope.launch { run() } else null
+		start()
 	}
 
-	private suspend fun run() {
-		var attempt = 0
+	/** A new session asks every address: the phone may be on another network by now. */
+	private fun start() {
+		attempt = 0
+		workingHost = null
+		_state.update { if (it.conn == Conn.Live) it else it.copy(conn = if (it.sample == null) Conn.Connecting else Conn.Reconnecting, refused = null) }
+		job = viewModelScope.launch { loop() }
+	}
+
+	private suspend fun loop() {
 		while (true) {
 			val server = store.get(serverId) ?: return
-			val current = _state.value
-			_state.update { it.copy(conn = if (it.sample == null) Conn.Connecting else Conn.Reconnecting) }
-			val reached = try {
-				ElamondClient.firstReachable(server.hostsToTry(), server.port, server.fingerprint, server.id)
-			} catch (e: ElamondException) {
-				_state.update { it.copy(conn = Conn.CertificateChanged) }
-				return
+			val host = workingHost ?: run {
+				_state.update { it.copy(conn = if (it.sample == null) Conn.Connecting else Conn.Reconnecting) }
+				val reached = try {
+					ElamondClient.firstReachable(server.hostsToTry(), server.port, server.fingerprint, server.id)
+				} catch (e: ElamondException) {
+					_state.update { it.copy(conn = Conn.CertificateChanged) }
+					return
+				}
+				if (reached == null) null else reached.first.host.also {
+					workingHost = it
+					if (it != server.lastHost) store.update(serverId) { s -> s.copy(lastHost = it) }
+				}
 			}
-			if (reached == null) {
+			if (host == null) {
 				_state.update { it.copy(conn = Conn.Offline) }
 				delay(backoff(attempt++))
 				continue
 			}
-			val host = reached.first.host
-			if (host != server.lastHost) store.update(serverId) { it.copy(lastHost = host) }
 
-			val client = ElamondClient(host, server.port, server.fingerprint, server.token)
-			val req = procRequest
-			try {
-				client.stream(
-					intervalMs = settings.intervalMs,
-					procs = if (req == null) 0 else if (req.all) 10_000 else 200,
-					sort = req?.sort ?: "cpu",
-					// History once per screen: after a reconnect, the app's own record carries on.
-					history = current.hist.size == 0,
-					media = wantMedia,
-				).collect { msg ->
-					attempt = 0
-					handle(msg, host)
+			val e = streamOn(host, ElamondClient(host, server.port, server.fingerprint, server.token))
+			when {
+				e.kind == ElamondException.Kind.Unauthorized -> {
+					_state.update { it.copy(conn = Conn.Unauthorized) }
+					return
 				}
-			} catch (e: ElamondException) {
-				when (e.kind) {
-					ElamondException.Kind.Unauthorized -> {
-						_state.update { it.copy(conn = Conn.Unauthorized) }
-						return
-					}
-					ElamondException.Kind.CertificateChanged -> {
-						_state.update { it.copy(conn = Conn.CertificateChanged) }
-						return
-					}
-					else -> {}
+				e.kind == ElamondException.Kind.CertificateChanged -> {
+					_state.update { it.copy(conn = Conn.CertificateChanged) }
+					return
+				}
+				// Asking again won't change the answer: say why and wait for the user.
+				e.status == 403 -> {
+					_state.update { it.copy(conn = Conn.Refused, refused = messageFor(e)) }
+					return
 				}
 			}
+			// Lost: look for the computer on every address again.
+			workingHost = null
 			_state.update { it.copy(conn = Conn.Reconnecting) }
 			delay(backoff(attempt++))
 		}
 	}
 
+	/**
+	 * Streams from [host] until the connection fails, and returns why. Changed parameters reopen
+	 * the stream there at once, without asking every address and without leaving Live.
+	 */
+	private suspend fun streamOn(host: String, client: ElamondClient): ElamondException = try {
+		wanted.settle(PARAMS_SETTLE_MS).collectLatest { p ->
+			current = p
+			hist.stepHintMs = Intervals.effective(p.intervalMs, _state.value.info?.intervalMs).toLong()
+			// History on every connection: it fills whatever the app missed meanwhile.
+			client.stream(p.intervalMs, p.procs, p.sort, history = true, media = p.media).collect { msg ->
+				attempt = 0
+				handle(msg, host)
+			}
+			throw ElamondException(ElamondException.Kind.Unreachable, "closed")
+		}
+		ElamondException(ElamondException.Kind.Unreachable, "closed")
+	} catch (e: CancellationException) {
+		throw e
+	} catch (e: ElamondException) {
+		e
+	} catch (e: Exception) {
+		ElamondException(ElamondException.Kind.Protocol, e.message, e)
+	}
+
 	private fun handle(msg: StreamMessage, host: String) {
 		when (msg) {
 			is Info -> {
-				_state.update { it.copy(info = msg) }
-				if (msg.name.isNotEmpty() || msg.os.isNotEmpty()) {
-					store.update(serverId) { it.copy(name = msg.name.ifEmpty { it.name }, os = msg.os) }
+				hist.windowMs = msg.historySeconds * 1000L
+				hist.stepHintMs = Intervals.effective(current.intervalMs, msg.intervalMs).toLong()
+				settings.noteServiceInterval(msg.intervalMs)
+				_state.update { it.copy(info = msg, histVersion = hist.version) }
+				// Every reopened stream starts with info; the store is written only when it says something new.
+				val saved = store.get(serverId)
+				if (saved != null && (msg.name.isNotEmpty() || msg.os.isNotEmpty())) {
+					val name = msg.name.ifEmpty { saved.name }
+					if (name != saved.name || msg.os != saved.os) store.update(serverId) { it.copy(name = name, os = msg.os) }
 				}
 			}
-			is History -> _state.update { it.copy(hist = Hist.from(msg, HISTORY_CAP)) }
-			is Sample -> _state.update {
-				it.copy(
-					conn = Conn.Live,
-					host = host,
-					sample = msg.copy(processes = null),
-					hist = it.hist.append(msg, HISTORY_CAP),
-					processes = if (procRequest != null) msg.processes ?: it.processes else null,
-					processCount = msg.processCount ?: it.processCount,
-					receivedAt = System.currentTimeMillis(),
-				)
+			is History -> {
+				hist.replace(msg)
+				_state.update { it.copy(histVersion = hist.version) }
+			}
+			is Sample -> {
+				hist.append(msg)
+				val wasLive = _state.value.conn == Conn.Live
+				_state.update {
+					it.copy(
+						conn = Conn.Live,
+						host = host,
+						sample = msg.copy(processes = null),
+						histVersion = hist.version,
+						processes = if (procRequest != null) msg.processes ?: it.processes else null,
+						processCount = msg.processCount ?: it.processCount,
+						receivedAt = System.currentTimeMillis(),
+						refused = null,
+					)
+				}
+				// Only now is there an address known to work for everything else.
+				if (!wasLive) refreshControl()
 			}
 		}
 	}
 
 	private fun backoff(attempt: Int): Long = (1000L shl attempt.coerceAtMost(3)).coerceAtMost(8000L)
 
+	fun dismissCompat() {
+		_compatDismissed.value = true
+	}
+
 	// ---- control --------------------------------------------------------------------
 
 	/** A client for one-off requests, on the address the stream found. */
 	private fun client(): ElamondClient? {
 		val server = store.get(serverId) ?: return null
-		val host = _state.value.host ?: server.lastHost ?: server.hosts.firstOrNull() ?: return null
+		val host = _state.value.host ?: workingHost ?: return null
 		return ElamondClient(host, server.port, server.fingerprint, server.token)
 	}
 
+	/** Reads the control panel; before the stream is live it waits for the first sample, which calls it. */
 	fun refreshControl() {
+		if (_state.value.conn != Conn.Live) return
 		viewModelScope.launch {
 			val c = client() ?: return@launch
-			runCatching { c.get<ControlInfo>("/api/v1/control") }.onSuccess { _control.value = it }
+			try {
+				_control.value = c.get<ControlInfo>("/api/v1/control")
+				_controlError.value = null
+			} catch (e: CancellationException) {
+				throw e
+			} catch (e: Exception) {
+				_controlError.value = messageFor(e)
+			}
 		}
 	}
 
-	private fun say(e: Throwable) {
-		_messages.tryEmit(
-			when ((e as? ElamondException)?.kind) {
-				ElamondException.Kind.ControlDisabled -> Message.Res(R.string.err_control_disabled)
-				ElamondException.Kind.NotPermitted -> Message.Res(R.string.err_not_permitted)
-				ElamondException.Kind.NotFound -> Message.Res(R.string.err_not_found)
-				ElamondException.Kind.Failed -> e.message?.let(Message::Text) ?: Message.Res(R.string.err_failed)
-				ElamondException.Kind.Unreachable -> Message.Res(R.string.err_unreachable)
-				else -> e.message?.let(Message::Text) ?: Message.Res(R.string.err_unknown)
-			}
-		)
+	private fun say(m: Message) {
+		_messages.trySend(m)
 	}
 
 	/** Runs a control request; [done] gets told on success. */
 	private fun act(@StringRes done: Int? = null, refresh: Boolean = false, block: suspend (ElamondClient) -> Unit) {
 		viewModelScope.launch {
-			val c = client() ?: return@launch
+			val c = client() ?: return@launch say(Message.Res(R.string.err_unreachable))
 			try {
 				block(c)
-				done?.let { _messages.tryEmit(Message.Res(it)) }
+				done?.let { say(Message.Res(it)) }
 				if (refresh) refreshControl()
+			} catch (e: CancellationException) {
+				throw e
 			} catch (e: Exception) {
-				say(e)
+				say(messageFor(e))
 			}
 		}
 	}
@@ -322,16 +388,30 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 		it.post<SignalReq, Ok>("/api/v1/control/signal", SignalReq(pid, signal))
 	}
 
-	/** Runs an action and hands back what it printed. */
-	fun runAction(id: String, onResult: (ActionResult) -> Unit) {
+	/** Runs an action; its output opens when it's done, here or whenever the panel is next shown. */
+	fun runAction(id: String) {
+		if (_actions.value.running != null) return
+		_actions.update { it.copy(running = id) }
 		viewModelScope.launch {
-			val c = client() ?: return@launch
 			try {
-				onResult(c.post<ActionReq, ActionResult>("/api/v1/control/action", ActionReq(id), timeoutMs = 3_700_000))
+				val c = client() ?: throw ElamondException(ElamondException.Kind.Unreachable)
+				val r = c.post<ActionReq, ActionResult>("/api/v1/control/action", ActionReq(id), timeoutMs = 3_700_000)
+				_actions.update { it.copy(results = it.results + (id to r), shown = id) }
+			} catch (e: CancellationException) {
+				throw e
 			} catch (e: Exception) {
-				say(e)
+				say(messageFor(e))
+				// Ids come from what an action runs: one changed on the computer has a new id.
+				if ((e as? ElamondException)?.code == "no_such_action") refreshControl()
+			} finally {
+				_actions.update { it.copy(running = null) }
 			}
 		}
+	}
+
+	/** Shows the output an action printed last, or with null closes it. */
+	fun showActionResult(id: String?) {
+		_actions.update { it.copy(shown = id) }
 	}
 
 	fun media(player: String, op: String, value: Double? = null) = act {
@@ -375,7 +455,10 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 	}
 
 	companion object {
-		/** Ten minutes at one sample a second. */
-		const val HISTORY_CAP = 600
+		/** How long a stopped screen keeps the stream: enough for a rotation. */
+		const val STOP_GRACE_MS = 5_000L
+
+		/** How long a new sort, search or tab has to stay before the stream is reopened for it. */
+		const val PARAMS_SETTLE_MS = 400L
 	}
 }
