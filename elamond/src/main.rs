@@ -2,9 +2,11 @@
 
 mod bus;
 mod collect;
+mod consts;
+mod control;
+mod errors;
 #[cfg(test)]
 mod fixtures;
-mod control;
 mod model;
 mod server;
 mod services;
@@ -13,7 +15,7 @@ mod store;
 use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,12 +23,8 @@ use axum_server::tls_rustls::RustlsConfig;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio::sync::watch;
 
-pub const API_VERSION: u32 = 1;
-/// The oldest app that understands this service; an older one asks to be updated.
-pub const MIN_APP: &str = "0.3.0";
-/// How often the settings files are looked at for edits; SIGHUP rereads them at once.
-const SETTINGS_POLL: Duration = Duration::from_secs(5);
-const SERVICE_TYPE: &str = "_elamon._tcp.local.";
+use consts::cadence::{self, Ticks};
+use consts::{limit, protocol, timeout};
 
 const HELP: &str = "\
 elamond — serves this computer's metrics to the Elamon app
@@ -74,24 +72,88 @@ fn machine_name(config: &store::Config) -> String {
 	sysinfo::System::host_name().unwrap_or_else(|_| "Computer".into())
 }
 
-/// The tick and the points of history kept, from the settings within sane bounds.
-fn timing(config: &store::Config) -> (Duration, usize) {
-	let interval = Duration::from_millis(config.interval_ms.clamp(250, 10_000));
-	let history_len = (config.history_minutes * 60_000 / interval.as_millis() as u64).clamp(10, 7200) as usize;
-	(interval, history_len)
+/// The tick and the points of history kept, from the settings within sane bounds, with a
+/// note for each setting that had to be changed to fit them.
+fn timing(config: &store::Config) -> (Duration, usize, Vec<String>) {
+	let mut notes = Vec::new();
+	let asked = Duration::from_millis(config.interval_ms);
+	let interval = asked.clamp(cadence::INTERVAL_MIN, cadence::INTERVAL_MAX);
+	if interval != asked {
+		notes.push(format!("interval_ms = {} is out of range; using {}", config.interval_ms, interval.as_millis()));
+	}
+	let points = config.history_minutes.saturating_mul(60_000) / interval.as_millis() as u64;
+	let history_len = points.clamp(limit::HISTORY_MIN as u64, limit::HISTORY_MAX as u64) as usize;
+	if history_len as u64 != points {
+		let kept = interval * history_len as u32;
+		notes.push(format!(
+			"history_minutes = {} makes {points} readings at {} ms, outside {}–{}; keeping {history_len}, {} s",
+			config.history_minutes,
+			interval.as_millis(),
+			limit::HISTORY_MIN,
+			limit::HISTORY_MAX,
+			kept.as_secs()
+		));
+	}
+	(interval, history_len, notes)
 }
 
 fn serve() -> Result<(), String> {
 	let config = store::load_config()?;
-	let identity = store::Identity::load_or_create().map_err(|e| format!("can't create the TLS identity: {e}"))?;
+	let identity = store::Identity::load_or_create()?;
 	let name = machine_name(&config);
-	let (interval, history_len) = timing(&config);
+	let (interval, history_len, notes) = timing(&config);
+	for n in notes {
+		eprintln!("settings: {n}");
+	}
 
-	let mut collector = collect::Collector::new();
-	// The first reading primes CPU counters; the published one starts a tick later.
+	let provider = Arc::new(rustls::crypto::ring::default_provider());
+	let cert = CertificateDer::from(identity.cert_der.clone());
+	let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(identity.key_der.clone()));
+	let mut tls = rustls::ServerConfig::builder_with_provider(provider)
+		.with_safe_default_protocol_versions()
+		.map_err(|e| e.to_string())?
+		.with_no_client_auth()
+		.with_single_cert(vec![cert], key)
+		.map_err(|e| {
+			format!(
+				"the TLS identity in {} doesn't load ({e}); remove cert.der and key.der to make a new one, then pair the phones again",
+				store::data_dir().display()
+			)
+		})?;
+	tls.alpn_protocols = vec![b"http/1.1".to_vec()];
+
+	// The port first: if it's taken, nothing else is started or announced.
+	let ip: IpAddr = config.listen.parse().map_err(|_| format!("listen: \"{}\" is not an IP address", config.listen))?;
+	let addr = SocketAddr::new(ip, config.port);
+	// "::" listens on IPv4 too, unless the kernel has IPv6 off; then fall back to IPv4.
+	let listener = match std::net::TcpListener::bind(addr) {
+		Ok(l) => l,
+		Err(_) if ip == IpAddr::from([0u16; 8]) => std::net::TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], config.port)))
+			.map_err(|e| format!("can't listen on port {}: {e}", config.port))?,
+		Err(e) => return Err(format!("can't listen on {addr}: {e}")),
+	};
+	listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+	if let Err(e) = server::keep_alive(&listener) {
+		eprintln!("keepalive: {e}; phones that drop off the network count as watching until TCP gives up");
+	}
+	eprintln!(
+		"elamond {} on port {}, certificate {}",
+		env!("CARGO_PKG_VERSION"),
+		config.port,
+		store::pretty_fingerprint(&identity.fingerprint)
+	);
+	if config.control {
+		eprintln!("control is on: paired phones may act on this computer");
+	}
+
+	let every = Ticks::new(interval);
+	let mut collector = collect::Collector::new(every);
+	// This reading only primes the CPU counters. sysinfo ignores a second one within its
+	// minimum interval, which would leave the first published usage at zero, so wait that out.
 	collector.read(false, false);
+	std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
 	let info = Arc::new(serde_json::to_string(&collector.info(&identity.id, &name, config.control, interval, history_len)).unwrap_or_default());
-	let first = Arc::new(server::Frame { sample: "{}".into(), processes: None, info });
+	let first = Arc::new(server::Frame { sample: "{}".into(), media: None, processes: None, info, watched: false });
 	let (tx, rx) = watch::channel(first);
 	let hub = Arc::new(server::Hub::new(
 		identity.id.clone(),
@@ -101,9 +163,6 @@ fn serve() -> Result<(), String> {
 		interval,
 		Arc::new(config.clone()),
 	));
-	if config.control {
-		eprintln!("control is on: paired phones may act on this computer");
-	}
 
 	let runtime = tokio::runtime::Builder::new_multi_thread()
 		.worker_threads(2)
@@ -118,48 +177,21 @@ fn serve() -> Result<(), String> {
 		let rt = runtime.handle().clone();
 		std::thread::Builder::new()
 			.name("collector".into())
-			.spawn(move || collect_loop(collector, hub, tx, interval, id, name, rt))
+			.spawn(move || collect_loop(collector, hub, tx, every, id, name, rt))
 			.map_err(|e| e.to_string())?;
 	}
 
 	let _mdns = if config.mdns { advertise(&name, &identity, config.port) } else { None };
 
-	let provider = Arc::new(rustls::crypto::ring::default_provider());
-	let cert = CertificateDer::from(identity.cert_der.clone());
-	let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(identity.key_der.clone()));
-	let mut tls = rustls::ServerConfig::builder_with_provider(provider)
-		.with_safe_default_protocol_versions()
-		.map_err(|e| e.to_string())?
-		.with_no_client_auth()
-		.with_single_cert(vec![cert], key)
-		.map_err(|e| format!("bad TLS identity: {e}"))?;
-	tls.alpn_protocols = vec![b"http/1.1".to_vec()];
-
-	let ip: IpAddr = config.listen.parse().map_err(|_| format!("listen: \"{}\" is not an IP address", config.listen))?;
 	runtime.block_on(async move {
 		tokio::spawn(watch_settings(hub.clone()));
 		let app = server::router(hub).into_make_service_with_connect_info::<SocketAddr>();
 		let tls = RustlsConfig::from_config(Arc::new(tls));
-		let addr = SocketAddr::new(ip, config.port);
-		// "::" listens on IPv4 too, unless the kernel has IPv6 off; then fall back to IPv4.
-		let listener = match std::net::TcpListener::bind(addr) {
-			Ok(l) => l,
-			Err(_) if ip == IpAddr::from([0u16; 8]) => std::net::TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], config.port)))
-				.map_err(|e| format!("can't listen on port {}: {e}", config.port))?,
-			Err(e) => return Err(format!("can't listen on {addr}: {e}")),
-		};
-		listener.set_nonblocking(true).map_err(|e| e.to_string())?;
-		eprintln!(
-			"elamond {} on port {}, certificate {}",
-			env!("CARGO_PKG_VERSION"),
-			config.port,
-			store::pretty_fingerprint(&identity.fingerprint)
-		);
 		let handle = axum_server::Handle::new();
 		let h = handle.clone();
 		tokio::spawn(async move {
 			shutdown_signal().await;
-			h.graceful_shutdown(Some(Duration::from_secs(2)));
+			h.graceful_shutdown(Some(timeout::SHUTDOWN));
 		});
 		axum_server::from_tcp_rustls(listener, tls)
 			.map_err(|e| e.to_string())?
@@ -181,7 +213,7 @@ async fn watch_settings(hub: Arc<server::Hub>) {
 	loop {
 		let asked = tokio::select! {
 			_ = hangup.recv() => true,
-			_ = tokio::time::sleep(SETTINGS_POLL) => false,
+			_ = tokio::time::sleep(cadence::SETTINGS_POLL) => false,
 		};
 		let now = store::config_stamp();
 		if !asked && now == stamp {
@@ -207,43 +239,59 @@ async fn shutdown_signal() {
 	}
 }
 
+/// Ends the service if the collector thread panics: without it the service would answer with
+/// stale data forever, and exiting lets systemd start it again.
+struct ExitOnPanic;
+
+impl Drop for ExitOnPanic {
+	fn drop(&mut self) {
+		if std::thread::panicking() {
+			eprintln!("collector: stopped by the panic above; exiting");
+			std::process::exit(1);
+		}
+	}
+}
+
 fn collect_loop(
 	mut collector: collect::Collector,
 	hub: Arc<server::Hub>,
 	tx: watch::Sender<Arc<server::Frame>>,
-	interval: Duration,
+	every: Ticks,
 	id: String,
 	name: String,
 	rt: tokio::runtime::Handle,
 ) {
+	let _exit = ExitOnPanic;
 	let mut info = tx.borrow().info.clone();
-	let mut tick: u64 = 0;
-	let mut extras = control::Extras::new();
+	let mut tick: u32 = 0;
+	let mut extras = control::Extras::new(every);
 	loop {
 		let started = std::time::Instant::now();
 		let watched = hub.watchers.load(Ordering::SeqCst) > 0;
 		let want_procs = hub.proc_watchers.load(Ordering::SeqCst) > 0;
 		let want_media = hub.media_watchers.load(Ordering::SeqCst) > 0;
 		let mut reading = collector.read(watched, want_procs);
-		extras.apply(&hub, &rt, watched, want_media, &mut reading.sample);
+		let media = extras.apply(&hub, &rt, watched, want_media, &mut reading.sample);
 		if let Ok(mut h) = hub.history.lock() {
 			h.push(&reading.sample);
 		}
 		// GPU names improve once NVML has been read, so info is rebuilt now and then.
-		if tick % 10 == 1 {
+		if tick % every.info == 1 % every.info {
 			let fresh = serde_json::to_string(&collector.info(&id, &name, hub.config().control, hub.interval, hub.history_len)).unwrap_or_default();
 			if fresh != *info {
 				info = Arc::new(fresh);
 			}
 		}
-		tick += 1;
+		tick = tick.wrapping_add(1);
 		let frame = server::Frame {
 			sample: serde_json::to_string(&reading.sample).unwrap_or_else(|_| "{}".into()),
+			media: media.and_then(|m| serde_json::to_string(&m).ok()),
 			processes: reading.processes.map(Arc::new),
 			info: info.clone(),
+			watched,
 		};
 		tx.send_replace(Arc::new(frame));
-		std::thread::sleep(interval.saturating_sub(started.elapsed()));
+		std::thread::sleep(hub.interval.saturating_sub(started.elapsed()));
 	}
 }
 
@@ -253,11 +301,11 @@ fn advertise(name: &str, identity: &store::Identity, port: u16) -> Option<mdns_s
 	let host: String = host.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' }).collect();
 	let props: HashMap<String, String> = [
 		("id".to_string(), identity.id.clone()),
-		("api".to_string(), API_VERSION.to_string()),
-		("fp".to_string(), identity.fingerprint[..16].to_string()),
+		("api".to_string(), protocol::API_VERSION.to_string()),
+		("fp".to_string(), identity.fingerprint[..protocol::MDNS_FINGERPRINT].to_string()),
 	]
 	.into();
-	let info = mdns_sd::ServiceInfo::new(SERVICE_TYPE, name, &format!("{host}.local."), (), port, props)
+	let info = mdns_sd::ServiceInfo::new(protocol::SERVICE_TYPE, name, &format!("{host}.local."), (), port, props)
 		.map_err(|e| eprintln!("mdns: {e}"))
 		.ok()?
 		.enable_addr_auto();
@@ -265,12 +313,31 @@ fn advertise(name: &str, identity: &store::Identity, port: u16) -> Option<mdns_s
 	Some(daemon)
 }
 
+/// Set by Ctrl+C, SIGTERM or a closed terminal while `elamond pair` waits.
+static STOP: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn on_stop(_: libc::c_int) {
+	STOP.store(true, Ordering::SeqCst);
+}
+
 fn pair() -> Result<(), String> {
 	let config = store::load_config()?;
-	let identity = store::Identity::load_or_create().map_err(|e| format!("can't create the TLS identity: {e}"))?;
+	let identity = store::Identity::load_or_create()?;
 	let name = machine_name(&config);
+	let before: Vec<String> = match store::load_clients() {
+		Ok(list) => list.into_iter().map(|c| c.id).collect(),
+		Err(e) => {
+			eprintln!("  ! {e}\n    pairing sets the damaged file aside and starts a new list");
+			Vec::new()
+		}
+	};
 	let pairing = store::new_pairing().map_err(|e| format!("can't save the pairing code: {e}"))?;
-	let before: Vec<String> = store::load_clients().into_iter().map(|c| c.id).collect();
+	// From here on, stopping withdraws the code instead of leaving it to be guessed at.
+	for sig in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+		// SAFETY: the handler only stores to an atomic, which is async-signal-safe.
+		unsafe { libc::signal(sig, on_stop as *const () as libc::sighandler_t) };
+	}
+	let new_phone = || store::load_clients().ok()?.into_iter().find(|c| !before.contains(&c.id));
 
 	let addrs = collect::local_addresses();
 	let hosts: Vec<String> = addrs.iter().map(|a| a.to_string()).collect();
@@ -316,25 +383,45 @@ fn pair() -> Result<(), String> {
 		println!("  ! The service isn't answering on port {}. Start it: systemctl --user start elamond", config.port);
 		println!();
 	}
-	println!("  Waiting for the phone… (the code works for {} minutes, Ctrl+C to stop)", store::PAIRING_TTL / 60);
+	println!("  Waiting for the phone… (the code works for {} minutes, Ctrl+C to stop)", timeout::PAIRING_TTL_SECS / 60);
 
-	let deadline = std::time::Instant::now() + Duration::from_secs(store::PAIRING_TTL);
-	while std::time::Instant::now() < deadline {
-		std::thread::sleep(Duration::from_millis(500));
-		if let Some(c) = store::load_clients().into_iter().find(|c| !before.contains(&c.id)) {
+	let expired = || Err("the code expired; run `elamond pair` again".to_string());
+	loop {
+		std::thread::sleep(cadence::PAIR_POLL);
+		if let Some(c) = new_phone() {
 			println!("  Paired with \"{}\".", c.name);
 			return Ok(());
 		}
-		if store::load_pairing().is_none() {
-			return Err("the code was used up by wrong attempts; run `elamond pair` again".into());
+		if STOP.load(Ordering::SeqCst) {
+			store::clear_pairing_code(&pairing.code);
+			return Err("stopped; the code no longer works".into());
+		}
+		match store::read_pairing() {
+			// Expiry is judged by the time saved with the code, as the service judges it.
+			Some(p) if p.code == pairing.code && p.usable(store::now()) => {}
+			Some(p) if p.code == pairing.code => {
+				store::clear_pairing_code(&pairing.code);
+				return if p.expires <= store::now() { expired() } else { Err(used_up()) };
+			}
+			Some(_) => return Err("another `elamond pair` replaced this code".into()),
+			None => {
+				// The service adds the phone before it withdraws the code.
+				if let Some(c) = new_phone() {
+					println!("  Paired with \"{}\".", c.name);
+					return Ok(());
+				}
+				return if pairing.expires <= store::now() { expired() } else { Err(used_up()) };
+			}
 		}
 	}
-	store::clear_pairing();
-	Err("the code expired; run `elamond pair` again".into())
+}
+
+fn used_up() -> String {
+	"the code was used up by wrong attempts; run `elamond pair` again".into()
 }
 
 fn service_running(port: u16) -> bool {
-	std::net::TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), Duration::from_millis(300)).is_ok()
+	std::net::TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), timeout::ELAMOND_CHECK).is_ok()
 }
 
 fn percent_encode(s: &str) -> String {
@@ -346,8 +433,16 @@ fn percent_encode(s: &str) -> String {
 		.collect()
 }
 
+/// The paired phones, for the commands that list and change them.
+fn paired() -> Result<Vec<store::Client>, String> {
+	store::load_clients().map_err(|e| match e.kind() {
+		std::io::ErrorKind::InvalidData => format!("{e}\n  fix the file, or move it away and pair the phones again"),
+		_ => e.to_string(),
+	})
+}
+
 fn clients() -> Result<(), String> {
-	let clients = store::load_clients();
+	let clients = paired()?;
 	if clients.is_empty() {
 		println!("No phones are paired. Pair one with `elamond pair`.");
 	}
@@ -359,7 +454,11 @@ fn clients() -> Result<(), String> {
 
 fn revoke(which: Option<&str>) -> Result<(), String> {
 	let which = which.ok_or("which phone? `elamond clients` lists their ids")?;
-	let clients = store::load_clients();
+	let clients = paired()?;
+	if which == "all" && clients.is_empty() {
+		println!("No phones are paired.");
+		return Ok(());
+	}
 	let keep: Vec<_> = clients.iter().filter(|c| which != "all" && c.id != which).cloned().collect();
 	if keep.len() == clients.len() {
 		return Err(format!("no paired phone has the id \"{which}\""));
@@ -370,16 +469,16 @@ fn revoke(which: Option<&str>) -> Result<(), String> {
 }
 
 fn snapshot() -> Result<(), String> {
-	let mut c = collect::Collector::new();
-	c.read(true, true);
-	std::thread::sleep(Duration::from_secs(1));
-	let reading = c.read(true, true);
 	let config = store::load_config()?;
-	let (interval, history_len) = timing(&config);
+	let (interval, history_len, _) = timing(&config);
+	let mut c = collect::Collector::new(Ticks::new(cadence::CLI_SNAPSHOT));
+	c.read(true, true);
+	std::thread::sleep(cadence::CLI_SNAPSHOT);
+	let reading = c.read(true, true);
 	let info = c.info("-", &machine_name(&config), config.control, interval, history_len);
 	let mut procs = reading.processes.unwrap_or_default();
 	procs.sort_by(|a, b| b.cpu.total_cmp(&a.cpu));
-	procs.truncate(10);
+	procs.truncate(limit::SNAPSHOT_TOP);
 	let out = serde_json::json!({ "info": info, "sample": reading.sample, "top_processes": procs });
 	println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
 	Ok(())
@@ -399,4 +498,39 @@ fn format_date(secs: u64) -> String {
 	let m = if mp < 10 { mp + 3 } else { mp - 9 };
 	let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
 	format!("{y:04}-{m:02}-{d:02}")
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn names_in_the_pairing_link() {
+		assert_eq!(percent_encode("Laptop-16.local_~"), "Laptop-16.local_~");
+		assert_eq!(percent_encode("My PC"), "My%20PC");
+		assert_eq!(percent_encode("Ноут"), "%D0%9D%D0%BE%D1%83%D1%82");
+		assert_eq!(percent_encode("a&b=c"), "a%26b%3Dc");
+	}
+
+	#[test]
+	fn dates() {
+		assert_eq!(format_date(0), "1970-01-01");
+		assert_eq!(format_date(1_700_000_000), "2023-11-14");
+		assert_eq!(format_date(951_782_400), "2000-02-29");
+	}
+
+	#[test]
+	fn timing_within_bounds() {
+		let config = |interval_ms, history_minutes| store::Config { interval_ms, history_minutes, ..Default::default() };
+		let (i, h, notes) = timing(&config(1000, 10));
+		assert_eq!((i, h, notes.len()), (Duration::from_secs(1), 600, 0));
+		let (i, h, notes) = timing(&config(50, 10));
+		assert_eq!((i, h), (Duration::from_millis(250), 2400));
+		assert!(notes[0].contains("using 250"), "{notes:?}");
+		let (_, h, notes) = timing(&config(1000, u64::MAX));
+		assert_eq!(h, limit::HISTORY_MAX);
+		assert!(notes[0].contains("keeping 7200"), "{notes:?}");
+		let (_, h, notes) = timing(&config(10_000, 0));
+		assert_eq!((h, notes.len()), (limit::HISTORY_MIN, 1));
+	}
 }

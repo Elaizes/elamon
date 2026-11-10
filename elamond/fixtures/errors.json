@@ -1,0 +1,78 @@
+[
+  {
+    "error": "not_found",
+    "status": 404
+  },
+  {
+    "error": "unauthorized",
+    "status": 401
+  },
+  {
+    "error": "no_pairing",
+    "status": 403
+  },
+  {
+    "error": "wrong_code",
+    "status": 403
+  },
+  {
+    "error": "storage",
+    "status": 500
+  },
+  {
+    "error": "control_disabled",
+    "status": 403
+  },
+  {
+    "error": "not_permitted",
+    "status": 403
+  },
+  {
+    "error": "failed",
+    "status": 502
+  },
+  {
+    "error": "unknown_signal",
+    "status": 400
+  },
+  {
+    "error": "no_such_process",
+    "status": 404
+  },
+  {
+    "error": "no_such_action",
+    "status": 404
+  },
+  {
+    "error": "empty_command",
+    "status": 400
+  },
+  {
+    "error": "no_art",
+    "status": 404
+  },
+  {
+    "error": "bad_name",
+    "status": 400
+  },
+  {
+    "error": "bad_url",
+    "status": 400
+  },
+  {
+    "error": "bad_unit",
+    "status": 400
+  },
+  {
+    "error": "bad_scope",
+    "status": 400
+  },
+  {
+    "error": "no_such_service",
+    "status": 404
+  },
+  {
+    "error": "no_unit",
+    "status": 400
+  }
+]

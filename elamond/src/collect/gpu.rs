@@ -163,11 +163,17 @@ impl GpuReader {
 }
 
 fn open_nvml() -> Option<Nvml> {
+	// Packagers and unusual installs can name the library outright.
+	if let Some(path) = std::env::var_os("ELAMON_NVML_LIB")
+		&& let Ok(n) = Nvml::builder().lib_path(&path).init()
+	{
+		return Some(n);
+	}
 	if let Ok(n) = Nvml::init() {
 		return Some(n);
 	}
 	// NixOS keeps the driver's libraries outside the loader's search path.
-	for dir in ["/run/opengl-driver/lib", "/usr/lib64", "/usr/lib/x86_64-linux-gnu", "/usr/lib"] {
+	for dir in ["/run/opengl-driver/lib", "/usr/lib64", "/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/usr/lib"] {
 		let path = Path::new(dir).join("libnvidia-ml.so.1");
 		if path.exists()
 			&& let Ok(n) = Nvml::builder().lib_path(OsStr::new(path.as_os_str())).init()
@@ -255,5 +261,33 @@ impl PciNames {
 			}
 		}
 		None
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::PciNames;
+
+	#[test]
+	fn names_from_the_pci_database() {
+		let db = "\
+# a comment
+10de  NVIDIA Corporation
+	1f95  TU117M [GeForce GTX 1650 Ti Mobile]
+		103c 87b2  a subsystem
+	25a0  GA107M [GeForce RTX 3050 Ti Mobile]
+	2f00  Plain name
+8086  Intel Corporation
+	9a49  TigerLake-LP GT2 [Iris Xe Graphics]
+";
+		let names = PciNames { text: Some(db.into()) };
+		assert_eq!(names.lookup("0x10de", "0x25a0").as_deref(), Some("GeForce RTX 3050 Ti Mobile"));
+		assert_eq!(names.lookup("0x10de", "0x2f00").as_deref(), Some("Plain name"));
+		assert_eq!(names.lookup("0x8086", "0x9a49").as_deref(), Some("Iris Xe Graphics"));
+		// A device under another vendor, an unknown vendor, a subsystem id: not found.
+		assert_eq!(names.lookup("0x10de", "0x9a49"), None);
+		assert_eq!(names.lookup("0x1002", "0x25a0"), None);
+		assert_eq!(names.lookup("0x10de", "0x103c"), None);
+		assert_eq!(PciNames { text: None }.lookup("0x10de", "0x25a0"), None);
 	}
 }

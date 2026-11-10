@@ -39,7 +39,8 @@ pub struct GpuInfo {
 	pub boot_display: bool,
 }
 
-/// One reading of everything that changes. Processes are added per client.
+/// One reading of everything that changes. Processes and media are added per client, for
+/// those that asked for them (see `server::render_sample`).
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct Sample {
 	/// Unix time in milliseconds.
@@ -58,9 +59,6 @@ pub struct Sample {
 	pub displays: Vec<Display>,
 	/// Web services this computer hosts, while an app is connected.
 	pub services: Vec<crate::services::ServiceStatus>,
-	/// Media players and the volume, for apps that asked for them.
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub media: Option<crate::control::Media>,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]

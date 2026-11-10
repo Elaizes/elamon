@@ -6,10 +6,11 @@
 use std::collections::HashMap;
 use std::fs;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use crate::consts::{limit, timeout};
+use crate::errors::ErrorCode;
 use crate::store;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -52,12 +53,14 @@ fn path() -> std::path::PathBuf {
 	store::data_dir().join("services.json")
 }
 
-pub fn load() -> Vec<ServiceDef> {
-	fs::read(path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+/// The services added from the app; none when there are none yet. A file that doesn't parse
+/// is an error, and stays on disk until the next save sets it aside.
+pub fn load() -> std::io::Result<Vec<ServiceDef>> {
+	Ok(store::read_json(&path())?.unwrap_or_default())
 }
 
 pub fn save(list: &[ServiceDef]) -> std::io::Result<()> {
-	store::write_private(&path(), &serde_json::to_vec_pretty(list).map_err(std::io::Error::other)?)
+	store::write_json::<Vec<ServiceDef>>(&path(), list)
 }
 
 /// Every service, the configured ones first.
@@ -96,7 +99,7 @@ pub fn port_of(url: &str) -> Option<u16> {
 
 /// Whether anything accepts connections on this port of the computer itself.
 pub fn probe(port: u16) -> bool {
-	let t = Duration::from_millis(250);
+	let t = timeout::PROBE;
 	TcpStream::connect_timeout(&SocketAddr::from((Ipv4Addr::LOCALHOST, port)), t).is_ok()
 		|| TcpStream::connect_timeout(&SocketAddr::from((Ipv6Addr::LOCALHOST, port)), t).is_ok()
 }
@@ -211,21 +214,22 @@ fn socket_owners() -> HashMap<u64, String> {
 	map
 }
 
-/// A service as the app sends it, checked before it's stored.
-pub fn validate(name: &str, url: &str, unit: Option<&str>, scope: Option<&str>) -> Result<(), &'static str> {
-	if name.trim().is_empty() || name.chars().count() > 64 {
-		return Err("bad_name");
+/// A service as the app sends it, checked before it's stored. Control characters are refused
+/// everywhere: these end up in the log and on other phones.
+pub fn validate(name: &str, url: &str, unit: Option<&str>, scope: Option<&str>) -> Result<(), ErrorCode> {
+	if name.trim().is_empty() || name.chars().count() > limit::NAME_MAX || name.chars().any(char::is_control) {
+		return Err(ErrorCode::BadName);
 	}
-	if url.trim().is_empty() || url.len() > 512 || url.chars().any(char::is_control) {
-		return Err("bad_url");
+	if url.trim().is_empty() || url.len() > limit::URL_MAX || url.chars().any(char::is_control) {
+		return Err(ErrorCode::BadUrl);
 	}
 	if let Some(u) = unit
-		&& (u.is_empty() || u.len() > 256 || !u.chars().all(|c| c.is_ascii_alphanumeric() || "@._-:\\".contains(c)))
+		&& (u.is_empty() || u.len() > limit::UNIT_MAX || !u.chars().all(|c| c.is_ascii_alphanumeric() || "@._-:\\".contains(c)))
 	{
-		return Err("bad_unit");
+		return Err(ErrorCode::BadUnit);
 	}
 	if !matches!(scope, None | Some("user") | Some("system")) {
-		return Err("bad_scope");
+		return Err(ErrorCode::BadScope);
 	}
 	Ok(())
 }
@@ -250,5 +254,35 @@ mod tests {
 		assert!(!v4_loopback("00000000"));
 		assert!(v6_loopback("00000000000000000000000001000000"));
 		assert!(!v6_loopback("00000000000000000000000000000000"));
+	}
+
+	#[test]
+	fn what_the_app_may_store() {
+		assert_eq!(validate("Syncthing", "http://{host}:8384", Some("syncthing.service"), Some("user")), Ok(()));
+		assert_eq!(validate("Grafana", "https://{host}/", Some("getty@tty1.service"), None), Ok(()));
+		assert_eq!(validate(" ", "http://x", None, None), Err(ErrorCode::BadName));
+		assert_eq!(validate(&"n".repeat(65), "http://x", None, None), Err(ErrorCode::BadName));
+		assert_eq!(validate("a\u{1b}[31m", "http://x", None, None), Err(ErrorCode::BadName));
+		assert_eq!(validate("a", "http://x\n", None, None), Err(ErrorCode::BadUrl));
+		assert_eq!(validate("a", &"u".repeat(513), None, None), Err(ErrorCode::BadUrl));
+		assert_eq!(validate("a", "http://x", Some("a b.service"), None), Err(ErrorCode::BadUnit));
+		assert_eq!(validate("a", "http://x", Some("a\tb"), None), Err(ErrorCode::BadUnit));
+		assert_eq!(validate("a", "http://x", Some(""), None), Err(ErrorCode::BadUnit));
+		assert_eq!(validate("a", "http://x", None, Some("global")), Err(ErrorCode::BadScope));
+	}
+
+	#[test]
+	fn configured_services_first_with_ids_from_content() {
+		let config = store::Config {
+			services: vec![store::ServiceConfig { name: "Web".into(), url: "http://{host}".into(), unit: None, scope: None }],
+			..Default::default()
+		};
+		let app = [ServiceDef { id: "a1b2".into(), name: "Mine".into(), url: "http://{host}:81".into(), unit: None, scope: None }];
+		let list = all(&config, &app);
+		assert_eq!(list.len(), 2);
+		assert_eq!(list[0].0.id, format!("config-{}", config.services[0].id()));
+		assert_eq!(list[0].0.id.len(), "config-".len() + 12);
+		assert!(!list[0].1);
+		assert_eq!((list[1].0.id.as_str(), list[1].1), ("a1b2", true));
 	}
 }

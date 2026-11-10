@@ -13,7 +13,8 @@ use serde::Serialize;
 use crate::bus::{Player, PowerCaps, Profiles, UnitInfo};
 use crate::control::{ActionInfo, ActionResult, ControlInfo, Media, Volume};
 use crate::model::*;
-use crate::server::{hello_body, paired_body, render_sample, Frame};
+use crate::errors::ErrorCode;
+use crate::server::{hello_body, paired_body, render_sample, Frame, Want};
 use crate::services::{Listener, ServiceStatus};
 
 fn check(name: &str, value: &impl Serialize) {
@@ -42,7 +43,7 @@ pub fn info() -> Info {
 		id: "0123456789abcdef0123456789abcdef".into(),
 		name: "fixture".into(),
 		service_version: "9.9.9",
-		api: crate::API_VERSION,
+		api: crate::consts::protocol::API_VERSION,
 		min_app: "9.9.0",
 		interval_ms: 1000,
 		history_seconds: 600,
@@ -157,27 +158,30 @@ pub fn sample() -> Sample {
 			local_only: false,
 			unit_state: some("active"),
 		}],
-		media: Some(Media {
-			players: vec![Player {
-				id: "org.mpris.MediaPlayer2.some".into(),
-				name: "Some player".into(),
-				status: "Playing".into(),
-				title: some("Title"),
-				artist: some("Artist"),
-				album: some("Album"),
-				length: Some(240_000_000),
-				position: Some(60_000_000),
-				volume: Some(0.5),
-				has_art: true,
-				can_next: true,
-				can_previous: true,
-				can_play: true,
-				can_pause: true,
-				can_seek: true,
-				..Default::default()
-			}],
-			volume: Some(Volume { level: 0.75, muted: false }),
-		}),
+	}
+}
+
+pub fn media() -> Media {
+	Media {
+		players: vec![Player {
+			id: "org.mpris.MediaPlayer2.some".into(),
+			name: "Some player".into(),
+			status: "Playing".into(),
+			title: some("Title"),
+			artist: some("Artist"),
+			album: some("Album"),
+			length: Some(240_000_000),
+			position: Some(60_000_000),
+			volume: Some(0.5),
+			has_art: true,
+			can_next: true,
+			can_previous: true,
+			can_play: true,
+			can_pause: true,
+			can_seek: true,
+			..Default::default()
+		}],
+		volume: Some(Volume { level: 0.75, muted: false }),
 	}
 }
 
@@ -235,11 +239,21 @@ fn info_and_history() {
 fn sample_with_processes() {
 	let frame = Frame {
 		sample: serde_json::to_string(&sample()).unwrap(),
+		media: Some(serde_json::to_string(&media()).unwrap()),
 		processes: Some(Arc::new(processes())),
 		info: Arc::new(String::new()),
+		watched: true,
 	};
-	let line: serde_json::Value = serde_json::from_str(&render_sample(&frame, 10, None, false)).unwrap();
+	let want = Want { procs: 10, sort: None, media: true };
+	let line: serde_json::Value = serde_json::from_str(&render_sample(&frame, &want, false)).unwrap();
 	check("sample", &line);
+}
+
+#[test]
+fn errors() {
+	let list: Vec<serde_json::Value> =
+		ErrorCode::ALL.iter().map(|c| serde_json::json!({ "error": c.as_str(), "status": c.status().as_u16() })).collect();
+	check("errors", &list);
 }
 
 #[test]

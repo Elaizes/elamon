@@ -4,19 +4,16 @@
 //! State:     $XDG_DATA_HOME/elamon/{id, cert.der, key.der, clients.json, pairing.json}
 
 use std::fs;
-use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::io::{self, Write};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub const DEFAULT_PORT: u16 = 47823;
-/// A pairing code is good for this long after `elamond pair` prints it.
-pub const PAIRING_TTL: u64 = 300;
-/// Wrong guesses before a code is thrown away.
-pub const PAIRING_ATTEMPTS: u32 = 5;
+use crate::consts::{limit, protocol, timeout};
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(default, deny_unknown_fields)]
@@ -69,7 +66,7 @@ pub struct ActionConfig {
 /// file: reordering the file or adding a drop-in must not point a phone's button at
 /// another command.
 fn content_id(parts: &[&str]) -> String {
-	sha256_hex(parts.join("\0").as_bytes())[..12].to_string()
+	sha256_hex(parts.join("\0").as_bytes())[..protocol::CONTENT_ID_LEN].to_string()
 }
 
 impl ActionConfig {
@@ -91,14 +88,14 @@ fn yes() -> bool {
 }
 
 fn minute() -> u64 {
-	60
+	timeout::ACTION_DEFAULT_SECS
 }
 
 impl Default for Config {
 	fn default() -> Self {
 		Config {
 			listen: "::".into(),
-			port: DEFAULT_PORT,
+			port: protocol::DEFAULT_PORT,
 			name: String::new(),
 			mdns: true,
 			interval_ms: 1000,
@@ -212,16 +209,56 @@ pub fn sha256_hex(data: &[u8]) -> String {
 	data_encoding::HEXLOWER.encode(&Sha256::digest(data))
 }
 
-/// Writes a file only its owner can read, replacing it atomically.
-pub fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
+/// Writes a file only its owner can read, replacing it atomically. The temporary file's name
+/// is this writer's own, so the service and a command run beside it can't trip over each other.
+pub fn write_private(path: &Path, data: &[u8]) -> io::Result<()> {
 	let dir = path.parent().expect("state files live in a directory");
 	fs::create_dir_all(dir)?;
 	fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
-	let tmp = path.with_extension("tmp");
-	let mut f = fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp)?;
-	f.write_all(data)?;
-	f.sync_all()?;
-	fs::rename(&tmp, path)
+	let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+	let tag = data_encoding::HEXLOWER.encode(&random_bytes::<4>());
+	let tmp = dir.join(format!(".{name}.{}.{tag}.tmp", std::process::id()));
+	let written = (|| {
+		let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
+		f.write_all(data)?;
+		f.sync_all()?;
+		fs::rename(&tmp, path)
+	})();
+	if written.is_err() {
+		let _ = fs::remove_file(&tmp);
+	}
+	written
+}
+
+/// A JSON state file: `None` when it doesn't exist. One that doesn't parse is an
+/// `InvalidData` error naming the file.
+pub fn read_json<T: DeserializeOwned>(path: &Path) -> io::Result<Option<T>> {
+	let named = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
+	let bytes = match fs::read(path) {
+		Ok(b) => b,
+		Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+		Err(e) => return Err(io::Error::new(e.kind(), named(&e))),
+	};
+	serde_json::from_slice(&bytes).map(Some).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, named(&e)))
+}
+
+/// Replaces a JSON state file. One that no longer parses is not overwritten but kept beside
+/// it as `<name>.corrupt-<unix time>`, so nothing in it is lost without a trace.
+pub fn write_json<T: DeserializeOwned>(path: &Path, value: &(impl Serialize + ?Sized)) -> io::Result<()> {
+	match read_json::<T>(path) {
+		Err(e) if e.kind() == io::ErrorKind::InvalidData => {
+			let kept = path.with_file_name(format!(
+				"{}.corrupt-{}",
+				path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+				now()
+			));
+			fs::rename(path, &kept)?;
+			eprintln!("{e}\n  the damaged file is kept as {} and a new one written", kept.display());
+		}
+		Err(e) => return Err(e),
+		Ok(_) => {}
+	}
+	write_private(path, &serde_json::to_vec_pretty(value).map_err(io::Error::other)?)
 }
 
 pub struct Identity {
@@ -232,34 +269,58 @@ pub struct Identity {
 	pub fingerprint: String,
 }
 
+/// A file's contents, or `None` when it doesn't exist.
+fn read_if_there(path: &Path) -> Result<Option<Vec<u8>>, String> {
+	match fs::read(path) {
+		Ok(b) => Ok(Some(b)),
+		Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+		Err(e) => Err(format!("can't read {}: {e}", path.display())),
+	}
+}
+
 impl Identity {
-	/// Loads the service's identity, creating it on first run.
-	pub fn load_or_create() -> std::io::Result<Identity> {
+	/// Loads the service's identity, creating it on first run. Paired phones trust exactly this
+	/// identity, so it is only made anew when its files don't exist: one that can't be read
+	/// stops the service with the reason instead of silently unpairing every phone.
+	pub fn load_or_create() -> Result<Identity, String> {
 		let dir = data_dir();
 		let id_path = dir.join("id");
 		let cert_path = dir.join("cert.der");
 		let key_path = dir.join("key.der");
+		let saved = |path: &Path, data: &[u8]| write_private(path, data).map_err(|e| format!("can't write {}: {e}", path.display()));
 
-		let id = match fs::read_to_string(&id_path) {
-			Ok(s) if !s.trim().is_empty() => s.trim().to_string(),
-			_ => {
-				let id = data_encoding::HEXLOWER.encode(&random_bytes::<16>());
-				write_private(&id_path, id.as_bytes())?;
+		let id = match read_if_there(&id_path)? {
+			Some(b) => {
+				let id = String::from_utf8_lossy(&b).trim().to_string();
+				if id.is_empty() {
+					return Err(format!("{} is empty; remove it to make a new id, then pair the phones again", id_path.display()));
+				}
+				id
+			}
+			None => {
+				let id = data_encoding::HEXLOWER.encode(&random_bytes::<{ protocol::ELAMOND_ID_BYTES }>());
+				saved(&id_path, id.as_bytes())?;
 				id
 			}
 		};
 
-		let (cert_der, key_der) = match (fs::read(&cert_path), fs::read(&key_path)) {
-			(Ok(c), Ok(k)) if !c.is_empty() && !k.is_empty() => (c, k),
-			_ => {
+		let (cert_der, key_der) = match (read_if_there(&cert_path)?, read_if_there(&key_path)?) {
+			(Some(c), Some(k)) if !c.is_empty() && !k.is_empty() => (c, k),
+			(None, None) => {
 				// The name inside doesn't matter: the app trusts this exact certificate, not a name.
 				let ck = rcgen::generate_simple_self_signed(vec!["elamon".to_string()])
-					.map_err(|e| std::io::Error::other(e.to_string()))?;
+					.map_err(|e| format!("can't make a certificate: {e}"))?;
 				let cert = ck.cert.der().to_vec();
 				let key = ck.signing_key.serialize_der();
-				write_private(&key_path, &key)?;
-				write_private(&cert_path, &cert)?;
+				saved(&key_path, &key)?;
+				saved(&cert_path, &cert)?;
 				(cert, key)
+			}
+			_ => {
+				return Err(format!(
+					"the TLS identity in {} is incomplete: cert.der and key.der go together; remove both to make a new one, then pair the phones again",
+					dir.display()
+				));
 			}
 		};
 		let fingerprint = sha256_hex(&cert_der);
@@ -285,32 +346,42 @@ pub struct Client {
 	pub created: u64,
 }
 
-pub fn load_clients() -> Vec<Client> {
-	fs::read(data_dir().join("clients.json"))
-		.ok()
-		.and_then(|b| serde_json::from_slice(&b).ok())
-		.unwrap_or_default()
+fn clients_path() -> PathBuf {
+	data_dir().join("clients.json")
 }
 
-pub fn save_clients(clients: &[Client]) -> std::io::Result<()> {
-	let json = serde_json::to_vec_pretty(clients).map_err(std::io::Error::other)?;
-	write_private(&data_dir().join("clients.json"), &json)
+/// The paired phones; none when the file doesn't exist yet. A file that can't be read or
+/// doesn't parse is an error, never an empty list: that would unpair every phone.
+pub fn load_clients() -> io::Result<Vec<Client>> {
+	Ok(read_json(&clients_path())?.unwrap_or_default())
 }
 
-pub fn clients_mtime() -> Option<SystemTime> {
-	fs::metadata(data_dir().join("clients.json")).and_then(|m| m.modified()).ok()
+pub fn save_clients(clients: &[Client]) -> io::Result<()> {
+	write_json::<Vec<Client>>(&clients_path(), clients)
+}
+
+/// What clients.json looks like on disk, to notice that `pair` or `revoke` changed it. Every
+/// write is a new file, so its inode changes even when the clock doesn't.
+pub fn clients_stamp() -> Option<(SystemTime, u64, u64)> {
+	let m = fs::metadata(clients_path()).ok()?;
+	Some((m.modified().ok()?, m.ino(), m.len()))
 }
 
 /// Adds a phone and returns its token.
-pub fn add_client(name: &str) -> std::io::Result<(Client, String)> {
-	let token = data_encoding::BASE64URL_NOPAD.encode(&random_bytes::<32>());
+pub fn add_client(name: &str) -> io::Result<(Client, String)> {
+	let token = data_encoding::BASE64URL_NOPAD.encode(&random_bytes::<{ protocol::TOKEN_BYTES }>());
 	let client = Client {
-		id: data_encoding::HEXLOWER.encode(&random_bytes::<4>()),
+		id: data_encoding::HEXLOWER.encode(&random_bytes::<{ protocol::CLIENT_ID_BYTES }>()),
 		name: sanitize_name(name),
 		token_hash: sha256_hex(token.as_bytes()),
 		created: now(),
 	};
-	let mut clients = load_clients();
+	let mut clients = match load_clients() {
+		Ok(c) => c,
+		// The damaged file is set aside by the write below; the phones in it pair again.
+		Err(e) if e.kind() == io::ErrorKind::InvalidData => Vec::new(),
+		Err(e) => return Err(e),
+	};
 	clients.push(client.clone());
 	save_clients(&clients)?;
 	Ok((client, token))
@@ -318,7 +389,7 @@ pub fn add_client(name: &str) -> std::io::Result<(Client, String)> {
 
 /// Phone-supplied names end up in a terminal: no control characters, sane length.
 pub fn sanitize_name(name: &str) -> String {
-	let clean: String = name.chars().filter(|c| !c.is_control()).take(64).collect();
+	let clean: String = name.chars().filter(|c| !c.is_control()).take(limit::NAME_MAX).collect();
 	let clean = clean.trim();
 	if clean.is_empty() { "Phone".into() } else { clean.to_string() }
 }
@@ -334,29 +405,49 @@ fn pairing_path() -> PathBuf {
 	data_dir().join("pairing.json")
 }
 
-pub fn load_pairing() -> Option<Pairing> {
-	let p: Pairing = serde_json::from_slice(&fs::read(pairing_path()).ok()?).ok()?;
-	(p.expires > now() && p.attempts < PAIRING_ATTEMPTS).then_some(p)
+impl Pairing {
+	/// Still good at Unix time `now`; the service and `elamond pair` both ask this.
+	pub fn usable(&self, now: u64) -> bool {
+		now < self.expires && self.attempts < limit::PAIRING_ATTEMPTS
+	}
 }
 
-pub fn save_pairing(p: &Pairing) -> std::io::Result<()> {
-	write_private(&pairing_path(), &serde_json::to_vec(p).map_err(std::io::Error::other)?)
+/// The pending code as saved, whether or not it is still good.
+pub fn read_pairing() -> Option<Pairing> {
+	read_json(&pairing_path()).ok().flatten()
+}
+
+/// The pending code, if it is still good.
+pub fn load_pairing() -> Option<Pairing> {
+	read_pairing().filter(|p| p.usable(now()))
+}
+
+pub fn save_pairing(p: &Pairing) -> io::Result<()> {
+	write_private(&pairing_path(), &serde_json::to_vec(p).map_err(io::Error::other)?)
 }
 
 pub fn clear_pairing() {
 	let _ = fs::remove_file(pairing_path());
 }
 
-/// A new six-digit code, uniformly random.
-pub fn new_pairing() -> std::io::Result<Pairing> {
+/// Withdraws a code, unless another `elamond pair` has replaced it since.
+pub fn clear_pairing_code(code: &str) {
+	if read_pairing().is_some_and(|p| p.code == code) {
+		clear_pairing();
+	}
+}
+
+/// A new code, uniformly random.
+pub fn new_pairing() -> io::Result<Pairing> {
+	let span = 10u32.pow(protocol::PAIRING_DIGITS);
 	let code = loop {
 		let n = u32::from_le_bytes(random_bytes::<4>());
 		// Rejecting the top sliver keeps every code equally likely.
-		if n < u32::MAX - u32::MAX % 1_000_000 {
-			break format!("{:06}", n % 1_000_000);
+		if n < u32::MAX - u32::MAX % span {
+			break format!("{:0width$}", n % span, width = protocol::PAIRING_DIGITS as usize);
 		}
 	};
-	let p = Pairing { code, expires: now() + PAIRING_TTL, attempts: 0 };
+	let p = Pairing { code, expires: now() + timeout::PAIRING_TTL_SECS, attempts: 0 };
 	save_pairing(&p)?;
 	Ok(p)
 }
@@ -398,5 +489,65 @@ mod tests {
 		// The separator keeps ["ab"] and ["a", "b"] apart.
 		assert_ne!(a("x", &["ab"]).id(), a("x", &["a", "b"]).id());
 		assert_eq!(a("x", &["y"]).id().len(), 12);
+	}
+
+	#[test]
+	fn names_lose_control_characters() {
+		assert_eq!(sanitize_name("  Pixel\u{7} 8\n "), "Pixel 8");
+		assert_eq!(sanitize_name("\u{1b}[2J"), "[2J");
+		assert_eq!(sanitize_name(" \t"), "Phone");
+		assert_eq!(sanitize_name(&"я".repeat(100)).chars().count(), 64);
+	}
+
+	#[test]
+	fn secrets_compare_whole() {
+		assert!(same(b"abc", b"abc"));
+		assert!(!same(b"abc", b"abd"));
+		assert!(!same(b"abc", b"abcd"));
+		assert!(same(b"", b""));
+	}
+
+	#[test]
+	fn fingerprints_in_groups_of_four() {
+		let fp = sha256_hex(b"x");
+		let pretty = pretty_fingerprint(&fp);
+		assert_eq!(pretty.split(' ').count(), 8);
+		assert_eq!(pretty.replace(' ', ""), fp[..32].to_ascii_uppercase());
+		assert_eq!(pretty_fingerprint("abcdef"), "ABCD EF");
+	}
+
+	#[test]
+	fn pairing_codes_expire_and_run_out() {
+		let p = Pairing { code: "123456".into(), expires: 100, attempts: 0 };
+		assert!(p.usable(99));
+		assert!(!p.usable(100));
+		assert!(!Pairing { attempts: limit::PAIRING_ATTEMPTS, ..p }.usable(0));
+	}
+
+	fn scratch() -> PathBuf {
+		let dir = std::env::temp_dir().join(format!("elamond-test-{}", data_encoding::HEXLOWER.encode(&random_bytes::<6>())));
+		fs::create_dir_all(&dir).unwrap();
+		dir
+	}
+
+	#[test]
+	fn a_damaged_state_file_is_kept_not_overwritten() {
+		let dir = scratch();
+		let path = dir.join("clients.json");
+		assert!(read_json::<Vec<Client>>(&path).unwrap().is_none());
+
+		fs::write(&path, b"[{\"id\": broken").unwrap();
+		assert_eq!(read_json::<Vec<Client>>(&path).unwrap_err().kind(), io::ErrorKind::InvalidData);
+		let client = Client { id: "a".into(), name: "b".into(), token_hash: "c".into(), created: 1 };
+		write_json::<Vec<Client>>(&path, &[client]).unwrap();
+
+		let names: Vec<String> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+		let kept = names.iter().find(|n| n.starts_with("clients.json.corrupt-")).expect("the damaged file is kept");
+		assert_eq!(fs::read(dir.join(kept)).unwrap(), b"[{\"id\": broken");
+		assert_eq!(read_json::<Vec<Client>>(&path).unwrap().unwrap()[0].id, "a");
+		// No temporary files are left behind.
+		assert_eq!(names.len(), 2, "{names:?}");
+		assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+		fs::remove_dir_all(dir).unwrap();
 	}
 }

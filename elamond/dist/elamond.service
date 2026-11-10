@@ -1,9 +1,12 @@
 [Unit]
 Description=Elamon service: this computer's metrics for the Elamon app
-After=network-online.target
 # A display manager's greeter is a system user with a user manager of its own; it must not
 # take the port before the person who logs in.
 ConditionUser=!@system
+# An service that can't start (the port taken, a damaged identity) stops trying after a minute
+# or so instead of restarting forever; `systemctl --user restart elamond` tries again.
+StartLimitIntervalSec=300
+StartLimitBurst=10
 
 [Service]
 ExecStart=/usr/bin/elamond serve

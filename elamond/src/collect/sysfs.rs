@@ -30,13 +30,28 @@ pub fn dir_entries(path: impl AsRef<Path>) -> Vec<(String, PathBuf)> {
 	v
 }
 
-/// "temp10" after "temp2", "card10" after "card2".
+/// "temp10" after "temp2", "nvme10n1" after "nvme2n1": runs of digits compare as numbers.
 pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
-	let split = |s: &str| {
-		let i = s.trim_end_matches(|c: char| c.is_ascii_digit()).len();
-		(s[..i].to_string(), s[i..].parse::<u64>().unwrap_or(0))
-	};
-	split(a).cmp(&split(b)).then_with(|| a.cmp(b))
+	fn run(s: &str) -> (bool, &str, &str) {
+		let digits = s.starts_with(|c: char| c.is_ascii_digit());
+		let end = s.find(|c: char| c.is_ascii_digit() != digits).unwrap_or(s.len());
+		(digits, &s[..end], &s[end..])
+	}
+	let (mut x, mut y) = (a, b);
+	while !x.is_empty() && !y.is_empty() {
+		let ((xd, xr, xrest), (yd, yr, yrest)) = (run(x), run(y));
+		let order = if xd && yd {
+			let (xn, yn) = (xr.trim_start_matches('0'), yr.trim_start_matches('0'));
+			xn.len().cmp(&yn.len()).then(xn.cmp(yn))
+		} else {
+			xr.cmp(yr)
+		};
+		if order.is_ne() {
+			return order;
+		}
+		(x, y) = (xrest, yrest);
+	}
+	x.len().cmp(&y.len()).then_with(|| a.cmp(b))
 }
 
 /// Runtime power state of a PCI device: "active", "suspended", ... Reading it never wakes the device.
@@ -231,4 +246,22 @@ pub fn os_name() -> Option<String> {
 			.map(|v| v.trim_matches('"').to_string())
 	};
 	get("PRETTY_NAME").or_else(|| get("NAME"))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::natural_cmp;
+	use std::cmp::Ordering::*;
+
+	#[test]
+	fn numbers_in_names_sort_as_numbers() {
+		assert_eq!(natural_cmp("temp2", "temp10"), Less);
+		assert_eq!(natural_cmp("card10", "card2"), Greater);
+		assert_eq!(natural_cmp("hwmon3", "hwmon3"), Equal);
+		assert_eq!(natural_cmp("fan", "fan1"), Less);
+		assert_eq!(natural_cmp("eno1", "wlan0"), Less);
+		let mut v = ["nvme10n1", "nvme0n1", "nvme2n1"];
+		v.sort_by(|a, b| natural_cmp(a, b));
+		assert_eq!(v, ["nvme0n1", "nvme2n1", "nvme10n1"]);
+	}
 }

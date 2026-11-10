@@ -279,3 +279,107 @@ fn vendor_name(pnp: &str) -> Option<&'static str> {
 		_ => return None,
 	})
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// A detailed timing descriptor: 1920×1080 with 280 and 45 blank, at `clock` × 10 kHz,
+	/// on a 531×299 mm panel.
+	fn timing(clock: u16) -> [u8; 18] {
+		let mut d = [0u8; 18];
+		d[..2].copy_from_slice(&clock.to_le_bytes());
+		d[2] = 0x80; // 1920 = 0x780
+		d[3] = 0x18; // 280 = 0x118
+		d[4] = 0x71;
+		d[5] = 0x38; // 1080 = 0x438
+		d[6] = 0x2d; // 45
+		d[7] = 0x40;
+		d[12] = 0x13; // 531 = 0x213
+		d[13] = 0x2b; // 299 = 0x12b
+		d[14] = 0x21;
+		d
+	}
+
+	fn text_descriptor(tag: u8, text: &[u8]) -> [u8; 18] {
+		let mut d = [0u8; 18];
+		d[3] = tag;
+		d[5..5 + text.len()].copy_from_slice(text);
+		d
+	}
+
+	/// A Dell monitor from 2020: 1920×1080 at 60 Hz, named "DELL U2420", ranges up to 75 Hz.
+	fn edid() -> Vec<u8> {
+		let mut b = vec![0u8; 128];
+		b[..8].copy_from_slice(&[0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0]);
+		b[8..10].copy_from_slice(&0x10acu16.to_be_bytes()); // "DEL"
+		b[17] = 30;
+		b[21] = 53;
+		b[22] = 30;
+		b[54..72].copy_from_slice(&timing(14850));
+		b[72..90].copy_from_slice(&text_descriptor(0xfc, b"DELL U2420\n  "));
+		let mut range = text_descriptor(0xfd, b"");
+		range[6] = 75;
+		b[90..108].copy_from_slice(&range);
+		b[108..126].copy_from_slice(&text_descriptor(0x10, b""));
+		b
+	}
+
+	#[test]
+	fn a_monitors_edid() {
+		let e = parse_edid(&edid()).unwrap();
+		assert_eq!(e.vendor.as_deref(), Some("Dell"));
+		assert_eq!(e.model.as_deref(), Some("DELL U2420"));
+		assert_eq!(e.year, Some(2020));
+		assert_eq!(e.size_mm, Some((531, 299)));
+		assert_eq!(e.preferred, Some(Mode { width: 1920, height: 1080, refresh: 60.0 }));
+		assert_eq!(e.max_refresh, Some(75.0));
+	}
+
+	#[test]
+	fn faster_modes_from_an_extension_block() {
+		let mut b = edid();
+		let mut ext = [0u8; 128];
+		ext[0] = 0x02;
+		ext[1] = 3;
+		ext[2] = 4;
+		ext[4..22].copy_from_slice(&timing(29700));
+		b.extend_from_slice(&ext);
+		assert_eq!(parse_edid(&b).unwrap().max_refresh, Some(120.0));
+	}
+
+	#[test]
+	fn a_laptop_panel_with_only_a_part_number() {
+		let mut b = edid();
+		b[8..10].copy_from_slice(&0x4c83u16.to_be_bytes()); // "SDC"
+		b[72..90].copy_from_slice(&text_descriptor(0xfe, b"ATNA56WR14-0\n"));
+		b[90..108].copy_from_slice(&text_descriptor(0x10, b""));
+		b[21] = 0;
+		let e = parse_edid(&b).unwrap();
+		assert_eq!(e.vendor.as_deref(), Some("Samsung"));
+		assert_eq!(e.model.as_deref(), Some("ATNA56WR14-0"));
+		assert_eq!(e.max_refresh, Some(60.0));
+	}
+
+	#[test]
+	fn not_an_edid() {
+		assert!(parse_edid(&[0u8; 128]).is_none());
+		assert!(parse_edid(&edid()[..100]).is_none());
+		let mut b = edid();
+		b[8..10].copy_from_slice(&0x3a10u16.to_be_bytes()); // "NPP", unknown: the code itself
+		assert_eq!(parse_edid(&b).unwrap().vendor.as_deref(), Some("NPP"));
+	}
+
+	#[test]
+	fn timings_and_text() {
+		assert_eq!(detailed_timing(&timing(14850)).unwrap(), (Mode { width: 1920, height: 1080, refresh: 60.0 }, Some((531, 299))));
+		assert!(detailed_timing(&timing(0)).is_none());
+		assert_eq!(round_refresh(143.981), 144.0);
+		assert_eq!(round_refresh(59.94), 59.94);
+		assert_eq!(round_refresh(119.88), 119.88);
+		assert_eq!(descriptor_text(b"Name\n   "), "Name");
+		assert_eq!(descriptor_text(b" Name "), "Name");
+		assert_eq!(vendor_name("GSM"), Some("LG"));
+		assert_eq!(vendor_name("ZZZ"), None);
+	}
+}

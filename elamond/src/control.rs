@@ -2,39 +2,41 @@
 //!
 //! Everything that changes the computer needs `control = true` in elamond.toml; the list of
 //! web services is the exception, it only changes what the app shows. Every action is
-//! logged with the name of the phone that asked.
+//! logged with the name of the phone that asked, once the request has been checked.
 
+use std::collections::VecDeque;
+use std::io::Read;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::Json;
 use axum::extract::{Extension, Path, Query, State};
-use axum::http::{StatusCode, header};
+use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncRead, AsyncReadExt};
 
-use crate::bus::{Player, PowerCaps, Profiles, Scope, UnitInfo};
+use crate::bus::{self, Bus, Player, PowerCaps, Profiles, Scope, UnitInfo};
+use crate::consts::cadence::{self, Ticks};
+use crate::consts::{limit, timeout};
+use crate::errors::{reason, ErrorCode};
 use crate::model::Sample;
-use crate::server::{ClientName, Hub, error};
+use crate::server::{error, failed, ClientName, Hub};
 use crate::services::{self, ServiceDef, ServiceStatus};
 use crate::store;
 
-/// Output kept from an action, so a chatty command can't flood the phone.
-const OUTPUT_MAX: usize = 16 * 1024;
-
 fn denied(hub: &Hub) -> Option<Response> {
-	(!hub.config().control).then(|| error(StatusCode::FORBIDDEN, "control_disabled"))
+	(!hub.config().control).then(|| error(ErrorCode::ControlDisabled))
 }
 
 fn done(result: Result<(), String>) -> Response {
 	match result {
 		Ok(()) => Json(json!({ "ok": true })).into_response(),
-		Err(e) if e == "not_permitted" => error(StatusCode::FORBIDDEN, "not_permitted"),
-		Err(e) => (StatusCode::BAD_GATEWAY, Json(json!({ "error": "failed", "message": e }))).into_response(),
+		Err(e) if e == ErrorCode::NotPermitted.as_str() => error(ErrorCode::NotPermitted),
+		Err(e) => failed(e),
 	}
 }
 
@@ -76,6 +78,9 @@ pub async fn power(State(hub): State<Arc<Hub>>, Extension(who): Extension<Client
 	if let Some(e) = denied(&hub) {
 		return e;
 	}
+	if Bus::power_method(&r.action).is_none() {
+		return failed(reason::UNKNOWN_ACTION);
+	}
 	eprintln!("control: {} asked to {}", who.0, r.action);
 	done(hub.bus.power(&r.action).await)
 }
@@ -88,6 +93,12 @@ pub struct ProfileReq {
 pub async fn profile(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<ProfileReq>) -> Response {
 	if let Some(e) = denied(&hub) {
 		return e;
+	}
+	let Some(profiles) = hub.bus.profiles().await else {
+		return failed(reason::NO_POWER_PROFILES);
+	};
+	if !profiles.available.contains(&r.profile) {
+		return failed(reason::UNKNOWN_PROFILE);
 	}
 	eprintln!("control: {} set the power profile to {}", who.0, r.profile);
 	let res = hub.bus.set_profile(&r.profile).await;
@@ -109,10 +120,10 @@ pub async fn signal(State(hub): State<Arc<Hub>>, Extension(who): Extension<Clien
 	let sig = match r.signal.as_str() {
 		"term" => libc::SIGTERM,
 		"kill" => libc::SIGKILL,
-		_ => return error(StatusCode::BAD_REQUEST, "unknown_signal"),
+		_ => return error(ErrorCode::UnknownSignal),
 	};
-	if r.pid <= 1 || r.pid as u32 == std::process::id() {
-		return error(StatusCode::FORBIDDEN, "not_permitted");
+	if protected(r.pid) {
+		return error(ErrorCode::NotPermitted);
 	}
 	eprintln!("control: {} sent {} to pid {}", who.0, r.signal, r.pid);
 	// SAFETY: kill(2) with a plain pid and signal number has no memory effects.
@@ -121,10 +132,43 @@ pub async fn signal(State(hub): State<Arc<Hub>>, Extension(who): Extension<Clien
 		return Json(json!({ "ok": true })).into_response();
 	}
 	match std::io::Error::last_os_error().raw_os_error() {
-		Some(libc::EPERM) => error(StatusCode::FORBIDDEN, "not_permitted"),
-		Some(libc::ESRCH) => error(StatusCode::NOT_FOUND, "no_such_process"),
-		_ => error(StatusCode::BAD_GATEWAY, "failed"),
+		Some(libc::EPERM) => error(ErrorCode::NotPermitted),
+		Some(libc::ESRCH) => error(ErrorCode::NoSuchProcess),
+		_ => error(ErrorCode::Failed),
 	}
+}
+
+/// Processes a phone may not signal: init, the service itself (any of its threads) and the
+/// processes it runs under, like `systemd --user`, which would take the service down too.
+fn protected(pid: i32) -> bool {
+	if pid <= 1 {
+		return true;
+	}
+	// A thread's id signals its whole process.
+	let target = proc_field(pid, "status").and_then(|s| tgid(&s)).unwrap_or(pid);
+	let mut p = std::process::id() as i32;
+	loop {
+		if p == target {
+			return true;
+		}
+		match proc_field(p, "stat").and_then(|s| ppid(&s)) {
+			Some(parent) if parent > 1 && parent != p => p = parent,
+			_ => return target == 1,
+		}
+	}
+}
+
+fn proc_field(pid: i32, file: &str) -> Option<String> {
+	std::fs::read_to_string(format!("/proc/{pid}/{file}")).ok()
+}
+
+/// The parent from /proc/<pid>/stat; the name before it is in parentheses and may hold anything.
+fn ppid(stat: &str) -> Option<i32> {
+	stat.rsplit_once(')')?.1.split_whitespace().nth(1)?.parse().ok()
+}
+
+fn tgid(status: &str) -> Option<i32> {
+	status.lines().find_map(|l| l.strip_prefix("Tgid:"))?.trim().parse().ok()
 }
 
 #[derive(Deserialize)]
@@ -132,7 +176,7 @@ pub struct ActionReq {
 	id: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub(crate) struct ActionResult {
 	pub(crate) exit_code: Option<i32>,
 	pub(crate) timed_out: bool,
@@ -145,58 +189,119 @@ pub async fn action(State(hub): State<Arc<Hub>>, Extension(who): Extension<Clien
 	}
 	let config = hub.config();
 	let Some(a) = config.actions.iter().find(|a| a.id() == r.id) else {
-		return error(StatusCode::NOT_FOUND, "no_such_action");
+		return error(ErrorCode::NoSuchAction);
 	};
 	let Some((program, args)) = a.command.split_first() else {
-		return error(StatusCode::BAD_REQUEST, "empty_command");
+		return error(ErrorCode::EmptyCommand);
 	};
 	eprintln!("control: {} ran \"{}\"", who.0, a.name);
-	let child = tokio::process::Command::new(program)
+	let limit = Duration::from_secs(a.timeout).clamp(timeout::ACTION_MIN, timeout::ACTION_MAX);
+	let result = run_action(program, args, limit).await;
+	hub.refresh_soon();
+	match result {
+		Ok(r) => Json(r).into_response(),
+		Err(e) => failed(e.to_string()),
+	}
+}
+
+/// Runs an action's command in a process group of its own: on a timeout, or when the request
+/// goes away mid-run, everything it started is killed with it rather than left orphaned. The
+/// output is kept within `limit::OUTPUT_MAX` as it comes, stdout and stderr in the order they
+/// arrive, and what came before a timeout is returned too.
+async fn run_action(program: &str, args: &[String], limit: Duration) -> std::io::Result<ActionResult> {
+	let mut child = tokio::process::Command::new(program)
 		.args(args)
 		.stdin(Stdio::null())
 		.stdout(Stdio::piped())
 		.stderr(Stdio::piped())
+		.process_group(0)
 		.kill_on_drop(true)
-		.spawn();
-	let mut child = match child {
-		Ok(c) => c,
-		Err(e) => {
-			return (StatusCode::BAD_GATEWAY, Json(json!({ "error": "failed", "message": e.to_string() }))).into_response();
-		}
-	};
-	let mut stdout = child.stdout.take().expect("piped");
-	let mut stderr = child.stderr.take().expect("piped");
-	let read_all = async {
-		let mut out = Vec::new();
-		let mut err = Vec::new();
-		let _ = tokio::join!(stdout.read_to_end(&mut out), stderr.read_to_end(&mut err));
-		let status = child.wait().await.ok();
-		(status, out, err)
-	};
-	let (exit_code, timed_out, output) = match tokio::time::timeout(Duration::from_secs(a.timeout.clamp(1, 3600)), read_all).await {
-		Ok((status, out, err)) => {
-			let mut text = String::from_utf8_lossy(&out).into_owned();
-			if !err.is_empty() {
-				if !text.is_empty() && !text.ends_with('\n') {
-					text.push('\n');
-				}
-				text.push_str(&String::from_utf8_lossy(&err));
+		.spawn()?;
+	let mut group = Group(child.id().map(|id| id as i32));
+	let mut out = child.stdout.take();
+	let mut err = child.stderr.take();
+	let (mut out_buf, mut err_buf) = ([0u8; 4096], [0u8; 4096]);
+	let mut capture = Capture::default();
+	let mut until = tokio::time::Instant::now() + limit;
+	let mut status = None;
+	while status.is_none() || out.is_some() || err.is_some() {
+		tokio::select! {
+			_ = tokio::time::sleep_until(until) => break,
+			n = read_some(&mut out, &mut out_buf) => capture.push(&out_buf[..n]),
+			n = read_some(&mut err, &mut err_buf) => capture.push(&err_buf[..n]),
+			s = child.wait(), if status.is_none() => {
+				status = Some(s?);
+				// What it left running may hold the output open; that isn't worth waiting for.
+				until = until.min(tokio::time::Instant::now() + timeout::ACTION_DRAIN);
 			}
-			(status.and_then(|s| s.code()), false, text)
 		}
-		// Dropping the future drops the child, which kill_on_drop ends.
-		Err(_) => (None, true, String::new()),
-	};
-	let mut output = output;
-	if output.len() > OUTPUT_MAX {
-		let mut cut = output.len() - OUTPUT_MAX;
-		while !output.is_char_boundary(cut) {
-			cut += 1;
-		}
-		output = format!("…{}", &output[cut..]);
 	}
-	hub.refresh_soon();
-	Json(ActionResult { exit_code, timed_out, output }).into_response()
+	let timed_out = status.is_none();
+	if !timed_out {
+		// It finished; what it started on purpose and let go of the output may stay.
+		group.0 = None;
+	}
+	drop(group);
+	Ok(ActionResult { exit_code: status.and_then(|s| s.code()), timed_out, output: capture.text() })
+}
+
+/// Kills a process group when dropped, unless its number has been taken out.
+struct Group(Option<i32>);
+
+impl Drop for Group {
+	fn drop(&mut self) {
+		if let Some(pgid) = self.0.take() {
+			// SAFETY: killpg(2) with a plain group id and signal number has no memory effects.
+			unsafe { libc::killpg(pgid, libc::SIGKILL) };
+		}
+	}
+}
+
+/// The next bytes from a pipe; at its end the pipe is let go of, and then this never finishes.
+async fn read_some<R: AsyncRead + Unpin>(pipe: &mut Option<R>, buf: &mut [u8]) -> usize {
+	let Some(r) = pipe else { return std::future::pending().await };
+	match r.read(buf).await {
+		Ok(n) if n > 0 => n,
+		_ => {
+			*pipe = None;
+			0
+		}
+	}
+}
+
+/// The start and the end of a command's output, however much it writes.
+#[derive(Default)]
+struct Capture {
+	head: Vec<u8>,
+	tail: VecDeque<u8>,
+	dropped: usize,
+}
+
+impl Capture {
+	fn push(&mut self, bytes: &[u8]) {
+		let room = limit::OUTPUT_HEAD.saturating_sub(self.head.len()).min(bytes.len());
+		self.head.extend_from_slice(&bytes[..room]);
+		self.tail.extend(&bytes[room..]);
+		let over = self.tail.len().saturating_sub(limit::OUTPUT_MAX - limit::OUTPUT_HEAD);
+		self.tail.drain(..over);
+		self.dropped += over;
+	}
+
+	fn text(self) -> String {
+		let mut tail: Vec<u8> = self.tail.into();
+		if self.dropped == 0 {
+			let mut all = self.head;
+			all.append(&mut tail);
+			return String::from_utf8_lossy(&all).into_owned();
+		}
+		// Cut where a character starts, not in the middle of one.
+		let head = match std::str::from_utf8(&self.head) {
+			Err(e) if e.error_len().is_none() => &self.head[..e.valid_up_to()],
+			_ => &self.head[..],
+		};
+		let start = tail.iter().position(|b| b & 0xc0 != 0x80).unwrap_or(tail.len());
+		format!("{}\n…\n{}", String::from_utf8_lossy(head), String::from_utf8_lossy(&tail[start..]))
+	}
 }
 
 // ---- media ---------------------------------------------------------------------------
@@ -221,9 +326,19 @@ pub struct MediaReq {
 	value: Option<f64>,
 }
 
-pub async fn media(State(hub): State<Arc<Hub>>, Json(r): Json<MediaReq>) -> Response {
+pub async fn media(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<MediaReq>) -> Response {
 	if let Some(e) = denied(&hub) {
 		return e;
+	}
+	if !bus::is_player(&r.player) {
+		return failed(reason::UNKNOWN_PLAYER);
+	}
+	if !Bus::is_player_op(&r.op) {
+		return failed(reason::UNKNOWN_OPERATION);
+	}
+	match r.value {
+		Some(v) => eprintln!("control: {} asked {} to {} {v}", who.0, r.player, r.op),
+		None => eprintln!("control: {} asked {} to {}", who.0, r.player, r.op),
 	}
 	let res = hub.bus.player_op(&r.player, &r.op, r.value).await;
 	hub.refresh_soon();
@@ -236,9 +351,15 @@ pub struct VolumeReq {
 	muted: Option<bool>,
 }
 
-pub async fn volume(State(hub): State<Arc<Hub>>, Json(r): Json<VolumeReq>) -> Response {
+pub async fn volume(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<VolumeReq>) -> Response {
 	if let Some(e) = denied(&hub) {
 		return e;
+	}
+	if let Some(l) = r.level {
+		eprintln!("control: {} set the volume to {:.0} %", who.0, l.clamp(0.0, 1.0) * 100.0);
+	}
+	if let Some(m) = r.muted {
+		eprintln!("control: {} {} the sound", who.0, if m { "muted" } else { "unmuted" });
 	}
 	let res = tokio::task::spawn_blocking(move || volume_set(r.level, r.muted)).await.unwrap_or_else(|e| Err(e.to_string()));
 	hub.refresh_soon();
@@ -250,10 +371,14 @@ pub struct ArtQuery {
 	player: String,
 }
 
+/// A player's cover. Media needs control, so its art does too.
 pub async fn art(State(hub): State<Arc<Hub>>, Query(q): Query<ArtQuery>) -> Response {
+	if let Some(e) = denied(&hub) {
+		return e;
+	}
 	match hub.bus.player_art(&q.player).await {
 		Some((bytes, kind)) => ([(header::CONTENT_TYPE, kind), (header::CACHE_CONTROL, "no-store")], bytes).into_response(),
-		None => error(StatusCode::NOT_FOUND, "no_art"),
+		None => error(ErrorCode::NoArt),
 	}
 }
 
@@ -266,6 +391,7 @@ pub fn volume_get() -> Option<Volume> {
 	}
 	let vol = run(&["pactl", "get-sink-volume", "@DEFAULT_SINK@"])?;
 	let pct: f32 = vol.split('/').nth(1)?.trim().trim_end_matches('%').trim().parse().ok()?;
+	// "Mute: yes", in English thanks to LC_ALL=C.
 	let muted = run(&["pactl", "get-sink-mute", "@DEFAULT_SINK@"]).is_some_and(|m| m.contains("yes"));
 	Some(Volume { level: pct / 100.0, muted })
 }
@@ -279,7 +405,7 @@ fn volume_set(level: Option<f32>, muted: Option<bool>) -> Result<(), String> {
 		} else {
 			run(&["pactl", "set-sink-volume", "@DEFAULT_SINK@", &format!("{}%", (l * 100.0).round())])
 		};
-		ok.ok_or("volume_failed")?;
+		ok.ok_or(reason::VOLUME_FAILED)?;
 	}
 	if let Some(m) = muted {
 		let v = if m { "1" } else { "0" };
@@ -288,14 +414,40 @@ fn volume_set(level: Option<f32>, muted: Option<bool>) -> Result<(), String> {
 		} else {
 			run(&["pactl", "set-sink-mute", "@DEFAULT_SINK@", v])
 		};
-		ok.ok_or("mute_failed")?;
+		ok.ok_or(reason::MUTE_FAILED)?;
 	}
 	Ok(())
 }
 
+/// Runs a short command and returns its output, or nothing if it failed or took longer than
+/// `timeout::COMMAND`: the collector calls this, and must not hang on a stuck sound server.
 fn run(argv: &[&str]) -> Option<String> {
-	let out = std::process::Command::new(argv[0]).args(&argv[1..]).stdin(Stdio::null()).output().ok()?;
-	out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+	use std::os::unix::process::CommandExt;
+	let mut child = std::process::Command::new(argv[0])
+		.args(&argv[1..])
+		// pactl translates its answers.
+		.env("LC_ALL", "C")
+		.stdin(Stdio::null())
+		.stdout(Stdio::piped())
+		.stderr(Stdio::null())
+		.process_group(0)
+		.spawn()
+		.ok()?;
+	let deadline = Instant::now() + timeout::COMMAND;
+	let status = loop {
+		match child.try_wait() {
+			Ok(Some(s)) => break s,
+			Ok(None) if Instant::now() < deadline => std::thread::sleep(cadence::COMMAND_POLL),
+			_ => {
+				drop(Group(Some(child.id() as i32)));
+				let _ = child.wait();
+				return None;
+			}
+		}
+	};
+	let mut out = String::new();
+	child.stdout.take()?.read_to_string(&mut out).ok()?;
+	status.success().then_some(out)
 }
 
 // ---- services --------------------------------------------------------------------------
@@ -316,11 +468,11 @@ pub struct ServiceReq {
 pub async fn service_put(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<ServiceReq>) -> Response {
 	let unit = r.unit.as_deref().map(str::trim).filter(|u| !u.is_empty());
 	if let Err(code) = services::validate(&r.name, &r.url, unit, r.scope.as_deref()) {
-		return error(StatusCode::BAD_REQUEST, code);
+		return error(code);
 	}
 	let mut list = hub.app_services.lock().await;
 	let def = ServiceDef {
-		id: r.id.clone().unwrap_or_else(|| data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())),
+		id: r.id.clone().unwrap_or_else(|| data_encoding::HEXLOWER.encode(&store::random_bytes::<{ crate::consts::protocol::SERVICE_ID_BYTES }>())),
 		name: r.name.trim().to_string(),
 		url: r.url.trim().to_string(),
 		unit: unit.map(str::to_string),
@@ -329,11 +481,11 @@ pub async fn service_put(State(hub): State<Arc<Hub>>, Extension(who): Extension<
 	match list.iter_mut().find(|s| s.id == def.id) {
 		Some(s) => *s = def.clone(),
 		None if r.id.is_none() => list.push(def.clone()),
-		None => return error(StatusCode::NOT_FOUND, "no_such_service"),
+		None => return error(ErrorCode::NoSuchService),
 	}
 	if let Err(e) = services::save(&list) {
 		eprintln!("services: can't save: {e}");
-		return error(StatusCode::INTERNAL_SERVER_ERROR, "storage");
+		return error(ErrorCode::Storage);
 	}
 	eprintln!("services: {} saved \"{}\"", who.0, def.name);
 	drop(list);
@@ -346,10 +498,11 @@ pub async fn service_delete(State(hub): State<Arc<Hub>>, Extension(who): Extensi
 	let before = list.len();
 	list.retain(|s| s.id != id);
 	if list.len() == before {
-		return error(StatusCode::NOT_FOUND, "no_such_service");
+		return error(ErrorCode::NoSuchService);
 	}
-	if services::save(&list).is_err() {
-		return error(StatusCode::INTERNAL_SERVER_ERROR, "storage");
+	if let Err(e) = services::save(&list) {
+		eprintln!("services: can't save: {e}");
+		return error(ErrorCode::Storage);
 	}
 	eprintln!("services: {} removed {id}", who.0);
 	drop(list);
@@ -373,9 +526,12 @@ pub async fn service_unit(
 	}
 	let app = hub.app_services.lock().await.clone();
 	let Some((def, _)) = services::all(&hub.config(), &app).into_iter().find(|(s, _)| s.id == id) else {
-		return error(StatusCode::NOT_FOUND, "no_such_service");
+		return error(ErrorCode::NoSuchService);
 	};
-	let Some(unit) = def.unit else { return error(StatusCode::BAD_REQUEST, "no_unit") };
+	let Some(unit) = def.unit else { return error(ErrorCode::NoUnit) };
+	if Bus::unit_method(&r.op).is_none() {
+		return failed(reason::UNKNOWN_OPERATION);
+	}
 	eprintln!("control: {} asked to {} {unit}", who.0, r.op);
 	let res = hub.bus.unit_op(Scope::parse(def.scope.as_deref()), &unit, &r.op).await;
 	hub.refresh_soon();
@@ -395,7 +551,7 @@ pub struct UnitsQuery {
 pub async fn units(State(hub): State<Arc<Hub>>, Query(q): Query<UnitsQuery>) -> Response {
 	match hub.bus.units(Scope::parse(q.scope.as_deref())).await {
 		Ok(list) => Json::<Vec<UnitInfo>>(list).into_response(),
-		Err(e) => (StatusCode::BAD_GATEWAY, Json(json!({ "error": "failed", "message": e }))).into_response(),
+		Err(e) => failed(e),
 	}
 }
 
@@ -405,35 +561,40 @@ pub async fn units(State(hub): State<Arc<Hub>>, Query(q): Query<UnitsQuery>) -> 
 pub struct Extras {
 	services: Vec<ServiceStatus>,
 	profiles: Option<Profiles>,
-	media: Option<Media>,
-	tick: u64,
+	volume: Option<Volume>,
+	every: Ticks,
+	tick: u32,
+	/// What the previous tick was read for, to read at once what an app just asked for.
+	was_watched: bool,
+	had_media: bool,
 }
 
 impl Extras {
-	pub fn new() -> Self {
-		Extras { services: Vec::new(), profiles: None, media: None, tick: 0 }
+	pub fn new(every: Ticks) -> Self {
+		Extras { services: Vec::new(), profiles: None, volume: None, every, tick: 0, was_watched: false, had_media: false }
 	}
 
-	/// Fills in services, power profiles and media; called once per tick off the async runtime.
-	pub fn apply(&mut self, hub: &Hub, rt: &tokio::runtime::Handle, watched: bool, want_media: bool, sample: &mut Sample) {
-		let urgent = hub.refresh.swap(false, Ordering::SeqCst);
-		if watched && (self.tick.is_multiple_of(5) || urgent) {
+	/// Fills in services and power profiles while an app is connected, and returns the media
+	/// for the apps that asked for it. Called once per tick off the async runtime.
+	pub fn apply(&mut self, hub: &Hub, rt: &tokio::runtime::Handle, watched: bool, want_media: bool, sample: &mut Sample) -> Option<Media> {
+		// An action asked for a fresh look; that waits for someone to look.
+		let urgent = watched && hub.refresh.swap(false, Ordering::SeqCst);
+		if watched && (urgent || !self.was_watched || self.tick.is_multiple_of(self.every.services)) {
 			self.services = rt.block_on(hub.service_statuses());
 			self.profiles = rt.block_on(hub.bus.profiles());
 		}
-		if want_media {
+		let media = if want_media {
 			let players = rt.block_on(hub.bus.players());
-			// The volume costs a process; every other second is plenty.
-			let volume = if self.tick.is_multiple_of(2) || urgent || self.media.is_none() {
-				if hub.config().control { volume_get() } else { None }
-			} else {
-				self.media.as_ref().and_then(|m| m.volume.clone())
-			};
-			self.media = Some(Media { players, volume });
+			if urgent || !self.had_media || self.tick.is_multiple_of(self.every.volume) {
+				self.volume = if hub.config().control { volume_get() } else { None };
+			}
+			Some(Media { players, volume: self.volume.clone() })
 		} else {
-			self.media = None;
-		}
-		self.tick += 1;
+			None
+		};
+		self.was_watched = watched;
+		self.had_media = want_media;
+		self.tick = self.tick.wrapping_add(1);
 		if watched {
 			sample.services = self.services.clone();
 			if let Some(p) = &self.profiles {
@@ -441,7 +602,7 @@ impl Extras {
 				sample.power.ppd_profiles = p.available.clone();
 			}
 		}
-		sample.media = self.media.clone();
+		media
 	}
 }
 
@@ -457,5 +618,90 @@ impl Hub {
 			}
 		}
 		list
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn output_keeps_its_start_and_end() {
+		let mut c = Capture::default();
+		c.push(b"first line\n");
+		for _ in 0..10_000 {
+			c.push(b"middle middle middle\n");
+		}
+		c.push("last line ✓\n".as_bytes());
+		let text = c.text();
+		assert!(text.len() <= limit::OUTPUT_MAX + 8, "{}", text.len());
+		assert!(text.starts_with("first line\n"));
+		assert!(text.contains("\n…\n"));
+		assert!(text.ends_with("last line ✓\n"));
+		assert!(!text.contains('\u{fffd}'));
+
+		let mut short = Capture::default();
+		short.push("a ✓".as_bytes());
+		short.push(b"\nb");
+		assert_eq!(short.text(), "a ✓\nb");
+	}
+
+	#[test]
+	fn proc_files() {
+		assert_eq!(ppid("4242 (a) b (c)) S 17 4242 4242 0 -1"), Some(17));
+		assert_eq!(tgid("Name:\tx\nTgid:\t99\nPid:\t100\n"), Some(99));
+	}
+
+	#[test]
+	fn the_service_and_its_ancestors_are_protected() {
+		assert!(protected(1));
+		assert!(protected(0));
+		assert!(protected(-5));
+		assert!(protected(std::process::id() as i32));
+		let parent = proc_field(std::process::id() as i32, "stat").and_then(|s| ppid(&s)).unwrap();
+		assert!(protected(parent));
+		let mut child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
+		assert!(!protected(child.id() as i32));
+		child.kill().unwrap();
+		child.wait().unwrap();
+	}
+
+	fn gone(pid: i32) -> bool {
+		// A zombie waiting for its new parent counts as gone.
+		proc_field(pid, "stat").is_none_or(|s| s.rsplit_once(')').is_some_and(|(_, r)| r.trim_start().starts_with('Z')))
+	}
+
+	#[tokio::test]
+	async fn actions_report_exit_and_output() {
+		let args = ["-c".to_string(), "echo out; echo err >&2; exit 3".to_string()];
+		let r = run_action("sh", &args, Duration::from_secs(5)).await.unwrap();
+		assert_eq!(r.exit_code, Some(3));
+		assert!(!r.timed_out);
+		assert!(r.output.contains("out\n") && r.output.contains("err\n"), "{:?}", r.output);
+	}
+
+	#[tokio::test]
+	async fn a_timed_out_action_takes_what_it_started_with_it() {
+		let pidfile = std::env::temp_dir().join(format!("elamond-action-{}", std::process::id()));
+		let script = format!("echo started; sleep 30 & echo $! > {}; sleep 30", pidfile.display());
+		let r = run_action("sh", &["-c".to_string(), script], Duration::from_secs(1)).await.unwrap();
+		assert!(r.timed_out);
+		assert_eq!(r.exit_code, None);
+		assert_eq!(r.output, "started\n");
+		let grandchild: i32 = std::fs::read_to_string(&pidfile).unwrap().trim().parse().unwrap();
+		std::fs::remove_file(&pidfile).unwrap();
+		let deadline = Instant::now() + Duration::from_secs(2);
+		while !gone(grandchild) && Instant::now() < deadline {
+			std::thread::sleep(Duration::from_millis(20));
+		}
+		assert!(gone(grandchild), "the background sleep outlived the action");
+	}
+
+	#[tokio::test]
+	async fn chatty_actions_are_cut() {
+		let args = ["-c".to_string(), "head -c 1000000 /dev/zero | tr '\\0' a".to_string()];
+		let r = run_action("sh", &args, Duration::from_secs(5)).await.unwrap();
+		assert_eq!(r.exit_code, Some(0));
+		assert!(r.output.len() <= limit::OUTPUT_MAX + 8);
 	}
 }
