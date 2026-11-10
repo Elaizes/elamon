@@ -1,0 +1,31 @@
+# Pairs with the test service by address and code, as a person would.
+appId: io.github.elaizes.elamon
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Watch a computer"
+    timeout: 15000
+- waitForAnimationToEnd
+- tapOn: "Add computer"
+- tapOn: "Address"
+- inputText: ${ADDRESS}
+- hideKeyboard
+- scrollUntilVisible:
+    element: "Next"
+    timeout: 10000
+- tapOn: "Next"
+- extendedWaitUntil:
+    visible: "Code from the computer"
+    timeout: 20000
+- takeScreenshot: 01-pair-code
+- tapOn: "Code from the computer"
+- inputText: ${CODE}
+- hideKeyboard
+- tapOn:
+    text: "Pair"
+    below: "Code from the computer"
+- extendedWaitUntil:
+    visible: "Overview"
+    timeout: 20000
+- takeScreenshot: 02-overview

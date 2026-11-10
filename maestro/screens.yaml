@@ -1,0 +1,49 @@
+# Every tab and a detail page, with the computer paired by pair.yaml.
+appId: io.github.elaizes.elamon
+---
+- launchApp
+- extendedWaitUntil:
+    visible: ${NAME}
+    timeout: 20000
+- tapOn: ${NAME}
+- extendedWaitUntil:
+    visible: "Overview"
+    timeout: 20000
+- waitForAnimationToEnd
+- takeScreenshot: 03-overview
+- scroll
+- takeScreenshot: 04-overview-scrolled
+- tapOn: "Processes"
+- waitForAnimationToEnd
+- takeScreenshot: 05-processes
+- tapOn: "Sensors"
+- waitForAnimationToEnd
+- takeScreenshot: 06-sensors
+- tapOn: "Control"
+- waitForAnimationToEnd
+- takeScreenshot: 07-control
+- scrollUntilVisible:
+    element: "Say hello"
+    timeout: 30000
+- takeScreenshot: 08-control-actions
+- tapOn: "Say hello"
+- extendedWaitUntil:
+    visible: ".*hello from the test service.*"
+    timeout: 15000
+- takeScreenshot: 09-action-output
+- back
+- tapOn: "Overview"
+- waitForAnimationToEnd
+# scrollUntilVisible gives up on a screen that changes every second; swipe instead.
+- swipe:
+    direction: DOWN
+- swipe:
+    direction: DOWN
+- tapOn: "CPU"
+- waitForAnimationToEnd
+- takeScreenshot: 10-cpu-detail
+- swipe:
+    start: 50%, 30%
+    end: 80%, 30%
+    duration: 2000
+- takeScreenshot: 11-cpu-chart-touch
