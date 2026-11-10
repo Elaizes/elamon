@@ -157,9 +157,10 @@ at the top; scroll and they move into the bar. Four tabs along the bottom:
   with control on — **Quit** and **Force kill**.
 - **Sensors** — every temperature the computer reports, grouped by device, a chart of the CPU and
   GPU temperatures, and the fans. A limit appears next to a sensor when it gets close to it.
-- **Control** — links; the monitors (maker, model, size, current and native mode, highest
-  refresh rate, how they're arranged, free ports), shown even when control is off; media, power
-  profile, actions and power; see [section 5](#5-the-control-panel).
+- **Control** — links; the monitors, shown even when control is off: folded to one line with how
+  many are connected and on, then a line per monitor with its mode, and a tap on one for its
+  details (port, size, native mode, highest refresh rate, position) and the arrangement below;
+  media, power profile, actions and power; see [section 5](#5-the-control-panel).
 
 On every chart, **drag a finger** sideways to read the values at that moment and how long ago it
 was. The charts are full the moment you open a computer: the service keeps the last ten minutes
