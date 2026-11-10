@@ -145,7 +145,7 @@ computer; **Add computer** pairs another one. The **?** opens the help, the gear
 ### A computer
 
 The name, how fresh the data is (*Live · every 1 s*) and the computer's state sit in the big title
-at the top; scroll and they move into the bar. Five tabs along the bottom:
+at the top; scroll and they move into the bar. Four tabs along the bottom:
 
 - **Overview** — tiles for the CPU, memory, each graphics card, temperatures, network, storage and
   battery. **Tap a tile** for its page: a large chart of the last ten minutes, details, and the
@@ -156,13 +156,14 @@ at the top; scroll and they move into the bar. Five tabs along the bottom:
   with control on — **Quit** and **Force kill**.
 - **Sensors** — every temperature the computer reports, grouped by device, a chart of the CPU and
   GPU temperatures, and the fans. A limit appears next to a sensor when it gets close to it.
-- **Displays** — each connected monitor with maker, model, size, current and native mode, highest
-  refresh rate, and how they're arranged; free ports at the bottom.
-- **Control** — services, media, power profile, actions and power; see
-  [section 5](#5-the-control-panel).
+- **Control** — services; the monitors (maker, model, size, current and native mode, highest
+  refresh rate, how they're arranged, free ports), shown even when control is off; media, power
+  profile, actions and power; see [section 5](#5-the-control-panel).
 
 On every chart, **drag a finger** sideways to read the values at that moment and how long ago it
-was. The charts are full the moment you open a computer: the service keeps the last ten minutes.
+was. The charts are full the moment you open a computer: the service keeps the last ten minutes
+(`history_minutes`). Where the phone was away or the screen off, the line has a gap instead of
+joining the two ends.
 
 The **⋮** menu has *Settings*, *Help* and *Forget computer*. Back closes a detail page first, then
 the computer.
