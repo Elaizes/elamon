@@ -180,6 +180,10 @@ object Motion {
 	/** A tab's highlight moving. */
 	const val NAV = 200
 
+	/** A folded section, or a monitor's details, opening and closing. */
+	const val UNFOLD = 220
+	const val FOLD = 160
+
 	/** A gauge, a bar and a digit going to their new values; a digit's old value fades a little sooner. */
 	const val GAUGE = 600
 	const val BAR = 500
@@ -267,8 +271,8 @@ object ChartStyle {
 	val tile = 56.dp
 	val sparkline = 36.dp
 
-	/** The monitors' arrangement. */
-	val displays = 150.dp
+	/** The monitors' arrangement, at most this tall under the list of them. */
+	val displays = 96.dp
 
 	/** Core bars in the CPU tile's place and on the CPU page, and the gap between them. */
 	val cores = 44.dp

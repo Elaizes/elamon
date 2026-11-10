@@ -3,6 +3,7 @@ package io.github.elaizes.elamon
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
+import androidx.core.content.edit
 import java.math.BigDecimal
 import java.math.RoundingMode
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,6 +73,19 @@ class Settings private constructor(context: Context) {
 		_elamondIntervalMs.value = ms
 	}
 
+	private val _displaysOpen = MutableStateFlow(prefs.getBoolean(DISPLAYS_OPEN, false))
+
+	/**
+	 * Whether the Control tab's Displays section is open; closed until first opened. Kept apart
+	 * from [Prefs], which the whole app is redrawn for, as only that section shows it.
+	 */
+	val displaysOpen: StateFlow<Boolean> = _displaysOpen.asStateFlow()
+
+	fun setDisplaysOpen(open: Boolean) {
+		prefs.edit { putBoolean(DISPLAYS_OPEN, open) }
+		_displaysOpen.value = open
+	}
+
 	private fun load(): Prefs {
 		val d = Prefs()
 		return Prefs(
@@ -108,6 +122,8 @@ class Settings private constructor(context: Context) {
 	}
 
 	companion object {
+		private const val DISPLAYS_OPEN = "displays_open"
+
 		@Volatile private var instance: Settings? = null
 		fun get(context: Context): Settings =
 			instance ?: synchronized(this) { instance ?: Settings(context.applicationContext).also { instance = it } }

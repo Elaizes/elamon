@@ -261,12 +261,19 @@
 
 	<!-- Control: displays -->
 	<string name="displays_title">Displays</string>
+	<!-- Under the title while the section is closed: "2 connected · 1 on", the second counting those that show a picture. -->
+	<plurals name="displays_count_connected">
+		<item quantity="one">%1$d connected</item>
+		<item quantity="other">%1$d connected</item>
+	</plurals>
+	<plurals name="displays_count_on">
+		<item quantity="one">%1$d on</item>
+		<item quantity="other">%1$d on</item>
+	</plurals>
 	<string name="displays_arrangement">Arrangement</string>
 	<string name="displays_none">No monitors connected</string>
 	<string name="displays_none_body">The computer runs without a screen, or its graphics driver doesn\'t report monitors.</string>
 	<string name="displays_free_ports">Free ports: %1$s</string>
-	<string name="displays_built_in">Built-in display</string>
-	<string name="displays_monitor">Monitor</string>
 	<string name="displays_on">On</string>
 	<string name="displays_off">Off</string>
 	<string name="displays_not_in_use">Not in use</string>
@@ -547,7 +554,7 @@
 	<!-- One line of a chart: its name, its newest value and its highest: "CPU 34%, peak 80%". -->
 	<string name="a11y_chart_series">%1$s %2$s, peak %3$s</string>
 	<string name="a11y_chart_series_empty">%1$s, no readings yet</string>
-	<!-- Between the lines of a chart, read aloud. -->
+	<!-- Between the lines of a chart, or a header's title and the parts of its summary, read aloud. -->
 	<string name="a11y_list_separator">"; "</string>
 	<!-- The ring on the CPU and memory tiles. -->
 	<string name="a11y_gauge_load">Load %1$s</string>
@@ -557,7 +564,7 @@
 		<item quantity="one">%1$d core, average %2$s, busiest %3$s</item>
 		<item quantity="other">%1$d cores, average %2$s, busiest %3$s</item>
 	</plurals>
-	<!-- A question in the guide, open or closed. -->
+	<!-- A question in the guide, the Displays section or a monitor in it, open or closed. -->
 	<string name="a11y_expanded">Expanded</string>
 	<string name="a11y_collapsed">Collapsed</string>
 </resources>
