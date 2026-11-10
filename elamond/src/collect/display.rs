@@ -173,7 +173,7 @@ pub fn parse_edid(b: &[u8]) -> Option<Edid> {
 	}
 
 	// CTA-861 extension blocks carry more detailed timings, often the high refresh ones.
-	for ext in b[128..].chunks_exact(128) {
+	for ext in b[128..].as_chunks::<128>().0 {
 		if ext[0] != 0x02 {
 			continue;
 		}

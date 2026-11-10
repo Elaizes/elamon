@@ -1,6 +1,6 @@
 //! Files the service keeps: settings, its TLS identity, paired phones and the pending pairing code.
 //!
-//! Settings:  $XDG_CONFIG_HOME/elamon/elamond.toml (optional)
+//! Settings:  $XDG_CONFIG_HOME/elamon/elamond.toml (optional), then elamond.d/*.toml beside it
 //! State:     $XDG_DATA_HOME/elamon/{id, cert.der, key.der, clients.json, pairing.json}
 
 use std::fs;
@@ -65,6 +65,27 @@ pub struct ActionConfig {
 	pub timeout: u64,
 }
 
+/// Ids for what the settings define, from what it is rather than where it stands in the
+/// file: reordering the file or adding a drop-in must not point a phone's button at
+/// another command.
+fn content_id(parts: &[&str]) -> String {
+	sha256_hex(parts.join("\0").as_bytes())[..12].to_string()
+}
+
+impl ActionConfig {
+	pub fn id(&self) -> String {
+		let mut parts = vec![self.name.as_str()];
+		parts.extend(self.command.iter().map(String::as_str));
+		content_id(&parts)
+	}
+}
+
+impl ServiceConfig {
+	pub fn id(&self) -> String {
+		content_id(&[&self.name, &self.url, self.unit.as_deref().unwrap_or(""), self.scope.as_deref().unwrap_or("")])
+	}
+}
+
 fn yes() -> bool {
 	true
 }
@@ -117,13 +138,64 @@ pub fn config_path() -> PathBuf {
 	std::env::var_os("ELAMON_CONFIG").map(PathBuf::from).unwrap_or_else(|| config_dir().join("elamond.toml"))
 }
 
+/// Drop-ins, always in the user's own config directory: where NixOS or Home Manager make
+/// elamond.toml a read-only file in the store, these stay the user's to write.
+pub fn dropin_dir() -> PathBuf {
+	config_dir().join("elamond.d")
+}
+
+/// elamond.toml first, then elamond.d/*.toml by name.
+pub fn config_files() -> Vec<PathBuf> {
+	let mut dropins: Vec<PathBuf> = fs::read_dir(dropin_dir())
+		.map(|d| d.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "toml")).collect())
+		.unwrap_or_default();
+	dropins.sort();
+	std::iter::once(config_path()).chain(dropins).collect()
+}
+
+/// Settings from elamond.toml and the drop-ins. A later file adds to the lists (services,
+/// actions) and replaces anything else it sets.
 pub fn load_config() -> Result<Config, String> {
-	let path = config_path();
-	match fs::read_to_string(&path) {
-		Ok(text) => toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display())),
-		Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
-		Err(e) => Err(format!("{}: {e}", path.display())),
+	let mut merged = toml::Table::new();
+	for path in config_files() {
+		let text = match fs::read_to_string(&path) {
+			Ok(t) => t,
+			Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+			Err(e) => return Err(format!("{}: {e}", path.display())),
+		};
+		// Each file on its own first, so a mistake names the file it is in.
+		toml::from_str::<Config>(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+		let table: toml::Table = text.parse().map_err(|e| format!("{}: {e}", path.display()))?;
+		merge_toml(&mut merged, table);
 	}
+	toml::Value::Table(merged).try_into().map_err(|e| format!("settings: {e}"))
+}
+
+fn merge_toml(into: &mut toml::Table, from: toml::Table) {
+	for (key, value) in from {
+		match (into.get_mut(&key), value) {
+			(Some(toml::Value::Array(a)), toml::Value::Array(b)) => a.extend(b),
+			(Some(toml::Value::Table(a)), toml::Value::Table(b)) => merge_toml(a, b),
+			(_, v) => {
+				into.insert(key, v);
+			}
+		}
+	}
+}
+
+/// What the settings files look like on disk now, to notice an edit. The resolved path is
+/// part of it: a store file keeps the same mtime, its symlink gets a new target.
+pub fn config_stamp() -> Vec<(PathBuf, Option<PathBuf>, Option<SystemTime>, u64)> {
+	config_files()
+		.into_iter()
+		.map(|p| {
+			let target = fs::canonicalize(&p).ok();
+			let meta = fs::metadata(&p).ok();
+			let modified = meta.as_ref().and_then(|m| m.modified().ok());
+			let len = meta.map(|m| m.len()).unwrap_or(0);
+			(p, target, modified, len)
+		})
+		.collect()
 }
 
 pub fn now() -> u64 {
@@ -197,8 +269,7 @@ impl Identity {
 
 /// The fingerprint in groups of four, for people to compare by eye.
 pub fn pretty_fingerprint(fp: &str) -> String {
-	fp[..32.min(fp.len())]
-		.as_bytes()
+	fp.as_bytes()[..32.min(fp.len())]
 		.chunks(4)
 		.map(|c| std::str::from_utf8(c).unwrap_or("").to_ascii_uppercase())
 		.collect::<Vec<_>>()
@@ -293,4 +364,39 @@ pub fn new_pairing() -> std::io::Result<Pairing> {
 /// Equal-time comparison, so response timing doesn't reveal how much of a secret matched.
 pub fn same(a: &[u8], b: &[u8]) -> bool {
 	a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn table(s: &str) -> toml::Table {
+		s.parse().unwrap()
+	}
+
+	#[test]
+	fn dropins_add_to_lists_and_replace_the_rest() {
+		let mut m = table("control = false\nport = 1\n[[actions]]\nname = \"a\"\ncommand = [\"true\"]\n");
+		merge_toml(&mut m, table("control = true\n[[actions]]\nname = \"b\"\ncommand = [\"false\"]\n[[services]]\nname = \"s\"\nurl = \"http://{host}\"\n"));
+		let c: Config = toml::Value::Table(m).try_into().unwrap();
+		assert!(c.control);
+		assert_eq!(c.port, 1);
+		assert_eq!(c.actions.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+		assert_eq!(c.services.len(), 1);
+	}
+
+	#[test]
+	fn ids_follow_content_not_position() {
+		let a = |name: &str, cmd: &[&str]| ActionConfig {
+			name: name.into(),
+			command: cmd.iter().map(|s| s.to_string()).collect(),
+			confirm: true,
+			timeout: 60,
+		};
+		assert_eq!(a("Update", &["nh", "os", "switch"]).id(), a("Update", &["nh", "os", "switch"]).id());
+		assert_ne!(a("Update", &["nh", "os", "switch"]).id(), a("Update", &["nh", "os", "boot"]).id());
+		// The separator keeps ["ab"] and ["a", "b"] apart.
+		assert_ne!(a("x", &["ab"]).id(), a("x", &["a", "b"]).id());
+		assert_eq!(a("x", &["y"]).id().len(), 12);
+	}
 }

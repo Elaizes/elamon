@@ -85,7 +85,7 @@ impl Collector {
 		}
 	}
 
-	pub fn info(&self, id: &str, name: &str, control: bool) -> Info {
+	pub fn info(&self, id: &str, name: &str, control: bool, interval: std::time::Duration, history_len: usize) -> Info {
 		let cpu_model = self
 			.sys
 			.cpus()
@@ -104,6 +104,9 @@ impl Collector {
 			name: name.to_string(),
 			service_version: env!("CARGO_PKG_VERSION"),
 			api: crate::API_VERSION,
+			min_app: crate::MIN_APP,
+			interval_ms: interval.as_millis() as u64,
+			history_seconds: (interval * history_len as u32).as_secs(),
 			os: sysfs::os_name().or_else(|| System::long_os_version().ok()).unwrap_or_else(|| "Linux".into()),
 			kernel: System::kernel_version().unwrap_or_default(),
 			arch: System::cpu_arch(),
@@ -129,7 +132,7 @@ impl Collector {
 		let now = Instant::now();
 		let secs = now.duration_since(self.last).as_secs_f64().max(0.001);
 		self.last = now;
-		let slow = self.tick % SLOW_EVERY == 0;
+		let slow = self.tick.is_multiple_of(SLOW_EVERY);
 		if self.tick % RESCAN_EVERY == RESCAN_EVERY - 1 {
 			self.sensor_set = sysfs::SensorSet::scan();
 		}
@@ -438,6 +441,10 @@ struct Point {
 impl HistoryRing {
 	pub fn new(cap: usize) -> Self {
 		HistoryRing { cap, points: VecDeque::with_capacity(cap) }
+	}
+
+	pub fn capacity(&self) -> usize {
+		self.cap
 	}
 
 	pub fn push(&mut self, s: &Sample) {

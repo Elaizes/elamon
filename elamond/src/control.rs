@@ -26,8 +26,8 @@ use crate::store;
 /// Output kept from an action, so a chatty command can't flood the phone.
 const OUTPUT_MAX: usize = 16 * 1024;
 
-fn allowed(hub: &Hub) -> Result<(), Response> {
-	if hub.config.control { Ok(()) } else { Err(error(StatusCode::FORBIDDEN, "control_disabled")) }
+fn denied(hub: &Hub) -> Option<Response> {
+	(!hub.config().control).then(|| error(StatusCode::FORBIDDEN, "control_disabled"))
 }
 
 fn done(result: Result<(), String>) -> Response {
@@ -56,15 +56,10 @@ struct ActionInfo {
 
 /// What the app may offer on this computer right now.
 pub async fn info(State(hub): State<Arc<Hub>>) -> Response {
-	let enabled = hub.config.control;
+	let enabled = hub.config().control;
 	let (power, profiles) = if enabled { (hub.bus.power_caps().await, hub.bus.profiles().await) } else { Default::default() };
 	let actions = if enabled {
-		hub.config
-			.actions
-			.iter()
-			.enumerate()
-			.map(|(i, a)| ActionInfo { id: i.to_string(), name: a.name.clone(), confirm: a.confirm })
-			.collect()
+		hub.config().actions.iter().map(|a| ActionInfo { id: a.id(), name: a.name.clone(), confirm: a.confirm }).collect()
 	} else {
 		Vec::new()
 	};
@@ -78,7 +73,7 @@ pub struct PowerReq {
 }
 
 pub async fn power(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<PowerReq>) -> Response {
-	if let Err(e) = allowed(&hub) {
+	if let Some(e) = denied(&hub) {
 		return e;
 	}
 	eprintln!("control: {} asked to {}", who.0, r.action);
@@ -91,7 +86,7 @@ pub struct ProfileReq {
 }
 
 pub async fn profile(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<ProfileReq>) -> Response {
-	if let Err(e) = allowed(&hub) {
+	if let Some(e) = denied(&hub) {
 		return e;
 	}
 	eprintln!("control: {} set the power profile to {}", who.0, r.profile);
@@ -108,7 +103,7 @@ pub struct SignalReq {
 }
 
 pub async fn signal(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<SignalReq>) -> Response {
-	if let Err(e) = allowed(&hub) {
+	if let Some(e) = denied(&hub) {
 		return e;
 	}
 	let sig = match r.signal.as_str() {
@@ -145,10 +140,11 @@ struct ActionResult {
 }
 
 pub async fn action(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<ActionReq>) -> Response {
-	if let Err(e) = allowed(&hub) {
+	if let Some(e) = denied(&hub) {
 		return e;
 	}
-	let Some(a) = r.id.parse::<usize>().ok().and_then(|i| hub.config.actions.get(i)) else {
+	let config = hub.config();
+	let Some(a) = config.actions.iter().find(|a| a.id() == r.id) else {
 		return error(StatusCode::NOT_FOUND, "no_such_action");
 	};
 	let Some((program, args)) = a.command.split_first() else {
@@ -226,7 +222,7 @@ pub struct MediaReq {
 }
 
 pub async fn media(State(hub): State<Arc<Hub>>, Json(r): Json<MediaReq>) -> Response {
-	if let Err(e) = allowed(&hub) {
+	if let Some(e) = denied(&hub) {
 		return e;
 	}
 	let res = hub.bus.player_op(&r.player, &r.op, r.value).await;
@@ -241,7 +237,7 @@ pub struct VolumeReq {
 }
 
 pub async fn volume(State(hub): State<Arc<Hub>>, Json(r): Json<VolumeReq>) -> Response {
-	if let Err(e) = allowed(&hub) {
+	if let Some(e) = denied(&hub) {
 		return e;
 	}
 	let res = tokio::task::spawn_blocking(move || volume_set(r.level, r.muted)).await.unwrap_or_else(|e| Err(e.to_string()));
@@ -372,11 +368,11 @@ pub async fn service_unit(
 	Path(id): Path<String>,
 	Json(r): Json<UnitReq>,
 ) -> Response {
-	if let Err(e) = allowed(&hub) {
+	if let Some(e) = denied(&hub) {
 		return e;
 	}
 	let app = hub.app_services.lock().await.clone();
-	let Some((def, _)) = services::all(&hub.config, &app).into_iter().find(|(s, _)| s.id == id) else {
+	let Some((def, _)) = services::all(&hub.config(), &app).into_iter().find(|(s, _)| s.id == id) else {
 		return error(StatusCode::NOT_FOUND, "no_such_service");
 	};
 	let Some(unit) = def.unit else { return error(StatusCode::BAD_REQUEST, "no_unit") };
@@ -421,15 +417,15 @@ impl Extras {
 	/// Fills in services, power profiles and media; called once per tick off the async runtime.
 	pub fn apply(&mut self, hub: &Hub, rt: &tokio::runtime::Handle, watched: bool, want_media: bool, sample: &mut Sample) {
 		let urgent = hub.refresh.swap(false, Ordering::SeqCst);
-		if watched && (self.tick % 5 == 0 || urgent) {
+		if watched && (self.tick.is_multiple_of(5) || urgent) {
 			self.services = rt.block_on(hub.service_statuses());
 			self.profiles = rt.block_on(hub.bus.profiles());
 		}
 		if want_media {
 			let players = rt.block_on(hub.bus.players());
 			// The volume costs a process; every other second is plenty.
-			let volume = if self.tick % 2 == 0 || urgent || self.media.is_none() {
-				if hub.config.control { volume_get() } else { None }
+			let volume = if self.tick.is_multiple_of(2) || urgent || self.media.is_none() {
+				if hub.config().control { volume_get() } else { None }
 			} else {
 				self.media.as_ref().and_then(|m| m.volume.clone())
 			};
@@ -453,7 +449,7 @@ impl Hub {
 	/// Service statuses with their units' states.
 	pub async fn service_statuses(&self) -> Vec<ServiceStatus> {
 		let app = self.app_services.lock().await.clone();
-		let config = self.config.clone();
+		let config = self.config();
 		let mut list = tokio::task::spawn_blocking(move || services::statuses(&config, &app)).await.unwrap_or_default();
 		for s in &mut list {
 			if let Some(u) = &s.unit {

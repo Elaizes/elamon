@@ -243,8 +243,8 @@ impl PciNames {
 				in_vendor = line.starts_with(vendor);
 			} else if in_vendor && !line.starts_with("\t\t") {
 				let line = &line[1..];
-				if line.starts_with(device) {
-					let name = line[device.len()..].trim();
+				if let Some(rest) = line.strip_prefix(device) {
+					let name = rest.trim();
 					// "GA107M [GeForce RTX 3050 Ti Mobile]": the bracketed part is the product.
 					let product = name
 						.rfind('[')

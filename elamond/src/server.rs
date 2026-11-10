@@ -43,7 +43,10 @@ pub struct Hub {
 	pub interval: Duration,
 	/// Apps showing media controls, so players are only polled for them.
 	pub media_watchers: AtomicUsize,
-	pub config: Arc<store::Config>,
+	/// Swapped whole when the settings files change; see `config()`.
+	config: RwLock<Arc<store::Config>>,
+	/// Points kept in the history ring.
+	pub history_len: usize,
 	pub bus: crate::bus::Bus,
 	/// Services added from the app.
 	pub app_services: tokio::sync::Mutex<Vec<crate::services::ServiceDef>>,
@@ -76,12 +79,13 @@ impl Hub {
 			id,
 			name,
 			frame,
+			history_len: history.capacity(),
 			history: Mutex::new(history),
 			watchers: AtomicUsize::new(0),
 			proc_watchers: AtomicUsize::new(0),
 			interval,
 			media_watchers: AtomicUsize::new(0),
-			config,
+			config: RwLock::new(config),
 			bus: crate::bus::Bus::new(),
 			app_services: tokio::sync::Mutex::new(crate::services::load()),
 			refresh: AtomicBool::new(false),
@@ -107,6 +111,38 @@ impl Hub {
 			.iter()
 			.find(|(h, _)| store::same(h.as_bytes(), hash.as_bytes()))
 			.map(|(_, name)| name.clone())
+	}
+
+	/// The settings as last read.
+	pub fn config(&self) -> Arc<store::Config> {
+		self.config.read().map(|c| c.clone()).unwrap_or_else(|p| p.into_inner().clone())
+	}
+
+	/// Takes newly read settings. What only applies at start (address, port, name, mDNS,
+	/// interval, history) is reported and left as it was.
+	pub fn set_config(&self, new: store::Config) {
+		let old = self.config();
+		let restart: Vec<&str> = [
+			("listen", old.listen != new.listen),
+			("port", old.port != new.port),
+			("name", old.name != new.name),
+			("mdns", old.mdns != new.mdns),
+			("interval_ms", old.interval_ms != new.interval_ms),
+			("history_minutes", old.history_minutes != new.history_minutes),
+		]
+		.into_iter()
+		.filter_map(|(k, changed)| changed.then_some(k))
+		.collect();
+		if !restart.is_empty() {
+			eprintln!("settings: {} take effect after a restart", restart.join(", "));
+		}
+		if old.control != new.control {
+			eprintln!("settings: control is now {}", if new.control { "on" } else { "off" });
+		}
+		if let Ok(mut c) = self.config.write() {
+			*c = Arc::new(new);
+		}
+		self.refresh_soon();
 	}
 
 	/// Asks the collector to re-read services, profiles and media on its next tick.
@@ -171,6 +207,7 @@ async fn hello(State(hub): State<Arc<Hub>>) -> Response {
 		"id": hub.id,
 		"name": hub.name,
 		"version": env!("CARGO_PKG_VERSION"),
+		"min_app": crate::MIN_APP,
 	}))
 	.into_response()
 }

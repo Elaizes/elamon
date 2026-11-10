@@ -20,6 +20,10 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio::sync::watch;
 
 pub const API_VERSION: u32 = 1;
+/// The oldest app that understands this service; an older one asks to be updated.
+pub const MIN_APP: &str = "0.3.0";
+/// How often the settings files are looked at for edits; SIGHUP rereads them at once.
+const SETTINGS_POLL: Duration = Duration::from_secs(5);
 const SERVICE_TYPE: &str = "_elamon._tcp.local.";
 
 const HELP: &str = "\
@@ -68,17 +72,23 @@ fn machine_name(config: &store::Config) -> String {
 	sysinfo::System::host_name().unwrap_or_else(|_| "Computer".into())
 }
 
+/// The tick and the points of history kept, from the settings within sane bounds.
+fn timing(config: &store::Config) -> (Duration, usize) {
+	let interval = Duration::from_millis(config.interval_ms.clamp(250, 10_000));
+	let history_len = (config.history_minutes * 60_000 / interval.as_millis() as u64).clamp(10, 7200) as usize;
+	(interval, history_len)
+}
+
 fn serve() -> Result<(), String> {
 	let config = store::load_config()?;
 	let identity = store::Identity::load_or_create().map_err(|e| format!("can't create the TLS identity: {e}"))?;
 	let name = machine_name(&config);
-	let interval = Duration::from_millis(config.interval_ms.clamp(250, 10_000));
-	let history_len = (config.history_minutes * 60_000 / interval.as_millis() as u64).clamp(10, 7200) as usize;
+	let (interval, history_len) = timing(&config);
 
 	let mut collector = collect::Collector::new();
 	// The first reading primes CPU counters; the published one starts a tick later.
 	collector.read(false, false);
-	let info = Arc::new(serde_json::to_string(&collector.info(&identity.id, &name, config.control)).unwrap_or_default());
+	let info = Arc::new(serde_json::to_string(&collector.info(&identity.id, &name, config.control, interval, history_len)).unwrap_or_default());
 	let first = Arc::new(server::Frame { sample: "{}".into(), processes: None, info });
 	let (tx, rx) = watch::channel(first);
 	let hub = Arc::new(server::Hub::new(
@@ -125,6 +135,7 @@ fn serve() -> Result<(), String> {
 
 	let ip: IpAddr = config.listen.parse().map_err(|_| format!("listen: \"{}\" is not an IP address", config.listen))?;
 	runtime.block_on(async move {
+		tokio::spawn(watch_settings(hub.clone()));
 		let app = server::router(hub).into_make_service_with_connect_info::<SocketAddr>();
 		let tls = RustlsConfig::from_config(Arc::new(tls));
 		let addr = SocketAddr::new(ip, config.port);
@@ -155,6 +166,34 @@ fn serve() -> Result<(), String> {
 			.await
 			.map_err(|e| e.to_string())
 	})
+}
+
+/// Rereads the settings on SIGHUP, or when elamond.toml or a drop-in changes. Files that
+/// don't parse leave the running settings as they were.
+async fn watch_settings(hub: Arc<server::Hub>) {
+	use tokio::signal::unix::{signal, SignalKind};
+	let Ok(mut hangup) = signal(SignalKind::hangup()) else {
+		return;
+	};
+	let mut stamp = store::config_stamp();
+	loop {
+		let asked = tokio::select! {
+			_ = hangup.recv() => true,
+			_ = tokio::time::sleep(SETTINGS_POLL) => false,
+		};
+		let now = store::config_stamp();
+		if !asked && now == stamp {
+			continue;
+		}
+		stamp = now;
+		match store::load_config() {
+			Ok(c) => {
+				eprintln!("settings: reread");
+				hub.set_config(c);
+			}
+			Err(e) => eprintln!("settings: kept the running ones; {e}"),
+		}
+	}
 }
 
 async fn shutdown_signal() {
@@ -190,7 +229,7 @@ fn collect_loop(
 		}
 		// GPU names improve once NVML has been read, so info is rebuilt now and then.
 		if tick % 10 == 1 {
-			let fresh = serde_json::to_string(&collector.info(&id, &name, hub.config.control)).unwrap_or_default();
+			let fresh = serde_json::to_string(&collector.info(&id, &name, hub.config().control, hub.interval, hub.history_len)).unwrap_or_default();
 			if fresh != *info {
 				info = Arc::new(fresh);
 			}
@@ -334,7 +373,8 @@ fn snapshot() -> Result<(), String> {
 	std::thread::sleep(Duration::from_secs(1));
 	let reading = c.read(true, true);
 	let config = store::load_config()?;
-	let info = c.info("-", &machine_name(&config), config.control);
+	let (interval, history_len) = timing(&config);
+	let info = c.info("-", &machine_name(&config), config.control, interval, history_len);
 	let mut procs = reading.processes.unwrap_or_default();
 	procs.sort_by(|a, b| b.cpu.total_cmp(&a.cpu));
 	procs.truncate(10);

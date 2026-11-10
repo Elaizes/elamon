@@ -62,9 +62,9 @@ pub fn save(list: &[ServiceDef]) -> std::io::Result<()> {
 
 /// Every service, the configured ones first.
 pub fn all(config: &store::Config, app: &[ServiceDef]) -> Vec<(ServiceDef, bool)> {
-	let fixed = config.services.iter().enumerate().map(|(i, s)| {
+	let fixed = config.services.iter().map(|s| {
 		(
-			ServiceDef { id: format!("config-{i}"), name: s.name.clone(), url: s.url.clone(), unit: s.unit.clone(), scope: s.scope.clone() },
+			ServiceDef { id: format!("config-{}", s.id()), name: s.name.clone(), url: s.url.clone(), unit: s.unit.clone(), scope: s.scope.clone() },
 			false,
 		)
 	});

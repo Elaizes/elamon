@@ -10,6 +10,12 @@ pub struct Info {
 	pub name: String,
 	pub service_version: &'static str,
 	pub api: u32,
+	/// The oldest app version that understands this service.
+	pub min_app: &'static str,
+	/// Milliseconds between the service's readings; a stream can't be faster.
+	pub interval_ms: u64,
+	/// How far back `history` reaches, in seconds.
+	pub history_seconds: u64,
 	pub os: String,
 	pub kernel: String,
 	pub arch: String,
