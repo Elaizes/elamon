@@ -168,79 +168,82 @@ class ElamondClient(
 		throw ElamondException.fromResponse(code, body)
 	}
 
-	/** A request with an optional JSON body; returns the response body. */
-	suspend fun request(method: String, path: String, body: String? = null, timeoutMs: Int = Limits.REQUEST_TIMEOUT_MS): String = withContext(Dispatchers.IO) {
-		call {
-			val c = open(path, timeoutMs)
-			try {
-				c.requestMethod = method
-				if (body != null) {
-					c.doOutput = true
-					c.setRequestProperty("Content-Type", "application/json")
-					c.outputStream.use { it.write(body.toByteArray()) }
+	/**
+	 * Opens [path] and runs [block] on the connection, on Dispatchers.IO. Connecting and reading
+	 * ignore coroutine cancellation, so a cancelled exchange closes the connection at once rather
+	 * than wait out its timeout: an address given up on (another one answered first) costs nothing
+	 * more. With [finishOnCancel] it is left open to finish instead, for a request the service undoes
+	 * when it goes away (an action is killed with it).
+	 */
+	private suspend fun <T> exchange(path: String, readTimeoutMs: Int, finishOnCancel: Boolean = false, block: (HttpsURLConnection) -> T): T =
+		withContext(Dispatchers.IO) {
+			val c = call { open(path, readTimeoutMs) }
+			if (finishOnCancel) {
+				try {
+					call { block(c) }
+				} finally {
+					c.disconnect()
 				}
-				checkStatus(c)
-				c.inputStream.bufferedReader().readText()
-			} finally {
-				c.disconnect()
+			} else {
+				closeOnCancel(close = { c.disconnect() }) { call { block(c) } }
 			}
 		}
+
+	/** Sends [body] as JSON. */
+	private fun send(c: HttpURLConnection, body: String) {
+		c.doOutput = true
+		c.setRequestProperty("Content-Type", "application/json")
+		c.outputStream.use { it.write(body.toByteArray()) }
+	}
+
+	/**
+	 * A request with an optional JSON body; returns the response body. [finishOnCancel] keeps the
+	 * connection when the caller is cancelled, as [exchange] says.
+	 */
+	suspend fun request(
+		method: String,
+		path: String,
+		body: String? = null,
+		timeoutMs: Int = Limits.REQUEST_TIMEOUT_MS,
+		finishOnCancel: Boolean = false,
+	): String = exchange(path, timeoutMs, finishOnCancel) { c ->
+		c.requestMethod = method
+		if (body != null) send(c, body)
+		checkStatus(c)
+		c.inputStream.bufferedReader().readText()
 	}
 
 	suspend inline fun <reified T> get(path: String): T = ProtocolJson.decodeFromString(request("GET", path))
 
-	suspend inline fun <reified B, reified T> post(path: String, body: B, timeoutMs: Int = Limits.REQUEST_TIMEOUT_MS): T =
-		ProtocolJson.decodeFromString(request("POST", path, ProtocolJson.encodeToString(body), timeoutMs))
+	suspend inline fun <reified B, reified T> post(path: String, body: B, timeoutMs: Int = Limits.REQUEST_TIMEOUT_MS, finishOnCancel: Boolean = false): T =
+		ProtocolJson.decodeFromString(request("POST", path, ProtocolJson.encodeToString(body), timeoutMs, finishOnCancel))
 
 	suspend fun delete(path: String) {
 		request("DELETE", path)
 	}
 
 	/** Raw bytes, for album art. */
-	suspend fun bytes(path: String): ByteArray = withContext(Dispatchers.IO) {
-		call {
-			val c = open(path, Limits.BYTES_TIMEOUT_MS)
-			try {
-				checkStatus(c)
-				c.inputStream.use { it.readBytes() }
-			} finally {
-				c.disconnect()
-			}
-		}
+	suspend fun bytes(path: String): ByteArray = exchange(path, Limits.BYTES_TIMEOUT_MS) { c ->
+		checkStatus(c)
+		c.inputStream.use { it.readBytes() }
 	}
 
-	suspend fun hello(): Hello = withContext(Dispatchers.IO) {
-		call {
-			val c = open("/api/v1/hello", Limits.HELLO_TIMEOUT_MS)
-			try {
-				checkStatus(c)
-				val h = ProtocolJson.decodeFromString<Hello>(c.inputStream.bufferedReader().readText())
-				if (h.app != "elamon") throw ElamondException(ElamondException.Kind.NotElamond)
-				h
-			} finally {
-				c.disconnect()
-			}
-		}
+	suspend fun hello(): Hello = exchange("/api/v1/hello", Limits.HELLO_TIMEOUT_MS) { c ->
+		checkStatus(c)
+		val h = ProtocolJson.decodeFromString<Hello>(c.inputStream.bufferedReader().readText())
+		if (h.app != "elamon") throw ElamondException(ElamondException.Kind.NotElamond)
+		h
 	}
 
-	suspend fun pair(code: String, device: String): PairResponse = withContext(Dispatchers.IO) {
-		call {
-			val c = open("/api/v1/pair", Limits.PAIR_TIMEOUT_MS)
-			try {
-				c.requestMethod = "POST"
-				c.doOutput = true
-				c.setRequestProperty("Content-Type", "application/json")
-				val body = buildJsonObject {
-					put("code", code)
-					put("device", device)
-				}
-				c.outputStream.use { it.write(ProtocolJson.encodeToString(body).toByteArray()) }
-				checkStatus(c)
-				ProtocolJson.decodeFromString<PairResponse>(c.inputStream.bufferedReader().readText())
-			} finally {
-				c.disconnect()
-			}
+	suspend fun pair(code: String, device: String): PairResponse = exchange("/api/v1/pair", Limits.PAIR_TIMEOUT_MS) { c ->
+		c.requestMethod = "POST"
+		val body = buildJsonObject {
+			put("code", code)
+			put("device", device)
 		}
+		send(c, ProtocolJson.encodeToString(body))
+		checkStatus(c)
+		ProtocolJson.decodeFromString<PairResponse>(c.inputStream.bufferedReader().readText())
 	}
 
 	/** Info, then optionally history, then a sample every [intervalMs] until cancelled. */
@@ -281,34 +284,41 @@ class ElamondClient(
 			port: Int,
 			pin: String?,
 			expectId: String?,
-		): Pair<ElamondClient, Hello>? = coroutineScope {
-			if (hosts.isEmpty()) return@coroutineScope null
+		): Pair<ElamondClient, Hello>? {
+			if (hosts.isEmpty()) return null
 			var certificateChanged = false
-			val attempts = hosts.distinct().map { h ->
-				async {
-					try {
-						val client = ElamondClient(h, port, pin)
-						val hello = client.hello()
-						if (expectId != null && hello.id != expectId) null else client to hello
-					} catch (e: ElamondException) {
-						if (e.kind == ElamondException.Kind.CertificateChanged) certificateChanged = true
-						null
-					}
+			val result = firstAnswer(hosts.distinct()) { h ->
+				try {
+					val client = ElamondClient(h, port, pin)
+					val hello = client.hello()
+					if (expectId != null && hello.id != expectId) null else client to hello
+				} catch (e: ElamondException) {
+					if (e.kind == ElamondException.Kind.CertificateChanged) certificateChanged = true
+					null
 				}
 			}
-			var result: Pair<ElamondClient, Hello>? = null
-			val pending = attempts.toMutableList()
-			while (pending.isNotEmpty() && result == null) {
-				val (done, value) = select {
-					pending.forEach { d -> d.onAwait { d to it } }
-				}
-				pending.remove(done)
-				result = value
-			}
-			pending.forEach { it.cancel() }
 			// Reached, but presenting another certificate: worth telling apart from "offline".
 			if (result == null && certificateChanged) throw ElamondException(ElamondException.Kind.CertificateChanged)
-			result
+			return result
 		}
 	}
+}
+
+/**
+ * Runs [probe] on all of [hosts] at once and returns the first answer that isn't null, or null when
+ * none gives one. The slower probes are cancelled and waited for, so a probe has to end as soon as it
+ * is cancelled (hello() closes its connection) for a dead address not to hold this up until it times out.
+ */
+internal suspend fun <T : Any> firstAnswer(hosts: List<String>, probe: suspend (String) -> T?): T? = coroutineScope {
+	val pending = hosts.map { h -> async { probe(h) } }.toMutableList()
+	var result: T? = null
+	while (pending.isNotEmpty() && result == null) {
+		val (done, value) = select {
+			pending.forEach { d -> d.onAwait { d to it } }
+		}
+		pending.remove(done)
+		result = value
+	}
+	pending.forEach { it.cancel() }
+	result
 }

@@ -167,6 +167,9 @@ fun MachineScreen(
 	val status = connText(state.conn, Intervals.effective(prefs.intervalMs, state.info?.intervalMs))
 	val compatDismissed by vm.compatDismissed.collectAsStateWithLifecycle()
 	val compat = state.info?.let { compatibility(BuildConfig.VERSION_NAME, it.api, it.serviceVersion, it.minApp) } ?: Compat.Ok
+	// Unpaired, another certificate or refused: the screen is a notice, with no tabs to switch
+	// between and no old numbers coming back.
+	val turnedAway = state.conn == Conn.Unauthorized || state.conn == Conn.CertificateChanged || state.conn == Conn.Refused
 	val currentList = if (detail != null) detailList else lists.getValue(tab)
 	val collapsed = rememberCollapsed(currentList)
 
@@ -175,7 +178,7 @@ fun MachineScreen(
 		BottomBarLayout(
 			Modifier.fillMaxSize(),
 			bar = {
-				if (state.sample != null && detail == null) {
+				if (state.sample != null && detail == null && !turnedAway) {
 					FloatingNavBar(
 						items = Tab.entries.map { NavItem(stringResource(it.label), it.icon()) },
 						selected = tab.ordinal,
@@ -248,7 +251,8 @@ fun MachineScreen(
 
 				GlassTopBar(
 					title = detail?.let { detailTitle(it, state) } ?: name,
-					collapsed = collapsed || state.sample == null,
+					// No big title on a notice: the bar says whose it is.
+					collapsed = collapsed || state.sample == null || turnedAway,
 					onBack = { if (detail != null) detail = null else onBack() },
 					subtitle = if (detail != null) name else status,
 					actions = {
@@ -272,12 +276,12 @@ fun MachineScreen(
 						.then(if (collapsed) Modifier.padding(top = barHeight + Space.s) else Modifier.height(barHeight)),
 					contentAlignment = Alignment.Center,
 				) {
-					AnimatedVisibility(visible = state.sample != null && state.conn != Conn.Live) {
+					AnimatedVisibility(visible = state.sample != null && state.conn != Conn.Live && !turnedAway) {
 						Pill(stringResource(if (state.conn == Conn.Offline) R.string.machine_offline_retrying else R.string.conn_reconnecting), Metric.colors.warn, dot = true)
 					}
 				}
 
-				if (state.sample != null) BottomGlass(Modifier.align(Alignment.BottomCenter))
+				if (state.sample != null && !turnedAway) BottomGlass(Modifier.align(Alignment.BottomCenter))
 
 				SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = bottomReserve() + Space.l))
 			}

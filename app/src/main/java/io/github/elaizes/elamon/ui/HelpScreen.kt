@@ -66,6 +66,7 @@ import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.data.DEFAULT_HISTORY_SECONDS
 import io.github.elaizes.elamon.data.DEFAULT_INTERVAL_MS
 import io.github.elaizes.elamon.data.DEFAULT_PORT
+import io.github.elaizes.elamon.data.Limits.MDNS_PORT
 import io.github.elaizes.elamon.data.ServerStore
 
 /** Where the project lives; the one place to change if it moves. */
@@ -84,12 +85,20 @@ object HelpTopic {
 private enum class HelpItem { Intro, Install, Firewall, Pair, Control, Faq, Commands, Settings, Privacy }
 
 private sealed interface Block {
-	data class Text(@StringRes val res: Int) : Block
+	/** A paragraph; [args] fill its placeholders. */
+	data class Text(@StringRes val res: Int, val args: List<String> = emptyList()) : Block
 	data class Code(val code: String) : Block
 }
 
-private fun t(@StringRes res: Int) = Block.Text(res)
+private fun t(@StringRes res: Int, vararg args: String) = Block.Text(res, args.toList())
 private fun c(code: String) = Block.Code(code)
+
+/**
+ * The ports the guide's words name, from the same constants as its commands. As text: formatted as
+ * numbers they could come out in the phone's own digits, and they are to be typed as they are.
+ */
+private val SERVICE_PORT_TEXT = DEFAULT_PORT.toString()
+private val MDNS_PORT_TEXT = MDNS_PORT.toString()
 
 /** [label] is the system's own name, the same in every language, like the commands; null is "Other", from resources. */
 private data class Distro(val key: String, val label: String?, val install: List<Block>, val firewall: List<Block>)
@@ -114,9 +123,6 @@ private val UPDATE = """
 	systemctl --user restart elamond
 """.trimIndent()
 
-/** The port mDNS answers on: the same everywhere. */
-private const val MDNS_PORT = 5353
-
 private val FIREWALLD = "sudo firewall-cmd --permanent --add-port=$DEFAULT_PORT/tcp\nsudo firewall-cmd --permanent --add-service=mdns\nsudo firewall-cmd --reload"
 private val UFW = "sudo ufw allow $DEFAULT_PORT/tcp\nsudo ufw allow $MDNS_PORT/udp"
 
@@ -131,7 +137,7 @@ private fun fromSource(deps: List<Block>) = deps + listOf(
 )
 
 private val GENERIC_FIREWALL = listOf(
-	t(R.string.help_fw_generic),
+	t(R.string.help_fw_generic, SERVICE_PORT_TEXT, MDNS_PORT_TEXT),
 	t(R.string.help_fw_ufw),
 	c(UFW),
 	t(R.string.help_fw_firewalld),
@@ -242,10 +248,10 @@ private const val CONTROL_POLKIT = """polkit.addRule(function (action, subject) 
 private class Faq(@StringRes val q: Int, val answer: List<Block>)
 
 private val FAQ = listOf(
-	Faq(R.string.faq_not_found_q, listOf(t(R.string.faq_not_found_a))),
+	Faq(R.string.faq_not_found_q, listOf(t(R.string.faq_not_found_a, MDNS_PORT_TEXT))),
 	Faq(
 		R.string.faq_no_connect_q,
-		listOf(t(R.string.faq_no_connect_a), c("systemctl --user status elamond\njournalctl --user -u elamond -e"), t(R.string.faq_no_connect_a2)),
+		listOf(t(R.string.faq_no_connect_a), c("systemctl --user status elamond\njournalctl --user -u elamond -e"), t(R.string.faq_no_connect_a2, SERVICE_PORT_TEXT)),
 	),
 	Faq(R.string.faq_logout_q, listOf(t(R.string.faq_logout_a), c("loginctl enable-linger"))),
 	Faq(R.string.faq_cert_q, listOf(t(R.string.faq_cert_a))),
@@ -346,7 +352,7 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 					HelpItem.Firewall -> {
 						Section(stringResource(R.string.help_firewall), Icons.Default.Lock) {
 							Blocks(distro.firewall)
-							Text(stringResource(R.string.help_fw_why), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+							Text(stringResource(R.string.help_fw_why, SERVICE_PORT_TEXT, MDNS_PORT_TEXT), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 						}
 					}
 					HelpItem.Pair -> {
@@ -414,7 +420,8 @@ private fun Blocks(blocks: List<Block>) {
 	Column(verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
 		for (b in blocks) {
 			when (b) {
-				is Block.Text -> Text(stringResource(b.res), style = MaterialTheme.typography.bodyMedium)
+				// Without arguments the text isn't formatted at all, so a "%" in it stays as written.
+				is Block.Text -> Text(if (b.args.isEmpty()) stringResource(b.res) else stringResource(b.res, *b.args.toTypedArray()), style = MaterialTheme.typography.bodyMedium)
 				is Block.Code -> CodeBlock(b.code)
 			}
 		}

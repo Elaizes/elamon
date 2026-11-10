@@ -115,4 +115,16 @@ class PairLinkTest {
 		// The new id already paired too (both entries go, one stays, where the first was).
 		assertEquals(listOf("a", "c"), withServer(list, server("a"), replacing = "b").map { it.id })
 	}
+
+	@Test
+	fun aScreenOfAReplacedEntryFindsTheOneInItsPlace() {
+		val exists = setOf("c", "x")::contains
+		// Paired again as b, then again as c: the screen of a goes to c.
+		assertEquals("c", successorOf("a", mapOf("a" to "b", "b" to "c"), exists))
+		// Never replaced, or replaced by one since forgotten: nowhere to go.
+		assertNull(successorOf("a", emptyMap(), exists))
+		assertNull(successorOf("a", mapOf("a" to "b"), exists))
+		// A trail going round in a circle ends.
+		assertNull(successorOf("a", mapOf("a" to "b", "b" to "a"), exists))
+	}
 }

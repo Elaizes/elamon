@@ -153,9 +153,19 @@ class MainActivity : ComponentActivity() {
 								onSettings = { nav.push(Screen.Settings) },
 							)
 							is Screen.Machine -> {
-								val server = ServerStore.get(this@MainActivity).get(screen.id)
+								val store = ServerStore.get(this@MainActivity)
+								// Watched, not read once: the entry may go or be replaced while the screen is open.
+								val servers by store.servers.collectAsStateWithLifecycle()
+								val server = servers.find { it.id == screen.id }
 								if (server == null) {
-									LaunchedEffect(Unit) { nav.reset(Screen.Home) }
+									LaunchedEffect(screen) {
+										// Only the screen on top moves; one on its way out is left alone.
+										if (nav.top != screen) return@LaunchedEffect
+										// Paired again under a new id, with the pairing screen left before it
+										// finished: on to the new entry. Otherwise it's gone: back home.
+										val next = store.successor(screen.id)
+										if (next != null) nav.paired(next) else nav.reset(Screen.Home)
+									}
 								} else {
 									MachineScreen(
 										server,

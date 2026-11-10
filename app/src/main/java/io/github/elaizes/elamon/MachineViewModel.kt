@@ -438,7 +438,8 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 		viewModelScope.launch {
 			try {
 				val c = client() ?: throw ElamondException(ElamondException.Kind.Unreachable)
-				val r = c.post<ActionReq, ActionResult>("/api/v1/control/action", ActionReq(id), timeoutMs = Limits.ACTION_TIMEOUT_MS)
+				// The service kills an action whose request goes away: leaving the screen lets it finish.
+				val r = c.post<ActionReq, ActionResult>("/api/v1/control/action", ActionReq(id), timeoutMs = Limits.ACTION_TIMEOUT_MS, finishOnCancel = true)
 				_actions.update { it.copy(results = it.results + (id to r), shown = id) }
 			} catch (e: CancellationException) {
 				throw e

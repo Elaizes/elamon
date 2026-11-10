@@ -89,6 +89,9 @@ object Limits {
 	/** Ports from here up are handed out for programs talking out, not for services listening. */
 	const val EPHEMERAL_PORT_MIN = 32_768
 
+	/** The port mDNS answers on, the same everywhere: what finds computers on the network. */
+	const val MDNS_PORT = 5353
+
 	// ---- services, as the service checks them -------------------------------------------------------
 
 	/** Characters in a service's name. */

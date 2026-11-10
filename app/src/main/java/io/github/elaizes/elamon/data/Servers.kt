@@ -2,6 +2,7 @@ package io.github.elaizes.elamon.data
 
 import android.content.Context
 import android.net.Uri
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +33,9 @@ class ServerStore(context: Context) {
 	private val _servers = MutableStateFlow(load())
 	val servers: StateFlow<List<Server>> = _servers.asStateFlow()
 
+	/** Entries paired again under a new id, by the id they had; for as long as the app runs. */
+	private val replacedBy = ConcurrentHashMap<String, String>()
+
 	private fun load(): List<Server> = runCatching {
 		ProtocolJson.decodeFromString<List<Server>>(prefs.getString("list", null) ?: "[]")
 	}.getOrDefault(emptyList())
@@ -45,8 +49,13 @@ class ServerStore(context: Context) {
 
 	/** Adds a computer, replacing an older pairing with it or the entry [replacing] (a reset computer has a new id). */
 	fun put(server: Server, replacing: String? = null) {
-		save(withServer(_servers.value, server, replacing))
+		val list = _servers.value
+		if (replacing != null && replacing != server.id && list.any { it.id == replacing }) replacedBy[replacing] = server.id
+		save(withServer(list, server, replacing))
 	}
+
+	/** The entry that took the place of the gone entry [id] (paired again, the computer had a new id), if one is still here. */
+	fun successor(id: String): String? = successorOf(id, replacedBy) { get(it) != null }
 
 	fun update(id: String, change: (Server) -> Server) {
 		save(_servers.value.map { if (it.id == id) change(it) else it })
@@ -73,6 +82,20 @@ fun withServer(list: List<Server>, server: Server, replacing: String? = null): L
 	val rest = list.filterNot(gone)
 	// Nothing before the first match is removed, so its index is where the new entry goes.
 	return if (at < 0) rest + server else rest.toMutableList().apply { add(at, server) }
+}
+
+/**
+ * Where the entry [id] lives on: following [replacedBy] from it, the first id that [exists]; null
+ * when the trail ends, or goes round in a circle, without one.
+ */
+fun successorOf(id: String, replacedBy: Map<String, String>, exists: (String) -> Boolean): String? {
+	val seen = mutableSetOf(id)
+	var at = id
+	while (true) {
+		at = replacedBy[at] ?: return null
+		if (!seen.add(at)) return null
+		if (exists(at)) return at
+	}
 }
 
 /** What `elamond pair` puts in its QR code, or what the user picked and typed. */

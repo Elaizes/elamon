@@ -64,6 +64,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -104,10 +105,16 @@ fun ControlTab(t: TabScope) {
 	val control by vm.control.collectAsStateWithLifecycle()
 	val controlError by vm.controlError.collectAsStateWithLifecycle()
 	val s = t.state.sample ?: return
-	var open by remember { mutableStateOf<ServiceStatus?>(null) }
-	var edit by remember { mutableStateOf<ServiceStatus?>(null) }
-	var adding by remember { mutableStateOf(false) }
-	var localOnly by remember { mutableStateOf<ServiceStatus?>(null) }
+	// What is open is kept by the service's id, so it outlives a rotation; the service itself is
+	// looked up in each sample, and one gone from the computer closes what was open for it.
+	var openId by rememberSaveable { mutableStateOf<String?>(null) }
+	var editId by rememberSaveable { mutableStateOf<String?>(null) }
+	var adding by rememberSaveable { mutableStateOf(false) }
+	var localOnlyId by rememberSaveable { mutableStateOf<String?>(null) }
+	fun service(id: String?) = id?.let { i -> s.services.find { it.id == i } }
+	val open = service(openId)
+	val edit = service(editId)
+	val localOnly = service(localOnlyId)
 	val ctx = LocalContext.current
 
 	DisposableEffect(Unit) {
@@ -138,8 +145,8 @@ fun ControlTab(t: TabScope) {
 		item(key = "services") {
 			ServicesSection(
 				services = s.services,
-				onOpen = { if (it.localOnly) localOnly = it else launch(it) },
-				onMenu = { open = it },
+				onOpen = { if (it.localOnly) localOnlyId = it.id else launch(it) },
+				onMenu = { openId = it.id },
 				onAdd = { adding = true },
 			)
 		}
@@ -162,24 +169,24 @@ fun ControlTab(t: TabScope) {
 	open?.let { svc ->
 		ServiceSheet(
 			t, svc, enabled,
-			onDismiss = { open = null },
-			onOpen = { open = null; if (svc.localOnly) localOnly = svc else launch(svc) },
-			onEdit = { open = null; edit = svc },
+			onDismiss = { openId = null },
+			onOpen = { openId = null; if (svc.localOnly) localOnlyId = svc.id else launch(svc) },
+			onEdit = { openId = null; editId = svc.id },
 		)
 	}
 	if (adding || edit != null) {
-		ServiceEditor(t, edit, onDismiss = { adding = false; edit = null })
+		ServiceEditor(t, edit, onDismiss = { adding = false; editId = null })
 	}
 	localOnly?.let { svc ->
 		GlassDialog(
-			onDismiss = { localOnly = null },
+			onDismiss = { localOnlyId = null },
 			title = stringResource(R.string.control_local_only_title),
 			icon = Icons.Default.Warning,
 			text = {
 				Text(stringResource(R.string.control_local_only_body, svc.name))
 			},
-			confirm = { TextButton(onClick = { localOnly = null; launch(svc) }) { Text(stringResource(R.string.control_open_anyway)) } },
-			dismiss = { TextButton(onClick = { localOnly = null }) { Text(stringResource(R.string.cancel)) } },
+			confirm = { TextButton(onClick = { localOnlyId = null; launch(svc) }) { Text(stringResource(R.string.control_open_anyway)) } },
+			dismiss = { TextButton(onClick = { localOnlyId = null }) { Text(stringResource(R.string.cancel)) } },
 		)
 	}
 }
@@ -317,7 +324,7 @@ private fun ServiceTile(svc: ServiceStatus, modifier: Modifier, onOpen: () -> Un
 @Composable
 private fun ServiceSheet(t: TabScope, svc: ServiceStatus, control: Boolean, onDismiss: () -> Unit, onOpen: () -> Unit, onEdit: () -> Unit) {
 	val prefs = LocalPrefs.current
-	var confirm by remember { mutableStateOf<String?>(null) }
+	var confirm by rememberSaveable { mutableStateOf<String?>(null) }
 	ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
 		Column(Modifier.padding(start = Space.xxl, end = Space.xxl, bottom = Space.xxxl), verticalArrangement = Arrangement.spacedBy(Space.m)) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
@@ -395,10 +402,11 @@ private fun ServiceSheet(t: TabScope, svc: ServiceStatus, control: Boolean, onDi
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun ServiceEditor(t: TabScope, existing: ServiceStatus?, onDismiss: () -> Unit) {
-	var name by remember { mutableStateOf(existing?.name.orEmpty()) }
-	var url by remember { mutableStateOf(existing?.url ?: SERVICE_URL_START) }
-	var unit by remember { mutableStateOf(existing?.unit.orEmpty()) }
-	var scope by remember { mutableStateOf(existing?.scope ?: "user") }
+	// What has been typed outlives a rotation; what the computer suggests is asked for again.
+	var name by rememberSaveable { mutableStateOf(existing?.name.orEmpty()) }
+	var url by rememberSaveable { mutableStateOf(existing?.url ?: SERVICE_URL_START) }
+	var unit by rememberSaveable { mutableStateOf(existing?.unit.orEmpty()) }
+	var scope by rememberSaveable { mutableStateOf(existing?.scope ?: "user") }
 	var detected by remember { mutableStateOf<List<Listener>>(emptyList()) }
 	var units by remember { mutableStateOf<List<UnitInfo>>(emptyList()) }
 	val taken = t.state.sample?.services.orEmpty().mapNotNull { it.port }.toSet()

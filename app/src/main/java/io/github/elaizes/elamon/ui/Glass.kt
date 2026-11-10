@@ -188,7 +188,8 @@ fun GlassTopBar(
 	subtitle: String? = null,
 	actions: @Composable RowScope.() -> Unit = {},
 ) {
-	val a by animateFloatAsState(if (collapsed) 1f else 0f, tween(Motion.BAR_FADE), label = "bar")
+	val animate = LocalPrefs.current.animations
+	val a by animateFloatAsState(if (collapsed) 1f else 0f, tween(if (animate) Motion.BAR_FADE else 0), label = "bar")
 	Box(Modifier.fillMaxWidth().glass(alpha = a, fadeDown = true)) {
 		Row(
 			Modifier.statusBarsPadding().fillMaxWidth().height(topBarHeight()).padding(horizontal = Space.xs),
@@ -200,7 +201,11 @@ fun GlassTopBar(
 				Spacer(Modifier.width(Space.m))
 			}
 			Column(Modifier.weight(1f).padding(start = Space.xs)) {
-				AnimatedVisibility(collapsed, enter = fadeIn(tween(Motion.TITLE_IN)), exit = fadeOut(tween(Motion.TITLE_OUT))) {
+				AnimatedVisibility(
+					collapsed,
+					enter = fadeIn(tween(if (animate) Motion.TITLE_IN else 0)),
+					exit = fadeOut(tween(if (animate) Motion.TITLE_OUT else 0)),
+				) {
 					Column {
 						Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
 						if (subtitle != null) {
@@ -273,6 +278,7 @@ private val NavLabelMin = 9.sp
 fun FloatingNavBar(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
 	Box(modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = Space.xl, vertical = Space.m), contentAlignment = Alignment.Center) {
 		val shadow = Color.Black.copy(alpha = Alpha.SHADOW)
+		val moveMs = if (LocalPrefs.current.animations) Motion.NAV else 0
 		Row(
 			Modifier
 				.fillMaxWidth()
@@ -287,12 +293,12 @@ fun FloatingNavBar(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit,
 				val on = i == selected
 				val bg by animateColorAsState(
 					if (on) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-					tween(Motion.NAV),
+					tween(moveMs),
 					label = "navbg",
 				)
 				val fg by animateColorAsState(
 					if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-					tween(Motion.NAV),
+					tween(moveMs),
 					label = "navfg",
 				)
 				Column(

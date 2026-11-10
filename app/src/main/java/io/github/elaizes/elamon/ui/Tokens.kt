@@ -156,7 +156,7 @@ object Sizes {
 	val licenceMax = 420.dp
 }
 
-/** How long things move, in milliseconds; with animations off, everything but the bars' fades is instant. */
+/** How long things move, in milliseconds; with animations off, all of them are instant. */
 object Motion {
 	/** From screen to screen, and how small the new one starts. */
 	const val SCREEN_IN = 240
