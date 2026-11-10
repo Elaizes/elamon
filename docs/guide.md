@@ -223,9 +223,11 @@ In `~/.config/elamon/elamond.toml`:
 control = true
 ```
 
-then `systemctl --user restart elamond`. On NixOS, set it through the module instead
-(`services.elamond.settings.control = true;`), which writes that file and restarts the service when
-it changes.
+The service notices the change within a few seconds by itself (or at once with
+`systemctl --user reload elamond`). On NixOS, set it through the module instead
+(`services.elamond.settings.control = true;`): the service then reads its settings from a read-only
+file the module builds, and restarts when they change. Anything you want to add by hand goes in
+a drop-in beside it, `~/.config/elamon/elamond.d/*.toml` ([section 6](#6-settings-reference)).
 
 ### What comes from where
 
@@ -315,7 +317,11 @@ that (GNOME and KDE do; on wlroots compositors, set up e.g. hypridle's `lock_cmd
 
 ### `elamond.toml`
 
-`~/.config/elamon/elamond.toml`, or the file `ELAMON_CONFIG` names. All keys are optional.
+`~/.config/elamon/elamond.toml`, or the file `ELAMON_CONFIG` names, then every
+`~/.config/elamon/elamond.d/*.toml` in name order. A later file adds to `[[services]]` and
+`[[actions]]` and replaces any other key it sets. Under NixOS or Home Manager, where `elamond.toml`
+comes from Nix and can't be edited, the drop-ins are where your own additions go. All keys are
+optional.
 
 | Key | Default | |
 |---|---|---|
@@ -323,24 +329,34 @@ that (GNOME and KDE do; on wlroots compositors, set up e.g. hypridle's `lock_cmd
 | `listen` | `"::"` | address to listen on; `"::"` covers IPv4 and IPv6 |
 | `name` | host name | the name shown in the app |
 | `mdns` | `true` | announce the service on the local network |
-| `interval_ms` | `1000` | time between readings |
-| `history_minutes` | `10` | history a phone gets when it connects |
+| `interval_ms` | `1000` | time between readings, 250–10 000 |
+| `history_minutes` | `10` | history a phone gets when it connects (at most 7 200 readings) |
 | `control` | `false` | allow the control panel |
 | `[[services]]` | | `name`, `url`, `unit`, `scope` — see above |
-| `[[actions]]` | | `name`, `command`, `confirm`, `timeout` — see above |
+| `[[actions]]` | | `name`, `command`, `confirm`, `timeout` (seconds, at most 3 600) — see above |
 
-The service reads the file when it starts. Its state lives in `~/.local/share/elamon`: its id and
-certificate, the paired phones (only hashes of their keys), services added in the app and a pending
-pairing code. Deleting that folder unpairs every phone and gives the service a new certificate.
+The service rereads the files when one of them changes, or on `systemctl --user reload elamond`. A
+file that doesn't parse is named in the log and the running settings stay. `control`, `services`
+and `actions` apply at once; `port`, `listen`, `name`, `mdns`, `interval_ms` and `history_minutes`
+after a restart.
+
+Its state lives in `~/.local/share/elamon`: its id and certificate, the paired phones (only
+hashes of their keys), services added in the app and a pending pairing code. Deleting that folder
+unpairs every phone and gives the service a new certificate.
+
+Where these live follows `XDG_CONFIG_HOME` and `XDG_DATA_HOME`. `ELAMON_CONFIG_DIR` and
+`ELAMON_DATA_DIR` name the two folders outright, `ELAMON_CONFIG` the settings file alone, and
+`ELAMON_PCI_IDS` the PCI database the service takes graphics card names from.
 
 ### NixOS module
 
 | Option | |
 |---|---|
-| `services.elamond.enable` | run the service as a user service for everyone who logs in |
+| `services.elamond.enable` | run the service as a user service for the people who log in (never for system users such as a display manager's greeter) |
+| `services.elamond.users` | only these users run it; empty means every regular user. One service holds the port at a time |
 | `services.elamond.package` | the service package |
-| `services.elamond.settings` | `elamond.toml` for every user's service, as Nix |
-| `services.elamond.openFirewall` | open TCP 47823 and UDP 5353; works without `enable` |
+| `services.elamond.settings` | `elamond.toml` for every user's service, as Nix; `elamond pair` and the other commands read it too |
+| `services.elamond.openFirewall` | open the service's port (`settings.port`, 47823 by default) and UDP 5353; works without `enable` |
 | `services.elamond.control.users` | users whose service may use power and the profile without a password |
 | `services.elamond.control.units` | system units those users may start, stop and restart |
 
@@ -350,7 +366,7 @@ pairing code. Deleting that folder unpairs every phone and gives the service a n
 |---|---|
 | `services.elamond.enable` | run the service for this user |
 | `services.elamond.package` | the service package |
-| `services.elamond.settings` | written to `~/.config/elamon/elamond.toml`; a change restarts the service |
+| `services.elamond.settings` | written to `~/.config/elamon/elamond.toml`; a change restarts the service. Drop-ins in `elamond.d` still add to it |
 
 ## 7. Updating and removing
 
@@ -376,7 +392,7 @@ computer's menu.
 | The app can't connect | `systemctl --user status elamond`, `journalctl --user -u elamond -e`; TCP 47823 open; the address reachable from the phone. |
 | It works only while you're logged in | `loginctl enable-linger` |
 | *The computer's certificate changed* | The service's data was deleted or the system reinstalled; forget the computer and pair again. If neither happened, check the network first. |
-| *Control is off* | `control = true` in `elamond.toml`, then restart the service. |
+| *Control is off* | `control = true` in `elamond.toml` or a drop-in in `elamond.d`; the service takes it up within a few seconds. |
 | *needs permission*, or *The computer didn't allow that* | The polkit rule from section 5. |
 | A service shows *Local only* | It listens on 127.0.0.1; see section 5. |
 | A service shows *No such unit* | The `unit` name is wrong, or the unit isn't installed; `systemctl list-units` (add `--user` for user units). |
