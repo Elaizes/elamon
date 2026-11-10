@@ -1,15 +1,15 @@
 # Elamon user guide
 
 > **Test software in active development.** Features, settings and the protocol between the app
-> and the service can change from one version to the next, and things may break. Use it where that's
-> fine, and update the app and the service together.
+> and the service can change from one version to the next, and things may break. Use it where
+> that's fine, and update the app and the service together.
 
 Elamon has two parts:
 
 - **the app** on an Android phone (Android 8 or newer);
-- **elamond**, a small service on the Linux computer you want to watch. It reads the computer's own
-  counters and serves them over HTTPS, only to phones you paired with it. It runs as a service of
-  your user and needs no root.
+- **elamond**, the Elamon service, a small program on the Linux computer you want to watch. It
+  reads the computer's own counters and serves them over HTTPS, only to phones you paired with it.
+  It runs as your user and needs no root.
 
 The phone talks to the computer directly: on the same network, or over a VPN both are on
 (Tailscale, WireGuard and the like). Nothing goes through a server.
@@ -43,7 +43,7 @@ Import the module and turn the service on:
 imports = [ inputs.elamon.nixosModules.default ];
 
 services.elamond = {
-  enable = true;        # a user service for everyone who logs in
+  enable = true;        # runs for everyone who logs in
   openFirewall = true;  # TCP 47823, and UDP 5353 for discovery
 };
 ```
@@ -139,8 +139,9 @@ unpairs one.
 
 Every paired computer is a card with its CPU, memory and temperature, refreshed every few seconds
 while the screen is open, and a dot for online or offline. Below them, *Found on this network*
-lists services on the local network that this phone isn't paired with yet. Tap a card to open the
-computer; **Add computer** pairs another one. The **?** opens the help, the gear the settings.
+lists computers on the local network that run the service and that this phone isn't paired with
+yet. Tap a card to open the computer; **Add computer** pairs another one. The **?** opens the
+help, the gear the settings.
 
 ### A computer
 
@@ -156,7 +157,7 @@ at the top; scroll and they move into the bar. Four tabs along the bottom:
   with control on — **Quit** and **Force kill**.
 - **Sensors** — every temperature the computer reports, grouped by device, a chart of the CPU and
   GPU temperatures, and the fans. A limit appears next to a sensor when it gets close to it.
-- **Control** — services; the monitors (maker, model, size, current and native mode, highest
+- **Control** — links; the monitors (maker, model, size, current and native mode, highest
   refresh rate, how they're arranged, free ports), shown even when control is off; media, power
   profile, actions and power; see [section 5](#5-the-control-panel).
 
@@ -197,8 +198,8 @@ background.
 - **…check how hot it runs?** The Temperature tile, or Sensors for every sensor and the fans.
 - **…open a web page the computer hosts?** Control → tap its tile. Over a VPN the link uses the
   VPN address by itself.
-- **…restart a service that stopped answering?** Control → hold its tile → *Restart*.
-- **…add a service?** Control → **+**. Pick one of the ports the computer listens on, or type the
+- **…restart a web app that stopped answering?** Control → hold its link → *Restart*.
+- **…add a link?** Control → **+**. Pick one of the ports the computer listens on, or type the
   address; add its systemd unit to start and stop it from here.
 - **…pause the music?** Control → Media: play, pause, skip, seek, and the computer's volume.
 - **…make it quieter or faster?** Control → Power profile.
@@ -238,16 +239,17 @@ a drop-in beside it, `~/.config/elamon/elamond.d/*.toml` ([section 6](#6-setting
 | Power profile | profiles of power-profiles-daemon | permission (polkit) | — |
 | Media and volume | any MPRIS player that's running; the default output through `wpctl` or `pactl` | — | — |
 | Quitting and killing processes | — | — | — |
-| Web services | ports in use and systemd units, as suggestions | `[[services]]` in `elamond.toml` | the **+** button |
+| Links | ports in use and systemd units, as suggestions | `[[links]]` in `elamond.toml` | the **+** button |
 | Commands | — | `[[actions]]` in `elamond.toml`, and only there | — |
 
-### Web services
+### Links
 
-Each service is a tile with its state: *Running*, *Stopped*, *Failed*, *Local only* or *No such
-unit*. Tap to open it in the browser; hold it for start, stop and restart.
+A link opens a web page the computer hosts. Each is a tile with its state: *Running*, *Stopped*,
+*Failed*, *Local only* or *No such unit*. Tap to open it in the browser; hold it for start, stop
+and restart.
 
 ```toml
-[[services]]
+[[links]]
 name = "Media server"
 url = "http://{host}:8096"    # {host}: the address the phone reached the computer at
 unit = "SERVICE.service"      # optional: lets the app start, stop and restart it
@@ -256,12 +258,14 @@ scope = "system"              # or "user" (the default)
 
 - `{host}` makes the link work on the local network and over a VPN alike. `localhost` and
   `127.0.0.1` in a URL are replaced the same way.
-- *Local only* means the service listens on the computer's own address (127.0.0.1): other devices
-  can't open it. The app warns before trying. Make the service listen on all addresses, or reach
-  it through an SSH tunnel.
-- Services from `elamond.toml` are fixed in the app; change them in the file. Services added in the
-  app are stored on the computer (`~/.local/share/elamon/services.json`), so every paired phone
-  sees them, and any of them can change or remove them.
+- *Local only* means what the link points to listens on the computer's own address (127.0.0.1):
+  other devices can't open it. The app warns before trying. Make it listen on all addresses, or
+  reach it through an SSH tunnel.
+- Links from `elamond.toml` are fixed in the app; change them in the file. Links added in the app
+  are stored on the computer (`~/.local/share/elamon/links.json`), so every paired phone sees
+  them, and any of them can change or remove them.
+- Before 0.5 links were called services: `[[services]]` in the settings still works and means
+  `[[links]]`, and `services.json` is read until the first change writes `links.json`.
 
 ### Commands
 
@@ -319,10 +323,10 @@ that (GNOME and KDE do; on wlroots compositors, set up e.g. hypridle's `lock_cmd
 ### `elamond.toml`
 
 `~/.config/elamon/elamond.toml`, or the file `ELAMON_CONFIG` names, then every
-`~/.config/elamon/elamond.d/*.toml` in name order. A later file adds to `[[services]]` and
-`[[actions]]` and replaces any other key it sets. Under NixOS or Home Manager, where `elamond.toml`
-comes from Nix and can't be edited, the drop-ins are where your own additions go. All keys are
-optional.
+`~/.config/elamon/elamond.d/*.toml` in name order. A later file adds to `[[links]]` and
+`[[actions]]` and replaces any other key it sets. Under NixOS or Home Manager, where
+`elamond.toml` comes from Nix and can't be edited, the drop-ins are where your own additions go.
+All keys are optional.
 
 | Key | Default | |
 |---|---|---|
@@ -333,29 +337,33 @@ optional.
 | `interval_ms` | `1000` | time between readings, 250–10 000 |
 | `history_minutes` | `10` | history a phone gets when it connects (at most 7 200 readings) |
 | `control` | `false` | allow the control panel |
-| `[[services]]` | | `name`, `url`, `unit`, `scope` — see above |
+| `[[links]]` | | `name`, `url`, `unit`, `scope` — see above; `[[services]]` before 0.5 |
 | `[[actions]]` | | `name`, `command`, `confirm`, `timeout` (seconds, at most 3 600) — see above |
 
 The service rereads the files when one of them changes, or on `systemctl --user reload elamond`. A
-file that doesn't parse is named in the log and the running settings stay. `control`, `services`
+file that doesn't parse is named in the log and the running settings stay. `control`, `links`
 and `actions` apply at once; `port`, `listen`, `name`, `mdns`, `interval_ms` and `history_minutes`
 after a restart.
 
 Its state lives in `~/.local/share/elamon`: its id and certificate, the paired phones (only
-hashes of their keys), services added in the app and a pending pairing code. Deleting that folder
+hashes of their keys), links added in the app and a pending pairing code. Deleting that folder
 unpairs every phone and gives the service a new certificate.
 
 Where these live follows `XDG_CONFIG_HOME` and `XDG_DATA_HOME`. `ELAMON_CONFIG_DIR` and
 `ELAMON_DATA_DIR` name the two folders outright, `ELAMON_CONFIG` the settings file alone, and
 `ELAMON_PCI_IDS` the PCI database the service takes graphics card names from.
 
+Before 0.5 the settings were `elamond.toml` and `elamond.d/`. They are still read: `elamond.toml` while
+there is no `elamond.toml`, and `elamond.d/*.toml` before `elamond.d/*.toml`. The log says once what
+to rename.
+
 ### NixOS module
 
 | Option | |
 |---|---|
-| `services.elamond.enable` | run the service as a user service for the people who log in (never for system users such as a display manager's greeter) |
-| `services.elamond.users` | only these users run it; empty means every regular user. One service holds the port at a time |
-| `services.elamond.package` | the service package |
+| `services.elamond.enable` | run the service for the people who log in (never for system users such as a display manager's greeter) |
+| `services.elamond.users` | only these users run it; empty means every regular user. One user's service holds the port at a time |
+| `services.elamond.package` | the service's package |
 | `services.elamond.settings` | `elamond.toml` for every user's service, as Nix; `elamond pair` and the other commands read it too |
 | `services.elamond.openFirewall` | open the service's port (`settings.port`, 47823 by default) and UDP 5353; works without `enable` |
 | `services.elamond.control.users` | users whose service may use power and the profile without a password |
@@ -366,7 +374,7 @@ Where these live follows `XDG_CONFIG_HOME` and `XDG_DATA_HOME`. `ELAMON_CONFIG_D
 | Option | |
 |---|---|
 | `services.elamond.enable` | run the service for this user |
-| `services.elamond.package` | the service package |
+| `services.elamond.package` | the service's package |
 | `services.elamond.settings` | written to `~/.config/elamon/elamond.toml`; a change restarts the service. Drop-ins in `elamond.d` still add to it |
 
 ## 7. Updating and removing
@@ -376,10 +384,10 @@ Update the app and the service together; this is a test version and they change 
 - **NixOS / Home Manager:** `nix flake update elamon`, then rebuild.
 - **Nix profile:** `nix profile upgrade --all`, then `systemctl --user daemon-reload` and
   `systemctl --user restart elamond`.
-- **From source:** `git pull`, `cargo build --release` in `elamond/`, install the binary again and
-  restart the service.
+- **From source:** `git pull`, `cargo build --release` in `elamond/` (`elamond/` before 0.5),
+  install the binary again and restart the service.
 
-Pairings and services added in the app survive updates.
+Pairings and links added in the app survive updates.
 
 To remove the service: `systemctl --user disable --now elamond`, delete the binary and the unit
 file, and `~/.config/elamon` and `~/.local/share/elamon`. In the app, *Forget computer* in the
@@ -395,8 +403,8 @@ computer's menu.
 | *The computer's certificate changed* | The service's data was deleted or the system reinstalled; forget the computer and pair again. If neither happened, check the network first. |
 | *Control is off* | `control = true` in `elamond.toml` or a drop-in in `elamond.d`; the service takes it up within a few seconds. |
 | *needs permission*, or *The computer didn't allow that* | The polkit rule from section 5. |
-| A service shows *Local only* | It listens on 127.0.0.1; see section 5. |
-| A service shows *No such unit* | The `unit` name is wrong, or the unit isn't installed; `systemctl list-units` (add `--user` for user units). |
+| A link shows *Local only* | It listens on 127.0.0.1; see section 5. |
+| A link shows *No such unit* | The `unit` name is wrong, or the unit isn't installed; `systemctl list-units` (add `--user` for user units). |
 | No temperatures or fans | `sudo sensors-detect` (lm-sensors), then restart the service. |
 | A graphics card shows no load | NVIDIA needs its own driver (the service reads its management library). Intel doesn't report load without extra privileges; the app shows the clock. |
 | A monitor shows no resolution | It's off or blanked, or the service can't open the graphics device: be logged in at the computer or in the `video` group. |
@@ -412,8 +420,8 @@ To see what the service finds, without the app: `elamond snapshot`.
   Android backups.
 - A pairing code works for five minutes and five attempts, one attempt at a time.
 - Without a key the service answers only its name (`hello`) and pairing.
-- Unless `control = true`, the service doesn't act on the computer: phones only read, and may keep
-  their list of service links. With control on it acts as your user; commands can only come from
+- Unless `control = true`, the service doesn't act on the computer: phones only read, and may
+  keep their list of links. With control on it acts as your user; commands can only come from
   the settings files, never from a phone; it never signals itself, its parents or PID 1; and
   every action is logged with the name of the phone that asked: `journalctl --user -u elamond`.
 - `elamond revoke` cuts a phone off at once, open streams included.

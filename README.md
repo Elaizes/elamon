@@ -7,8 +7,9 @@
 Watch and control a Linux computer from your Android phone, live.
 
 - **Elamon**, the Android app (Android 8 and newer). No Google services, no trackers, no ads.
-- **elamond**, a small service on the computer (Linux, any distribution, any desktop or none). It
-  reads the kernel's own counters and serves them over HTTPS, only to phones paired with it.
+- **elamond**, the Elamon service, a small program on the computer (Linux, any distribution, any
+  desktop or none). It reads the kernel's own counters and serves them over HTTPS, only to phones
+  paired with it.
 
 **Setting it up and using it: [the user guide](docs/guide.md).**
 
@@ -25,7 +26,8 @@ Watching, always:
 
 Controlling, once the computer allows it:
 
-- the web services it hosts: open them, see if they answer, start, stop and restart their units;
+- links to the web pages it hosts: open them, see if they answer, start, stop and restart their
+  units;
 - media players and the volume;
 - the power profile, locking, restarting and shutting down;
 - commands you define on the computer;
@@ -80,7 +82,7 @@ With Nix, `nix develop` gives the Android SDK, JDK and Rust:
 ```sh
 nix develop -c ./gradlew assembleRelease     # app: app/build/outputs/apk/release/
 nix develop -c bash -c 'cd elamond && cargo build --release'
-nix build .#elamond                           # service package, for x86_64-linux and aarch64-linux
+nix build .#elamond                           # the service's package, for x86_64-linux and aarch64-linux
 nix develop .#emulator                        # an x86_64 Android emulator for trying the app
 ```
 
@@ -91,7 +93,7 @@ Without Nix: Android SDK 37, JDK 17, and Rust 1.88 or newer. A release build is 
 Tests:
 
 ```sh
-nix develop -c bash -c 'cd elamond && cargo test' # service, and the protocol fixtures in elamond/fixtures
+nix develop -c bash -c 'cd elamond && cargo test' # the service, and the protocol fixtures in elamond/fixtures
 nix develop -c ./gradlew :app:testDebugUnitTest    # app, against the same fixtures
 nix flake check                                   # the NixOS module in a VM
 maestro/run.sh                                    # the app on an emulator against a throwaway service
@@ -101,7 +103,7 @@ The protocol between the app and the service: [docs/protocol.md](docs/protocol.m
 
 ## Not there yet
 
-Services for Windows and macOS, ready-made service binaries, and published app builds.
+The service for Windows and macOS, ready-made binaries of it, and published app builds.
 
 ## License
 

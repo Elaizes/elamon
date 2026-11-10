@@ -1,22 +1,43 @@
 # Elamon protocol, API 1
 
-The service serves HTTPS on port 47823. Its certificate is self-signed; clients identify the service
-by the SHA-256 of that certificate (lowercase hex, 64 characters), not by a name.
+elamond, the Elamon service, serves HTTPS on port 47823. Its certificate is self-signed; clients
+identify the service by the SHA-256 of that certificate (lowercase hex, 64 characters), not by a
+name.
 
 All bodies are JSON. Numbers in bytes are integers; rates are bytes per second; temperatures are
 °C; frequencies MHz; power W. Clients must ignore fields they don't know: new fields are added
-without changing the API number. A field is never renamed or given a new meaning.
+without changing the API number. A field is never renamed or given a new meaning: a better name
+comes as a new field beside the old one ([names before 0.5](#names-before-05)).
 
-Every shape below, with each optional field filled in, is in [`elamond/fixtures`](../elamond/fixtures):
-the service's tests write those files and the app's tests read them, so the two can't drift apart.
+Every shape below, with each optional field filled in, is in
+[`elamond/fixtures`](../elamond/fixtures): the service's tests write those files and the app's
+tests read them, so the two can't drift apart.
 
 ## Versions
 
 - `api` (in `hello` and `info`) changes only if something incompatible ever has to; a client that
   sees a higher `api` than it knows should ask to be updated.
 - `min_app` (in `hello` and `info`) is the oldest app version that understands this service.
-- `version` / `service_version` is the service's own version; a client may expect a minimum one for
-  newer features and fall back without them.
+- `version` / `service_version` is the service's own version; a client may expect a minimum one
+  for newer features and fall back without them.
+
+### Names before 0.5
+
+What elamond 0.5 calls *links* were *services* before, and the service itself was the *service*:
+
+| since 0.5 | before |
+|---|---|
+| `service_version` in `info` | `service_version` |
+| `links` in samples | `services` |
+| `"links"` in `capabilities` | `"services"` |
+| `/api/v1/links`, `/api/v1/links/…` | `/api/v1/services`, `/api/v1/services/…` |
+| error `no_such_link` | `no_such_service` |
+
+For apps 0.4, elamond still sends the old fields beside the new ones, with the same values, and
+answers the old routes as the new ones; they go only with a new `api`. Only the error code is
+answered by its new name alone. A client reads the new name and falls back to the old one, and
+knows both error codes. elamond 0.4 answers a path it doesn't have, like `/api/v1/links`, with 404
+`not_found`: then the client asks for the same under `/api/v1/services`.
 
 ## Discovery
 
@@ -44,7 +65,7 @@ withdraws its code.
 { "code": "123456", "device": "Phone name" }
 ```
 
-200: `{ "token": "…", "client_id": "…", "id": "<service id>", "name": "<service name>" }`
+200: `{ "token": "…", "client_id": "…", "id": "<service id>", "name": "<computer name>" }`
 403: `{ "error": "wrong_code" }` or `{ "error": "no_pairing" }` when no code is pending.
 
 The token goes in every other request as `Authorization: Bearer <token>`. Without a valid one
@@ -96,11 +117,11 @@ and `processes` are left out of a sample when they weren't asked for.
 `info`:
 
 ```
-id, name, service_version, api, min_app, interval_ms (the service's tick), history_seconds (how far
-history reaches), os, kernel, arch, cpu_model, cpu_physical_cores?, cpu_logical_cores,
-memory_total, boot_time,
+id, name, service_version, service_version (its old name), api, min_app, interval_ms (the service's
+tick), history_seconds (how far history reaches), os, kernel, arch, cpu_model, cpu_physical_cores?,
+cpu_logical_cores, memory_total, boot_time,
 gpus: [{ id (PCI slot), vendor (nvidia|amd|intel|other), name, driver, boot_display }],
-capabilities: ["processes", "displays", "history", "sensors", …]
+capabilities: ["processes", "displays", "history", "sensors", "links", …]
 ```
 
 `sample`:
@@ -125,8 +146,9 @@ displays: [{ connector, gpu, connected, active, dpms? (On|Standby|Suspend|Off), 
              vendor?, model?, year?, width_mm?, height_mm?, mode?, preferred?, max_refresh?,
              position? [x, y] }],
   mode: { width, height, refresh },
-services: [{ id, name, url, unit?, scope (user|system), editable, port?, up?, local_only,
-             unit_state? }],
+links: [{ id, name, url, unit?, scope (user|system), editable, port?, up?, local_only,
+          unit_state? }],
+services (links under their old name),
 process_count?, processes?: [{ pid, ppid?, name, cmd, user?, cpu (% of the whole CPU), mem,
                                status, start (Unix s), read, write, gpu?, gpu_mem? }],
 media?: { players: [{ id, name, status (Playing|Paused|Stopped), title?, artist?, album?,
@@ -139,8 +161,8 @@ media?: { players: [{ id, name, status (Playing|Paused|Stopped), title?, artist?
 and `profiles` are the firmware's platform profile. A process `status` is the kernel's state as
 a word (Runnable, Sleeping, Idle, Zombie, Stopped, …).
 
-`history`: parallel arrays, oldest first, one entry per service tick, reaching `history_seconds`
-back:
+`history`: parallel arrays, oldest first, one entry per tick of the service, reaching
+`history_seconds` back:
 
 ```
 t [], cpu [], cpu_temp [], mem [], swap [], rx [], tx [], read [], write [], battery_power [],
@@ -153,9 +175,9 @@ Missing values are `null`.
 ## Control
 
 Everything below needs a token. Requests that change the computer, and media, also need
-`control = true` in the service's settings, or the service answers 403 `control_disabled`. Adding,
-changing and removing services only changes the app's list of links; starting and stopping
-their units needs control.
+`control = true` in the service's settings, or it answers 403 `control_disabled`. Adding,
+changing and removing links only changes the list the app shows; starting and stopping their
+units needs control. The routes under `/api/v1/links` answer under `/api/v1/services` too.
 
 | request | body | |
 |---|---|---|
@@ -167,11 +189,11 @@ their units needs control.
 | `POST /api/v1/media` | `{ player, op: "play_pause"\|"next"\|"previous"\|"seek"\|"volume", value? }` | MPRIS; seek in seconds |
 | `POST /api/v1/media/volume` | `{ level?, muted? }` | the default output, level 0–1 |
 | `GET /api/v1/media/art?player=` | | the cover, when the player has a local file |
-| `GET /api/v1/services` | | the services with their state, as in samples |
-| `POST /api/v1/services` | `{ id?, name, url, unit?, scope? }` | add, or change one added from the app; answers the saved `{ id, name, url, unit, scope }` |
-| `DELETE /api/v1/services/{id}` | | services from the settings files can't be changed or removed here |
-| `POST /api/v1/services/{id}/unit` | `{ op: "start"\|"stop"\|"restart" }` | needs control |
-| `GET /api/v1/services/detected` | | `[{ port, local_only, process? }]`: ports something listens on |
+| `GET /api/v1/links` | | the links with their state, as in samples |
+| `POST /api/v1/links` | `{ id?, name, url, unit?, scope? }` | add, or change one added from the app; answers the saved `{ id, name, url, unit, scope }` |
+| `DELETE /api/v1/links/{id}` | | links from the settings files can't be changed or removed here |
+| `POST /api/v1/links/{id}/unit` | `{ op: "start"\|"stop"\|"restart" }` | needs control |
+| `GET /api/v1/links/detected` | | `[{ port, local_only, process? }]`: ports something listens on |
 | `GET /api/v1/units?scope=user\|system` | | `[{ name, description, active }]` |
 
 Action ids come from the action's name and command, not its place in the settings, so a phone
@@ -191,7 +213,7 @@ Errors are `{ "error": "<code>" }` with these statuses (the same list is in
 | 400 | `unknown_signal`, `empty_command`, `no_unit`, `bad_name`, `bad_url`, `bad_unit`, `bad_scope` |
 | 401 | `unauthorized` |
 | 403 | `no_pairing`, `wrong_code`, `control_disabled`, `not_permitted` (polkit refused, or a protected process) |
-| 404 | `not_found`, `no_such_process`, `no_such_action`, `no_such_service`, `no_art` |
+| 404 | `not_found`, `no_such_process`, `no_such_action`, `no_such_link` (`no_such_service` before 0.5), `no_art` |
 | 500 | `storage` |
 | 502 | `failed`, with `"message"` |
 
