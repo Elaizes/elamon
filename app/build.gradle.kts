@@ -2,20 +2,19 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
 	id("com.android.application")
-	id("org.jetbrains.kotlin.android")
 	id("org.jetbrains.kotlin.plugin.compose")
 	id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
 	namespace = "ua.elamon"
-	compileSdk = 35
-	buildToolsVersion = "35.0.0"
+	compileSdk = 37
+	buildToolsVersion = "37.0.0"
 
 	defaultConfig {
 		applicationId = "ua.elamon"
 		minSdk = 26
-		targetSdk = 35
+		targetSdk = 36
 		versionCode = 3
 		versionName = "0.3.0"
 	}
@@ -39,6 +38,11 @@ android {
 		buildConfig = true
 	}
 
+	// AGP 9 checks Compose previews against compiled resources, through the unit-test setup.
+	testOptions {
+		unitTests.isIncludeAndroidResources = true
+	}
+
 	compileOptions {
 		sourceCompatibility = JavaVersion.VERSION_17
 		targetCompatibility = JavaVersion.VERSION_17
@@ -52,24 +56,25 @@ kotlin {
 }
 
 dependencies {
-	val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
+	val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
 	implementation(composeBom)
 	implementation("androidx.compose.ui:ui")
 	implementation("androidx.compose.foundation:foundation")
 	implementation("androidx.compose.material3:material3")
 	implementation("androidx.compose.material:material-icons-core")
 	// Frosted-glass bars over scrolling content (RenderEffect on Android 12+, a tint before).
-	implementation("dev.chrisbanes.haze:haze:1.5.4")
-	implementation("dev.chrisbanes.haze:haze-materials:1.5.4")
-	implementation("androidx.activity:activity-compose:1.9.3")
-	implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
-	implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
-	implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+	implementation("dev.chrisbanes.haze:haze:1.7.3")
+	implementation("dev.chrisbanes.haze:haze-materials:1.7.3")
+	implementation("androidx.activity:activity-compose:1.13.0")
+	implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
+	implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
+	implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
+	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 	debugImplementation("androidx.compose.ui:ui-tooling")
 }
 
 // F-Droid rebuilds the APK to compare with the published one; ART profiles differ from build to build.
-tasks.whenTaskAdded {
+// Gradle 9 registers these lazily, past whenTaskAdded; configureEach reaches them.
+tasks.configureEach {
 	if (name.contains("ArtProfile")) enabled = false
 }

@@ -49,8 +49,8 @@
 				};
 			};
 			android = dev.androidenv.composeAndroidPackages {
-				platformVersions = [ "35" ];
-				buildToolsVersions = [ "35.0.0" ];
+				platformVersions = [ "37.0" ];
+				buildToolsVersions = [ "37.0.0" ];
 				includeEmulator = false;
 				includeSystemImages = false;
 				includeNDK = false;
@@ -225,14 +225,14 @@
 					ANDROID_SDK_ROOT = sdk;
 					JAVA_HOME = dev.jdk17.home;
 					# AGP fetches a dynamically linked aapt2 from Maven, which doesn't run on NixOS
-					GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${sdk}/build-tools/35.0.0/aapt2";
+					GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${sdk}/build-tools/37.0.0/aapt2";
 				};
 
 				# `nix develop .#emulator`: an x86_64 emulator to try the app without a phone.
 				emulator =
 					let
 						emu = dev.androidenv.composeAndroidPackages {
-							platformVersions = [ "35" ];
+							platformVersions = [ "36" ];
 							includeEmulator = true;
 							includeSystemImages = true;
 							systemImageTypes = [ "default" ];
