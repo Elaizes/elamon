@@ -69,8 +69,9 @@ key that the computer can revoke, and the service only acts on the computer when
   running, whoever opens it first briefly becomes its DRM master; the service closes it right away.
 - Power actions, power profiles and units go through D-Bus (logind, power-profiles-daemon,
   systemd), media through MPRIS, the volume through `wpctl` or `pactl`.
-- The service uses about 0.4 % of one CPU core while no phone watches and around 1 % while one
-  does, and some 11 MB of memory.
+- The service uses about 0.3 % of one CPU core while no phone watches, 1–2.5 % while one does
+  (most of it the process list), and 8–11 MB of memory (resident; systemd also counts page
+  cache).
 
 ## Building
 
@@ -83,7 +84,18 @@ nix build .#elamond                           # service package, for x86_64-linu
 nix develop .#emulator                        # an x86_64 Android emulator for trying the app
 ```
 
-Without Nix: Android SDK 35, JDK 17, and Rust 1.88 or newer.
+Without Nix: Android SDK 37, JDK 17, and Rust 1.88 or newer. A release build is signed when
+`~/.android/elamon-release.properties` (or the file `-Pelamon.signing` names) gives `storeFile`,
+`storePassword`, `keyAlias` and `keyPassword`; otherwise it stays unsigned.
+
+Tests:
+
+```sh
+nix develop -c bash -c 'cd elamond && cargo test'   # service, and the protocol fixtures in elamond/fixtures
+nix develop -c ./gradlew :app:testDebugUnitTest    # app, against the same fixtures
+nix flake check                                   # the NixOS module in a VM
+maestro/run.sh                                    # the app on an emulator against a throwaway service
+```
 
 The protocol between the app and the service: [docs/protocol.md](docs/protocol.md).
 
