@@ -3,6 +3,7 @@ package ua.elamon.ui
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -73,10 +74,12 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import ua.elamon.R
 import ua.elamon.data.ActionInfo
 import ua.elamon.data.ActionResult
 import ua.elamon.data.ControlInfo
@@ -156,16 +159,19 @@ fun ControlTab(t: TabScope) {
 	localOnly?.let { svc ->
 		GlassDialog(
 			onDismiss = { localOnly = null },
-			title = "Only on the computer",
+			title = stringResource(R.string.control_local_only_title),
 			icon = Icons.Default.Warning,
 			text = {
-				Text("${svc.name} listens on the computer's own address (127.0.0.1), so other devices can't open it. Set it to listen on all addresses, or reach it through an SSH tunnel.")
+				Text(stringResource(R.string.control_local_only_body, svc.name))
 			},
-			confirm = { TextButton(onClick = { localOnly = null; launch(svc) }) { Text("Open anyway") } },
-			dismiss = { TextButton(onClick = { localOnly = null }) { Text("Cancel") } },
+			confirm = { TextButton(onClick = { localOnly = null; launch(svc) }) { Text(stringResource(R.string.control_open_anyway)) } },
+			dismiss = { TextButton(onClick = { localOnly = null }) { Text(stringResource(R.string.cancel)) } },
 		)
 	}
 }
+
+/** A new service's address before its port: the computer's own address, over plain HTTP. */
+private const val SERVICE_URL_START = "http://{host}:"
 
 /** "{host}" becomes the address this phone reaches the computer at; bare host:port gets http. */
 fun serviceUrl(url: String, host: String): String {
@@ -176,14 +182,14 @@ fun serviceUrl(url: String, host: String): String {
 
 @Composable
 private fun ControlOff(onHelp: () -> Unit) {
-	Section("Control is off", ElIcons.Lock, accent = MaterialTheme.colorScheme.secondary) {
+	Section(stringResource(R.string.control_off), ElIcons.Lock, accent = MaterialTheme.colorScheme.secondary) {
 		Text(
-			"This computer only lets the app watch. To also control power, services, processes and media from here, turn it on in the service's settings and restart it:",
+			stringResource(R.string.control_off_body),
 			style = MaterialTheme.typography.bodyMedium,
 		)
 		CodeBlock("control = true")
-		Text("in ~/.config/elamon/elamond.toml, or services.elamond.settings.control = true on NixOS.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-		TextButton(onClick = onHelp) { Text("Help") }
+		Text(stringResource(R.string.control_off_where), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		TextButton(onClick = onHelp) { Text(stringResource(R.string.help)) }
 	}
 }
 
@@ -194,17 +200,17 @@ private fun ControlOff(onHelp: () -> Unit) {
 private fun ServicesSection(services: List<ServiceStatus>, onOpen: (ServiceStatus) -> Unit, onMenu: (ServiceStatus) -> Unit, onAdd: () -> Unit) {
 	Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
 		Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp)) {
-			Text("Services", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+			Text(stringResource(R.string.control_services), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
 			FilledIconButton(onClick = onAdd, colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)) {
-				Icon(Icons.Default.Add, "Add service")
+				Icon(Icons.Default.Add, stringResource(R.string.control_add_service))
 			}
 		}
 		if (services.isEmpty()) {
 			Surface(shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
 				Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-					Text("No services yet", style = MaterialTheme.typography.titleMedium)
+					Text(stringResource(R.string.control_services_empty), style = MaterialTheme.typography.titleMedium)
 					Text(
-						"Add the web pages this computer hosts — a media server, a dashboard, a download manager — to open them from here and start or stop them.",
+						stringResource(R.string.control_services_empty_body),
 						style = MaterialTheme.typography.bodyMedium,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
@@ -222,17 +228,18 @@ private fun ServicesSection(services: List<ServiceStatus>, onOpen: (ServiceStatu
 @Composable
 private fun serviceState(svc: ServiceStatus): Pair<String, Color> {
 	val c = Metric.colors
-	return when {
-		svc.unitState == "failed" -> "Failed" to c.hot
-		svc.unitState == "missing" -> "No such unit" to c.warn
-		svc.unitState == "activating" || svc.unitState == "reloading" -> "Starting" to c.warn
-		svc.unitState == "deactivating" -> "Stopping" to c.warn
-		svc.up == true && svc.localOnly -> "Local only" to c.warn
-		svc.up == true -> "Running" to c.good
-		svc.unitState == "active" -> "Running" to c.good
-		svc.up == false -> "Stopped" to MaterialTheme.colorScheme.outline
-		else -> "Unknown" to MaterialTheme.colorScheme.outline
+	val (label, color) = when {
+		svc.unitState == "failed" -> R.string.service_failed to c.hot
+		svc.unitState == "missing" -> R.string.service_no_unit to c.warn
+		svc.unitState == "activating" || svc.unitState == "reloading" -> R.string.service_starting to c.warn
+		svc.unitState == "deactivating" -> R.string.service_stopping to c.warn
+		svc.up == true && svc.localOnly -> R.string.service_local_only to c.warn
+		svc.up == true -> R.string.service_running to c.good
+		svc.unitState == "active" -> R.string.service_running to c.good
+		svc.up == false -> R.string.service_stopped to MaterialTheme.colorScheme.outline
+		else -> R.string.service_unknown to MaterialTheme.colorScheme.outline
 	}
+	return stringResource(label) to color
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -255,7 +262,7 @@ private fun ServiceTile(svc: ServiceStatus, modifier: Modifier, onOpen: () -> Un
 				LetterAvatar(svc.name, 40.dp)
 				Spacer(Modifier.weight(1f))
 				IconButton(onClick = onMenu, modifier = Modifier.size(32.dp)) {
-					Icon(Icons.Default.MoreVert, "Actions", modifier = Modifier.size(18.dp))
+					Icon(Icons.Default.MoreVert, stringResource(R.string.control_service_menu), modifier = Modifier.size(18.dp))
 				}
 			}
 			Column {
@@ -284,13 +291,13 @@ private fun ServiceSheet(t: TabScope, svc: ServiceStatus, control: Boolean, onDi
 				val (label, color) = serviceState(svc)
 				Pill(label, color, dot = true)
 			}
-			svc.unit?.let { StatRow("Unit", "$it · ${svc.scope}") }
-			svc.unitState?.let { StatRow("Unit state", it) }
-			svc.port?.let { StatRow("Port", if (svc.localOnly) "$it, computer only" else it.toString()) }
+			svc.unit?.let { StatRow(stringResource(R.string.control_unit), "$it · ${svc.scope}") }
+			svc.unitState?.let { StatRow(stringResource(R.string.control_unit_state), it) }
+			svc.port?.let { StatRow(stringResource(R.string.control_port), if (svc.localOnly) stringResource(R.string.control_port_computer_only, it) else it.toString()) }
 			Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
 				Icon(ElIcons.Globe, null, Modifier.size(18.dp))
 				Spacer(Modifier.width(8.dp))
-				Text("Open")
+				Text(stringResource(R.string.control_open))
 			}
 			if (svc.unit != null) {
 				if (control) {
@@ -299,16 +306,16 @@ private fun ServiceSheet(t: TabScope, svc: ServiceStatus, control: Boolean, onDi
 						FilledTonalButton(onClick = { t.vm.unit(svc.id, if (running) "stop" else "start") }, modifier = Modifier.weight(1f)) {
 							Icon(if (running) ElIcons.Pause else ElIcons.Play, null, Modifier.size(16.dp))
 							Spacer(Modifier.width(6.dp))
-							Text(if (running) "Stop" else "Start")
+							Text(stringResource(if (running) R.string.control_stop else R.string.control_start))
 						}
 						FilledTonalButton(onClick = { if (prefs.confirmActions) confirm = "restart" else t.vm.unit(svc.id, "restart") }, modifier = Modifier.weight(1f)) {
 							Icon(ElIcons.Restart, null, Modifier.size(16.dp))
 							Spacer(Modifier.width(6.dp))
-							Text("Restart")
+							Text(stringResource(R.string.control_restart))
 						}
 					}
 				} else {
-					Text("Starting and stopping needs control turned on for this computer.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+					Text(stringResource(R.string.control_needs_control), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				}
 			}
 			if (svc.editable) {
@@ -316,32 +323,32 @@ private fun ServiceSheet(t: TabScope, svc: ServiceStatus, control: Boolean, onDi
 					TextButton(onClick = onEdit) {
 						Icon(Icons.Default.Edit, null, Modifier.size(16.dp))
 						Spacer(Modifier.width(6.dp))
-						Text("Edit")
+						Text(stringResource(R.string.control_edit))
 					}
 					TextButton(onClick = { confirm = "remove" }) {
 						Icon(Icons.Default.Delete, null, Modifier.size(16.dp), tint = Metric.colors.hot)
 						Spacer(Modifier.width(6.dp))
-						Text("Remove", color = Metric.colors.hot)
+						Text(stringResource(R.string.control_remove), color = Metric.colors.hot)
 					}
 				}
 			} else {
-				Text("Set in the service's settings on the computer.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+				Text(stringResource(R.string.control_set_on_computer), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			}
 		}
 	}
 	confirm?.let { what ->
 		GlassDialog(
 			onDismiss = { confirm = null },
-			title = if (what == "remove") "Remove ${svc.name}?" else "Restart ${svc.name}?",
-			text = { Text(if (what == "remove") "It disappears from every phone paired with this computer. The service itself keeps running." else "It stops for a moment; whoever uses it gets disconnected.") },
+			title = stringResource(if (what == "remove") R.string.control_remove_title else R.string.control_restart_title, svc.name),
+			text = { Text(stringResource(if (what == "remove") R.string.control_remove_body else R.string.control_restart_body)) },
 			confirm = {
 				TextButton(onClick = {
 					if (what == "remove") t.vm.deleteService(svc.id) else t.vm.unit(svc.id, "restart")
 					confirm = null
 					onDismiss()
-				}) { Text(if (what == "remove") "Remove" else "Restart") }
+				}) { Text(stringResource(if (what == "remove") R.string.control_remove else R.string.control_restart)) }
 			},
-			dismiss = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
+			dismiss = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.cancel)) } },
 		)
 	}
 }
@@ -350,7 +357,7 @@ private fun ServiceSheet(t: TabScope, svc: ServiceStatus, control: Boolean, onDi
 @Composable
 private fun ServiceEditor(t: TabScope, existing: ServiceStatus?, onDismiss: () -> Unit) {
 	var name by remember { mutableStateOf(existing?.name.orEmpty()) }
-	var url by remember { mutableStateOf(existing?.url ?: "http://{host}:") }
+	var url by remember { mutableStateOf(existing?.url ?: SERVICE_URL_START) }
 	var unit by remember { mutableStateOf(existing?.unit.orEmpty()) }
 	var scope by remember { mutableStateOf(existing?.scope ?: "user") }
 	var detected by remember { mutableStateOf<List<Listener>>(emptyList()) }
@@ -365,39 +372,42 @@ private fun ServiceEditor(t: TabScope, existing: ServiceStatus?, onDismiss: () -
 			Modifier.padding(start = 24.dp, end = 24.dp, bottom = 32.dp).verticalScroll(rememberScrollState()),
 			verticalArrangement = Arrangement.spacedBy(12.dp),
 		) {
-			Text(if (existing == null) "Add a service" else "Edit ${existing.name}", style = MaterialTheme.typography.headlineSmall)
+			Text(if (existing == null) stringResource(R.string.control_add_title) else stringResource(R.string.control_edit_title, existing.name), style = MaterialTheme.typography.headlineSmall)
 			val suggestions = detected.filter { it.port !in taken && it.port < 32768 && it.process != "elamond" }
 			if (existing == null && suggestions.isNotEmpty()) {
-				Text("Listening on this computer", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+				Text(stringResource(R.string.control_listening), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
 				Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 					for (l in suggestions) {
 						FilterChip(
 							selected = url.endsWith(":${l.port}") || url.contains(":${l.port}/"),
 							onClick = {
-								url = "http://{host}:${l.port}"
+								url = "$SERVICE_URL_START${l.port}"
 								if (name.isBlank()) l.process?.let { p -> name = p.replaceFirstChar { it.uppercase() } }
 							},
-							label = { Text(":${l.port}" + (l.process?.let { " $it" } ?: "") + if (l.localOnly) " · local" else "") },
+							label = {
+								val port = ":${l.port}" + (l.process?.let { " $it" } ?: "")
+								Text(if (l.localOnly) stringResource(R.string.control_listening_local, port) else port)
+							},
 						)
 					}
 				}
 			}
-			OutlinedTextField(value = name, onValueChange = { name = it.take(64) }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+			OutlinedTextField(value = name, onValueChange = { name = it.take(64) }, label = { Text(stringResource(R.string.control_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
 			OutlinedTextField(
 				value = url,
 				onValueChange = { url = it.take(512) },
-				label = { Text("Address") },
-				supportingText = { Text("{host} becomes the address the phone reaches the computer at") },
+				label = { Text(stringResource(R.string.control_address)) },
+				supportingText = { Text(stringResource(R.string.control_address_hint)) },
 				singleLine = true,
 				modifier = Modifier.fillMaxWidth(),
 			)
-			Text("systemd unit (optional)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+			Text(stringResource(R.string.control_unit_optional), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
 			SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-				listOf("user" to "User", "system" to "System").forEachIndexed { i, (key, label) ->
-					SegmentedButton(selected = scope == key, onClick = { scope = key }, shape = SegmentedButtonDefaults.itemShape(i, 2)) { Text(label) }
+				listOf("user" to R.string.control_scope_user, "system" to R.string.control_scope_system).forEachIndexed { i, (key, label) ->
+					SegmentedButton(selected = scope == key, onClick = { scope = key }, shape = SegmentedButtonDefaults.itemShape(i, 2)) { Text(stringResource(label)) }
 				}
 			}
-			OutlinedTextField(value = unit, onValueChange = { unit = it.trim().take(256) }, label = { Text("Unit") }, placeholder = { Text("name.service") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+			OutlinedTextField(value = unit, onValueChange = { unit = it.trim().take(256) }, label = { Text(stringResource(R.string.control_unit)) }, placeholder = { Text("name.service") }, singleLine = true, modifier = Modifier.fillMaxWidth())
 			val matches = units.filter { unit.isBlank() || it.name.contains(unit, true) || it.description.contains(unit, true) }.take(8)
 			if (matches.isNotEmpty() && matches.none { it.name == unit }) {
 				FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -405,7 +415,7 @@ private fun ServiceEditor(t: TabScope, existing: ServiceStatus?, onDismiss: () -
 				}
 			}
 			Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
-				TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
+				TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.cancel)) }
 				Button(
 					enabled = name.isNotBlank() && url.length > 3,
 					onClick = {
@@ -413,7 +423,7 @@ private fun ServiceEditor(t: TabScope, existing: ServiceStatus?, onDismiss: () -
 						onDismiss()
 					},
 					modifier = Modifier.weight(1f),
-				) { Text("Save") }
+				) { Text(stringResource(R.string.control_save)) }
 			}
 		}
 	}
@@ -430,7 +440,7 @@ private fun MediaSection(t: TabScope, players: List<Player>, volume: ua.elamon.d
 			Row(verticalAlignment = Alignment.CenterVertically) {
 				IconBadge(ElIcons.Music, MaterialTheme.colorScheme.tertiary)
 				Spacer(Modifier.width(12.dp))
-				Text(player?.name ?: "Media", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+				Text(player?.name ?: stringResource(R.string.control_media), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
 			}
 			if (players.size > 1) {
 				Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -461,7 +471,7 @@ private fun NowPlaying(t: TabScope, p: Player) {
 		}
 		Spacer(Modifier.width(14.dp))
 		Column(Modifier.weight(1f)) {
-			Text(p.title ?: if (p.status == "Stopped") "Nothing playing" else "Unknown track", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+			Text(p.title ?: stringResource(if (p.status == "Stopped") R.string.control_nothing_playing else R.string.control_unknown_track), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
 			listOfNotNull(p.artist, p.album).joinToString(" · ").takeIf { it.isNotEmpty() }?.let {
 				Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
 			}
@@ -491,11 +501,11 @@ private fun NowPlaying(t: TabScope, p: Player) {
 		}
 	}
 	Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-		IconButton(onClick = { t.vm.media(p.id, "previous") }, enabled = p.canPrevious) { Icon(ElIcons.Previous, "Previous") }
+		IconButton(onClick = { t.vm.media(p.id, "previous") }, enabled = p.canPrevious) { Icon(ElIcons.Previous, stringResource(R.string.control_previous)) }
 		FilledIconButton(onClick = { t.vm.media(p.id, "play_pause") }, enabled = p.canPlay || p.canPause, modifier = Modifier.size(64.dp)) {
-			Icon(if (playing) ElIcons.Pause else ElIcons.Play, if (playing) "Pause" else "Play", modifier = Modifier.size(30.dp))
+			Icon(if (playing) ElIcons.Pause else ElIcons.Play, stringResource(if (playing) R.string.control_pause else R.string.control_play), modifier = Modifier.size(30.dp))
 		}
-		IconButton(onClick = { t.vm.media(p.id, "next") }, enabled = p.canNext) { Icon(ElIcons.Next, "Next") }
+		IconButton(onClick = { t.vm.media(p.id, "next") }, enabled = p.canNext) { Icon(ElIcons.Next, stringResource(R.string.control_next)) }
 	}
 }
 
@@ -504,7 +514,7 @@ private fun VolumeRow(t: TabScope, v: ua.elamon.data.Volume) {
 	var dragging by remember { mutableStateOf<Float?>(null) }
 	Row(verticalAlignment = Alignment.CenterVertically) {
 		IconButton(onClick = { t.vm.volume(muted = !v.muted) }) {
-			Icon(if (v.muted) ElIcons.Mute else ElIcons.Volume, if (v.muted) "Unmute" else "Mute", tint = if (v.muted) Metric.colors.hot else MaterialTheme.colorScheme.onSurface)
+			Icon(if (v.muted) ElIcons.Mute else ElIcons.Volume, stringResource(if (v.muted) R.string.control_unmute else R.string.control_mute), tint = if (v.muted) Metric.colors.hot else MaterialTheme.colorScheme.onSurface)
 		}
 		Slider(
 			value = dragging ?: v.level.coerceIn(0f, 1f),
@@ -523,7 +533,7 @@ private fun VolumeRow(t: TabScope, v: ua.elamon.data.Volume) {
 
 @Composable
 private fun ProfileSection(active: String, available: List<String>, onPick: (String) -> Unit) {
-	Section("Power profile", ElIcons.Bolt, accent = Metric.colors.battery) {
+	Section(stringResource(R.string.control_power_profile), ElIcons.Bolt, accent = Metric.colors.battery) {
 		Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 			for (p in available) {
 				val on = p == active
@@ -567,7 +577,7 @@ private fun ActionsSection(t: TabScope, actions: List<ActionInfo>) {
 			result = a to r
 		}
 	}
-	Section("Actions", ElIcons.Terminal, accent = MaterialTheme.colorScheme.tertiary) {
+	Section(stringResource(R.string.control_actions), ElIcons.Terminal, accent = MaterialTheme.colorScheme.tertiary) {
 		for (a in actions) {
 			Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
 				Row(
@@ -586,10 +596,10 @@ private fun ActionsSection(t: TabScope, actions: List<ActionInfo>) {
 	confirm?.let { a ->
 		GlassDialog(
 			onDismiss = { confirm = null },
-			title = "Run ${a.name}?",
+			title = stringResource(R.string.control_run_title, a.name),
 			icon = ElIcons.Terminal,
-			confirm = { TextButton(onClick = { confirm = null; run(a) }) { Text("Run") } },
-			dismiss = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
+			confirm = { TextButton(onClick = { confirm = null; run(a) }) { Text(stringResource(R.string.control_run)) } },
+			dismiss = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.cancel)) } },
 		)
 	}
 	result?.let { (a, r) ->
@@ -598,15 +608,15 @@ private fun ActionsSection(t: TabScope, actions: List<ActionInfo>) {
 				Row(verticalAlignment = Alignment.CenterVertically) {
 					Text(a.name, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
 					when {
-						r.timedOut -> Pill("Timed out", Metric.colors.warn, dot = true)
-						r.exitCode == 0 -> Pill("Done", Metric.colors.good, dot = true)
-						else -> Pill("Exit ${r.exitCode ?: "?"}", Metric.colors.hot, dot = true)
+						r.timedOut -> Pill(stringResource(R.string.control_timed_out), Metric.colors.warn, dot = true)
+						r.exitCode == 0 -> Pill(stringResource(R.string.control_done), Metric.colors.good, dot = true)
+						else -> Pill(stringResource(R.string.control_exit_code, r.exitCode?.toString() ?: "?"), Metric.colors.hot, dot = true)
 					}
 				}
 				Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
 					SelectionContainer {
 						Text(
-							r.output.ifBlank { "(no output)" },
+							r.output.ifBlank { stringResource(R.string.control_no_output) },
 							fontFamily = FontFamily.Monospace,
 							style = MaterialTheme.typography.bodySmall,
 							modifier = Modifier.verticalScroll(rememberScrollState()).padding(12.dp),
@@ -618,13 +628,13 @@ private fun ActionsSection(t: TabScope, actions: List<ActionInfo>) {
 	}
 }
 
-private data class PowerAction(val key: String, val label: String, val icon: ImageVector, val ask: String, val explain: String)
+private data class PowerAction(val key: String, @StringRes val label: Int, val icon: ImageVector, @StringRes val ask: Int, @StringRes val explain: Int)
 
 private val POWER = listOf(
-	PowerAction("lock", "Lock", ElIcons.Lock, "Lock the screen?", "Every session of this user is locked."),
-	PowerAction("suspend", "Sleep", ElIcons.Moon, "Put it to sleep?", "Elamon loses the connection until the computer wakes up."),
-	PowerAction("reboot", "Restart", ElIcons.Restart, "Restart the computer?", "Unsaved work in open programs is lost."),
-	PowerAction("poweroff", "Shut down", ElIcons.Power, "Shut down the computer?", "Unsaved work is lost, and only someone at the computer can turn it back on."),
+	PowerAction("lock", R.string.power_lock, ElIcons.Lock, R.string.power_lock_ask, R.string.power_lock_explain),
+	PowerAction("suspend", R.string.power_sleep, ElIcons.Moon, R.string.power_sleep_ask, R.string.power_sleep_explain),
+	PowerAction("reboot", R.string.power_restart, ElIcons.Restart, R.string.power_restart_ask, R.string.power_restart_explain),
+	PowerAction("poweroff", R.string.power_shut_down, ElIcons.Power, R.string.power_shut_down_ask, R.string.power_shut_down_explain),
 )
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -643,7 +653,7 @@ private fun PowerSection(t: TabScope, control: ControlInfo) {
 		}
 	}
 	if (shown.isEmpty()) return
-	Section("Power", ElIcons.Power, accent = Metric.colors.hot) {
+	Section(stringResource(R.string.control_power), ElIcons.Power, accent = Metric.colors.hot) {
 		FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 2) {
 			for (a in shown) {
 				val needsAuth = when (a.key) {
@@ -668,8 +678,8 @@ private fun PowerSection(t: TabScope, control: ControlInfo) {
 					verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
 				) {
 					Icon(a.icon, null, tint = if (danger) Metric.colors.hot else MaterialTheme.colorScheme.onSurface)
-					Text(a.label, style = MaterialTheme.typography.labelLarge)
-					if (needsAuth) Text("needs permission", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+					Text(stringResource(a.label), style = MaterialTheme.typography.labelLarge)
+					if (needsAuth) Text(stringResource(R.string.power_needs_permission), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				}
 			}
 		}
@@ -677,25 +687,25 @@ private fun PowerSection(t: TabScope, control: ControlInfo) {
 	confirm?.let { a ->
 		GlassDialog(
 			onDismiss = { confirm = null },
-			title = a.ask,
+			title = stringResource(a.ask),
 			icon = a.icon,
-			text = { Text(a.explain) },
-			confirm = { TextButton(onClick = { confirm = null; t.vm.power(a.key) }) { Text(a.label) } },
-			dismiss = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
+			text = { Text(stringResource(a.explain)) },
+			confirm = { TextButton(onClick = { confirm = null; t.vm.power(a.key) }) { Text(stringResource(a.label)) } },
+			dismiss = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.cancel)) } },
 		)
 	}
 	denied?.let { a ->
 		GlassDialog(
 			onDismiss = { denied = null },
-			title = "${a.label} needs permission",
+			title = stringResource(R.string.power_needs_permission_title, stringResource(a.label)),
 			icon = ElIcons.Lock,
 			text = {
 				Text(
-					"The service runs outside a login session, so the system asks for a password it can't give. Allow it with a polkit rule: on NixOS, services.elamond.control.users = [ \"you\" ]; elsewhere, a rule that permits org.freedesktop.login1 power actions for your user.",
+					stringResource(R.string.power_needs_permission_body),
 				)
 			},
-			confirm = { TextButton(onClick = { denied = null; t.vm.power(a.key) }) { Text("Try anyway") } },
-			dismiss = { TextButton(onClick = { denied = null; t.openHelp(null) }) { Text("Help") } },
+			confirm = { TextButton(onClick = { denied = null; t.vm.power(a.key) }) { Text(stringResource(R.string.power_try_anyway)) } },
+			dismiss = { TextButton(onClick = { denied = null; t.openHelp(null) }) { Text(stringResource(R.string.help)) } },
 		)
 	}
 }

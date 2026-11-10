@@ -3,6 +3,7 @@ package ua.elamon
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -115,6 +116,12 @@ data class MachineState(
 /** What the process list needs from the service. */
 data class ProcRequest(val sort: String, val all: Boolean)
 
+/** A line for the snackbar: one of the app's strings, or what the computer said, as it said it. */
+sealed interface Message {
+	data class Res(@StringRes val id: Int) : Message
+	data class Text(val text: String) : Message
+}
+
 class MachineViewModel(app: Application, private val serverId: String) : AndroidViewModel(app) {
 	private val store = ServerStore.get(app)
 	private val settings = Settings.get(app)
@@ -124,9 +131,9 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 	private val _control = MutableStateFlow<ControlInfo?>(null)
 	val control: StateFlow<ControlInfo?> = _control.asStateFlow()
 
-	private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+	private val _messages = MutableSharedFlow<Message>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 	/** One-line results and errors for a snackbar. */
-	val messages: SharedFlow<String> = _messages.asSharedFlow()
+	val messages: SharedFlow<Message> = _messages.asSharedFlow()
 
 	private var job: Job? = null
 	private var visible = false
@@ -264,23 +271,23 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 	private fun say(e: Throwable) {
 		_messages.tryEmit(
 			when ((e as? ElamondException)?.kind) {
-				ElamondException.Kind.ControlDisabled -> "Control is off on this computer"
-				ElamondException.Kind.NotPermitted -> "The computer didn't allow that"
-				ElamondException.Kind.NotFound -> "It's gone"
-				ElamondException.Kind.Failed -> e.message ?: "It didn't work"
-				ElamondException.Kind.Unreachable -> "Can't reach the computer"
-				else -> e.message ?: "Something went wrong"
+				ElamondException.Kind.ControlDisabled -> Message.Res(R.string.err_control_disabled)
+				ElamondException.Kind.NotPermitted -> Message.Res(R.string.err_not_permitted)
+				ElamondException.Kind.NotFound -> Message.Res(R.string.err_not_found)
+				ElamondException.Kind.Failed -> e.message?.let(Message::Text) ?: Message.Res(R.string.err_failed)
+				ElamondException.Kind.Unreachable -> Message.Res(R.string.err_unreachable)
+				else -> e.message?.let(Message::Text) ?: Message.Res(R.string.err_unknown)
 			}
 		)
 	}
 
 	/** Runs a control request; [done] gets told on success. */
-	private fun act(done: String? = null, refresh: Boolean = false, block: suspend (ElamondClient) -> Unit) {
+	private fun act(@StringRes done: Int? = null, refresh: Boolean = false, block: suspend (ElamondClient) -> Unit) {
 		viewModelScope.launch {
 			val c = client() ?: return@launch
 			try {
 				block(c)
-				done?.let { _messages.tryEmit(it) }
+				done?.let { _messages.tryEmit(Message.Res(it)) }
 				if (refresh) refreshControl()
 			} catch (e: Exception) {
 				say(e)
@@ -299,10 +306,10 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 
 	fun power(action: String) = act(
 		done = when (action) {
-			"lock" -> "Locked"
-			"poweroff" -> "Shutting down"
-			"reboot" -> "Restarting"
-			"suspend" -> "Going to sleep"
+			"lock" -> R.string.done_locked
+			"poweroff" -> R.string.done_shutting_down
+			"reboot" -> R.string.done_restarting
+			"suspend" -> R.string.done_going_to_sleep
 			else -> null
 		},
 	) { it.post<PowerReq, Ok>("/api/v1/control/power", PowerReq(action)) }
@@ -311,7 +318,7 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 		it.post<ProfileReq, Ok>("/api/v1/control/profile", ProfileReq(profile))
 	}
 
-	fun signal(pid: Int, signal: String) = act(done = if (signal == "kill") "Killed" else "Asked to quit") {
+	fun signal(pid: Int, signal: String) = act(done = if (signal == "kill") R.string.done_killed else R.string.done_asked_to_quit) {
 		it.post<SignalReq, Ok>("/api/v1/control/signal", SignalReq(pid, signal))
 	}
 
@@ -343,17 +350,17 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 		}.getOrNull()
 	}
 
-	fun saveService(def: ServiceDef) = act(done = "Saved") {
+	fun saveService(def: ServiceDef) = act(done = R.string.done_saved) {
 		it.post<ServiceDef, ServiceDef>("/api/v1/services", def)
 	}
 
-	fun deleteService(id: String) = act(done = "Removed") { it.delete("/api/v1/services/$id") }
+	fun deleteService(id: String) = act(done = R.string.done_removed) { it.delete("/api/v1/services/$id") }
 
 	fun unit(serviceId: String, op: String) = act(
 		done = when (op) {
-			"start" -> "Started"
-			"stop" -> "Stopped"
-			else -> "Restarted"
+			"start" -> R.string.done_started
+			"stop" -> R.string.done_stopped
+			else -> R.string.done_restarted
 		},
 	) { it.post<UnitReq, Ok>("/api/v1/services/$serviceId/unit", UnitReq(op)) }
 

@@ -25,9 +25,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ua.elamon.MachineViewModel
+import ua.elamon.R
 import ua.elamon.data.Gpu
 import ua.elamon.data.GpuInfo
 import ua.elamon.data.Sample
@@ -93,12 +96,12 @@ private fun CpuTile(t: TabScope, s: Sample, modifier: Modifier) {
 	val p = LocalPrefs.current
 	val cpu = s.cpu
 	Tile(modifier.fillMaxHeight(), accent = c.cpu, onClick = { t.openDetail("cpu") }) {
-		TileLabel("CPU", ElIcons.Chip, c.cpu)
+		TileLabel(stringResource(R.string.cpu), ElIcons.Chip, c.cpu)
 		Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
 			RingGauge(cpu.usage / 100f, loadColor(cpu.usage / 100f, c.cpu), size = 116.dp) {
 				Column(horizontalAlignment = Alignment.CenterHorizontally) {
 					RollingText(Fmt.percent(cpu.usage), MaterialTheme.typography.headlineMedium)
-					Text("load", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+					Text(stringResource(R.string.overview_cpu_load), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				}
 			}
 		}
@@ -113,16 +116,16 @@ private fun MemoryTile(t: TabScope, s: Sample, modifier: Modifier) {
 	val m = s.memory
 	val frac = if (m.total > 0) m.used.toFloat() / m.total else 0f
 	Tile(modifier.fillMaxHeight(), accent = c.memory, onClick = { t.openDetail("memory") }) {
-		TileLabel("Memory", ElIcons.Memory, c.memory)
+		TileLabel(stringResource(R.string.memory), ElIcons.Memory, c.memory)
 		Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
 			RingGauge(frac, loadColor(frac, c.memory), size = 116.dp) {
 				Column(horizontalAlignment = Alignment.CenterHorizontally) {
 					RollingText(Fmt.percent(frac * 100), MaterialTheme.typography.headlineMedium)
-					Text("used", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+					Text(stringResource(R.string.overview_memory_used), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				}
 			}
 		}
-		TileFooter("${Fmt.bytes(m.used)} of ${Fmt.bytes(m.total)}")
+		TileFooter(stringResource(R.string.of_total, Fmt.bytes(m.used), Fmt.bytes(m.total)))
 	}
 }
 
@@ -130,7 +133,8 @@ private fun MemoryTile(t: TabScope, s: Sample, modifier: Modifier) {
 private fun GpuTile(t: TabScope, g: Gpu, info: GpuInfo?, modifier: Modifier) {
 	val c = Metric.colors
 	val p = LocalPrefs.current
-	val name = info?.name?.let(::shortGpuName) ?: "GPU"
+	val name = info?.name?.let(::shortGpuName) ?: stringResource(R.string.gpu)
+	val active = stringResource(R.string.overview_gpu_active)
 	Tile(modifier.fillMaxHeight(), accent = c.gpu, onClick = { t.openDetail("gpu/" + g.id) }) {
 		TileLabel(name, ElIcons.Gpu, c.gpu)
 		when {
@@ -138,27 +142,27 @@ private fun GpuTile(t: TabScope, g: Gpu, info: GpuInfo?, modifier: Modifier) {
 				Row(verticalAlignment = Alignment.CenterVertically) {
 					Icon(ElIcons.Moon, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(22.dp))
 					Spacer(Modifier.width(8.dp))
-					Text("Asleep", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.secondary)
+					Text(stringResource(R.string.gpu_asleep), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.secondary)
 				}
-				TileFooter("Powered down, left alone")
+				TileFooter(stringResource(R.string.overview_gpu_powered_down))
 			}
 			g.usage != null -> {
-				BigValue(Fmt.percent(g.usage).dropLast(1), "%")
+				BigValue(Fmt.percent(g.usage).dropLast(1), Fmt.PERCENT)
 				Sparkline(t.state.hist.gpuUsage[g.id].orEmpty(), c.gpu, MachineViewModel.HISTORY_CAP, maxValue = 100f)
-				TileFooter(listOfNotNull(g.temp?.let { Fmt.temp(it, p.fahrenheit) }, g.power?.let { Fmt.watts(it) }).joinToString(" · ").ifEmpty { "Active" })
+				TileFooter(listOfNotNull(g.temp?.let { Fmt.temp(it, p.fahrenheit) }, g.power?.let { Fmt.watts(it) }).joinToString(" · ").ifEmpty { active })
 			}
 			g.freq != null -> {
 				if (g.freq == 0) {
-					Text("Idle", style = MaterialTheme.typography.headlineSmall)
+					Text(stringResource(R.string.overview_gpu_idle), style = MaterialTheme.typography.headlineSmall)
 				} else {
 					val parts = Fmt.mhz(g.freq).split(' ')
 					BigValue(parts[0], parts.getOrNull(1), large = false)
 				}
-				TileFooter(g.freqMax?.let { "up to ${Fmt.mhz(it)}" } ?: "Active")
+				TileFooter(g.freqMax?.let { stringResource(R.string.overview_gpu_up_to, Fmt.mhz(it)) } ?: active)
 			}
 			else -> {
-				Text(if (g.state == "active") "Active" else "—", style = MaterialTheme.typography.headlineSmall)
-				TileFooter("No readings")
+				Text(if (g.state == "active") active else "—", style = MaterialTheme.typography.headlineSmall)
+				TileFooter(stringResource(R.string.overview_gpu_no_readings))
 			}
 		}
 	}
@@ -174,7 +178,7 @@ private fun TempTile(t: TabScope, s: Sample, modifier: Modifier) {
 	val p = LocalPrefs.current
 	val temp = s.cpu.temp ?: s.temps.maxOfOrNull { it.value }
 	Tile(modifier.fillMaxHeight(), accent = c.hot, onClick = { t.openDetail("temps") }) {
-		TileLabel("Temperature", ElIcons.Thermometer, c.hot)
+		TileLabel(stringResource(R.string.temperature), ElIcons.Thermometer, c.hot)
 		if (temp != null) {
 			val text = Fmt.temp(temp, p.fahrenheit)
 			BigValue(text.dropLast(2), text.takeLast(2), color = tempColor(temp))
@@ -185,9 +189,9 @@ private fun TempTile(t: TabScope, s: Sample, modifier: Modifier) {
 		val fans = s.fans.filter { it.rpm > 0 }
 		TileFooter(
 			when {
-				fans.isNotEmpty() -> "${fans.size} fan${if (fans.size > 1) "s" else ""} · ${fans.maxOf { it.rpm }} RPM"
-				s.fans.isNotEmpty() -> "Fans stopped"
-				else -> "${s.temps.size} sensors"
+				fans.isNotEmpty() -> pluralStringResource(R.plurals.overview_fans, fans.size, fans.size) + " · " + Fmt.rpm(fans.maxOf { it.rpm })
+				s.fans.isNotEmpty() -> stringResource(R.string.overview_fans_stopped)
+				else -> pluralStringResource(R.plurals.overview_sensors, s.temps.size, s.temps.size)
 			}
 		)
 	}
@@ -199,15 +203,15 @@ private fun NetworkTile(t: TabScope, s: Sample) {
 	val bits = LocalPrefs.current.networkBits
 	val real = s.net.filter { it.kind == "wired" || it.kind == "wireless" }
 	Tile(Modifier.fillMaxWidth(), accent = c.rx, onClick = { t.openDetail("network") }) {
-		TileLabel("Network", ElIcons.Network, c.rx)
+		TileLabel(stringResource(R.string.network), ElIcons.Network, c.rx)
 		Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
 			Column {
-				Text("↓ Download", style = MaterialTheme.typography.labelMedium, color = c.rx)
+				Text(stringResource(R.string.overview_download), style = MaterialTheme.typography.labelMedium, color = c.rx)
 				val (v, u) = Fmt.rateParts(real.sumOf { it.rx }, bits)
 				BigValue(v, u, large = false)
 			}
 			Column {
-				Text("↑ Upload", style = MaterialTheme.typography.labelMedium, color = c.tx)
+				Text(stringResource(R.string.overview_upload), style = MaterialTheme.typography.labelMedium, color = c.tx)
 				val (v, u) = Fmt.rateParts(real.sumOf { it.tx }, bits)
 				BigValue(v, u, large = false)
 			}
@@ -229,20 +233,20 @@ private fun NetworkTile(t: TabScope, s: Sample) {
 private fun StorageTile(t: TabScope, s: Sample) {
 	val c = Metric.colors
 	Tile(Modifier.fillMaxWidth(), accent = c.read, onClick = { t.openDetail("storage") }) {
-		TileLabel("Storage", ElIcons.Storage, c.read)
+		TileLabel(stringResource(R.string.storage), ElIcons.Storage, c.read)
 		for (d in s.disks.take(3)) {
 			val used = d.total - d.available
 			val frac = if (d.total > 0) used.toFloat() / d.total else 0f
 			Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
 				Row(verticalAlignment = Alignment.Bottom) {
 					Text(d.mount, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-					Text("${Fmt.bytes(d.available)} free", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+					Text(stringResource(R.string.overview_disk_free, Fmt.bytes(d.available)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				}
 				UsageBar(frac, loadColor(frac, c.read), height = 10.dp)
 			}
 		}
 		if (s.diskIo.isNotEmpty()) {
-			TileFooter("Read ${Fmt.rate(s.diskIo.sumOf { it.read })} · Write ${Fmt.rate(s.diskIo.sumOf { it.write })}")
+			TileFooter(stringResource(R.string.overview_disk_io, Fmt.rate(s.diskIo.sumOf { it.read }), Fmt.rate(s.diskIo.sumOf { it.write })))
 		}
 	}
 }
@@ -258,26 +262,30 @@ private fun BatteryTile(t: TabScope, s: Sample) {
 		else -> c.good
 	}
 	Tile(Modifier.fillMaxWidth(), accent = c.battery, onClick = { t.openDetail("battery") }) {
-		TileLabel("Battery", ElIcons.Battery, c.battery)
+		TileLabel(stringResource(R.string.battery), ElIcons.Battery, c.battery)
 		Row(verticalAlignment = Alignment.CenterVertically) {
-			BigValue(Fmt.percent(pct).dropLast(1), "%", color = color)
+			BigValue(Fmt.percent(pct).dropLast(1), Fmt.PERCENT, color = color)
 			Spacer(Modifier.weight(1f))
 			Pill(batteryStatus(b.status), color, dot = true)
 		}
 		UsageBar(pct / 100f, color, height = 10.dp)
+		val res = resources()
 		val parts = listOfNotNull(
 			b.power?.takeIf { it > 0.05f }?.let { Fmt.watts(it) },
-			b.timeLeft?.let { if (b.status == "charging") "full in ${Fmt.duration(it)}" else "${Fmt.duration(it)} left" },
-			if (b.energyFull != null && b.energyDesign != null && b.energyDesign > 0) "health ${Fmt.percent(b.energyFull / b.energyDesign * 100)}" else null,
+			b.timeLeft?.let { stringResource(if (b.status == "charging") R.string.overview_battery_full_in else R.string.overview_battery_left, Fmt.duration(res, it)) },
+			if (b.energyFull != null && b.energyDesign != null && b.energyDesign > 0) stringResource(R.string.overview_battery_health, Fmt.percent(b.energyFull / b.energyDesign * 100)) else null,
 		)
 		if (parts.isNotEmpty()) TileFooter(parts.joinToString(" · "))
 	}
 }
 
-fun batteryStatus(s: String) = when (s) {
-	"charging" -> "Charging"
-	"discharging" -> "Discharging"
-	"full" -> "Full"
-	"not_charging" -> "Not charging"
-	else -> "Unknown"
-}
+@Composable
+fun batteryStatus(s: String) = stringResource(
+	when (s) {
+		"charging" -> R.string.battery_charging
+		"discharging" -> R.string.battery_discharging
+		"full" -> R.string.battery_full
+		"not_charging" -> R.string.battery_not_charging
+		else -> R.string.battery_unknown
+	}
+)

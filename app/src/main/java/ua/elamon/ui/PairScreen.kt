@@ -1,6 +1,7 @@
 package ua.elamon.ui
 
 import android.os.Build
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -56,7 +57,7 @@ import ua.elamon.data.ServerStore
 private sealed interface Step {
 	data object Connecting : Step
 	data class Ready(val host: String, val hello: Hello, val fingerprint: String) : Step
-	data class Failed(val message: Int) : Step
+	data class Failed(@StringRes val message: Int) : Step
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

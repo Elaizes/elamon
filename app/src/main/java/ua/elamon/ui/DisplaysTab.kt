@@ -22,6 +22,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +30,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ua.elamon.R
 import ua.elamon.data.Display
 import kotlin.math.max
 import kotlin.math.min
@@ -50,17 +52,17 @@ fun DisplaysTab(t: TabScope) {
 		item(key = "header") { t.header() }
 		if (active.size > 1) {
 			item(key = "layout") {
-				Section("Arrangement", ElIcons.Overview) { DisplayLayout(active) }
+				Section(stringResource(R.string.displays_arrangement), ElIcons.Overview) { DisplayLayout(active) }
 			}
 		}
 		items(connected, key = { it.gpu + it.connector }) { d -> DisplayCard(d, gpuNames[d.gpu]) }
 		if (connected.isEmpty()) {
-			item { Notice(ElIcons.Monitor, "No monitors connected", "The computer runs without a screen, or its graphics driver doesn't report monitors.") }
+			item { Notice(ElIcons.Monitor, stringResource(R.string.displays_none), stringResource(R.string.displays_none_body)) }
 		}
 		if (free.isNotEmpty()) {
 			item(key = "free") {
 				Text(
-					"Free ports: " + free.joinToString(", ") { it.connector },
+					stringResource(R.string.displays_free_ports, free.joinToString(", ") { it.connector }),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -74,11 +76,12 @@ fun DisplaysTab(t: TabScope) {
 @Composable
 private fun DisplayCard(d: Display, gpuName: String?) {
 	val c = Metric.colors
-	val name = listOfNotNull(d.vendor, d.model).joinToString(" ").ifEmpty { if (d.internal) "Built-in display" else "Monitor" }
+	val fallbackName = stringResource(if (d.internal) R.string.displays_built_in else R.string.displays_monitor)
+	val name = listOfNotNull(d.vendor, d.model).joinToString(" ").ifEmpty { fallbackName }
 	val (status, color) = when {
-		d.active -> "On" to c.good
-		d.mode != null || d.dpms == "Off" -> "Off" to MaterialTheme.colorScheme.secondary
-		else -> "Not in use" to MaterialTheme.colorScheme.secondary
+		d.active -> stringResource(R.string.displays_on) to c.good
+		d.mode != null || d.dpms == "Off" -> stringResource(R.string.displays_off) to MaterialTheme.colorScheme.secondary
+		else -> stringResource(R.string.displays_not_in_use) to MaterialTheme.colorScheme.secondary
 	}
 	Section(name, if (d.internal) ElIcons.Laptop else ElIcons.Monitor, trailing = { Pill(status, color, dot = true) }) {
 		d.mode?.let { m ->
@@ -88,14 +91,14 @@ private fun DisplayCard(d: Display, gpuName: String?) {
 				Text(Fmt.hz(m.refresh), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 3.dp))
 			}
 		}
-		StatRow("Port", d.connector + (gpuName?.let { " · $it" } ?: ""))
+		StatRow(stringResource(R.string.displays_port), d.connector + (gpuName?.let { " · $it" } ?: ""))
 		if (d.widthMm != null && d.heightMm != null) {
-			StatRow("Size", "${Fmt.inches(d.widthMm, d.heightMm)} · ${d.widthMm / 10} × ${d.heightMm / 10} cm")
+			StatRow(stringResource(R.string.displays_size), "${Fmt.inches(d.widthMm, d.heightMm)} · ${Fmt.centimetres(d.widthMm, d.heightMm)}")
 		}
-		d.preferred?.let { StatRow("Native mode", "${it.width} × ${it.height} · ${Fmt.hz(it.refresh)}") }
-		d.maxRefresh?.let { StatRow("Highest refresh", Fmt.hz(it)) }
-		d.position?.takeIf { d.mode != null }?.let { StatRow("Position", "${it[0]}, ${it[1]}") }
-		d.year?.let { StatRow("Made in", it.toString()) }
+		d.preferred?.let { StatRow(stringResource(R.string.displays_native_mode), "${it.width} × ${it.height} · ${Fmt.hz(it.refresh)}") }
+		d.maxRefresh?.let { StatRow(stringResource(R.string.displays_highest_refresh), Fmt.hz(it)) }
+		d.position?.takeIf { d.mode != null }?.let { StatRow(stringResource(R.string.displays_position), "${it[0]}, ${it[1]}") }
+		d.year?.let { StatRow(stringResource(R.string.displays_made_in), it.toString()) }
 	}
 }
 

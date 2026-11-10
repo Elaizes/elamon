@@ -41,11 +41,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ua.elamon.ProcRequest
+import ua.elamon.R
 import ua.elamon.data.Proc
 import java.text.DateFormat
 import java.util.Date
@@ -67,7 +70,8 @@ fun ProcessesTab(t: TabScope) {
 
 	val procs = t.state.processes
 	val ncpu = t.state.info?.cpuLogicalCores ?: 1
-	val rows = remember(procs, sort, query, grouped) {
+	val res = resources()
+	val rows = remember(procs, sort, query, grouped, res) {
 		val list = procs.orEmpty().filter {
 			query.isBlank() || it.name.contains(query, true) || it.cmd.contains(query, true) || it.pid.toString() == query.trim()
 		}
@@ -76,7 +80,7 @@ fun ProcessesTab(t: TabScope) {
 				ProcItem(
 					key = "g:$name",
 					name = name,
-					sub = "${ps.size} process${if (ps.size > 1) "es" else ""}",
+					sub = res.getQuantityString(R.plurals.processes_count, ps.size, ps.size),
 					cpu = ps.sumOf { it.cpu.toDouble() }.toFloat(),
 					mem = ps.sumOf { it.mem },
 					gpu = ps.mapNotNull { it.gpu }.takeIf { it.isNotEmpty() }?.sum(),
@@ -106,9 +110,9 @@ fun ProcessesTab(t: TabScope) {
 					modifier = Modifier.fillMaxWidth(),
 					singleLine = true,
 					shape = RoundedCornerShape(28.dp),
-					placeholder = { Text("Search by name, command or PID") },
+					placeholder = { Text(stringResource(R.string.processes_search)) },
 					leadingIcon = { Icon(Icons.Default.Search, null) },
-					trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Clear, "Clear") } },
+					trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Clear, stringResource(R.string.processes_clear)) } },
 					colors = OutlinedTextFieldDefaults.colors(
 						unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
 						focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -116,13 +120,15 @@ fun ProcessesTab(t: TabScope) {
 					),
 				)
 				Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-					for ((key, label) in listOf("cpu" to "CPU", "mem" to "Memory", "gpu" to "GPU", "io" to "Disk", "name" to "Name")) {
-						FilterChip(selected = sort == key, onClick = { sort = key }, label = { Text(label) }, shape = RoundedCornerShape(50))
+					for ((key, label) in listOf("cpu" to R.string.cpu, "mem" to R.string.memory, "gpu" to R.string.gpu, "io" to R.string.processes_sort_disk, "name" to R.string.processes_sort_name)) {
+						FilterChip(selected = sort == key, onClick = { sort = key }, label = { Text(stringResource(label)) }, shape = RoundedCornerShape(50))
 					}
-					FilterChip(selected = grouped, onClick = { grouped = !grouped }, label = { Text("By app") }, shape = RoundedCornerShape(50))
+					FilterChip(selected = grouped, onClick = { grouped = !grouped }, label = { Text(stringResource(R.string.processes_by_app)) }, shape = RoundedCornerShape(50))
 				}
 				Text(
-					if (procs == null) "Loading…" else "${t.state.processCount} processes · CPU shown as share of all $ncpu threads",
+					if (procs == null) stringResource(R.string.loading)
+					else pluralStringResource(R.plurals.processes_count, t.state.processCount, t.state.processCount) + " · " +
+						pluralStringResource(R.plurals.processes_cpu_share, ncpu, ncpu),
 					style = MaterialTheme.typography.labelMedium,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					modifier = Modifier.padding(start = 4.dp),
@@ -160,7 +166,7 @@ private fun ProcRow(r: ProcItem, onClick: () -> Unit) {
 			Column(horizontalAlignment = Alignment.End, modifier = Modifier.width(96.dp)) {
 				Row(verticalAlignment = Alignment.CenterVertically) {
 					r.gpu?.let {
-						Text("GPU ${Fmt.percent(it)}", style = MaterialTheme.typography.labelSmall, color = c.gpu)
+						Text(stringResource(R.string.gpu_value, Fmt.percent(it)), style = MaterialTheme.typography.labelSmall, color = c.gpu)
 						Spacer(Modifier.width(6.dp))
 					}
 					Text(Fmt.percent(r.cpu, 1), style = MaterialTheme.typography.titleSmall, color = if (r.cpu >= 1f) loadColor(r.cpu / 25f, c.cpu) else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -186,22 +192,22 @@ private fun ProcessSheet(t: TabScope, p: Proc, onDismiss: () -> Unit) {
 				Spacer(Modifier.width(14.dp))
 				Column {
 					Text(p.name, style = MaterialTheme.typography.headlineSmall)
-					Text(listOfNotNull(p.user, "PID ${p.pid}").joinToString(" · "), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+					Text(listOfNotNull(p.user, stringResource(R.string.processes_pid, p.pid)).joinToString(" · "), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				}
 			}
 			Row(horizontalArrangement = Arrangement.spacedBy(24.dp), modifier = Modifier.padding(vertical = 6.dp)) {
-				BigStat("CPU", Fmt.percent(p.cpu, 1), color = Metric.colors.cpu)
-				BigStat("Memory", Fmt.bytes(p.mem), color = Metric.colors.memory)
-				p.gpu?.let { BigStat("GPU", Fmt.percent(it, 1), color = Metric.colors.gpu) }
+				BigStat(stringResource(R.string.cpu), Fmt.percent(p.cpu, 1), color = Metric.colors.cpu)
+				BigStat(stringResource(R.string.memory), Fmt.bytes(p.mem), color = Metric.colors.memory)
+				p.gpu?.let { BigStat(stringResource(R.string.gpu), Fmt.percent(it, 1), color = Metric.colors.gpu) }
 			}
-			p.ppid?.let { StatRow("Parent PID", it.toString()) }
-			StatRow("State", statusName(p.status))
-			if (p.start > 0) StatRow("Started", DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(p.start * 1000)))
-			StatRow("Disk read", Fmt.rate(p.read))
-			StatRow("Disk write", Fmt.rate(p.write))
-			p.gpuMem?.let { StatRow("GPU memory", Fmt.bytes(it)) }
+			p.ppid?.let { StatRow(stringResource(R.string.processes_parent_pid), it.toString()) }
+			StatRow(stringResource(R.string.processes_state), statusName(p.status))
+			if (p.start > 0) StatRow(stringResource(R.string.processes_started), DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(p.start * 1000)))
+			StatRow(stringResource(R.string.processes_disk_read), Fmt.rate(p.read))
+			StatRow(stringResource(R.string.processes_disk_write), Fmt.rate(p.write))
+			p.gpuMem?.let { StatRow(stringResource(R.string.processes_gpu_memory), Fmt.bytes(it)) }
 			if (p.cmd.isNotBlank()) {
-				Text("Command", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+				Text(stringResource(R.string.processes_command), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				SelectionContainer {
 					Text(p.cmd, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
 				}
@@ -209,10 +215,10 @@ private fun ProcessSheet(t: TabScope, p: Proc, onDismiss: () -> Unit) {
 			if (control?.enabled == true) {
 				Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 8.dp)) {
 					FilledTonalButton(onClick = { if (prefs.confirmActions) confirm = "term" else t.vm.signal(p.pid, "term") }, modifier = Modifier.weight(1f)) {
-						Text("Quit")
+						Text(stringResource(R.string.processes_quit))
 					}
 					FilledTonalButton(onClick = { if (prefs.confirmActions) confirm = "kill" else t.vm.signal(p.pid, "kill") }, modifier = Modifier.weight(1f)) {
-						Text("Force kill", color = Metric.colors.hot)
+						Text(stringResource(R.string.processes_force_kill), color = Metric.colors.hot)
 					}
 				}
 			}
@@ -221,11 +227,10 @@ private fun ProcessSheet(t: TabScope, p: Proc, onDismiss: () -> Unit) {
 	confirm?.let { sig ->
 		GlassDialog(
 			onDismiss = { confirm = null },
-			title = if (sig == "kill") "Force kill ${p.name}?" else "Quit ${p.name}?",
+			title = stringResource(if (sig == "kill") R.string.processes_force_kill_title else R.string.processes_quit_title, p.name),
 			text = {
 				Text(
-					if (sig == "kill") "It ends at once, without saving anything."
-					else "It's asked to close, the way a window's close button would. Most programs save and exit.",
+					stringResource(if (sig == "kill") R.string.processes_force_kill_body else R.string.processes_quit_body),
 				)
 			},
 			confirm = {
@@ -233,19 +238,20 @@ private fun ProcessSheet(t: TabScope, p: Proc, onDismiss: () -> Unit) {
 					t.vm.signal(p.pid, sig)
 					confirm = null
 					onDismiss()
-				}) { Text(if (sig == "kill") "Force kill" else "Quit") }
+				}) { Text(stringResource(if (sig == "kill") R.string.processes_force_kill else R.string.processes_quit)) }
 			},
-			dismiss = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
+			dismiss = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.cancel)) } },
 		)
 	}
 }
 
+@Composable
 private fun statusName(s: String): String = when (s.lowercase()) {
-	"run", "runnable", "running" -> "running"
-	"sleep", "sleeping" -> "sleeping"
-	"idle" -> "idle"
-	"zombie" -> "zombie"
-	"stop", "stopped" -> "stopped"
-	"uninterruptibledisksleep", "uninterruptible disk sleep", "disk sleep" -> "waiting for disk"
+	"run", "runnable", "running" -> stringResource(R.string.process_running)
+	"sleep", "sleeping" -> stringResource(R.string.process_sleeping)
+	"idle" -> stringResource(R.string.process_idle)
+	"zombie" -> stringResource(R.string.process_zombie)
+	"stop", "stopped" -> stringResource(R.string.process_stopped)
+	"uninterruptibledisksleep", "uninterruptible disk sleep", "disk sleep" -> stringResource(R.string.process_disk_sleep)
 	else -> s.lowercase()
 }

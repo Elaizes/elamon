@@ -13,10 +13,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ua.elamon.MachineState
 import ua.elamon.MachineViewModel
+import ua.elamon.R
 import ua.elamon.data.Temp
 
 private val KIND_ORDER = listOf("cpu", "gpu", "storage", "wireless", "board", "battery", "other")
@@ -47,14 +49,15 @@ fun LazyListScope.sensorItems(state: MachineState) {
 	item(key = "chart") {
 		val c = Metric.colors
 		val p = LocalPrefs.current
-		Section("Temperatures", ElIcons.Thermometer, accent = c.hot) {
-			val series = mutableListOf(ChartSeries(state.hist.cpuTemp, c.cpu, fill = false, format = { "CPU " + Fmt.temp(it, p.fahrenheit) }))
+		val res = resources()
+		Section(stringResource(R.string.temperatures), ElIcons.Thermometer, accent = c.hot) {
+			val series = mutableListOf(ChartSeries(state.hist.cpuTemp, c.cpu, fill = false, format = { res.getString(R.string.cpu_value, Fmt.temp(it, p.fahrenheit)) }))
 			val gpuTemps = state.hist.gpuTemp.filterValues { v -> v.any { !it.isNaN() } }
-			gpuTemps.values.forEach { series += ChartSeries(it, c.gpu, fill = false, format = { "GPU " + Fmt.temp(it, p.fahrenheit) }) }
+			gpuTemps.values.forEach { series += ChartSeries(it, c.gpu, fill = false, format = { res.getString(R.string.gpu_value, Fmt.temp(it, p.fahrenheit)) }) }
 			LineChart(series, MachineViewModel.HISTORY_CAP, minScale = 60f, height = 170.dp, label = { Fmt.temp(it, p.fahrenheit) })
 			Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-				Legend(c.cpu, "CPU")
-				if (gpuTemps.isNotEmpty()) Legend(c.gpu, "GPU")
+				Legend(c.cpu, stringResource(R.string.cpu))
+				if (gpuTemps.isNotEmpty()) Legend(c.gpu, stringResource(R.string.gpu))
 			}
 		}
 	}
@@ -62,7 +65,7 @@ fun LazyListScope.sensorItems(state: MachineState) {
 	if (gpusWithTemp.isNotEmpty()) {
 		item(key = "gpus") {
 			val names = state.info?.gpus.orEmpty().associate { it.id to it.name }
-			Section("Graphics", ElIcons.Gpu, accent = Metric.colors.gpu) {
+			Section(stringResource(R.string.graphics), ElIcons.Gpu, accent = Metric.colors.gpu) {
 				for (g in gpusWithTemp) TempRow(names[g.id] ?: g.id, g.temp!!, null, null)
 			}
 		}
@@ -77,11 +80,11 @@ fun LazyListScope.sensorItems(state: MachineState) {
 	}
 	if (s.fans.isNotEmpty()) {
 		item(key = "fans") {
-			Section("Fans", ElIcons.Fan) {
+			Section(stringResource(R.string.sensors_fans), ElIcons.Fan) {
 				val top = (s.fans.maxOf { it.rpm } * 1.25f).coerceAtLeast(3000f)
 				for (f in s.fans) {
 					Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-						StatRow(f.label, if (f.rpm == 0) "stopped" else Fmt.rpm(f.rpm))
+						StatRow(f.label, if (f.rpm == 0) stringResource(R.string.sensors_fan_stopped) else Fmt.rpm(f.rpm))
 						UsageBar(f.rpm / top, MaterialTheme.colorScheme.primary, height = 6.dp)
 					}
 				}
@@ -90,7 +93,7 @@ fun LazyListScope.sensorItems(state: MachineState) {
 	}
 	if (s.temps.isEmpty() && s.fans.isEmpty()) {
 		item {
-			Notice(ElIcons.Thermometer, "No sensors", "The computer reports no temperature or fan sensors. Some need a kernel module, often loaded by lm-sensors.")
+			Notice(ElIcons.Thermometer, stringResource(R.string.sensors_none), stringResource(R.string.sensors_none_body))
 		}
 	}
 }
@@ -105,7 +108,7 @@ private fun TempRow(label: String, value: Float, high: Float?, crit: Float?) {
 			Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
 			// The limit only matters when it gets close; on every row it is noise.
 			if (crit != null && value >= crit - 15f) {
-				Text("limit ${Fmt.temp(crit, p.fahrenheit)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+				Text(stringResource(R.string.sensors_limit, Fmt.temp(crit, p.fahrenheit)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				Spacer(Modifier.width(10.dp))
 			}
 			Text(Fmt.temp(value, p.fahrenheit), style = MaterialTheme.typography.titleSmall, color = color)
@@ -122,15 +125,18 @@ private fun isMain(t: Temp): Boolean {
 /** "Core 10" after "Core 2". */
 private fun naturalKey(s: String): String = s.replace(Regex("\\d+")) { it.value.padStart(6, '0') }
 
-private fun kindName(kind: String): String = when (kind) {
-	"cpu" -> "Processor"
-	"gpu" -> "Graphics"
-	"storage" -> "Drive"
-	"wireless" -> "Wireless"
-	"board" -> "Board"
-	"battery" -> "Battery"
-	else -> "Other"
-}
+@Composable
+private fun kindName(kind: String): String = stringResource(
+	when (kind) {
+		"cpu" -> R.string.processor
+		"gpu" -> R.string.graphics
+		"storage" -> R.string.sensors_drive
+		"wireless" -> R.string.sensors_wireless
+		"board" -> R.string.sensors_board
+		"battery" -> R.string.battery
+		else -> R.string.sensors_other
+	}
+)
 
 private fun iconFor(kind: String) = when (kind) {
 	"cpu" -> ElIcons.Chip

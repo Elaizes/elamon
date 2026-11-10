@@ -31,11 +31,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import ua.elamon.BuildConfig
+import ua.elamon.R
 import ua.elamon.Settings
 import ua.elamon.ThemeMode
 
@@ -57,72 +59,80 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 				contentPadding = listPadding(bottomNav = false),
 				verticalArrangement = Arrangement.spacedBy(8.dp),
 			) {
-				item { BigTitle("Settings", list = list) }
+				item { BigTitle(stringResource(R.string.settings), list = list) }
 
-				item { GroupLabel("Appearance") }
+				item { GroupLabel(stringResource(R.string.settings_appearance)) }
 				item {
 					ListGroup {
-						Choice("Theme", listOf(ThemeMode.System to "System", ThemeMode.Light to "Light", ThemeMode.Dark to "Dark"), p.theme) { v -> settings.update { it.copy(theme = v) } }
+						Choice(
+							stringResource(R.string.settings_theme),
+							listOf(
+								ThemeMode.System to stringResource(R.string.settings_theme_system),
+								ThemeMode.Light to stringResource(R.string.settings_theme_light),
+								ThemeMode.Dark to stringResource(R.string.settings_theme_dark),
+							),
+							p.theme,
+						) { v -> settings.update { it.copy(theme = v) } }
 						GroupDivider()
-						SwitchRow("Pure black", "Black instead of dark grey in dark mode; saves power on OLED screens", p.pureBlack, enabled = dark) { v -> settings.update { it.copy(pureBlack = v) } }
+						SwitchRow(stringResource(R.string.settings_pure_black), stringResource(R.string.settings_pure_black_summary), p.pureBlack, enabled = dark) { v -> settings.update { it.copy(pureBlack = v) } }
 						GroupDivider()
 						SwitchRow(
-							"Wallpaper colours",
-							if (Build.VERSION.SDK_INT >= 31) "Take the app's colours from the wallpaper" else "Needs Android 12",
+							stringResource(R.string.settings_wallpaper_colours),
+							stringResource(if (Build.VERSION.SDK_INT >= 31) R.string.settings_wallpaper_colours_summary else R.string.settings_needs_android_12),
 							p.dynamicColor && Build.VERSION.SDK_INT >= 31,
 							enabled = Build.VERSION.SDK_INT >= 31,
 						) { v -> settings.update { it.copy(dynamicColor = v) } }
 						GroupDivider()
 						SwitchRow(
-							"Blur",
-							if (p.blurAvailable) "Frosted glass behind bars and dialogs" else "Needs Android 12",
+							stringResource(R.string.settings_blur),
+							stringResource(if (p.blurAvailable) R.string.settings_blur_summary else R.string.settings_needs_android_12),
 							p.useBlur,
 							enabled = p.blurAvailable,
 						) { v -> settings.update { it.copy(blur = v) } }
 						GroupDivider()
-						SwitchRow("Animations", "Rolling numbers and moving gauges", p.animations) { v -> settings.update { it.copy(animations = v) } }
+						SwitchRow(stringResource(R.string.settings_animations), stringResource(R.string.settings_animations_summary), p.animations) { v -> settings.update { it.copy(animations = v) } }
 					}
 				}
 
-				item { GroupLabel("Data") }
+				item { GroupLabel(stringResource(R.string.settings_data)) }
 				item {
 					ListGroup {
-						Choice("Update every", Settings.INTERVALS.map { it to "${it / 1000} s" }, p.intervalMs) { v -> settings.update { it.copy(intervalMs = v) } }
+						Choice(stringResource(R.string.settings_interval), Settings.INTERVALS.map { it to stringResource(R.string.settings_interval_seconds, it / 1000) }, p.intervalMs) { v -> settings.update { it.copy(intervalMs = v) } }
 						GroupDivider()
-						Choice("Temperature", listOf(false to "°C", true to "°F"), p.fahrenheit) { v -> settings.update { it.copy(fahrenheit = v) } }
+						Choice(stringResource(R.string.settings_temperature), listOf(false to Fmt.CELSIUS, true to Fmt.FAHRENHEIT), p.fahrenheit) { v -> settings.update { it.copy(fahrenheit = v) } }
 						GroupDivider()
-						Choice("Network speed", listOf(false to "Bytes", true to "Bits"), p.networkBits) { v -> settings.update { it.copy(networkBits = v) } }
+						Choice(stringResource(R.string.settings_network_speed), listOf(false to stringResource(R.string.settings_bytes), true to stringResource(R.string.settings_bits)), p.networkBits) { v -> settings.update { it.copy(networkBits = v) } }
 						GroupDivider()
-						SwitchRow("Keep screen on", "While a computer is open, as a dashboard", p.keepScreenOn) { v -> settings.update { it.copy(keepScreenOn = v) } }
+						SwitchRow(stringResource(R.string.settings_keep_screen_on), stringResource(R.string.settings_keep_screen_on_summary), p.keepScreenOn) { v -> settings.update { it.copy(keepScreenOn = v) } }
 					}
 				}
 
-				item { GroupLabel("Control") }
+				item { GroupLabel(stringResource(R.string.settings_control)) }
 				item {
 					ListGroup {
-						SwitchRow("Confirm actions", "Ask before power, kill, restart and commands", p.confirmActions) { v -> settings.update { it.copy(confirmActions = v) } }
+						SwitchRow(stringResource(R.string.settings_confirm_actions), stringResource(R.string.settings_confirm_actions_summary), p.confirmActions) { v -> settings.update { it.copy(confirmActions = v) } }
 						GroupDivider()
-						SwitchRow("Haptic feedback", "A tick on long presses", p.haptics) { v -> settings.update { it.copy(haptics = v) } }
+						SwitchRow(stringResource(R.string.settings_haptics), stringResource(R.string.settings_haptics_summary), p.haptics) { v -> settings.update { it.copy(haptics = v) } }
 					}
 				}
 
-				item { GroupLabel("About") }
+				item { GroupLabel(stringResource(R.string.settings_about)) }
 				item {
 					ListGroup {
-						ListRow("Help", "Installing the service, the firewall, pairing, troubleshooting", icon = ElIcons.Help, onClick = onHelp)
+						ListRow(stringResource(R.string.help), stringResource(R.string.settings_help_summary), icon = ElIcons.Help, onClick = onHelp)
 						GroupDivider()
-						ListRow("Source code", Project.URL.removePrefix("https://"), icon = ElIcons.Globe, onClick = {
+						ListRow(stringResource(R.string.settings_source), Project.URL.removePrefix("https://"), icon = ElIcons.Globe, onClick = {
 							runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Project.URL))) }
 						})
 						GroupDivider()
-						ListRow("Licences", "Elamon: GPL-3.0-or-later · Inter: SIL Open Font License", icon = Icons.Default.Info, onClick = { license = true })
+						ListRow(stringResource(R.string.settings_licences), stringResource(R.string.settings_licences_summary), icon = Icons.Default.Info, onClick = { license = true })
 						GroupDivider()
-						ListRow("Version", BuildConfig.VERSION_NAME)
+						ListRow(stringResource(R.string.settings_version), BuildConfig.VERSION_NAME)
 					}
 				}
 			}
 			BottomGlass(Modifier.align(androidx.compose.ui.Alignment.BottomCenter), extra = 0.dp)
-			GlassTopBar(title = "Settings", collapsed = rememberCollapsed(list), onBack = onBack)
+			GlassTopBar(title = stringResource(R.string.settings), collapsed = rememberCollapsed(list), onBack = onBack)
 		}
 	}
 
@@ -130,15 +140,15 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 		val text = remember { runCatching { ctx.assets.open("licenses/inter-OFL.txt").bufferedReader().readText() }.getOrDefault("") }
 		GlassDialog(
 			onDismiss = { license = false },
-			title = "Licences",
+			title = stringResource(R.string.settings_licences),
 			text = {
 				Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-					Text("Elamon is free software under the GNU General Public License, version 3 or later.")
-					Text("The Inter typeface:", style = MaterialTheme.typography.titleSmall)
+					Text(stringResource(R.string.settings_licence_elamon))
+					Text(stringResource(R.string.settings_licence_inter), style = MaterialTheme.typography.titleSmall)
 					Text(text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
 				}
 			},
-			confirm = { TextButton(onClick = { license = false }) { Text("Close") } },
+			confirm = { TextButton(onClick = { license = false }) { Text(stringResource(R.string.settings_close)) } },
 		)
 	}
 }

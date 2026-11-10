@@ -82,6 +82,7 @@ private sealed interface Block {
 private fun t(@StringRes res: Int) = Block.Text(res)
 private fun c(code: String) = Block.Code(code)
 
+/** [label] is the system's own name, the same in every language, like the commands; null is "Other", from resources. */
 private data class Distro(val key: String, val label: String?, val install: List<Block>, val firewall: List<Block>)
 
 // Commands shared by the distributions that build the service from source.
@@ -449,7 +450,7 @@ private fun FaqItem(f: Faq) {
 
 private fun copy(ctx: Context, text: String) {
 	val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-	cm.setPrimaryClip(ClipData.newPlainText("Elamon", text))
+	cm.setPrimaryClip(ClipData.newPlainText(ctx.getString(R.string.app_name), text))
 	// Android 13 and newer show their own confirmation.
 	if (Build.VERSION.SDK_INT < 33) Toast.makeText(ctx, R.string.copied, Toast.LENGTH_SHORT).show()
 }

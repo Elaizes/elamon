@@ -45,6 +45,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,6 +56,7 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import ua.elamon.R
 import ua.elamon.data.ElamondClient
 import ua.elamon.data.DEFAULT_PORT
 import ua.elamon.data.Found
@@ -108,14 +111,11 @@ fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit, onHelp: (
 			) {
 				item(key = "title") {
 					BigTitle(
-						"Elamon",
+						stringResource(R.string.app_name),
 						subtitle = {
 							Text(
-								when (servers.size) {
-									0 -> "Watch your computers from here"
-									1 -> "1 computer"
-									else -> "${servers.size} computers"
-								},
+								if (servers.isEmpty()) stringResource(R.string.home_subtitle_empty)
+								else pluralStringResource(R.plurals.home_computers, servers.size, servers.size),
 								style = MaterialTheme.typography.titleSmall,
 								color = MaterialTheme.colorScheme.onSurfaceVariant,
 							)
@@ -125,7 +125,7 @@ fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit, onHelp: (
 				}
 				items(servers, key = { it.id }) { s -> ComputerCard(s, live[s.id] ?: Live.Unknown) { onOpen(s) } }
 				if (unpaired.isNotEmpty()) {
-					item(key = "found-header") { GroupLabel("Found on this network") }
+					item(key = "found-header") { GroupLabel(stringResource(R.string.home_found)) }
 					items(unpaired, key = { "found-" + it.id }) { f -> FoundCard(f) { onPair(f.toTarget()) } }
 				}
 				if (servers.isEmpty()) {
@@ -134,18 +134,18 @@ fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit, onHelp: (
 			}
 
 			GlassTopBar(
-				title = "Elamon",
+				title = stringResource(R.string.app_name),
 				collapsed = rememberCollapsed(list),
 				actions = {
-					IconButton(onClick = onHelp) { Icon(ElIcons.Help, "Help") }
-					IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") }
+					IconButton(onClick = onHelp) { Icon(ElIcons.Help, stringResource(R.string.help)) }
+					IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, stringResource(R.string.settings)) }
 				},
 			)
 
 			ExtendedFloatingActionButton(
 				onClick = { addDialog = true },
 				icon = { Icon(Icons.Default.Add, null) },
-				text = { Text("Add computer") },
+				text = { Text(stringResource(R.string.home_add_computer)) },
 				shape = RoundedCornerShape(28.dp),
 				containerColor = MaterialTheme.colorScheme.primaryContainer,
 				modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(20.dp),
@@ -189,8 +189,8 @@ private fun ComputerCard(s: Server, live: Live, onClick: () -> Unit) {
 					Text(s.os ?: s.hostsToTry().firstOrNull().orEmpty(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
 				}
 				when (live) {
-					is Live.Online -> Pill("Online", c.good, dot = true)
-					Live.Offline -> Pill("Offline", MaterialTheme.colorScheme.outline, dot = true)
+					is Live.Online -> Pill(stringResource(R.string.home_online), c.good, dot = true)
+					Live.Offline -> Pill(stringResource(R.string.offline), MaterialTheme.colorScheme.outline, dot = true)
 					Live.Unknown -> {}
 				}
 			}
@@ -198,10 +198,10 @@ private fun ComputerCard(s: Server, live: Live, onClick: () -> Unit) {
 				val sample = live.sample
 				val m = sample.memory
 				Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-					MiniStat("CPU", Fmt.percent(sample.cpu.usage), sample.cpu.usage / 100f, c.cpu, Modifier.weight(1f))
+					MiniStat(stringResource(R.string.cpu), Fmt.percent(sample.cpu.usage), sample.cpu.usage / 100f, c.cpu, Modifier.weight(1f))
 					val mf = if (m.total > 0) m.used.toFloat() / m.total else 0f
-					MiniStat("RAM", Fmt.percent(mf * 100), mf, c.memory, Modifier.weight(1f))
-					sample.cpu.temp?.let { MiniStat("Temp", Fmt.temp(it, p.fahrenheit), it / 100f, tempColor(it), Modifier.weight(1f)) }
+					MiniStat(stringResource(R.string.ram), Fmt.percent(mf * 100), mf, c.memory, Modifier.weight(1f))
+					sample.cpu.temp?.let { MiniStat(stringResource(R.string.home_temp), Fmt.temp(it, p.fahrenheit), it / 100f, tempColor(it), Modifier.weight(1f)) }
 				}
 			}
 		}
@@ -225,7 +225,7 @@ private fun FoundCard(f: Found, onClick: () -> Unit) {
 			Spacer(Modifier.width(14.dp))
 			Column(Modifier.weight(1f)) {
 				Text(f.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-				Text("${f.host} · tap to pair", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+				Text(stringResource(R.string.home_found_tap, f.host), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			}
 		}
 	}
@@ -236,17 +236,17 @@ private fun FoundCard(f: Found, onClick: () -> Unit) {
 private fun SetupGuide(onHelp: () -> Unit) {
 	Surface(shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
 		Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-			Text("Watch a computer", style = MaterialTheme.typography.titleLarge)
+			Text(stringResource(R.string.home_setup_title), style = MaterialTheme.typography.titleLarge)
 			Text(
-				"Elamon shows a computer's load, temperatures, memory, processes and monitors live, and controls its services, media and power. The computer runs a small service that only paired phones can reach.",
+				stringResource(R.string.home_setup_intro),
 				style = MaterialTheme.typography.bodyMedium,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
-			Step(1, "Install the elamond service on the computer (Linux).", null)
-			Step(2, "Start it as a service for your user:", "systemctl --user enable --now elamond")
-			Step(3, "Run this on the computer. It shows a QR code and a six-digit code:", "elamond pair")
-			Step(4, "Point this phone's camera at the QR code, or tap Add computer and enter the code.", null)
-			FilledTonalButton(onClick = onHelp, modifier = Modifier.fillMaxWidth()) { Text("Step-by-step guide for your system") }
+			Step(1, stringResource(R.string.home_setup_install), null)
+			Step(2, stringResource(R.string.home_setup_start), "systemctl --user enable --now elamond")
+			Step(3, stringResource(R.string.home_setup_pair), "elamond pair")
+			Step(4, stringResource(R.string.home_setup_scan), null)
+			FilledTonalButton(onClick = onHelp, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.home_setup_guide)) }
 		}
 	}
 }
@@ -278,23 +278,23 @@ private fun AddDialog(onDismiss: () -> Unit, onAddress: (String, Int) -> Unit) {
 	val parsed = ElamondClient.parseAddress(address, DEFAULT_PORT)
 	GlassDialog(
 		onDismiss = onDismiss,
-		title = "Add computer",
+		title = stringResource(R.string.home_add_computer),
 		icon = ElIcons.Qr,
 		text = {
 			Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-				Text("The easiest way: run elamond pair on the computer and point the phone's camera at the QR code it shows.")
-				Text("Or enter the computer's address, then the six-digit code.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+				Text(stringResource(R.string.home_add_qr))
+				Text(stringResource(R.string.home_add_or_address), color = MaterialTheme.colorScheme.onSurfaceVariant)
 				OutlinedTextField(
 					value = address,
 					onValueChange = { address = it },
 					singleLine = true,
-					label = { Text("Address") },
-					placeholder = { Text("IP address or host name") },
+					label = { Text(stringResource(R.string.home_add_address)) },
+					placeholder = { Text(stringResource(R.string.home_add_address_hint)) },
 					keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
 				)
 			}
 		},
-		confirm = { TextButton(enabled = parsed != null, onClick = { parsed?.let { onAddress(it.first, it.second) } }) { Text("Next") } },
-		dismiss = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+		confirm = { TextButton(enabled = parsed != null, onClick = { parsed?.let { onAddress(it.first, it.second) } }) { Text(stringResource(R.string.home_add_next)) } },
+		dismiss = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
 	)
 }

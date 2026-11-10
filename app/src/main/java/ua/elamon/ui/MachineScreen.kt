@@ -2,6 +2,7 @@ package ua.elamon.ui
 
 import android.app.Application
 import androidx.activity.compose.BackHandler
+import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -45,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -56,16 +58,18 @@ import dev.chrisbanes.haze.hazeSource
 import ua.elamon.Conn
 import ua.elamon.MachineState
 import ua.elamon.MachineViewModel
+import ua.elamon.Message
+import ua.elamon.R
 import ua.elamon.data.PairTarget
 import ua.elamon.data.Server
 import ua.elamon.data.ServerStore
 
-private enum class Tab(val label: String) {
-	Overview("Overview"),
-	Processes("Processes"),
-	Sensors("Sensors"),
-	Displays("Displays"),
-	Control("Control"),
+private enum class Tab(@StringRes val label: Int) {
+	Overview(R.string.tab_overview),
+	Processes(R.string.tab_processes),
+	Sensors(R.string.tab_sensors),
+	Displays(R.string.tab_displays),
+	Control(R.string.tab_control),
 }
 
 private fun Tab.icon() = when (this) {
@@ -128,7 +132,16 @@ fun MachineScreen(
 			vm.setVisible(false)
 		}
 	}
-	LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
+	LaunchedEffect(Unit) {
+		vm.messages.collect { m ->
+			snackbar.showSnackbar(
+				when (m) {
+					is Message.Res -> ctx.getString(m.id)
+					is Message.Text -> m.text
+				}
+			)
+		}
+	}
 	LaunchedEffect(Unit) { vm.refreshControl() }
 
 	val view = LocalView.current
@@ -149,19 +162,19 @@ fun MachineScreen(
 			Box(Modifier.fillMaxSize().hazeSource(haze)) {
 				when {
 					state.conn == Conn.Unauthorized -> Centered {
-						Notice(Icons.Default.Warning, "This phone isn't paired anymore", "The computer no longer accepts it, maybe after elamond revoke. Run elamond pair on the computer and pair again.") {
-							Button(onClick = { onPairAgain(server.toTarget()) }) { Text("Pair again") }
+						Notice(Icons.Default.Warning, stringResource(R.string.machine_unpaired_title), stringResource(R.string.machine_unpaired_body)) {
+							Button(onClick = { onPairAgain(server.toTarget()) }) { Text(stringResource(R.string.machine_pair_again)) }
 						}
 					}
 					state.conn == Conn.CertificateChanged -> Centered {
-						Notice(Icons.Default.Warning, "The computer's certificate changed", "This happens when the service's data was reset or reinstalled, but also when something else pretends to be the computer. If you didn't reset it, check your network before pairing again.") {
-							Button(onClick = { onPairAgain(server.toTarget().copy(fingerprint = null)) }) { Text("Pair again") }
+						Notice(Icons.Default.Warning, stringResource(R.string.machine_cert_title), stringResource(R.string.machine_cert_body)) {
+							Button(onClick = { onPairAgain(server.toTarget().copy(fingerprint = null)) }) { Text(stringResource(R.string.machine_pair_again)) }
 						}
 					}
 					state.sample == null && state.conn == Conn.Offline -> Centered {
-						Notice(ElIcons.Laptop, "Can't reach $name", "The computer may be off or asleep, the service not running, or the phone on another network. Elamon keeps trying.") {
-							Button(onClick = { vm.retry() }) { Text("Try again") }
-							TextButton(onClick = { onHelp(HelpTopic.TROUBLESHOOTING) }) { Text("Troubleshooting") }
+						Notice(ElIcons.Laptop, stringResource(R.string.machine_unreachable_title, name), stringResource(R.string.machine_unreachable_body)) {
+							Button(onClick = { vm.retry() }) { Text(stringResource(R.string.retry)) }
+							TextButton(onClick = { onHelp(HelpTopic.TROUBLESHOOTING) }) { Text(stringResource(R.string.troubleshooting_button)) }
 						}
 					}
 					state.sample == null -> Centered { CircularProgressIndicator() }
@@ -201,11 +214,11 @@ fun MachineScreen(
 				onBack = { if (detail != null) detail = null else onBack() },
 				subtitle = if (detail != null) name else status,
 				actions = {
-					IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
+					IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.machine_more)) }
 					DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-						DropdownMenuItem(text = { Text("Settings") }, onClick = { menu = false; onSettings() })
-						DropdownMenuItem(text = { Text("Help") }, onClick = { menu = false; onHelp(null) })
-						DropdownMenuItem(text = { Text("Forget computer") }, onClick = { menu = false; confirmForget = true })
+						DropdownMenuItem(text = { Text(stringResource(R.string.settings)) }, onClick = { menu = false; onSettings() })
+						DropdownMenuItem(text = { Text(stringResource(R.string.help)) }, onClick = { menu = false; onHelp(null) })
+						DropdownMenuItem(text = { Text(stringResource(R.string.machine_forget)) }, onClick = { menu = false; confirmForget = true })
 					}
 				},
 			)
@@ -215,13 +228,13 @@ fun MachineScreen(
 				visible = state.sample != null && state.conn != Conn.Live,
 				modifier = Modifier.align(Alignment.TopCenter).padding(top = 110.dp),
 			) {
-				Pill(if (state.conn == Conn.Offline) "Offline · retrying" else "Reconnecting…", Metric.colors.warn, dot = true)
+				Pill(stringResource(if (state.conn == Conn.Offline) R.string.machine_offline_retrying else R.string.conn_reconnecting), Metric.colors.warn, dot = true)
 			}
 
 			if (state.sample != null) BottomGlass(Modifier.align(Alignment.BottomCenter), extra = if (detail == null) 92.dp else 0.dp)
 			if (state.sample != null && detail == null) {
 				FloatingNavBar(
-					items = Tab.entries.map { NavItem(it.label, it.icon()) },
+					items = Tab.entries.map { NavItem(stringResource(it.label), it.icon()) },
 					selected = tab.ordinal,
 					onSelect = { tab = Tab.entries[it] },
 					modifier = Modifier.align(Alignment.BottomCenter),
@@ -235,16 +248,16 @@ fun MachineScreen(
 	if (confirmForget) {
 		GlassDialog(
 			onDismiss = { confirmForget = false },
-			title = "Forget ${server.name}?",
-			text = { Text("This phone will stop showing it. To see it again, pair again. To also remove the phone on the computer, run elamond revoke there.") },
+			title = stringResource(R.string.machine_forget_title, server.name),
+			text = { Text(stringResource(R.string.machine_forget_body)) },
 			confirm = {
 				TextButton(onClick = {
 					ServerStore.get(ctx).remove(server.id)
 					confirmForget = false
 					onForgotten()
-				}) { Text("Forget") }
+				}) { Text(stringResource(R.string.machine_forget_confirm)) }
 			},
-			dismiss = { TextButton(onClick = { confirmForget = false }) { Text("Cancel") } },
+			dismiss = { TextButton(onClick = { confirmForget = false }) { Text(stringResource(R.string.cancel)) } },
 		)
 	}
 }
@@ -268,10 +281,10 @@ private fun MachineHeader(name: String, state: MachineState, status: String, lis
 			{
 				FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 					state.info?.os?.takeIf { o -> o.isNotBlank() }?.let { os -> Pill(os, MaterialTheme.colorScheme.secondary) }
-					Pill("Up ${Fmt.duration(s.uptime)}", MaterialTheme.colorScheme.secondary)
+					Pill(stringResource(R.string.machine_uptime, Fmt.duration(resources(), s.uptime)), MaterialTheme.colorScheme.secondary)
 					when (s.power.onAc) {
-						true -> Pill("On AC power", Metric.colors.good, dot = true)
-						false -> Pill("On battery", Metric.colors.warn, dot = true)
+						true -> Pill(stringResource(R.string.machine_on_ac), Metric.colors.good, dot = true)
+						false -> Pill(stringResource(R.string.machine_on_battery), Metric.colors.warn, dot = true)
 						null -> {}
 					}
 					(s.power.ppdProfile ?: s.power.profile)?.let { p -> Pill(profileName(p), MaterialTheme.colorScheme.tertiary) }
@@ -281,13 +294,14 @@ private fun MachineHeader(name: String, state: MachineState, status: String, lis
 	)
 }
 
+@Composable
 fun profileName(p: String): String = when (p) {
-	"power-saver", "low-power" -> "Power saver"
-	"cool" -> "Cool"
-	"quiet" -> "Quiet"
-	"balanced" -> "Balanced"
-	"balanced-performance" -> "Balanced performance"
-	"performance" -> "Performance"
+	"power-saver", "low-power" -> stringResource(R.string.profile_power_saver)
+	"cool" -> stringResource(R.string.profile_cool)
+	"quiet" -> stringResource(R.string.profile_quiet)
+	"balanced" -> stringResource(R.string.profile_balanced)
+	"balanced-performance" -> stringResource(R.string.profile_balanced_performance)
+	"performance" -> stringResource(R.string.profile_performance)
 	else -> p.replaceFirstChar { it.uppercase() }
 }
 
@@ -296,13 +310,14 @@ private fun Centered(content: @Composable () -> Unit) {
 	Box(Modifier.fillMaxSize().padding(top = 80.dp), contentAlignment = Alignment.Center) { content() }
 }
 
+@Composable
 private fun connText(conn: Conn, interval: Int): String = when (conn) {
-	Conn.Live -> "Live · every ${interval / 1000} s"
-	Conn.Connecting -> "Connecting…"
-	Conn.Reconnecting -> "Reconnecting…"
-	Conn.Offline -> "Offline"
-	Conn.Unauthorized -> "Not paired"
-	Conn.CertificateChanged -> "Certificate changed"
+	Conn.Live -> stringResource(R.string.conn_live, interval / 1000)
+	Conn.Connecting -> stringResource(R.string.conn_connecting)
+	Conn.Reconnecting -> stringResource(R.string.conn_reconnecting)
+	Conn.Offline -> stringResource(R.string.offline)
+	Conn.Unauthorized -> stringResource(R.string.conn_unauthorized)
+	Conn.CertificateChanged -> stringResource(R.string.conn_certificate_changed)
 }
 
 fun Server.toTarget() = PairTarget(hosts = hostsToTry(), port = port, name = name, id = id, fingerprint = fingerprint)

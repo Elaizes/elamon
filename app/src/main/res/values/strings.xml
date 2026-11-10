@@ -5,6 +5,56 @@
 	<!-- Common -->
 	<string name="back">Back</string>
 	<string name="retry">Try again</string>
+	<string name="cancel">Cancel</string>
+	<string name="help">Help</string>
+	<string name="settings">Settings</string>
+	<string name="loading">Loading…</string>
+	<string name="offline">Offline</string>
+	<!-- An amount out of a whole: "3.2 GiB of 16 GiB", "1.20 GHz of 2.40 GHz". -->
+	<string name="of_total">%1$s of %2$s</string>
+	<string name="cpu">CPU</string>
+	<string name="gpu">GPU</string>
+	<string name="ram">RAM</string>
+	<string name="memory">Memory</string>
+	<string name="temperature">Temperature</string>
+	<string name="model">Model</string>
+	<string name="details">Details</string>
+	<!-- Parts of the computer: tiles, detail pages and groups of sensors. -->
+	<string name="processor">Processor</string>
+	<string name="graphics">Graphics</string>
+	<string name="network">Network</string>
+	<string name="storage">Storage</string>
+	<string name="battery">Battery</string>
+	<string name="temperatures">Temperatures</string>
+	<!-- A reading in a chart's touch label: "CPU 54°C", "GPU 12%". -->
+	<string name="cpu_value">CPU %1$s</string>
+	<string name="gpu_value">GPU %1$s</string>
+	<!-- A graphics card powered down while nothing uses it: its tile and its page. -->
+	<string name="gpu_asleep">Asleep</string>
+
+	<!-- Home -->
+	<string name="home_subtitle_empty">Watch your computers from here</string>
+	<plurals name="home_computers">
+		<item quantity="one">%1$d computer</item>
+		<item quantity="other">%1$d computers</item>
+	</plurals>
+	<string name="home_found">Found on this network</string>
+	<string name="home_found_tap">%1$s · tap to pair</string>
+	<string name="home_add_computer">Add computer</string>
+	<string name="home_online">Online</string>
+	<string name="home_temp">Temp</string>
+	<string name="home_setup_title">Watch a computer</string>
+	<string name="home_setup_intro">Elamon shows a computer\'s load, temperatures, memory, processes and monitors live, and controls its services, media and power. The computer runs a small service that only paired phones can reach.</string>
+	<string name="home_setup_install">Install the elamond service on the computer (Linux).</string>
+	<string name="home_setup_start">Start it as a service for your user:</string>
+	<string name="home_setup_pair">Run this on the computer. It shows a QR code and a six-digit code:</string>
+	<string name="home_setup_scan">Point this phone\'s camera at the QR code, or tap Add computer and enter the code.</string>
+	<string name="home_setup_guide">Step-by-step guide for your system</string>
+	<string name="home_add_qr">The easiest way: run elamond pair on the computer and point the phone\'s camera at the QR code it shows.</string>
+	<string name="home_add_or_address">Or enter the computer\'s address, then the six-digit code.</string>
+	<string name="home_add_address">Address</string>
+	<string name="home_add_address_hint">IP address or host name</string>
+	<string name="home_add_next">Next</string>
 
 	<!-- Pairing -->
 	<string name="pair_title">Pair</string>
@@ -20,6 +70,358 @@
 	<string name="pair_cert_mismatch">Something answered at this address, but not with the certificate the computer announced. Pairing was stopped to be safe.</string>
 	<string name="pair_wrong_code">Wrong code. After five wrong codes the computer needs a new one.</string>
 	<string name="pair_no_pairing">The computer isn\'t waiting for a phone. Run elamond pair on it first.</string>
+
+	<!-- Computer: tabs, menu, connection -->
+	<string name="tab_overview">Overview</string>
+	<string name="tab_processes">Processes</string>
+	<string name="tab_sensors">Sensors</string>
+	<string name="tab_displays">Displays</string>
+	<string name="tab_control">Control</string>
+	<string name="machine_more">More</string>
+	<string name="machine_forget">Forget computer</string>
+	<string name="machine_forget_title">Forget %1$s?</string>
+	<string name="machine_forget_body">This phone will stop showing it. To see it again, pair again. To also remove the phone on the computer, run elamond revoke there.</string>
+	<string name="machine_forget_confirm">Forget</string>
+	<string name="machine_unpaired_title">This phone isn\'t paired anymore</string>
+	<string name="machine_unpaired_body">The computer no longer accepts it, maybe after elamond revoke. Run elamond pair on the computer and pair again.</string>
+	<string name="machine_cert_title">The computer\'s certificate changed</string>
+	<string name="machine_cert_body">This happens when the service\'s data was reset or reinstalled, but also when something else pretends to be the computer. If you didn\'t reset it, check your network before pairing again.</string>
+	<string name="machine_pair_again">Pair again</string>
+	<string name="machine_unreachable_title">Can\'t reach %1$s</string>
+	<string name="machine_unreachable_body">The computer may be off or asleep, the service not running, or the phone on another network. Elamon keeps trying.</string>
+	<string name="machine_offline_retrying">Offline · retrying</string>
+	<string name="conn_live">Live · every %1$d s</string>
+	<string name="conn_connecting">Connecting…</string>
+	<string name="conn_reconnecting">Reconnecting…</string>
+	<string name="conn_unauthorized">Not paired</string>
+	<string name="conn_certificate_changed">Certificate changed</string>
+	<string name="machine_uptime">Up %1$s</string>
+	<string name="machine_on_ac">On AC power</string>
+	<string name="machine_on_battery">On battery</string>
+	<!-- Power profiles, as power-profiles-daemon and tuned name them. -->
+	<string name="profile_power_saver">Power saver</string>
+	<string name="profile_cool">Cool</string>
+	<string name="profile_quiet">Quiet</string>
+	<string name="profile_balanced">Balanced</string>
+	<string name="profile_balanced_performance">Balanced performance</string>
+	<string name="profile_performance">Performance</string>
+
+	<!-- Overview tab -->
+	<string name="overview_cpu_load">load</string>
+	<string name="overview_memory_used">used</string>
+	<string name="overview_gpu_powered_down">Powered down, left alone</string>
+	<string name="overview_gpu_active">Active</string>
+	<string name="overview_gpu_idle">Idle</string>
+	<string name="overview_gpu_up_to">up to %1$s</string>
+	<string name="overview_gpu_no_readings">No readings</string>
+	<plurals name="overview_fans">
+		<item quantity="one">%1$d fan</item>
+		<item quantity="other">%1$d fans</item>
+	</plurals>
+	<string name="overview_fans_stopped">Fans stopped</string>
+	<plurals name="overview_sensors">
+		<item quantity="one">%1$d sensor</item>
+		<item quantity="other">%1$d sensors</item>
+	</plurals>
+	<string name="overview_download">↓ Download</string>
+	<string name="overview_upload">↑ Upload</string>
+	<string name="overview_disk_free">%1$s free</string>
+	<string name="overview_disk_io">Read %1$s · Write %2$s</string>
+	<string name="overview_battery_full_in">full in %1$s</string>
+	<string name="overview_battery_left">%1$s left</string>
+	<string name="overview_battery_health">health %1$s</string>
+	<string name="battery_charging">Charging</string>
+	<string name="battery_discharging">Discharging</string>
+	<string name="battery_full">Full</string>
+	<string name="battery_not_charging">Not charging</string>
+	<string name="battery_unknown">Unknown</string>
+
+	<!-- Detail pages -->
+	<string name="details_load">Load</string>
+	<string name="details_cores">Cores</string>
+	<plurals name="details_cores_physical">
+		<item quantity="one">%1$d physical</item>
+		<item quantity="other">%1$d physical</item>
+	</plurals>
+	<plurals name="details_threads">
+		<item quantity="one">%1$d thread</item>
+		<item quantity="other">%1$d threads</item>
+	</plurals>
+	<string name="details_core">Core %1$d</string>
+	<string name="details_clock_average_top">Clock, average / top</string>
+	<string name="details_load_average">Load average 1 · 5 · 15 min</string>
+	<string name="details_uptime">Up</string>
+	<string name="details_memory_use">Use</string>
+	<string name="details_chart_ram">RAM %1$s</string>
+	<string name="details_chart_swap">swap %1$s</string>
+	<string name="details_swap">Swap</string>
+	<string name="details_used">Used</string>
+	<string name="details_available">Available</string>
+	<string name="details_gpu_asleep_body">Powered down because nothing uses it. Elamon doesn\'t wake it to read it; it shows here when a program starts using it.</string>
+	<!-- Chart legends with the unit: "Load, %", "Temperature, °C". -->
+	<string name="details_legend_load">Load, %1$s</string>
+	<string name="details_legend_temperature">Temperature, %1$s</string>
+	<string name="details_gpu_intel">Intel graphics don\'t report their load without extra privileges; the clock shows how hard it works.</string>
+	<string name="details_driver">Driver</string>
+	<string name="details_pci_slot">PCI slot</string>
+	<string name="details_clock">Clock</string>
+	<string name="details_clock_idle">idle</string>
+	<string name="details_memory_clock">Memory clock</string>
+	<string name="details_power">Power</string>
+	<string name="details_fan">Fan</string>
+	<string name="details_video_memory">Video memory</string>
+	<string name="details_traffic">Traffic</string>
+	<string name="details_download">Download</string>
+	<string name="details_upload">Upload</string>
+	<string name="details_net_cable">Cable</string>
+	<string name="details_net_wifi">Wi-Fi</string>
+	<string name="details_net_vpn">VPN</string>
+	<string name="details_net_virtual">Virtual</string>
+	<string name="details_rx_now">↓ Now</string>
+	<string name="details_tx_now">↑ Now</string>
+	<string name="details_received">Received since boot</string>
+	<string name="details_sent">Sent since boot</string>
+	<string name="details_link_speed">Link speed</string>
+	<string name="details_addresses">Addresses</string>
+	<string name="details_throughput">Throughput</string>
+	<string name="details_chart_read">read %1$s</string>
+	<string name="details_chart_write">write %1$s</string>
+	<string name="details_read">Read</string>
+	<string name="details_write">Write</string>
+	<string name="details_free">Free</string>
+	<string name="details_device">Device</string>
+	<string name="details_power_draw">Power draw</string>
+	<string name="details_charge">Charge</string>
+	<string name="details_battery_state">State</string>
+	<string name="details_until_full">Until full</string>
+	<string name="details_left">Left</string>
+	<string name="details_energy_now">Energy now</string>
+	<string name="details_full_charge">Full charge</string>
+	<string name="details_design_capacity">Design capacity</string>
+	<string name="details_health">Health</string>
+	<string name="details_charge_cycles">Charge cycles</string>
+	<string name="details_top">Using the most</string>
+	<string name="details_top_none">Nothing uses it right now.</string>
+
+	<!-- Processes tab -->
+	<string name="processes_search">Search by name, command or PID</string>
+	<string name="processes_clear">Clear</string>
+	<string name="processes_sort_disk">Disk</string>
+	<string name="processes_sort_name">Name</string>
+	<string name="processes_by_app">By app</string>
+	<plurals name="processes_count">
+		<item quantity="one">%1$d process</item>
+		<item quantity="other">%1$d processes</item>
+	</plurals>
+	<plurals name="processes_cpu_share">
+		<item quantity="one">CPU shown as share of %1$d thread</item>
+		<item quantity="other">CPU shown as share of all %1$d threads</item>
+	</plurals>
+	<string name="processes_pid">PID %1$d</string>
+	<string name="processes_parent_pid">Parent PID</string>
+	<string name="processes_state">State</string>
+	<string name="processes_started">Started</string>
+	<string name="processes_disk_read">Disk read</string>
+	<string name="processes_disk_write">Disk write</string>
+	<string name="processes_gpu_memory">GPU memory</string>
+	<string name="processes_command">Command</string>
+	<string name="processes_quit">Quit</string>
+	<string name="processes_force_kill">Force kill</string>
+	<string name="processes_quit_title">Quit %1$s?</string>
+	<string name="processes_force_kill_title">Force kill %1$s?</string>
+	<string name="processes_quit_body">It\'s asked to close, the way a window\'s close button would. Most programs save and exit.</string>
+	<string name="processes_force_kill_body">It ends at once, without saving anything.</string>
+	<!-- Process states, as the kernel reports them. -->
+	<string name="process_running">running</string>
+	<string name="process_sleeping">sleeping</string>
+	<string name="process_idle">idle</string>
+	<string name="process_zombie">zombie</string>
+	<string name="process_stopped">stopped</string>
+	<string name="process_disk_sleep">waiting for disk</string>
+
+	<!-- Sensors tab -->
+	<string name="sensors_drive">Drive</string>
+	<string name="sensors_wireless">Wireless</string>
+	<string name="sensors_board">Board</string>
+	<string name="sensors_other">Other</string>
+	<string name="sensors_fans">Fans</string>
+	<string name="sensors_fan_stopped">stopped</string>
+	<string name="sensors_limit">limit %1$s</string>
+	<string name="sensors_none">No sensors</string>
+	<string name="sensors_none_body">The computer reports no temperature or fan sensors. Some need a kernel module, often loaded by lm-sensors.</string>
+
+	<!-- Displays tab -->
+	<string name="displays_arrangement">Arrangement</string>
+	<string name="displays_none">No monitors connected</string>
+	<string name="displays_none_body">The computer runs without a screen, or its graphics driver doesn\'t report monitors.</string>
+	<string name="displays_free_ports">Free ports: %1$s</string>
+	<string name="displays_built_in">Built-in display</string>
+	<string name="displays_monitor">Monitor</string>
+	<string name="displays_on">On</string>
+	<string name="displays_off">Off</string>
+	<string name="displays_not_in_use">Not in use</string>
+	<string name="displays_port">Port</string>
+	<string name="displays_size">Size</string>
+	<string name="displays_native_mode">Native mode</string>
+	<string name="displays_highest_refresh">Highest refresh</string>
+	<string name="displays_position">Position</string>
+	<string name="displays_made_in">Made in</string>
+
+	<!-- Control tab -->
+	<string name="control_off">Control is off</string>
+	<string name="control_off_body">This computer only lets the app watch. To also control power, services, processes and media from here, turn it on in the service\'s settings and restart it:</string>
+	<string name="control_off_where">in ~/.config/elamon/elamond.toml, or services.elamond.settings.control = true on NixOS.</string>
+	<string name="control_services">Services</string>
+	<string name="control_add_service">Add service</string>
+	<string name="control_services_empty">No services yet</string>
+	<string name="control_services_empty_body">Add the web pages this computer hosts — a media server, a dashboard, a download manager — to open them from here and start or stop them.</string>
+	<string name="control_service_menu">Actions</string>
+	<string name="control_local_only_title">Only on the computer</string>
+	<string name="control_local_only_body">%1$s listens on the computer\'s own address (127.0.0.1), so other devices can\'t open it. Set it to listen on all addresses, or reach it through an SSH tunnel.</string>
+	<string name="control_open_anyway">Open anyway</string>
+	<!-- A service's state on its tile. -->
+	<string name="service_failed">Failed</string>
+	<string name="service_no_unit">No such unit</string>
+	<string name="service_starting">Starting</string>
+	<string name="service_stopping">Stopping</string>
+	<string name="service_local_only">Local only</string>
+	<string name="service_running">Running</string>
+	<string name="service_stopped">Stopped</string>
+	<string name="service_unknown">Unknown</string>
+	<string name="control_unit">Unit</string>
+	<string name="control_unit_state">Unit state</string>
+	<string name="control_port">Port</string>
+	<string name="control_port_computer_only">%1$d, computer only</string>
+	<string name="control_open">Open</string>
+	<string name="control_start">Start</string>
+	<string name="control_stop">Stop</string>
+	<string name="control_restart">Restart</string>
+	<string name="control_needs_control">Starting and stopping needs control turned on for this computer.</string>
+	<string name="control_edit">Edit</string>
+	<string name="control_remove">Remove</string>
+	<string name="control_set_on_computer">Set in the service\'s settings on the computer.</string>
+	<string name="control_remove_title">Remove %1$s?</string>
+	<string name="control_remove_body">It disappears from every phone paired with this computer. The service itself keeps running.</string>
+	<string name="control_restart_title">Restart %1$s?</string>
+	<string name="control_restart_body">It stops for a moment; whoever uses it gets disconnected.</string>
+	<string name="control_add_title">Add a service</string>
+	<string name="control_edit_title">Edit %1$s</string>
+	<string name="control_listening">Listening on this computer</string>
+	<!-- A port found listening that only the computer itself can reach: ":8096 jellyfin · local". -->
+	<string name="control_listening_local">%1$s · local</string>
+	<string name="control_name">Name</string>
+	<string name="control_address">Address</string>
+	<string name="control_address_hint">{host} becomes the address the phone reaches the computer at</string>
+	<string name="control_unit_optional">systemd unit (optional)</string>
+	<string name="control_scope_user">User</string>
+	<string name="control_scope_system">System</string>
+	<string name="control_save">Save</string>
+	<string name="control_media">Media</string>
+	<string name="control_nothing_playing">Nothing playing</string>
+	<string name="control_unknown_track">Unknown track</string>
+	<string name="control_previous">Previous</string>
+	<string name="control_play">Play</string>
+	<string name="control_pause">Pause</string>
+	<string name="control_next">Next</string>
+	<string name="control_mute">Mute</string>
+	<string name="control_unmute">Unmute</string>
+	<string name="control_power_profile">Power profile</string>
+	<string name="control_actions">Actions</string>
+	<string name="control_run_title">Run %1$s?</string>
+	<string name="control_run">Run</string>
+	<string name="control_timed_out">Timed out</string>
+	<string name="control_done">Done</string>
+	<string name="control_exit_code">Exit %1$s</string>
+	<string name="control_no_output">(no output)</string>
+	<string name="control_power">Power</string>
+	<string name="power_lock">Lock</string>
+	<string name="power_lock_ask">Lock the screen?</string>
+	<string name="power_lock_explain">Every session of this user is locked.</string>
+	<string name="power_sleep">Sleep</string>
+	<string name="power_sleep_ask">Put it to sleep?</string>
+	<string name="power_sleep_explain">Elamon loses the connection until the computer wakes up.</string>
+	<string name="power_restart">Restart</string>
+	<string name="power_restart_ask">Restart the computer?</string>
+	<string name="power_restart_explain">Unsaved work in open programs is lost.</string>
+	<string name="power_shut_down">Shut down</string>
+	<string name="power_shut_down_ask">Shut down the computer?</string>
+	<string name="power_shut_down_explain">Unsaved work is lost, and only someone at the computer can turn it back on.</string>
+	<string name="power_needs_permission">needs permission</string>
+	<string name="power_needs_permission_title">%1$s needs permission</string>
+	<string name="power_needs_permission_body">The service runs outside a login session, so the system asks for a password it can\'t give. Allow it with a polkit rule: on NixOS, services.elamond.control.users = [ \"you\" ]; elsewhere, a rule that permits org.freedesktop.login1 power actions for your user.</string>
+	<string name="power_try_anyway">Try anyway</string>
+
+	<!-- What became of a control request, shown in a snackbar -->
+	<string name="done_locked">Locked</string>
+	<string name="done_shutting_down">Shutting down</string>
+	<string name="done_restarting">Restarting</string>
+	<string name="done_going_to_sleep">Going to sleep</string>
+	<string name="done_killed">Killed</string>
+	<string name="done_asked_to_quit">Asked to quit</string>
+	<string name="done_saved">Saved</string>
+	<string name="done_removed">Removed</string>
+	<string name="done_started">Started</string>
+	<string name="done_stopped">Stopped</string>
+	<string name="done_restarted">Restarted</string>
+	<string name="err_control_disabled">Control is off on this computer</string>
+	<string name="err_not_permitted">The computer didn\'t allow that</string>
+	<string name="err_not_found">It\'s gone</string>
+	<string name="err_failed">It didn\'t work</string>
+	<string name="err_unreachable">Can\'t reach the computer</string>
+	<string name="err_unknown">Something went wrong</string>
+
+	<!-- Settings -->
+	<string name="settings_appearance">Appearance</string>
+	<string name="settings_theme">Theme</string>
+	<string name="settings_theme_system">System</string>
+	<string name="settings_theme_light">Light</string>
+	<string name="settings_theme_dark">Dark</string>
+	<string name="settings_pure_black">Pure black</string>
+	<string name="settings_pure_black_summary">Black instead of dark grey in dark mode; saves power on OLED screens</string>
+	<string name="settings_wallpaper_colours">Wallpaper colours</string>
+	<string name="settings_wallpaper_colours_summary">Take the app\'s colours from the wallpaper</string>
+	<string name="settings_needs_android_12">Needs Android 12</string>
+	<string name="settings_blur">Blur</string>
+	<string name="settings_blur_summary">Frosted glass behind bars and dialogs</string>
+	<string name="settings_animations">Animations</string>
+	<string name="settings_animations_summary">Rolling numbers and moving gauges</string>
+	<string name="settings_data">Data</string>
+	<string name="settings_interval">Update every</string>
+	<string name="settings_interval_seconds">%1$d s</string>
+	<string name="settings_temperature">Temperature</string>
+	<string name="settings_network_speed">Network speed</string>
+	<string name="settings_bytes">Bytes</string>
+	<string name="settings_bits">Bits</string>
+	<string name="settings_keep_screen_on">Keep screen on</string>
+	<string name="settings_keep_screen_on_summary">While a computer is open, as a dashboard</string>
+	<string name="settings_control">Control</string>
+	<string name="settings_confirm_actions">Confirm actions</string>
+	<string name="settings_confirm_actions_summary">Ask before power, kill, restart and commands</string>
+	<string name="settings_haptics">Haptic feedback</string>
+	<string name="settings_haptics_summary">A tick on long presses</string>
+	<string name="settings_about">About</string>
+	<string name="settings_help_summary">Installing the service, the firewall, pairing, troubleshooting</string>
+	<string name="settings_source">Source code</string>
+	<string name="settings_licences">Licences</string>
+	<string name="settings_licences_summary">Elamon: GPL-3.0-or-later · Inter: SIL Open Font License</string>
+	<string name="settings_version">Version</string>
+	<string name="settings_licence_elamon">Elamon is free software under the GNU General Public License, version 3 or later.</string>
+	<string name="settings_licence_inter">The Inter typeface:</string>
+	<string name="settings_close">Close</string>
+
+	<!-- Times in numbers (Fmt.duration, Fmt.ago); the unit symbols of other numbers stay in Format.kt -->
+	<string name="duration_days_hours">%1$d d %2$d h</string>
+	<string name="duration_hours_minutes">%1$d h %2$d min</string>
+	<string name="duration_minutes">%1$d min</string>
+	<string name="ago_now">now</string>
+	<plurals name="ago_seconds">
+		<item quantity="one">%1$d s ago</item>
+		<item quantity="other">%1$d s ago</item>
+	</plurals>
+	<plurals name="ago_minutes">
+		<item quantity="one">%1$d min ago</item>
+		<item quantity="other">%1$d min ago</item>
+	</plurals>
 
 	<!-- Help -->
 	<string name="help_screen_title">Help</string>

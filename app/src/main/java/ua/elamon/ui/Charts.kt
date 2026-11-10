@@ -90,6 +90,7 @@ fun LineChart(
 	val tipBg = MaterialTheme.colorScheme.inverseSurface
 	val tipFg = MaterialTheme.colorScheme.inverseOnSurface
 	val measurer = rememberTextMeasurer()
+	val res = resources()
 	var touchX by remember { mutableStateOf<Float?>(null) }
 
 	val touch = if (interactive) {
@@ -137,7 +138,7 @@ fun LineChart(
 		val back = ((w - tx) / step).roundToInt().coerceIn(0, longest - 1)
 		val x = w - back * step
 		drawLine(labelColor.copy(alpha = 0.6f), Offset(x, 0f), Offset(x, h), strokeWidth = 1.5.dp.toPx())
-		val parts = mutableListOf(Fmt.ago((back * secondsPerPoint).roundToInt().toLong()))
+		val parts = mutableListOf(Fmt.ago(res, (back * secondsPerPoint).roundToInt().toLong()))
 		for (s in series) {
 			val i = s.values.size - 1 - back
 			val v = s.values.getOrNull(i) ?: continue
