@@ -15,7 +15,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import ua.elamon.MachineState
 import ua.elamon.R
 import ua.elamon.data.Temp
@@ -31,7 +30,7 @@ fun SensorsTab(t: TabScope) {
 		Modifier.fillMaxSize(),
 		state = t.list,
 		contentPadding = listPadding(),
-		verticalArrangement = Arrangement.spacedBy(12.dp),
+		verticalArrangement = Arrangement.spacedBy(Space.m),
 	) {
 		item(key = "header") { t.header() }
 		sensorItems(t.state)
@@ -44,20 +43,25 @@ fun LazyListScope.sensorItems(state: MachineState) {
 	val groups = s.temps
 		.groupBy { Triple(it.kind, it.chip, it.device) }
 		.map { (k, v) -> Group(k.first, k.second, k.third, v.sortedWith(compareBy({ !isMain(it) }, { naturalKey(it.label) }))) }
-		.sortedWith(compareBy({ KIND_ORDER.indexOf(it.kind).let { i -> if (i < 0) 99 else i } }, { it.chip }, { it.device }))
+		.sortedWith(compareBy({ KIND_ORDER.indexOf(it.kind).let { i -> if (i < 0) KIND_ORDER.size else i } }, { it.chip }, { it.device }))
 
 	item(key = "chart") {
 		val c = Metric.colors
 		val p = LocalPrefs.current
 		val res = resources()
 		Section(stringResource(R.string.temperatures), ElIcons.Thermometer, accent = c.hot) {
-			val series = mutableListOf(ChartSeries(state.hist.cpuTemp, c.cpu, fill = false, format = { res.getString(R.string.cpu_value, Fmt.temp(it, p.fahrenheit)) }))
+			val cpuName = stringResource(R.string.cpu)
+			val gpuName = stringResource(R.string.gpu)
+			val temp = { v: Float -> Fmt.temp(v, p.fahrenheit) }
+			val series = mutableListOf(
+				ChartSeries(state.hist.cpuTemp, c.cpu, fill = false, name = cpuName, value = temp, format = { res.getString(R.string.cpu_value, temp(it)) }),
+			)
 			val gpuTemps = state.hist.gpuIds.map { state.hist.gpuTemp(it) }.filter { it.hasData() }
-			gpuTemps.forEach { series += ChartSeries(it, c.gpu, fill = false, format = { res.getString(R.string.gpu_value, Fmt.temp(it, p.fahrenheit)) }) }
-			LineChart(series, minScale = 60f, height = 170.dp, label = { Fmt.temp(it, p.fahrenheit) })
-			Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-				Legend(c.cpu, stringResource(R.string.cpu))
-				if (gpuTemps.isNotEmpty()) Legend(c.gpu, stringResource(R.string.gpu))
+			gpuTemps.forEach { series += ChartSeries(it, c.gpu, fill = false, name = gpuName, value = temp, format = { v -> res.getString(R.string.gpu_value, temp(v)) }) }
+			LineChart(series, minScale = Thresholds.CHART_MIN_TEMP, height = ChartStyle.temperatures, label = temp)
+			Row(horizontalArrangement = Arrangement.spacedBy(Space.l)) {
+				Legend(c.cpu, cpuName)
+				if (gpuTemps.isNotEmpty()) Legend(c.gpu, gpuName)
 			}
 		}
 	}
@@ -81,11 +85,11 @@ fun LazyListScope.sensorItems(state: MachineState) {
 	if (s.fans.isNotEmpty()) {
 		item(key = "fans") {
 			Section(stringResource(R.string.sensors_fans), ElIcons.Fan) {
-				val top = (s.fans.maxOf { it.rpm } * 1.25f).coerceAtLeast(3000f)
+				val top = fanBarTop(s.fans.maxOf { it.rpm })
 				for (f in s.fans) {
-					Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+					Column(verticalArrangement = Arrangement.spacedBy(Space.xsPlus)) {
 						StatRow(f.label, if (f.rpm == 0) stringResource(R.string.sensors_fan_stopped) else Fmt.rpm(f.rpm))
-						UsageBar(f.rpm / top, MaterialTheme.colorScheme.primary, height = 6.dp)
+						UsageBar(f.rpm / top, MaterialTheme.colorScheme.primary, height = Sizes.barThin)
 					}
 				}
 			}
@@ -102,18 +106,17 @@ fun LazyListScope.sensorItems(state: MachineState) {
 private fun TempRow(label: String, value: Float, high: Float?, crit: Float?) {
 	val p = LocalPrefs.current
 	val color = tempColor(value, high, crit)
-	val top = crit ?: high ?: 100f
-	Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+	Column(verticalArrangement = Arrangement.spacedBy(Space.xsPlus)) {
 		Row(verticalAlignment = Alignment.CenterVertically) {
 			Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
 			// The limit only matters when it gets close; on every row it is noise.
-			if (crit != null && value >= crit - 15f) {
+			if (crit != null && limitNear(value, crit)) {
 				Text(stringResource(R.string.sensors_limit, Fmt.temp(crit, p.fahrenheit)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-				Spacer(Modifier.width(10.dp))
+				Spacer(Modifier.width(Space.sPlus))
 			}
 			Text(Fmt.temp(value, p.fahrenheit), style = MaterialTheme.typography.titleSmall, color = color)
 		}
-		UsageBar(value / top, color, height = 6.dp)
+		UsageBar(tempBarFraction(value, high, crit), color, height = Sizes.barThin)
 	}
 }
 
@@ -122,8 +125,11 @@ private fun isMain(t: Temp): Boolean {
 	return l.startsWith("package") || l == "tctl" || l == "tdie" || l == "composite" || l == "edge"
 }
 
+/** Numbers padded this far sort as numbers: "Core 10" after "Core 2". */
+private const val NATURAL_DIGITS = 6
+
 /** "Core 10" after "Core 2". */
-private fun naturalKey(s: String): String = s.replace(Regex("\\d+")) { it.value.padStart(6, '0') }
+private fun naturalKey(s: String): String = s.replace(Regex("\\d+")) { it.value.padStart(NATURAL_DIGITS, '0') }
 
 @Composable
 private fun kindName(kind: String): String = stringResource(

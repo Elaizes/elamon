@@ -9,13 +9,10 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
@@ -35,113 +32,6 @@ import ua.elamon.Prefs
 import ua.elamon.R
 import ua.elamon.ThemeMode
 
-// Neutral greys with the primary's blue in them, so nothing of Material's default purple shows through.
-private val DarkFallback = darkColorScheme(
-	primary = Color(0xFF8AB4FF),
-	onPrimary = Color(0xFF00285C),
-	primaryContainer = Color(0xFF1F3A68),
-	onPrimaryContainer = Color(0xFFD8E2FF),
-	secondary = Color(0xFFBEC6DC),
-	secondaryContainer = Color(0xFF3E4759),
-	tertiary = Color(0xFFDDBCE0),
-	background = Color(0xFF111318),
-	surface = Color(0xFF111318),
-	onSurfaceVariant = Color(0xFFC4C6D0),
-	outline = Color(0xFF8E9099),
-	outlineVariant = Color(0xFF44474F),
-	surfaceContainerLowest = Color(0xFF0C0E13),
-	surfaceContainerLow = Color(0xFF191C20),
-	surfaceContainer = Color(0xFF1D2024),
-	surfaceContainerHigh = Color(0xFF282A2F),
-	surfaceContainerHighest = Color(0xFF33353A),
-)
-
-private val LightFallback = lightColorScheme(
-	primary = Color(0xFF3A5BA9),
-	onPrimary = Color.White,
-	primaryContainer = Color(0xFFDAE2FF),
-	onPrimaryContainer = Color(0xFF001848),
-	secondary = Color(0xFF575E71),
-	tertiary = Color(0xFF715573),
-	background = Color(0xFFF7F8FC),
-	surface = Color(0xFFF7F8FC),
-	onSurfaceVariant = Color(0xFF44474F),
-	outline = Color(0xFF74777F),
-	outlineVariant = Color(0xFFC4C6D0),
-	surfaceContainerLowest = Color.White,
-	surfaceContainerLow = Color(0xFFFFFFFF),
-	surfaceContainer = Color(0xFFEFF1F7),
-	surfaceContainerHigh = Color(0xFFE8EAF1),
-	surfaceContainerHighest = Color(0xFFE1E3EA),
-)
-
-/** Dark mode on black: the surfaces step up from pure black so cards still read as cards. */
-private fun ColorScheme.pureBlack() = copy(
-	background = Color.Black,
-	surface = Color.Black,
-	surfaceContainerLowest = Color.Black,
-	surfaceContainerLow = Color(0xFF0E0E10),
-	surfaceContainer = Color(0xFF141416),
-	surfaceContainerHigh = Color(0xFF1C1C1F),
-	surfaceContainerHighest = Color(0xFF26262A),
-)
-
-/** Light mode, One UI style: white cards on a faintly tinted page. */
-private fun ColorScheme.cardsOnTint() = copy(
-	surfaceContainerLow = Color.White,
-	background = lerp(background, surfaceContainerHigh, 0.35f),
-	surface = lerp(surface, surfaceContainerHigh, 0.35f),
-)
-
-/** Colours for the kinds of data, the same on every screen so a reader learns them once. */
-@Immutable
-data class MetricColors(
-	val cpu: Color,
-	val memory: Color,
-	val swap: Color,
-	val gpu: Color,
-	val rx: Color,
-	val tx: Color,
-	val read: Color,
-	val write: Color,
-	val battery: Color,
-	val good: Color,
-	val warn: Color,
-	val hot: Color,
-)
-
-private fun metricColors(dark: Boolean) = if (dark) {
-	MetricColors(
-		cpu = Color(0xFF7AB8FF),
-		memory = Color(0xFFC3A6FF),
-		swap = Color(0xFF8E7CD6),
-		gpu = Color(0xFF6EE7A8),
-		rx = Color(0xFF5EE0F2),
-		tx = Color(0xFFFFB45C),
-		read = Color(0xFF8FB3FF),
-		write = Color(0xFFFF8FC6),
-		battery = Color(0xFFFFD84D),
-		good = Color(0xFF4ADE80),
-		warn = Color(0xFFFACC15),
-		hot = Color(0xFFFF6B6B),
-	)
-} else {
-	MetricColors(
-		cpu = Color(0xFF1E6FE0),
-		memory = Color(0xFF7446D8),
-		swap = Color(0xFF9A88E0),
-		gpu = Color(0xFF0F9F5A),
-		rx = Color(0xFF0B8DA8),
-		tx = Color(0xFFD9690B),
-		read = Color(0xFF2B5FD9),
-		write = Color(0xFFD0337E),
-		battery = Color(0xFFB98900),
-		good = Color(0xFF16A34A),
-		warn = Color(0xFFCA8A04),
-		hot = Color(0xFFDC2626),
-	)
-}
-
 val LocalMetricColors = staticCompositionLocalOf { metricColors(true) }
 val LocalPrefs = staticCompositionLocalOf { Prefs() }
 val LocalDark = staticCompositionLocalOf { true }
@@ -150,28 +40,34 @@ object Metric {
 	val colors: MetricColors @Composable get() = LocalMetricColors.current
 }
 
-/** Green to amber to red as a temperature nears its limit. */
+/** A [Level] in the colours of [good], [warn] and [hot], blended where the level lies between two. */
+fun Level.color(good: Color, warn: Color, hot: Color): Color = when (band) {
+	Band.Good -> good
+	Band.GoodToWarn -> lerp(good, warn, t)
+	Band.Warn -> warn
+	Band.WarnToHot -> lerp(warn, hot, t)
+	Band.Hot -> hot
+}
+
+/** Green to amber to red as a temperature nears its limit: the sensor's own [high] and [crit] when it has them. */
 @Composable
 fun tempColor(value: Float, high: Float? = null, crit: Float? = null): Color {
 	val c = Metric.colors
-	val hot = crit ?: high ?: 95f
-	val warm = (high?.takeIf { it < hot } ?: (hot - 20f)).coerceAtLeast(40f)
-	return when {
-		value >= hot -> c.hot
-		value >= warm -> lerp(c.warn, c.hot, ((value - warm) / (hot - warm)).coerceIn(0f, 1f))
-		value >= warm - 20f -> lerp(c.good, c.warn, ((value - (warm - 20f)) / 20f).coerceIn(0f, 1f))
-		else -> c.good
-	}
+	return tempLevel(value, high, crit).color(c.good, c.warn, c.hot)
 }
 
+/** A load's colour: [base] until it nears full, then amber to red. */
 @Composable
 fun loadColor(fraction: Float, base: Color = MaterialTheme.colorScheme.primary): Color {
 	val c = Metric.colors
-	return when {
-		fraction >= 0.9f -> c.hot
-		fraction >= 0.75f -> lerp(c.warn, c.hot, (fraction - 0.75f) / 0.15f)
-		else -> base
-	}
+	return loadLevel(fraction).color(base, c.warn, c.hot)
+}
+
+/** A battery's colour by its charge in %. */
+@Composable
+fun batteryColor(percent: Float): Color {
+	val c = Metric.colors
+	return batteryLevel(percent).color(c.good, c.warn, c.hot)
 }
 
 @OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
@@ -218,17 +114,10 @@ fun isDark(context: Context, prefs: Prefs): Boolean = when (prefs.theme) {
 
 /** The app's colours with [prefs]; MainActivity takes the window's background from them before Compose starts. */
 fun appColorScheme(context: Context, prefs: Prefs, dark: Boolean): ColorScheme {
-	val base = when {
-		prefs.dynamicColor && Build.VERSION.SDK_INT >= 31 ->
-			if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-		dark -> DarkFallback
-		else -> LightFallback
+	if (prefs.dynamicColor && Build.VERSION.SDK_INT >= 31) {
+		return finishScheme(if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context), dark, prefs.pureBlack)
 	}
-	return when {
-		dark && prefs.pureBlack -> base.pureBlack()
-		!dark -> base.cardsOnTint()
-		else -> base
-	}
+	return fallbackColorScheme(dark, prefs.pureBlack)
 }
 
 @Composable

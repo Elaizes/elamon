@@ -54,11 +54,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.collapse
+import androidx.compose.ui.semantics.expand
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import ua.elamon.BuildConfig
 import ua.elamon.R
+import ua.elamon.data.DEFAULT_HISTORY_SECONDS
+import ua.elamon.data.DEFAULT_INTERVAL_MS
+import ua.elamon.data.DEFAULT_PORT
 import ua.elamon.data.ServerStore
 
 /** Where the project lives; the one place to change if it moves. */
@@ -107,8 +114,11 @@ private val UPDATE = """
 	systemctl --user restart elamond
 """.trimIndent()
 
-private const val FIREWALLD = "sudo firewall-cmd --permanent --add-port=47823/tcp\nsudo firewall-cmd --permanent --add-service=mdns\nsudo firewall-cmd --reload"
-private const val UFW = "sudo ufw allow 47823/tcp\nsudo ufw allow 5353/udp"
+/** The port mDNS answers on: the same everywhere. */
+private const val MDNS_PORT = 5353
+
+private val FIREWALLD = "sudo firewall-cmd --permanent --add-port=$DEFAULT_PORT/tcp\nsudo firewall-cmd --permanent --add-service=mdns\nsudo firewall-cmd --reload"
+private val UFW = "sudo ufw allow $DEFAULT_PORT/tcp\nsudo ufw allow $MDNS_PORT/udp"
 
 private fun fromSource(deps: List<Block>) = deps + listOf(
 	t(R.string.help_build),
@@ -145,7 +155,7 @@ private val DISTROS = listOf(
 		),
 		firewall = listOf(
 			t(R.string.help_fw_nixos),
-			c("networking.firewall.allowedTCPPorts = [ 47823 ];\nnetworking.firewall.allowedUDPPorts = [ 5353 ];"),
+			c("networking.firewall.allowedTCPPorts = [ $DEFAULT_PORT ];\nnetworking.firewall.allowedUDPPorts = [ $MDNS_PORT ];"),
 		),
 	),
 	Distro(
@@ -254,7 +264,8 @@ private val COMMANDS = listOf(
 	"elamond --version" to R.string.cmd_version,
 )
 
-private const val SETTINGS = "port = 47823\nlisten = \"::\"\nname = \"\"\nmdns = true\ninterval_ms = 1000\nhistory_minutes = 10"
+/** The service's settings with its defaults. */
+private val SETTINGS = "port = $DEFAULT_PORT\nlisten = \"::\"\nname = \"\"\nmdns = true\ninterval_ms = $DEFAULT_INTERVAL_MS\nhistory_minutes = ${DEFAULT_HISTORY_SECONDS / 60}"
 
 private val SETTING_NOTES = listOf(
 	"port" to R.string.set_port,
@@ -304,8 +315,8 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 		LazyColumn(
 			Modifier.fillMaxSize(),
 			state = list,
-			contentPadding = PaddingValues(16.dp, padding.calculateTopPadding() + 8.dp, 16.dp, padding.calculateBottomPadding() + 24.dp),
-			verticalArrangement = Arrangement.spacedBy(12.dp),
+			contentPadding = PaddingValues(Space.l, padding.calculateTopPadding() + Space.s, Space.l, padding.calculateBottomPadding() + Space.xxl),
+			verticalArrangement = Arrangement.spacedBy(Space.m),
 		) {
 			for (part in HelpItem.entries) item(key = part.name) {
 				when (part) {
@@ -314,13 +325,13 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 							stringResource(R.string.help_intro),
 							style = MaterialTheme.typography.bodyLarge,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
-							modifier = Modifier.padding(horizontal = 4.dp),
+							modifier = Modifier.padding(horizontal = Space.xs),
 						)
 					}
 					HelpItem.Install -> {
 						Section(stringResource(R.string.help_install), ElIcons.Laptop) {
 							Text(stringResource(R.string.help_pick_system), style = MaterialTheme.typography.bodyMedium)
-							FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+							FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 								for (d in DISTROS) {
 									FilterChip(
 										selected = d.key == distroKey,
@@ -364,7 +375,7 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 					HelpItem.Faq -> {
 						Section(stringResource(R.string.help_troubleshooting), Icons.Default.Build) {
 							FAQ.forEachIndexed { i, f ->
-								if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+								if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = Alpha.DIVIDER_STRONG))
 								FaqItem(f)
 							}
 						}
@@ -400,7 +411,7 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 
 @Composable
 private fun Blocks(blocks: List<Block>) {
-	Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+	Column(verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
 		for (b in blocks) {
 			when (b) {
 				is Block.Text -> Text(stringResource(b.res), style = MaterialTheme.typography.bodyMedium)
@@ -413,7 +424,7 @@ private fun Blocks(blocks: List<Block>) {
 /** A command or setting in monospace with what it does underneath. */
 @Composable
 private fun Reference(name: String, description: String) {
-	Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+	Column(verticalArrangement = Arrangement.spacedBy(Space.xxs)) {
 		Text(name, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
 		Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 	}
@@ -423,17 +434,17 @@ private fun Reference(name: String, description: String) {
 @Composable
 fun CodeBlock(code: String) {
 	val ctx = LocalContext.current
-	Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth()) {
+	Surface(shape = RoundedCornerShape(Radius.m), color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth()) {
 		Row(verticalAlignment = Alignment.Top) {
 			Text(
 				code,
 				fontFamily = FontFamily.Monospace,
 				style = MaterialTheme.typography.bodySmall,
 				softWrap = false,
-				modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+				modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(start = Space.m, top = Space.m, bottom = Space.m, end = Space.xs),
 			)
 			IconButton(onClick = { copy(ctx, code) }) {
-				Icon(ElIcons.Copy, stringResource(R.string.copy), modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+				Icon(ElIcons.Copy, stringResource(R.string.copy), modifier = Modifier.size(Sizes.iconM), tint = MaterialTheme.colorScheme.onSurfaceVariant)
 			}
 		}
 	}
@@ -442,16 +453,25 @@ fun CodeBlock(code: String) {
 @Composable
 private fun FaqItem(f: Faq) {
 	var open by rememberSaveable(f.q) { mutableStateOf(false) }
+	val state = stringResource(if (open) R.string.a11y_expanded else R.string.a11y_collapsed)
 	Column {
 		Row(
-			Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 10.dp),
+			Modifier
+				.fillMaxWidth()
+				.clickable(role = Role.Button) { open = !open }
+				// Says whether the answer shows, and offers to show or hide it.
+				.semantics {
+					stateDescription = state
+					if (open) collapse { open = false; true } else expand { open = true; true }
+				}
+				.padding(vertical = Space.sPlus),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
 			Text(stringResource(f.q), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
 			Icon(if (open) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null)
 		}
 		AnimatedVisibility(open) {
-			Column(Modifier.padding(bottom = 12.dp)) { Blocks(f.answer) }
+			Column(Modifier.padding(bottom = Space.m)) { Blocks(f.answer) }
 		}
 	}
 }

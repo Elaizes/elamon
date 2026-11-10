@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -60,7 +59,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelStoreOwner
@@ -173,110 +171,116 @@ fun MachineScreen(
 	val collapsed = rememberCollapsed(currentList)
 
 	CompositionLocalProvider(LocalHaze provides haze) {
-		Box(Modifier.fillMaxSize()) {
-			Box(Modifier.fillMaxSize().hazeSource(haze)) {
-				when {
-					state.conn == Conn.Unauthorized -> Centered {
-						Notice(Icons.Default.Warning, stringResource(R.string.machine_unpaired_title), stringResource(R.string.machine_unpaired_body)) {
-							Button(onClick = { onPairAgain(server.toTarget()) }) { Text(stringResource(R.string.machine_pair_again)) }
+		// The tab bar is measured first: the lists, the glass and the snackbar keep clear of what it covers.
+		BottomBarLayout(
+			Modifier.fillMaxSize(),
+			bar = {
+				if (state.sample != null && detail == null) {
+					FloatingNavBar(
+						items = Tab.entries.map { NavItem(stringResource(it.label), it.icon()) },
+						selected = tab.ordinal,
+						onSelect = { tab = Tab.entries[it] },
+					)
+				}
+			},
+		) {
+			Box(Modifier.fillMaxSize()) {
+				Box(Modifier.fillMaxSize().hazeSource(haze)) {
+					when {
+						state.conn == Conn.Unauthorized -> Centered {
+							Notice(Icons.Default.Warning, stringResource(R.string.machine_unpaired_title), stringResource(R.string.machine_unpaired_body)) {
+								Button(onClick = { onPairAgain(server.toTarget()) }) { Text(stringResource(R.string.machine_pair_again)) }
+							}
 						}
-					}
-					state.conn == Conn.CertificateChanged -> Centered {
-						Notice(Icons.Default.Warning, stringResource(R.string.machine_cert_title), stringResource(R.string.machine_cert_body)) {
-							// A reset service has a new certificate and a new id: pair with whatever answers, checked by eye, in this entry's place.
-							Button(onClick = { onPairAgain(server.toTarget().copy(fingerprint = null, id = null)) }) { Text(stringResource(R.string.machine_pair_again)) }
+						state.conn == Conn.CertificateChanged -> Centered {
+							Notice(Icons.Default.Warning, stringResource(R.string.machine_cert_title), stringResource(R.string.machine_cert_body)) {
+								// A reset service has a new certificate and a new id: pair with whatever answers, checked by eye, in this entry's place.
+								Button(onClick = { onPairAgain(server.toTarget().copy(fingerprint = null, id = null)) }) { Text(stringResource(R.string.machine_pair_again)) }
+							}
 						}
-					}
-					state.conn == Conn.Refused -> Centered {
-						Notice(Icons.Default.Warning, stringResource(R.string.machine_refused_title), state.refused?.text(resources())) {
-							Button(onClick = { vm.retry() }) { Text(stringResource(R.string.retry)) }
+						state.conn == Conn.Refused -> Centered {
+							Notice(Icons.Default.Warning, stringResource(R.string.machine_refused_title), state.refused?.text(resources())) {
+								Button(onClick = { vm.retry() }) { Text(stringResource(R.string.retry)) }
+							}
 						}
-					}
-					state.sample == null && state.conn == Conn.Offline -> Centered {
-						Notice(ElIcons.Laptop, stringResource(R.string.machine_unreachable_title, name), stringResource(R.string.machine_unreachable_body)) {
-							Button(onClick = { vm.retry() }) { Text(stringResource(R.string.retry)) }
-							TextButton(onClick = { onHelp(HelpTopic.TROUBLESHOOTING) }) { Text(stringResource(R.string.troubleshooting_button)) }
+						state.sample == null && state.conn == Conn.Offline -> Centered {
+							Notice(ElIcons.Laptop, stringResource(R.string.machine_unreachable_title, name), stringResource(R.string.machine_unreachable_body)) {
+								Button(onClick = { vm.retry() }) { Text(stringResource(R.string.retry)) }
+								TextButton(onClick = { onHelp(HelpTopic.TROUBLESHOOTING) }) { Text(stringResource(R.string.troubleshooting_button)) }
+							}
 						}
-					}
-					state.sample == null -> Centered { CircularProgressIndicator() }
-					else -> AnimatedContent(
-						targetState = detail,
-						transitionSpec = {
-							if (prefs.animations) (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.97f)) togetherWith fadeOut(tween(150))
-							else fadeIn(tween(0)) togetherWith fadeOut(tween(0))
-						},
-						label = "detail",
-					) { d ->
-						if (d != null) {
-							DetailPage(d, state, vm, detailList)
-						} else {
-							AnimatedContent(
-								targetState = tab,
-								transitionSpec = { fadeIn(tween(if (prefs.animations) 200 else 0)) togetherWith fadeOut(tween(if (prefs.animations) 120 else 0)) },
-								label = "tab",
-							) { t ->
-								val header = @Composable {
-									Column {
-										MachineHeader(name, state, status, lists.getValue(t))
-										val info = state.info
-										if (compat != Compat.Ok && !compatDismissed && info != null) CompatBanner(compat, info) { vm.dismissCompat() }
+						state.sample == null -> Centered { CircularProgressIndicator() }
+						else -> AnimatedContent(
+							targetState = detail,
+							transitionSpec = {
+								if (prefs.animations) (fadeIn(tween(Motion.DETAIL_IN)) + scaleIn(tween(Motion.DETAIL_IN), initialScale = Motion.DETAIL_SCALE)) togetherWith fadeOut(tween(Motion.DETAIL_OUT))
+								else fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+							},
+							label = "detail",
+						) { d ->
+							if (d != null) {
+								DetailPage(d, state, vm, detailList)
+							} else {
+								AnimatedContent(
+									targetState = tab,
+									transitionSpec = { fadeIn(tween(if (prefs.animations) Motion.TAB_IN else 0)) togetherWith fadeOut(tween(if (prefs.animations) Motion.TAB_OUT else 0)) },
+									label = "tab",
+								) { t ->
+									val header = @Composable {
+										Column {
+											MachineHeader(name, state, status, lists.getValue(t))
+											val info = state.info
+											if (compat != Compat.Ok && !compatDismissed && info != null) CompatBanner(compat, info) { vm.dismissCompat() }
+										}
 									}
-								}
-								val s = TabScope(state, vm, lists.getValue(t), header, { detail = it }, onHelp)
-								when (t) {
-									Tab.Overview -> OverviewTab(s)
-									Tab.Processes -> ProcessesTab(s)
-									Tab.Sensors -> SensorsTab(s)
-									Tab.Control -> ControlTab(s)
+									val s = TabScope(state, vm, lists.getValue(t), header, { detail = it }, onHelp)
+									when (t) {
+										Tab.Overview -> OverviewTab(s)
+										Tab.Processes -> ProcessesTab(s)
+										Tab.Sensors -> SensorsTab(s)
+										Tab.Control -> ControlTab(s)
+									}
 								}
 							}
 						}
 					}
 				}
-			}
 
-			GlassTopBar(
-				title = detail?.let { detailTitle(it, state) } ?: name,
-				collapsed = collapsed || state.sample == null,
-				onBack = { if (detail != null) detail = null else onBack() },
-				subtitle = if (detail != null) name else status,
-				actions = {
-					IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.machine_more)) }
-					DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-						DropdownMenuItem(text = { Text(stringResource(R.string.settings)) }, onClick = { menu = false; onSettings() })
-						DropdownMenuItem(text = { Text(stringResource(R.string.help)) }, onClick = { menu = false; onHelp(null) })
-						DropdownMenuItem(text = { Text(stringResource(R.string.machine_forget)) }, onClick = { menu = false; confirmForget = true })
-					}
-				},
-			)
-
-			// Old numbers stay visible while the connection comes back, marked as such: in the bar's
-			// empty middle while the big title shows, under the bar once it has the small one.
-			val barHeight = topBarHeight()
-			Box(
-				Modifier
-					.align(Alignment.TopCenter)
-					.statusBarsPadding()
-					.padding(horizontal = 56.dp)
-					.then(if (collapsed) Modifier.padding(top = barHeight + 8.dp) else Modifier.height(barHeight)),
-				contentAlignment = Alignment.Center,
-			) {
-				AnimatedVisibility(visible = state.sample != null && state.conn != Conn.Live) {
-					Pill(stringResource(if (state.conn == Conn.Offline) R.string.machine_offline_retrying else R.string.conn_reconnecting), Metric.colors.warn, dot = true)
-				}
-			}
-
-			if (state.sample != null) BottomGlass(Modifier.align(Alignment.BottomCenter), extra = if (detail == null) 92.dp else 0.dp)
-			if (state.sample != null && detail == null) {
-				FloatingNavBar(
-					items = Tab.entries.map { NavItem(stringResource(it.label), it.icon()) },
-					selected = tab.ordinal,
-					onSelect = { tab = Tab.entries[it] },
-					modifier = Modifier.align(Alignment.BottomCenter),
+				GlassTopBar(
+					title = detail?.let { detailTitle(it, state) } ?: name,
+					collapsed = collapsed || state.sample == null,
+					onBack = { if (detail != null) detail = null else onBack() },
+					subtitle = if (detail != null) name else status,
+					actions = {
+						IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.machine_more)) }
+						DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+							DropdownMenuItem(text = { Text(stringResource(R.string.settings)) }, onClick = { menu = false; onSettings() })
+							DropdownMenuItem(text = { Text(stringResource(R.string.help)) }, onClick = { menu = false; onHelp(null) })
+							DropdownMenuItem(text = { Text(stringResource(R.string.machine_forget)) }, onClick = { menu = false; confirmForget = true })
+						}
+					},
 				)
-			}
 
-			SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (detail == null) 96.dp else 16.dp))
+				// Old numbers stay visible while the connection comes back, marked as such: in the bar's
+				// empty middle while the big title shows, under the bar once it has the small one.
+				val barHeight = topBarHeight()
+				Box(
+					Modifier
+						.align(Alignment.TopCenter)
+						.statusBarsPadding()
+						.padding(horizontal = BarButtonsClearance)
+						.then(if (collapsed) Modifier.padding(top = barHeight + Space.s) else Modifier.height(barHeight)),
+					contentAlignment = Alignment.Center,
+				) {
+					AnimatedVisibility(visible = state.sample != null && state.conn != Conn.Live) {
+						Pill(stringResource(if (state.conn == Conn.Offline) R.string.machine_offline_retrying else R.string.conn_reconnecting), Metric.colors.warn, dot = true)
+					}
+				}
+
+				if (state.sample != null) BottomGlass(Modifier.align(Alignment.BottomCenter))
+
+				SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = bottomReserve() + Space.l))
+			}
 		}
 	}
 
@@ -314,7 +318,7 @@ private fun MachineHeader(name: String, state: MachineState, status: String, lis
 		},
 		extra = s?.let {
 			{
-				FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+				FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s), verticalArrangement = Arrangement.spacedBy(Space.s)) {
 					state.info?.os?.takeIf { o -> o.isNotBlank() }?.let { os -> Pill(os, MaterialTheme.colorScheme.secondary) }
 					Pill(stringResource(R.string.machine_uptime, Fmt.duration(resources(), s.uptime)), MaterialTheme.colorScheme.secondary)
 					when (s.power.onAc) {
@@ -340,9 +344,13 @@ fun profileName(p: String): String = when (p) {
 	else -> p.replaceFirstChar { it.uppercase() }
 }
 
+/** In the middle of what the bars leave: under the top bar, above whatever covers the bottom. */
 @Composable
 private fun Centered(content: @Composable () -> Unit) {
-	Box(Modifier.fillMaxSize().padding(top = 80.dp), contentAlignment = Alignment.Center) { content() }
+	Box(
+		Modifier.fillMaxSize().statusBarsPadding().padding(top = topBarHeight(), bottom = bottomReserve()),
+		contentAlignment = Alignment.Center,
+	) { content() }
 }
 
 @Composable
@@ -366,20 +374,20 @@ fun Message.text(res: Resources): String = when (this) {
 private fun CompatBanner(compat: Compat, info: Info, onDismiss: () -> Unit) {
 	val warn = Metric.colors.warn
 	Surface(
-		shape = RoundedCornerShape(18.dp),
-		color = warn.copy(alpha = 0.14f),
-		modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+		shape = RoundedCornerShape(Radius.lPlus),
+		color = warn.copy(alpha = Alpha.BANNER),
+		modifier = Modifier.fillMaxWidth().padding(bottom = Space.m),
 	) {
-		Row(Modifier.padding(start = 14.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-			Icon(Icons.Default.Warning, null, tint = warn, modifier = Modifier.size(18.dp))
-			Spacer(Modifier.width(10.dp))
+		Row(Modifier.padding(start = Space.mPlus, top = Space.xs, bottom = Space.xs), verticalAlignment = Alignment.CenterVertically) {
+			Icon(Icons.Default.Warning, null, tint = warn, modifier = Modifier.size(Sizes.iconM))
+			Spacer(Modifier.width(Space.sPlus))
 			Text(
 				if (compat == Compat.UpdateApp) stringResource(R.string.compat_update_app)
 				else stringResource(R.string.compat_update_elamond, info.serviceVersion, MIN_ELAMOND),
 				style = MaterialTheme.typography.bodySmall,
 				modifier = Modifier.weight(1f),
 			)
-			IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, stringResource(R.string.compat_dismiss), Modifier.size(18.dp)) }
+			IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, stringResource(R.string.compat_dismiss), Modifier.size(Sizes.iconM)) }
 		}
 	}
 }

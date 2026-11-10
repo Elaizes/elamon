@@ -39,21 +39,26 @@ object Hosts {
 	/** Letters, digits and hyphens in dot-separated labels; the last label isn't all digits. */
 	fun isDnsName(s: String): Boolean {
 		val name = s.removeSuffix(".")
-		if (name.isEmpty() || name.length > 253) return false
+		if (name.isEmpty() || name.length > DNS_NAME_MAX) return false
 		val labels = name.split('.')
-		if (labels.any { l -> l.length !in 1..63 || l.startsWith('-') || l.endsWith('-') || !l.all { it.isLetterOrDigitAscii() || it == '-' } }) return false
+		if (labels.any { l -> l.length !in 1..DNS_LABEL_MAX || l.startsWith('-') || l.endsWith('-') || !l.all { it.isLetterOrDigitAscii() || it == '-' } }) return false
 		return !labels.last().all { it in '0'..'9' }
 	}
 
 	/** Something to connect to: an IPv4 or IPv6 address or a DNS name, nothing else. */
 	fun isValid(s: String): Boolean = isIpv4(s) || isIpv6(s) || isDnsName(s)
 
+	/** The longest name the DNS carries, and the longest of its labels. */
+	private const val DNS_NAME_MAX = 253
+	private const val DNS_LABEL_MAX = 63
+
 	private fun Char.isHexDigitAscii() = this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'
 	private fun Char.isLetterOrDigitAscii() = this in '0'..'9' || this in 'a'..'z' || this in 'A'..'Z'
 }
 
-/** A port as written, or null unless it is a number from 1 to 65535. */
-private fun port(s: String): Int? = s.takeIf { it.length in 1..5 && it.all { c -> c in '0'..'9' } }?.toInt()?.takeIf { it in 1..65535 }
+/** A port as written, or null unless it is a number from 1 to [Limits.PORT_MAX]. */
+fun parsePort(s: String): Int? =
+	s.takeIf { it.length in 1..Limits.PORT_DIGITS && it.all { c -> c in '0'..'9' } }?.toInt()?.takeIf { it in 1..Limits.PORT_MAX }
 
 /**
  * An address as typed: "host", "host:port", "[v6]", "[v6]:port" or a bare IPv6 address, with or
@@ -73,7 +78,7 @@ fun parseAddress(input: String, defaultPort: Int): Pair<String, Int>? {
 		val rest = s.substring(end + 1)
 		val p = when {
 			rest.isEmpty() -> defaultPort
-			rest.startsWith(":") -> port(rest.substring(1)) ?: return null
+			rest.startsWith(":") -> parsePort(rest.substring(1)) ?: return null
 			else -> return null
 		}
 		return if (Hosts.isIpv6(host)) host to p else null
@@ -81,7 +86,7 @@ fun parseAddress(input: String, defaultPort: Int): Pair<String, Int>? {
 	if (s.count { it == ':' } > 1) return if (Hosts.isIpv6(s)) s to defaultPort else null
 	val colon = s.indexOf(':')
 	val host = if (colon < 0) s else s.substring(0, colon)
-	val p = if (colon < 0) defaultPort else port(s.substring(colon + 1)) ?: return null
+	val p = if (colon < 0) defaultPort else parsePort(s.substring(colon + 1)) ?: return null
 	return if (Hosts.isIpv4(host) || Hosts.isDnsName(host)) host to p else null
 }
 

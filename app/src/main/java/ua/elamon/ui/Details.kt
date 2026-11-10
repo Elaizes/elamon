@@ -24,7 +24,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import ua.elamon.MachineState
 import ua.elamon.MachineViewModel
 import ua.elamon.ProcRequest
@@ -61,8 +60,8 @@ fun DetailPage(kind: String, state: MachineState, vm: MachineViewModel, list: La
 	LazyColumn(
 		Modifier.fillMaxSize(),
 		state = list,
-		contentPadding = listPadding(bottomNav = false),
-		verticalArrangement = Arrangement.spacedBy(12.dp),
+		contentPadding = listPadding(),
+		verticalArrangement = Arrangement.spacedBy(Space.m),
 	) {
 		item(key = "title") { BigTitle(detailTitle(kind, state), list = list) }
 		when {
@@ -84,8 +83,8 @@ private fun LazyListScope.cpu(state: MachineState) {
 		val c = Metric.colors
 		Section(stringResource(R.string.details_load), ElIcons.Chip, accent = c.cpu, trailing = { RollingText(Fmt.percent(s.cpu.usage), MaterialTheme.typography.titleLarge, color = c.cpu) }) {
 			LineChart(
-				listOf(ChartSeries(state.hist.cpu, c.cpu, format = { Fmt.percent(it) })),
-				maxValue = 100f, height = 200.dp, label = { Fmt.percent(100f) },
+				listOf(ChartSeries(state.hist.cpu, c.cpu, name = stringResource(R.string.cpu), value = { Fmt.percent(it) })),
+				maxValue = Thresholds.PERCENT, height = ChartStyle.detail, label = { Fmt.percent(it) },
 			)
 		}
 	}
@@ -99,7 +98,10 @@ private fun LazyListScope.cpu(state: MachineState) {
 				val threads = pluralStringResource(R.plurals.details_threads, info.cpuLogicalCores, info.cpuLogicalCores)
 				StatRow(stringResource(R.string.details_cores), listOfNotNull(physical, threads).joinToString(" · "))
 			}
-			s.cpu.temp?.let { StatRow(stringResource(R.string.temperature), Fmt.temp(it, p.fahrenheit), valueColor = tempColor(it)) }
+			s.cpu.temp?.let {
+				val sensor = cpuSensor(s.temps, it)
+				StatRow(stringResource(R.string.temperature), Fmt.temp(it, p.fahrenheit), valueColor = tempColor(it, sensor?.high, sensor?.crit))
+			}
 			if (s.cpu.freq.isNotEmpty()) StatRow(stringResource(R.string.details_clock_average_top), "${Fmt.mhz(s.cpu.freq.average().toInt())} / ${Fmt.mhz(s.cpu.freq.max())}")
 			if (s.cpu.load.size == 3) StatRow(stringResource(R.string.details_load_average), s.cpu.load.joinToString("  ") { Fmt.load(it) })
 			StatRow(stringResource(R.string.details_uptime), Fmt.duration(resources(), s.uptime))
@@ -108,20 +110,23 @@ private fun LazyListScope.cpu(state: MachineState) {
 	item(key = "cores") { Cores(state) }
 }
 
+/** Cores to a row in the CPU page's grid. */
+private const val CORE_COLUMNS = 4
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Cores(state: MachineState) {
 	val s = state.sample ?: return
 	val c = Metric.colors
 	Section(stringResource(R.string.details_cores), ElIcons.Chip, accent = c.cpu) {
-		CoreBars(s.cpu.cores, height = 56.dp)
-		FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 4) {
+		CoreBars(s.cpu.cores, height = ChartStyle.coresDetail)
+		FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s), verticalArrangement = Arrangement.spacedBy(Space.s), maxItemsInEachRow = CORE_COLUMNS) {
 			s.cpu.cores.forEachIndexed { i, u ->
 				Column(
-					Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(10.dp),
+					Modifier.weight(1f).clip(RoundedCornerShape(Radius.mPlus)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(Space.sPlus),
 				) {
 					Text(stringResource(R.string.details_core, i), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-					Text(Fmt.percent(u), style = MaterialTheme.typography.titleSmall, color = loadColor(u / 100f, c.cpu))
+					Text(Fmt.percent(u), style = MaterialTheme.typography.titleSmall, color = loadColor(u / Thresholds.PERCENT, c.cpu))
 					s.cpu.freq.getOrNull(i)?.let { Text(Fmt.mhz(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
 				}
 			}
@@ -135,15 +140,16 @@ private fun LazyListScope.memory(state: MachineState) {
 	item(key = "chart") {
 		val c = Metric.colors
 		val res = resources()
+		val bytes = { v: Float -> Fmt.bytes(v.toDouble()) }
 		Section(stringResource(R.string.details_memory_use), ElIcons.Memory, accent = c.memory, trailing = { RollingText(Fmt.bytes(m.used), MaterialTheme.typography.titleLarge, color = c.memory) }) {
 			LineChart(
 				listOf(
-					ChartSeries(state.hist.mem, c.memory, format = { res.getString(R.string.details_chart_ram, Fmt.bytes(it.toDouble())) }),
-					ChartSeries(state.hist.swap, c.swap, fill = false, format = { res.getString(R.string.details_chart_swap, Fmt.bytes(it.toDouble())) }),
+					ChartSeries(state.hist.mem, c.memory, name = stringResource(R.string.ram), value = bytes, format = { res.getString(R.string.details_chart_ram, bytes(it)) }),
+					ChartSeries(state.hist.swap, c.swap, fill = false, name = stringResource(R.string.details_swap), value = bytes, format = { res.getString(R.string.details_chart_swap, bytes(it)) }),
 				),
-				maxValue = m.total.toFloat().coerceAtLeast(1f), height = 200.dp, label = { Fmt.bytes(it.toDouble()) },
+				maxValue = m.total.toFloat().coerceAtLeast(1f), height = ChartStyle.detail, label = bytes,
 			)
-			Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+			Row(horizontalArrangement = Arrangement.spacedBy(Space.l)) {
 				Legend(c.memory, stringResource(R.string.memory))
 				if (m.swapTotal > 0) Legend(c.swap, stringResource(R.string.details_swap))
 			}
@@ -153,11 +159,11 @@ private fun LazyListScope.memory(state: MachineState) {
 		val c = Metric.colors
 		Section(stringResource(R.string.details), ElIcons.Overview) {
 			StatRow(stringResource(R.string.details_used), stringResource(R.string.of_total, Fmt.bytes(m.used), Fmt.bytes(m.total)))
-			UsageBar(if (m.total > 0) m.used.toFloat() / m.total else 0f, c.memory, height = 10.dp)
+			UsageBar(if (m.total > 0) m.used.toFloat() / m.total else 0f, c.memory, height = Sizes.barTile)
 			StatRow(stringResource(R.string.details_available), Fmt.bytes(m.available))
 			if (m.swapTotal > 0) {
 				StatRow(stringResource(R.string.details_swap), stringResource(R.string.of_total, Fmt.bytes(m.swapUsed), Fmt.bytes(m.swapTotal)))
-				UsageBar(m.swapUsed.toFloat() / m.swapTotal, c.swap, height = 10.dp)
+				UsageBar(m.swapUsed.toFloat() / m.swapTotal, c.swap, height = Sizes.barTile)
 			}
 		}
 	}
@@ -183,12 +189,12 @@ private fun LazyListScope.gpu(state: MachineState, id: String) {
 				// Load and °C share the 0–100 scale; its top is 212 °F for those who read Fahrenheit.
 				LineChart(
 					listOf(
-						ChartSeries(state.hist.gpuUsage(id), c.gpu, format = { Fmt.percent(it) }),
-						ChartSeries(state.hist.gpuTemp(id), c.hot, fill = false, format = { Fmt.temp(it, p.fahrenheit) }),
+						ChartSeries(state.hist.gpuUsage(id), c.gpu, name = stringResource(R.string.details_load), value = { Fmt.percent(it) }),
+						ChartSeries(state.hist.gpuTemp(id), c.hot, fill = false, name = stringResource(R.string.temperature), value = { Fmt.temp(it, p.fahrenheit) }),
 					),
-					maxValue = 100f, height = 200.dp, label = { "${Fmt.percent(it)} · ${Fmt.temp(it, p.fahrenheit)}" },
+					maxValue = Thresholds.PERCENT, height = ChartStyle.detail, label = { "${Fmt.percent(it)} · ${Fmt.temp(it, p.fahrenheit)}" },
 				)
-				Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+				Row(horizontalArrangement = Arrangement.spacedBy(Space.l)) {
 					Legend(c.gpu, stringResource(R.string.details_legend_load, Fmt.PERCENT))
 					Legend(c.hot, stringResource(R.string.details_legend_temperature, if (p.fahrenheit) Fmt.FAHRENHEIT else Fmt.CELSIUS))
 				}
@@ -224,7 +230,7 @@ private fun LazyListScope.gpu(state: MachineState, id: String) {
 			g.fan?.let { StatRow(stringResource(R.string.details_fan), Fmt.percent(it.toFloat())) }
 			if (g.memUsed != null && g.memTotal != null && g.memTotal > 0) {
 				StatRow(stringResource(R.string.details_video_memory), stringResource(R.string.of_total, Fmt.bytes(g.memUsed), Fmt.bytes(g.memTotal)))
-				UsageBar(g.memUsed.toFloat() / g.memTotal, Metric.colors.gpu, height = 10.dp)
+				UsageBar(g.memUsed.toFloat() / g.memTotal, Metric.colors.gpu, height = Sizes.barTile)
 			}
 		}
 	}
@@ -235,15 +241,16 @@ private fun LazyListScope.network(state: MachineState) {
 	item(key = "chart") {
 		val c = Metric.colors
 		val bits = LocalPrefs.current.networkBits
+		val rate = { v: Float -> Fmt.rate(v.toDouble(), bits) }
 		Section(stringResource(R.string.details_traffic), ElIcons.Network, accent = c.rx) {
 			LineChart(
 				listOf(
-					ChartSeries(state.hist.rx, c.rx, format = { "↓ " + Fmt.rate(it.toDouble(), bits) }),
-					ChartSeries(state.hist.tx, c.tx, format = { "↑ " + Fmt.rate(it.toDouble(), bits) }),
+					ChartSeries(state.hist.rx, c.rx, name = stringResource(R.string.details_download), value = rate, format = { "↓ " + rate(it) }),
+					ChartSeries(state.hist.tx, c.tx, name = stringResource(R.string.details_upload), value = rate, format = { "↑ " + rate(it) }),
 				),
-				minScale = 64f * 1024, binary = true, height = 200.dp, label = { Fmt.rate(it.toDouble(), bits) },
+				minScale = Thresholds.CHART_MIN_NET, binary = true, height = ChartStyle.detail, label = rate,
 			)
-			Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+			Row(horizontalArrangement = Arrangement.spacedBy(Space.l)) {
 				Legend(c.rx, stringResource(R.string.details_download))
 				Legend(c.tx, stringResource(R.string.details_upload))
 			}
@@ -262,7 +269,7 @@ private fun LazyListScope.network(state: MachineState) {
 				}
 			)
 			Section(n.name, ElIcons.Network, accent = if (n.kind == "vpn") MaterialTheme.colorScheme.tertiary else c.rx, trailing = { Pill(kind, MaterialTheme.colorScheme.secondary) }) {
-				Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+				Row(horizontalArrangement = Arrangement.spacedBy(Space.xxl)) {
 					BigStat(stringResource(R.string.details_rx_now), Fmt.rate(n.rx, bits), color = c.rx)
 					BigStat(stringResource(R.string.details_tx_now), Fmt.rate(n.tx, bits), color = c.tx)
 				}
@@ -280,15 +287,16 @@ private fun LazyListScope.storage(state: MachineState) {
 	item(key = "io") {
 		val c = Metric.colors
 		val res = resources()
+		val rate = { v: Float -> Fmt.rate(v.toDouble()) }
 		Section(stringResource(R.string.details_throughput), ElIcons.Storage, accent = c.read) {
 			LineChart(
 				listOf(
-					ChartSeries(state.hist.read, c.read, format = { res.getString(R.string.details_chart_read, Fmt.rate(it.toDouble())) }),
-					ChartSeries(state.hist.write, c.write, format = { res.getString(R.string.details_chart_write, Fmt.rate(it.toDouble())) }),
+					ChartSeries(state.hist.read, c.read, name = stringResource(R.string.details_read), value = rate, format = { res.getString(R.string.details_chart_read, rate(it)) }),
+					ChartSeries(state.hist.write, c.write, name = stringResource(R.string.details_write), value = rate, format = { res.getString(R.string.details_chart_write, rate(it)) }),
 				),
-				minScale = 1024f * 1024, binary = true, height = 200.dp, label = { Fmt.rate(it.toDouble()) },
+				minScale = Thresholds.CHART_MIN_DISK, binary = true, height = ChartStyle.detail, label = rate,
 			)
-			Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+			Row(horizontalArrangement = Arrangement.spacedBy(Space.l)) {
 				Legend(c.read, stringResource(R.string.details_read))
 				Legend(c.write, stringResource(R.string.details_write))
 			}
@@ -304,11 +312,11 @@ private fun LazyListScope.storage(state: MachineState) {
 			val frac = if (d.total > 0) used.toFloat() / d.total else 0f
 			Section(d.mount, ElIcons.Storage, accent = c.read, trailing = { Pill(d.fs, MaterialTheme.colorScheme.secondary) }) {
 				Row(verticalAlignment = Alignment.Bottom) {
-					BigValue(Fmt.percent(frac * 100).dropLast(1), Fmt.PERCENT, large = false)
+					BigValue(Fmt.percent(frac * Thresholds.PERCENT).dropLast(1), Fmt.PERCENT, large = false)
 					Spacer(Modifier.weight(1f))
 					Text(stringResource(R.string.of_total, Fmt.bytes(used), Fmt.bytes(d.total)), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				}
-				UsageBar(frac, loadColor(frac, c.read), height = 12.dp)
+				UsageBar(frac, loadColor(frac, c.read), height = Sizes.barThick)
 				StatRow(stringResource(R.string.details_free), Fmt.bytes(d.available))
 				StatRow(stringResource(R.string.details_device), d.device)
 			}
@@ -323,8 +331,8 @@ private fun LazyListScope.battery(state: MachineState) {
 		val c = Metric.colors
 		Section(stringResource(R.string.details_power_draw), ElIcons.Bolt, accent = c.battery) {
 			LineChart(
-				listOf(ChartSeries(state.hist.batteryPower, c.battery, format = { Fmt.watts(it) })),
-				minScale = 5f, height = 180.dp, label = { Fmt.watts(it) },
+				listOf(ChartSeries(state.hist.batteryPower, c.battery, name = stringResource(R.string.details_power), value = { Fmt.watts(it) })),
+				minScale = Thresholds.CHART_MIN_POWER, height = ChartStyle.battery, label = { Fmt.watts(it) },
 			)
 		}
 	}
@@ -337,7 +345,7 @@ private fun LazyListScope.battery(state: MachineState) {
 			b.energyNow?.let { StatRow(stringResource(R.string.details_energy_now), Fmt.wattHours(it)) }
 			b.energyFull?.let { StatRow(stringResource(R.string.details_full_charge), Fmt.wattHours(it)) }
 			b.energyDesign?.let { StatRow(stringResource(R.string.details_design_capacity), Fmt.wattHours(it)) }
-			if (b.energyFull != null && b.energyDesign != null && b.energyDesign > 0) StatRow(stringResource(R.string.details_health), Fmt.percent(b.energyFull / b.energyDesign * 100))
+			if (b.energyFull != null && b.energyDesign != null && b.energyDesign > 0) StatRow(stringResource(R.string.details_health), Fmt.percent(b.energyFull / b.energyDesign * Thresholds.PERCENT))
 			b.cycles?.let { StatRow(stringResource(R.string.details_charge_cycles), it.toString()) }
 			b.model?.let { StatRow(stringResource(R.string.model), it) }
 		}
@@ -352,7 +360,7 @@ private fun LazyListScope.topProcesses(procs: List<Proc>?, sort: String) {
 			} else {
 				val top = when (sort) {
 					"mem" -> procs.sortedByDescending { it.mem }
-					"gpu" -> procs.filter { it.gpu != null || it.gpuMem != null }.sortedByDescending { (it.gpu ?: 0f) * 1e12f + (it.gpuMem ?: 0) }
+					"gpu" -> procs.filter { it.gpu != null || it.gpuMem != null }.sortedWith(compareByDescending<Proc> { it.gpu ?: 0f }.thenByDescending { it.gpuMem ?: 0 })
 					"io" -> procs.sortedByDescending { it.read + it.write }
 					else -> procs.sortedByDescending { it.cpu }
 				}.take(ProcRequest.TOP)
@@ -361,8 +369,8 @@ private fun LazyListScope.topProcesses(procs: List<Proc>?, sort: String) {
 				}
 				for (p in top) {
 					Row(verticalAlignment = Alignment.CenterVertically) {
-						LetterAvatar(p.name, 32.dp)
-						Spacer(Modifier.width(12.dp))
+						LetterAvatar(p.name, Sizes.avatarS)
+						Spacer(Modifier.width(Space.m))
 						Text(p.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
 						Text(
 							when (sort) {

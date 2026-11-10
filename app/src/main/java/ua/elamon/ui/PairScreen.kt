@@ -5,7 +5,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -43,7 +45,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -51,6 +52,7 @@ import ua.elamon.PairStep
 import ua.elamon.PairViewModel
 import ua.elamon.R
 import ua.elamon.data.ElamondClient
+import ua.elamon.data.Limits
 import ua.elamon.data.PairTarget
 import ua.elamon.data.Server
 
@@ -77,11 +79,12 @@ fun PairScreen(target: PairTarget, owner: ViewModelStoreOwner, onBack: () -> Uni
 		},
 	) { padding ->
 		Column(
-			Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(24.dp),
+			// Above the keyboard too, so the code and the button can be scrolled into sight while typing.
+			Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().verticalScroll(rememberScrollState()).padding(Space.xxl),
 			horizontalAlignment = Alignment.CenterHorizontally,
-			verticalArrangement = Arrangement.spacedBy(16.dp),
+			verticalArrangement = Arrangement.spacedBy(Space.l),
 		) {
-			Icon(ElIcons.Laptop, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
+			Icon(ElIcons.Laptop, null, Modifier.size(Sizes.pairIcon), tint = MaterialTheme.colorScheme.primary)
 			when (val s = state.step) {
 				PairStep.Connecting -> {
 					Text(stringResource(R.string.pair_connecting, target.name ?: target.hosts.first()), textAlign = TextAlign.Center)
@@ -117,19 +120,19 @@ fun PairScreen(target: PairTarget, owner: ViewModelStoreOwner, onBack: () -> Uni
 								textAlign = TextAlign.Center,
 								modifier = Modifier
 									.fillMaxWidth()
-									.background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(12.dp))
-									.padding(12.dp),
+									.background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(Radius.m))
+									.padding(Space.m),
 							)
 						}
 						OutlinedTextField(
 							value = code,
-							onValueChange = { v -> code = v.filter { it in '0'..'9' }.take(6) },
+							onValueChange = { v -> code = v.filter { it in '0'..'9' }.take(Limits.PAIRING_DIGITS) },
 							label = { Text(stringResource(R.string.pair_code)) },
 							singleLine = true,
 							isError = state.codeError != null,
 							supportingText = { Text(stringResource(state.codeError ?: R.string.pair_code_hint)) },
 							keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
-							keyboardActions = KeyboardActions(onDone = { if (code.length == 6) vm.pair(code) }),
+							keyboardActions = KeyboardActions(onDone = { if (code.length == Limits.PAIRING_DIGITS) vm.pair(code) }),
 							textStyle = MaterialTheme.typography.headlineSmall.copy(textAlign = TextAlign.Center, fontFamily = FontFamily.Monospace),
 							modifier = Modifier.fillMaxWidth(),
 						)
@@ -138,8 +141,8 @@ fun PairScreen(target: PairTarget, owner: ViewModelStoreOwner, onBack: () -> Uni
 						state.codeError?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center) }
 					}
 					val busy = state.busy || state.paired != null
-					Button(onClick = { vm.pair(code) }, enabled = !busy && code.length == 6, modifier = Modifier.fillMaxWidth()) {
-						if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+					Button(onClick = { vm.pair(code) }, enabled = !busy && code.length == Limits.PAIRING_DIGITS, modifier = Modifier.fillMaxWidth()) {
+						if (busy) CircularProgressIndicator(Modifier.size(Sizes.iconM), strokeWidth = Sizes.spinnerStroke)
 						else Text(stringResource(R.string.pair))
 					}
 				}

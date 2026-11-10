@@ -36,6 +36,7 @@ import ua.elamon.ui.HelpScreen
 import ua.elamon.ui.HelpTopic
 import ua.elamon.ui.HomeScreen
 import ua.elamon.ui.MachineScreen
+import ua.elamon.ui.Motion
 import ua.elamon.ui.PairScreen
 import ua.elamon.ui.SettingsScreen
 import ua.elamon.ui.appColorScheme
@@ -135,7 +136,7 @@ class MainActivity : ComponentActivity() {
 					AnimatedContent(
 						nav.top,
 						transitionSpec = {
-							if (prefs.animations) (fadeIn(tween(240)) + scaleIn(tween(240), initialScale = 0.96f)) togetherWith fadeOut(tween(160))
+							if (prefs.animations) (fadeIn(tween(Motion.SCREEN_IN)) + scaleIn(tween(Motion.SCREEN_IN), initialScale = Motion.SCREEN_SCALE)) togetherWith fadeOut(tween(Motion.SCREEN_OUT))
 							else fadeIn(tween(0)) togetherWith fadeOut(tween(0))
 						},
 						label = "screen",

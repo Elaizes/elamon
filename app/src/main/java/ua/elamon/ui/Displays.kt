@@ -21,13 +21,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import ua.elamon.MachineState
 import ua.elamon.R
 import ua.elamon.data.Display
@@ -46,8 +42,8 @@ fun DisplaysSection(state: MachineState) {
 	val gpuNames = state.info?.gpus.orEmpty().associate { it.id to shortGpuName(it.name) }
 	val active = connected.filter { it.active && it.mode != null && it.position != null }
 
-	Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-		Text(stringResource(R.string.displays_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 4.dp))
+	Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
+		Text(stringResource(R.string.displays_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = Space.xs))
 		if (active.size > 1) {
 			Section(stringResource(R.string.displays_arrangement), ElIcons.Overview) { DisplayLayout(active) }
 		}
@@ -83,8 +79,8 @@ private fun DisplayCard(d: Display, gpuName: String?) {
 		d.mode?.let { m ->
 			Row(verticalAlignment = Alignment.Bottom) {
 				Text("${m.width} × ${m.height}", style = MaterialTheme.typography.headlineMedium)
-				Spacer(Modifier.width(10.dp))
-				Text(Fmt.hz(m.refresh), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 3.dp))
+				Spacer(Modifier.width(Space.sPlus))
+				Text(Fmt.hz(m.refresh), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = Space.unitLiftSmall))
 			}
 		}
 		StatRow(stringResource(R.string.displays_port), d.connector + (gpuName?.let { " · $it" } ?: ""))
@@ -104,27 +100,27 @@ private fun DisplayLayout(displays: List<Display>) {
 	val measurer = rememberTextMeasurer()
 	val fill = MaterialTheme.colorScheme.primaryContainer
 	val edge = MaterialTheme.colorScheme.primary
-	val text = MaterialTheme.colorScheme.onPrimaryContainer
+	val labelStyle = ChartStyle.monitorText.copy(color = MaterialTheme.colorScheme.onPrimaryContainer)
 	val minX = displays.minOf { it.position!![0] }
 	val minY = displays.minOf { it.position!![1] }
 	val maxX = displays.maxOf { it.position!![0] + it.mode!!.width }
 	val maxY = displays.maxOf { it.position!![1] + it.mode!!.height }
 	val spanW = (maxX - minX).coerceAtLeast(1)
 	val spanH = (maxY - minY).coerceAtLeast(1)
-	Canvas(Modifier.fillMaxWidth().height(150.dp)) {
+	Canvas(Modifier.fillMaxWidth().height(ChartStyle.displays)) {
 		val scale = min(size.width / spanW, size.height / spanH)
 		val ox = (size.width - spanW * scale) / 2
 		val oy = (size.height - spanH * scale) / 2
-		val gap = 4.dp.toPx()
+		val gap = ChartStyle.monitorGap.toPx()
 		for (d in displays) {
 			val p = d.position!!
 			val m = d.mode!!
 			val tl = Offset(ox + (p[0] - minX) * scale + gap, oy + (p[1] - minY) * scale + gap)
 			val sz = Size(max(m.width * scale - 2 * gap, 1f), max(m.height * scale - 2 * gap, 1f))
-			val r = CornerRadius(12.dp.toPx())
-			drawRoundRect(Brush.linearGradient(listOf(fill, fill.copy(alpha = 0.6f)), tl, Offset(tl.x + sz.width, tl.y + sz.height)), tl, sz, r)
-			drawRoundRect(edge, tl, sz, r, style = Stroke(2.dp.toPx()))
-			val label = measurer.measure(d.connector, TextStyle(color = text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = Inter))
+			val r = CornerRadius(Radius.m.toPx())
+			drawRoundRect(Brush.linearGradient(listOf(fill, fill.copy(alpha = Alpha.FADE_END)), tl, Offset(tl.x + sz.width, tl.y + sz.height)), tl, sz, r)
+			drawRoundRect(edge, tl, sz, r, style = Stroke(ChartStyle.outline.toPx()))
+			val label = measurer.measure(d.connector, labelStyle)
 			drawText(label, topLeft = Offset(tl.x + (sz.width - label.size.width) / 2, tl.y + (sz.height - label.size.height) / 2))
 		}
 	}

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -35,8 +36,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
@@ -44,6 +45,7 @@ import ua.elamon.BuildConfig
 import ua.elamon.Intervals
 import ua.elamon.R
 import ua.elamon.Settings
+import ua.elamon.data.Limits
 import ua.elamon.ThemeMode
 
 @Composable
@@ -63,8 +65,8 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 			LazyColumn(
 				Modifier.fillMaxSize().hazeSource(haze),
 				state = list,
-				contentPadding = listPadding(bottomNav = false),
-				verticalArrangement = Arrangement.spacedBy(8.dp),
+				contentPadding = listPadding(),
+				verticalArrangement = Arrangement.spacedBy(Space.s),
 			) {
 				item { BigTitle(stringResource(R.string.settings), list = list) }
 
@@ -138,7 +140,7 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 					}
 				}
 			}
-			BottomGlass(Modifier.align(androidx.compose.ui.Alignment.BottomCenter), extra = 0.dp)
+			BottomGlass(Modifier.align(androidx.compose.ui.Alignment.BottomCenter))
 			GlassTopBar(title = stringResource(R.string.settings), collapsed = rememberCollapsed(list), onBack = onBack)
 		}
 	}
@@ -161,7 +163,7 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 			onDismiss = { license = false },
 			title = stringResource(R.string.settings_licences),
 			text = {
-				Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+				Column(Modifier.heightIn(max = Sizes.licenceMax).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
 					Text(stringResource(R.string.settings_licence_elamon))
 					Text(stringResource(R.string.settings_licence_inter), style = MaterialTheme.typography.titleSmall)
 					Text(text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
@@ -178,7 +180,7 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 private fun IntervalChoice(value: Int, onCustom: () -> Unit, onPick: (Int) -> Unit) {
 	val custom = value !in Intervals.CHOICES
 	val count = Intervals.CHOICES.size + 1
-	Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+	Column(Modifier.fillMaxWidth().padding(horizontal = Space.xl, vertical = Space.m), verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
 		Text(stringResource(R.string.settings_interval), style = MaterialTheme.typography.bodyLarge)
 		SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
 			Intervals.CHOICES.forEachIndexed { i, ms ->
@@ -204,12 +206,13 @@ private fun CustomIntervalDialog(current: Int, minMs: Int, onDismiss: () -> Unit
 		text = {
 			OutlinedTextField(
 				value = text,
-				onValueChange = { text = it.take(8) },
+				onValueChange = { text = it.take(Limits.INTERVAL_TEXT_MAX) },
 				label = { Text(stringResource(R.string.settings_interval_custom_label)) },
 				supportingText = { Text(stringResource(R.string.settings_interval_custom_range, Fmt.seconds(minMs), Fmt.seconds(Intervals.MAX_MS))) },
 				isError = parsed == null,
 				singleLine = true,
-				keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+				keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+				keyboardActions = KeyboardActions(onDone = { parsed?.let(onSave) }),
 				modifier = Modifier.fillMaxWidth(),
 			)
 		},
@@ -222,7 +225,7 @@ private fun CustomIntervalDialog(current: Int, minMs: Int, onDismiss: () -> Unit
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun <T> Choice(title: String, options: List<Pair<T, String>>, value: T, onPick: (T) -> Unit) {
-	Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+	Column(Modifier.fillMaxWidth().padding(horizontal = Space.xl, vertical = Space.m), verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
 		Text(title, style = MaterialTheme.typography.bodyLarge)
 		SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
 			options.forEachIndexed { i, (v, label) ->

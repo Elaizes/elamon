@@ -9,7 +9,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -27,7 +27,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -36,7 +41,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -45,17 +52,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import dev.chrisbanes.haze.HazeProgressive
 import dev.chrisbanes.haze.HazeState
@@ -67,6 +77,51 @@ import ua.elamon.R
 /** The content a screen's bars blur, provided by the screen. */
 val LocalHaze = staticCompositionLocalOf<HazeState?> { null }
 
+/** How much of the bottom of the screen something floats over, as measured; null where nothing does. */
+val LocalBottomReserve = compositionLocalOf<Dp?> { null }
+
+/**
+ * How much of the bottom a list, a snackbar or the glass has to keep clear: what floats there
+ * (the tab bar, a button) as measured, the system's navigation bar included, or that bar alone.
+ */
+@Composable
+fun bottomReserve(): Dp {
+	LocalBottomReserve.current?.let { return it }
+	val d = LocalDensity.current
+	return with(d) { WindowInsets.navigationBars.getBottom(d).toDp() }
+}
+
+private enum class BottomSlot { Bar, Content }
+
+/**
+ * [content] with [bar] floating over its bottom edge. The bar is measured first, so everything in
+ * [content] knows from [bottomReserve] how much of the bottom it covers, from the first frame and
+ * at any font size. An empty [bar] covers only the system's navigation bar.
+ */
+@Composable
+fun BottomBarLayout(
+	modifier: Modifier = Modifier,
+	barAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
+	bar: @Composable () -> Unit,
+	content: @Composable () -> Unit,
+) {
+	val nav = WindowInsets.navigationBars
+	SubcomposeLayout(modifier) { constraints ->
+		val w = constraints.maxWidth
+		val h = constraints.maxHeight
+		val bars = subcompose(BottomSlot.Bar, bar).map { it.measure(constraints.copy(minWidth = 0, minHeight = 0)) }
+		val covered = maxOf(bars.maxOfOrNull { it.height } ?: 0, nav.getBottom(this))
+		val reserve = covered.toDp()
+		val main = subcompose(BottomSlot.Content) {
+			CompositionLocalProvider(LocalBottomReserve provides reserve, content = content)
+		}.map { it.measure(constraints) }
+		layout(w, h) {
+			main.forEach { it.place(0, 0) }
+			bars.forEach { it.place(barAlignment.align(it.width, w, layoutDirection), h - it.height) }
+		}
+	}
+}
+
 /** Frosted glass over the screen's content, or an almost opaque surface where blur is off. */
 @Composable
 fun Modifier.glass(alpha: Float = 1f, fadeDown: Boolean = false, fadeUp: Boolean = false): Modifier {
@@ -74,45 +129,51 @@ fun Modifier.glass(alpha: Float = 1f, fadeDown: Boolean = false, fadeUp: Boolean
 	val haze = LocalHaze.current
 	val surface = MaterialTheme.colorScheme.surface
 	val dark = LocalDark.current
-	if (alpha <= 0.001f) return this
-	if (!prefs.useBlur || haze == null) return this.background(surface.copy(alpha = 0.94f * alpha))
+	if (alpha <= MIN_ALPHA) return this
+	if (!prefs.useBlur || haze == null) return this.background(surface.copy(alpha = Alpha.GLASS_SOLID * alpha))
 	val style = HazeStyle(
 		backgroundColor = surface,
-		tints = listOf(HazeTint(surface.copy(alpha = if (dark) 0.62f else 0.7f))),
-		blurRadius = 26.dp,
-		noiseFactor = 0.04f,
+		tints = listOf(HazeTint(surface.copy(alpha = if (dark) Alpha.GLASS_TINT_DARK else Alpha.GLASS_TINT_LIGHT))),
+		blurRadius = Blur.glass,
+		noiseFactor = Blur.NOISE,
 	)
 	return this.hazeEffect(haze, style) {
 		this.alpha = alpha
 		// Bars at the screen's edges fade their blur out toward the content.
 		progressive = when {
-			fadeDown -> HazeProgressive.verticalGradient(startIntensity = 1f, endIntensity = 0.35f)
-			fadeUp -> HazeProgressive.verticalGradient(startIntensity = 0.35f, endIntensity = 1f)
+			fadeDown -> HazeProgressive.verticalGradient(startIntensity = 1f, endIntensity = Blur.EDGE)
+			fadeUp -> HazeProgressive.verticalGradient(startIntensity = Blur.EDGE, endIntensity = 1f)
 			else -> null
 		}
 	}
 }
 
+/** Glass this faint isn't drawn at all. */
+private const val MIN_ALPHA = 0.001f
+
 /** How far a list scrolls before its big title has gone under the bar: about the title's line. */
 @Composable
 private fun titleTravelPx(): Float = with(LocalDensity.current) { MaterialTheme.typography.headlineMedium.lineHeight.toPx() }
 
+/** How much of that the title may scroll before the bar takes over with the small one. */
+private const val COLLAPSE_AT = 0.6f
+
 /** True once a list has scrolled its big title out from under the bar. */
 @Composable
 fun rememberCollapsed(list: LazyListState): Boolean {
-	val px = titleTravelPx() * 0.6f
+	val px = titleTravelPx() * COLLAPSE_AT
 	val collapsed by remember(list, px) {
 		derivedStateOf { list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > px }
 	}
 	return collapsed
 }
 
-/** The top bar's height under the status bar: 64 dp, more when large text needs it. */
+/** The top bar's height under the status bar: [Sizes.topBarMin], more when large text needs it. */
 @Composable
 fun topBarHeight(): Dp {
 	val t = MaterialTheme.typography
 	val text = with(LocalDensity.current) { t.titleLarge.lineHeight.toDp() + t.labelMedium.lineHeight.toDp() }
-	return maxOf(64.dp, text + 16.dp)
+	return maxOf(Sizes.topBarMin, text + Space.l)
 }
 
 /**
@@ -127,19 +188,19 @@ fun GlassTopBar(
 	subtitle: String? = null,
 	actions: @Composable RowScope.() -> Unit = {},
 ) {
-	val a by animateFloatAsState(if (collapsed) 1f else 0f, tween(220), label = "bar")
+	val a by animateFloatAsState(if (collapsed) 1f else 0f, tween(Motion.BAR_FADE), label = "bar")
 	Box(Modifier.fillMaxWidth().glass(alpha = a, fadeDown = true)) {
 		Row(
-			Modifier.statusBarsPadding().fillMaxWidth().height(topBarHeight()).padding(horizontal = 4.dp),
+			Modifier.statusBarsPadding().fillMaxWidth().height(topBarHeight()).padding(horizontal = Space.xs),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
 			if (onBack != null) {
 				IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) }
 			} else {
-				Spacer(Modifier.width(12.dp))
+				Spacer(Modifier.width(Space.m))
 			}
-			Column(Modifier.weight(1f).padding(start = 4.dp)) {
-				AnimatedVisibility(collapsed, enter = fadeIn(tween(200)), exit = fadeOut(tween(150))) {
+			Column(Modifier.weight(1f).padding(start = Space.xs)) {
+				AnimatedVisibility(collapsed, enter = fadeIn(tween(Motion.TITLE_IN)), exit = fadeOut(tween(Motion.TITLE_OUT))) {
 					Column {
 						Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
 						if (subtitle != null) {
@@ -152,6 +213,9 @@ fun GlassTopBar(
 		}
 	}
 }
+
+/** How far in from the screen's sides something in the top bar keeps clear of its buttons. */
+val BarButtonsClearance: Dp = Space.xs + Sizes.touchTarget + Space.xs
 
 /**
  * A screen's big title, right under the bar and as tall as what it holds; it fades as it scrolls
@@ -179,64 +243,85 @@ fun BigTitle(
 			.fillMaxWidth()
 			.padding(top = topBarHeight())
 			.graphicsLayer { this.alpha = alpha }
-			.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 12.dp),
+			.padding(start = Space.xxl, end = Space.xxl, top = Space.xs, bottom = Space.m),
 	) {
-		Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+		Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = TITLE_LINES, overflow = TextOverflow.Ellipsis)
 		if (subtitle != null) {
-			Spacer(Modifier.height(4.dp))
+			Spacer(Modifier.height(Space.xs))
 			subtitle()
 		}
 		if (extra != null) {
-			Spacer(Modifier.height(12.dp))
+			Spacer(Modifier.height(Space.m))
 			extra()
 		}
 	}
 }
 
+/** A long name wraps once before it's cut. */
+private const val TITLE_LINES = 2
+
 class NavItem(val label: String, val icon: ImageVector)
 
-/** The tab bar as a floating pill of glass. */
+private val NavBarShape = RoundedCornerShape(Radius.floating)
+private val NavItemShape = RoundedCornerShape(Radius.card)
+
+/** The least a tab's label shrinks to before it is cut short. */
+private val NavLabelMin = 9.sp
+
+/** The tab bar as a floating pill of glass; to a screen reader, a row of tabs with one selected. */
 @Composable
 fun FloatingNavBar(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
-	Box(modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
+	Box(modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = Space.xl, vertical = Space.m), contentAlignment = Alignment.Center) {
+		val shadow = Color.Black.copy(alpha = Alpha.SHADOW)
 		Row(
 			Modifier
 				.fillMaxWidth()
-				.shadow(18.dp, RoundedCornerShape(32.dp), ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.3f))
-				.clip(RoundedCornerShape(32.dp))
+				.shadow(Space.lPlus, NavBarShape, ambientColor = shadow, spotColor = shadow)
+				.clip(NavBarShape)
 				.glass()
-				.padding(6.dp),
-			horizontalArrangement = Arrangement.spacedBy(2.dp),
+				.padding(Space.xsPlus)
+				.selectableGroup(),
+			horizontalArrangement = Arrangement.spacedBy(Space.xxs),
 		) {
 			items.forEachIndexed { i, item ->
 				val on = i == selected
 				val bg by animateColorAsState(
 					if (on) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-					tween(200),
+					tween(Motion.NAV),
 					label = "navbg",
 				)
 				val fg by animateColorAsState(
 					if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-					tween(200),
+					tween(Motion.NAV),
 					label = "navfg",
 				)
 				Column(
 					Modifier
 						.weight(1f)
-						.clip(RoundedCornerShape(26.dp))
+						.clip(NavItemShape)
 						.background(bg)
-						.clickable(remember { MutableInteractionSource() }, null) { onSelect(i) }
-						.padding(horizontal = 2.dp, vertical = 8.dp),
+						.selectable(
+							selected = on,
+							interactionSource = remember { MutableInteractionSource() },
+							indication = null,
+							role = Role.Tab,
+							onClick = { onSelect(i) },
+						)
+						.padding(horizontal = Space.xxs, vertical = Space.s),
 					horizontalAlignment = Alignment.CenterHorizontally,
 				) {
-					Icon(item.icon, item.label, tint = fg, modifier = Modifier.size(22.dp))
+					// The label below says it; the icon would only say it twice.
+					Icon(item.icon, null, tint = fg, modifier = Modifier.size(Sizes.iconL))
+					// At a large font a long label shrinks to fit its tab, down to a floor, then ends in "…".
+					val label = MaterialTheme.typography.labelSmall
 					Text(
 						item.label,
-						style = MaterialTheme.typography.labelSmall,
+						style = label,
 						color = fg,
 						fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
 						maxLines = 1,
-						overflow = TextOverflow.Clip,
+						overflow = TextOverflow.Ellipsis,
+						autoSize = TextAutoSize.StepBased(minFontSize = NavLabelMin, maxFontSize = label.fontSize),
 					)
 				}
 			}
@@ -244,25 +329,23 @@ fun FloatingNavBar(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit,
 	}
 }
 
-/** The bottom of the screen, where content fades into glass under the nav bar and the floating tabs. */
+/** The bottom of the screen, where content fades into glass under what floats there: [bottomReserve] tall. */
 @Composable
-fun BottomGlass(modifier: Modifier = Modifier, extra: Dp = 92.dp) {
+fun BottomGlass(modifier: Modifier = Modifier) {
 	val prefs = LocalPrefs.current
 	val haze = LocalHaze.current
-	val d = LocalDensity.current
-	val nav = with(d) { WindowInsets.navigationBars.getBottom(d).toDp() }
 	val surface = MaterialTheme.colorScheme.surface
-	val m = modifier.fillMaxWidth().height(nav + extra)
+	val m = modifier.fillMaxWidth().height(bottomReserve())
 	if (prefs.useBlur && haze != null) {
 		Box(m.glass(fadeUp = true))
 	} else {
-		Box(m.background(Brush.verticalGradient(listOf(Color.Transparent, surface.copy(alpha = 0.92f)))))
+		Box(m.background(Brush.verticalGradient(listOf(Color.Transparent, surface.copy(alpha = Alpha.SCRIM)))))
 	}
 }
 
 /** Blurs whatever is behind the dialog this is called in (Android 12+, where the device allows it). */
 @Composable
-fun BlurBehind(radius: Int = 48) {
+fun BlurBehind(radius: Int = Blur.BEHIND_PX) {
 	val prefs = LocalPrefs.current
 	val view = LocalView.current
 	SideEffect {
@@ -270,10 +353,12 @@ fun BlurBehind(radius: Int = 48) {
 		if (prefs.useBlur && Build.VERSION.SDK_INT >= 31) {
 			window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
 			window.attributes = window.attributes.apply { blurBehindRadius = radius }
-			window.setDimAmount(0.35f)
+			window.setDimAmount(Blur.BEHIND_DIM)
 		}
 	}
 }
+
+private val DialogShape = RoundedCornerShape(Radius.floating)
 
 /** An AlertDialog over a blurred screen. */
 @Composable
@@ -292,9 +377,13 @@ fun GlassDialog(
 			BlurBehind()
 			Text(title)
 		},
-		text = text,
+		// Long text at a large font scrolls between the title and the buttons, which stay in sight.
+		text = text?.let { t -> { Column(Modifier.verticalScroll(rememberScrollState())) { t() } } },
 		confirmButton = confirm,
 		dismissButton = dismiss,
-		shape = RoundedCornerShape(32.dp),
+		shape = DialogShape,
+		// Laid out within the window's insets, so the keyboard shrinks the dialog instead of covering its buttons.
+		modifier = Modifier.imePadding(),
+		properties = DialogProperties(decorFitsSystemWindows = false),
 	)
 }

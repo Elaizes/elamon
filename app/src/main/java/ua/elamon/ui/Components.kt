@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.HorizontalDivider
@@ -23,19 +23,20 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
-
-val CardShape = RoundedCornerShape(26.dp)
 
 /** A titled card: the building block of every detail page. */
 @Composable
@@ -52,12 +53,12 @@ fun Section(
 		Column(
 			Modifier
 				.then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-				.padding(horizontal = 20.dp, vertical = 18.dp),
-			verticalArrangement = Arrangement.spacedBy(14.dp),
+				.padding(horizontal = Space.xl, vertical = Space.lPlus),
+			verticalArrangement = Arrangement.spacedBy(Space.mPlus),
 		) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
 				IconBadge(icon, accent)
-				Spacer(Modifier.width(12.dp))
+				Spacer(Modifier.width(Space.m))
 				Text(
 					title,
 					style = MaterialTheme.typography.titleMedium,
@@ -74,12 +75,12 @@ fun Section(
 
 /** An icon on a tinted disc. */
 @Composable
-fun IconBadge(icon: ImageVector, accent: Color, size: Dp = 34.dp) {
+fun IconBadge(icon: ImageVector, accent: Color, size: Dp = Sizes.badge) {
 	Box(
-		Modifier.size(size).clip(CircleShape).background(accent.copy(alpha = 0.16f)),
+		Modifier.size(size).clip(CircleShape).background(accent.copy(alpha = Alpha.BADGE)),
 		contentAlignment = Alignment.Center,
 	) {
-		Icon(icon, null, tint = accent, modifier = Modifier.size(size * 0.56f))
+		Icon(icon, null, tint = accent, modifier = Modifier.size(size * Sizes.BADGE_ICON))
 	}
 }
 
@@ -95,10 +96,10 @@ fun Tile(
 	Surface(modifier = modifier, shape = CardShape, color = base) {
 		Column(
 			Modifier
-				.background(Brush.linearGradient(listOf(accent.copy(alpha = 0.13f), accent.copy(alpha = 0.02f))))
+				.background(Brush.linearGradient(listOf(accent.copy(alpha = Alpha.TILE_FROM), accent.copy(alpha = Alpha.TILE_TO))))
 				.then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-				.padding(16.dp),
-			verticalArrangement = Arrangement.spacedBy(8.dp),
+				.padding(Space.l),
+			verticalArrangement = Arrangement.spacedBy(Space.s),
 			content = content,
 		)
 	}
@@ -108,8 +109,8 @@ fun Tile(
 @Composable
 fun TileLabel(text: String, icon: ImageVector, accent: Color) {
 	Row(verticalAlignment = Alignment.CenterVertically) {
-		Icon(icon, null, tint = accent, modifier = Modifier.size(16.dp))
-		Spacer(Modifier.width(6.dp))
+		Icon(icon, null, tint = accent, modifier = Modifier.size(Sizes.iconS))
+		Spacer(Modifier.width(Space.xsPlus))
 		Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
 	}
 }
@@ -120,12 +121,12 @@ fun BigValue(value: String, unit: String? = null, color: Color = MaterialTheme.c
 	Row(verticalAlignment = Alignment.Bottom) {
 		RollingText(value, if (large) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.headlineSmall, color = color)
 		if (unit != null) {
-			Spacer(Modifier.width(3.dp))
+			Spacer(Modifier.width(Space.unitGap))
 			Text(
 				unit,
 				style = MaterialTheme.typography.titleSmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				modifier = Modifier.padding(bottom = if (large) 5.dp else 3.dp),
+				modifier = Modifier.padding(bottom = if (large) Space.unitLift else Space.unitLiftSmall),
 			)
 		}
 	}
@@ -140,35 +141,62 @@ fun BigStat(label: String, value: String, modifier: Modifier = Modifier, color: 
 	}
 }
 
-/** "Label ........ value" */
+/**
+ * "Label ........ value" on one line where both fit whole; where they don't (large text, a long
+ * value), the value goes under the label, so neither is cut short.
+ */
 @Composable
 fun StatRow(label: String, value: String, modifier: Modifier = Modifier, valueColor: Color = MaterialTheme.colorScheme.onSurface) {
-	Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-		Text(
-			label,
-			style = MaterialTheme.typography.bodyMedium,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			modifier = Modifier.weight(1f),
-			maxLines = 1,
-			overflow = TextOverflow.Ellipsis,
-		)
-		Spacer(Modifier.width(12.dp))
-		Text(value, style = MaterialTheme.typography.bodyMedium, color = valueColor, maxLines = 1, fontWeight = FontWeight.Medium)
+	Layout(
+		content = {
+			Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			Text(value, style = MaterialTheme.typography.bodyMedium, color = valueColor, fontWeight = FontWeight.Medium, textAlign = TextAlign.End)
+		},
+		modifier = modifier.fillMaxWidth(),
+	) { measurables, constraints ->
+		val (labelText, valueText) = measurables
+		val gap = Space.m.roundToPx()
+		val labelWidth = labelText.maxIntrinsicWidth(Constraints.Infinity)
+		val valueWidth = valueText.maxIntrinsicWidth(Constraints.Infinity)
+		val width = if (constraints.hasBoundedWidth) constraints.maxWidth else labelWidth + gap + valueWidth
+		val loose = Constraints(maxWidth = width)
+		if (labelWidth + gap + valueWidth <= width) {
+			val l = labelText.measure(loose)
+			val v = valueText.measure(loose)
+			val height = maxOf(l.height, v.height)
+			layout(width, height) {
+				l.placeRelative(0, (height - l.height) / 2)
+				v.placeRelative(width - v.width, (height - v.height) / 2)
+			}
+		} else {
+			val l = labelText.measure(loose)
+			val v = valueText.measure(loose)
+			layout(width, l.height + v.height) {
+				l.placeRelative(0, 0)
+				v.placeRelative(width - v.width, l.height)
+			}
+		}
 	}
 }
 
-/** A small rounded tag, like "Charging" or "Sleeping". */
+/**
+ * A small rounded tag, like "Charging" or "Sleeping": tinted by [color], its text in [color] too,
+ * darkened (lightened on dark themes) where that alone wouldn't read on the tint.
+ */
 @Composable
 fun Pill(text: String, color: Color = MaterialTheme.colorScheme.primary, modifier: Modifier = Modifier, dot: Boolean = false) {
+	val scheme = MaterialTheme.colorScheme
+	val dark = LocalDark.current
+	val ink = remember(color, scheme, dark) { pillTextColor(color, pillSurfaces(scheme), dark) }
 	Row(
-		modifier.clip(RoundedCornerShape(50)).background(color.copy(alpha = 0.15f)).padding(horizontal = 10.dp, vertical = 4.dp),
+		modifier.clip(PillShape).background(color.copy(alpha = Alpha.PILL)).padding(horizontal = Space.sPlus, vertical = Space.xs),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		if (dot) {
-			Box(Modifier.size(6.dp).clip(CircleShape).background(color))
-			Spacer(Modifier.width(6.dp))
+			Box(Modifier.size(Sizes.pillDot).clip(CircleShape).background(color))
+			Spacer(Modifier.width(Space.xsPlus))
 		}
-		Text(text, style = MaterialTheme.typography.labelMedium, color = color, maxLines = 1)
+		Text(text, style = MaterialTheme.typography.labelMedium, color = ink, maxLines = 1)
 	}
 }
 
@@ -176,8 +204,8 @@ fun Pill(text: String, color: Color = MaterialTheme.colorScheme.primary, modifie
 @Composable
 fun Legend(color: Color, text: String, modifier: Modifier = Modifier) {
 	Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-		Box(Modifier.size(8.dp).clip(CircleShape).background(color))
-		Spacer(Modifier.width(6.dp))
+		Box(Modifier.size(Sizes.legendDot).clip(CircleShape).background(color))
+		Spacer(Modifier.width(Space.xsPlus))
 		Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
 	}
 }
@@ -186,11 +214,11 @@ fun Legend(color: Color, text: String, modifier: Modifier = Modifier) {
 @Composable
 fun Notice(icon: ImageVector, title: String, body: String?, modifier: Modifier = Modifier, action: (@Composable () -> Unit)? = null) {
 	Column(
-		modifier.fillMaxWidth().padding(32.dp),
+		modifier.fillMaxWidth().padding(Space.xxxl),
 		horizontalAlignment = Alignment.CenterHorizontally,
-		verticalArrangement = Arrangement.spacedBy(12.dp),
+		verticalArrangement = Arrangement.spacedBy(Space.m),
 	) {
-		IconBadge(icon, MaterialTheme.colorScheme.primary, 64.dp)
+		IconBadge(icon, MaterialTheme.colorScheme.primary, Sizes.badgeNotice)
 		Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
 		if (body != null) {
 			Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
@@ -206,7 +234,7 @@ fun GroupLabel(text: String, modifier: Modifier = Modifier) {
 		text,
 		style = MaterialTheme.typography.labelLarge,
 		color = MaterialTheme.colorScheme.primary,
-		modifier = modifier.padding(start = 20.dp, top = 12.dp, bottom = 2.dp),
+		modifier = modifier.padding(start = Space.xl, top = Space.m, bottom = Space.xxs),
 	)
 }
 
@@ -214,13 +242,13 @@ fun GroupLabel(text: String, modifier: Modifier = Modifier) {
 @Composable
 fun ListGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
 	Surface(modifier = modifier.fillMaxWidth(), shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-		Column(Modifier.padding(vertical = 4.dp), content = content)
+		Column(Modifier.padding(vertical = Space.xs), content = content)
 	}
 }
 
 @Composable
 fun GroupDivider() {
-	HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+	HorizontalDivider(Modifier.padding(horizontal = Space.xl), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = Alpha.DIVIDER))
 }
 
 /** A row in a list group: title, optional summary, and a trailing control or a chevron. */
@@ -234,17 +262,47 @@ fun ListRow(
 	onClick: (() -> Unit)? = null,
 	trailing: (@Composable () -> Unit)? = null,
 ) {
-	val alpha = if (enabled) 1f else 0.45f
+	RowLayout(
+		title, summary, icon, accent, enabled,
+		modifier = if (onClick != null && enabled) Modifier.clickable(onClick = onClick) else Modifier,
+		trailing = trailing,
+		chevron = onClick != null,
+	)
+}
+
+/** A setting turned on and off: the whole row is the switch, one control to a screen reader. */
+@Composable
+fun SwitchRow(title: String, summary: String? = null, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+	RowLayout(
+		title, summary, null, MaterialTheme.colorScheme.primary, enabled,
+		modifier = Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
+		trailing = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
+		chevron = false,
+	)
+}
+
+@Composable
+private fun RowLayout(
+	title: String,
+	summary: String?,
+	icon: ImageVector?,
+	accent: Color,
+	enabled: Boolean,
+	trailing: (@Composable () -> Unit)?,
+	chevron: Boolean,
+	/** What the row does when touched: a click, a toggle, or nothing. */
+	modifier: Modifier = Modifier,
+) {
+	val alpha = if (enabled) 1f else Alpha.DISABLED
 	Row(
-		Modifier
+		modifier
 			.fillMaxWidth()
-			.then(if (onClick != null && enabled) Modifier.clickable(onClick = onClick) else Modifier)
-			.padding(horizontal = 20.dp, vertical = 14.dp),
+			.padding(horizontal = Space.xl, vertical = Space.mPlus),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		if (icon != null) {
-			IconBadge(icon, accent.copy(alpha = alpha), 36.dp)
-			Spacer(Modifier.width(14.dp))
+			IconBadge(icon, accent.copy(alpha = alpha), Sizes.badgeRow)
+			Spacer(Modifier.width(Space.mPlus))
 		}
 		Column(Modifier.weight(1f)) {
 			Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
@@ -253,35 +311,38 @@ fun ListRow(
 			}
 		}
 		if (trailing != null) {
-			Spacer(Modifier.width(12.dp))
+			Spacer(Modifier.width(Space.m))
 			trailing()
-		} else if (onClick != null) {
+		} else if (chevron) {
 			Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha))
 		}
 	}
 }
 
-@Composable
-fun SwitchRow(title: String, summary: String? = null, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
-	ListRow(title, summary, enabled = enabled, onClick = { onChange(!checked) }, trailing = {
-		Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
-	})
-}
-
 /** A name's own hue, from 0 to 359, the same every time; never negative, whatever the hash. */
-fun avatarHue(name: String): Float = Math.floorMod(name.lowercase().hashCode(), 360).toFloat()
+fun avatarHue(name: String): Float = Math.floorMod(name.lowercase().hashCode(), HUES).toFloat()
+
+private const val HUES = 360
+
+/** A letter avatar's disc and letter, dark and light: saturation, then lightness. */
+private const val AVATAR_BG_SATURATION = 0.55f
+private const val AVATAR_BG_DARK = 0.32f
+private const val AVATAR_BG_LIGHT = 0.86f
+private const val AVATAR_FG_SATURATION = 0.7f
+private const val AVATAR_FG_DARK = 0.84f
+private const val AVATAR_FG_LIGHT = 0.3f
 
 /** A coloured disc with a name's first letter: the stand-in for icons we can't have. */
 @Composable
-fun LetterAvatar(name: String, size: Dp = 40.dp) {
+fun LetterAvatar(name: String, size: Dp = Sizes.avatar) {
 	val hue = avatarHue(name)
 	val dark = LocalDark.current
-	val bg = Color.hsl(hue, 0.55f, if (dark) 0.32f else 0.86f)
-	val fg = Color.hsl(hue, 0.7f, if (dark) 0.84f else 0.3f)
+	val bg = Color.hsl(hue, AVATAR_BG_SATURATION, if (dark) AVATAR_BG_DARK else AVATAR_BG_LIGHT)
+	val fg = Color.hsl(hue, AVATAR_FG_SATURATION, if (dark) AVATAR_FG_DARK else AVATAR_FG_LIGHT)
 	Box(Modifier.size(size).clip(CircleShape).background(bg), contentAlignment = Alignment.Center) {
 		Text(
 			name.trim().firstOrNull()?.uppercase() ?: "?",
-			style = if (size >= 40.dp) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge,
+			style = if (size >= Sizes.avatar) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge,
 			color = fg,
 		)
 	}

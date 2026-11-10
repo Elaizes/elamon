@@ -38,6 +38,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,11 +47,12 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ua.elamon.ProcRequest
 import ua.elamon.R
+import ua.elamon.orNull
 import ua.elamon.data.Proc
+import ua.elamon.data.ProtocolJson
 import java.text.DateFormat
 import java.util.Date
 
@@ -61,7 +63,8 @@ fun ProcessesTab(t: TabScope) {
 	var sort by rememberSaveable { mutableStateOf("cpu") }
 	var query by rememberSaveable { mutableStateOf("") }
 	var grouped by rememberSaveable { mutableStateOf(false) }
-	var selected by remember { mutableStateOf<Proc?>(null) }
+	// The open sheet's process, its last readings with it: a rotation reopens it as it was.
+	var selected by rememberSaveable(stateSaver = ProcSaver) { mutableStateOf<Proc?>(null) }
 	val vm = t.vm
 
 	// Searching or grouping needs every process, not just the heaviest ones.
@@ -104,13 +107,13 @@ fun ProcessesTab(t: TabScope) {
 	LazyColumn(Modifier.fillMaxSize(), state = t.list, contentPadding = listPadding()) {
 		item(key = "header") { t.header() }
 		item(key = "search") {
-			Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+			Column(Modifier.padding(bottom = Space.s), verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
 				OutlinedTextField(
 					value = query,
 					onValueChange = { query = it },
 					modifier = Modifier.fillMaxWidth(),
 					singleLine = true,
-					shape = RoundedCornerShape(28.dp),
+					shape = RoundedCornerShape(Radius.field),
 					placeholder = { Text(stringResource(R.string.processes_search)) },
 					leadingIcon = { Icon(Icons.Default.Search, null) },
 					trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Clear, stringResource(R.string.processes_clear)) } },
@@ -120,11 +123,11 @@ fun ProcessesTab(t: TabScope) {
 						unfocusedBorderColor = MaterialTheme.colorScheme.surfaceContainerLow,
 					),
 				)
-				Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+				Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 					for ((key, label) in listOf("cpu" to R.string.cpu, "mem" to R.string.memory, "gpu" to R.string.gpu, "io" to R.string.processes_sort_disk, "name" to R.string.processes_sort_name)) {
-						FilterChip(selected = sort == key, onClick = { sort = key }, label = { Text(stringResource(label)) }, shape = RoundedCornerShape(50))
+						FilterChip(selected = sort == key, onClick = { sort = key }, label = { Text(stringResource(label)) }, shape = PillShape)
 					}
-					FilterChip(selected = grouped, onClick = { grouped = !grouped }, label = { Text(stringResource(R.string.processes_by_app)) }, shape = RoundedCornerShape(50))
+					FilterChip(selected = grouped, onClick = { grouped = !grouped }, label = { Text(stringResource(R.string.processes_by_app)) }, shape = PillShape)
 				}
 				Text(
 					if (procs == null) stringResource(R.string.loading)
@@ -132,11 +135,11 @@ fun ProcessesTab(t: TabScope) {
 						pluralStringResource(R.plurals.processes_cpu_share, ncpu, ncpu),
 					style = MaterialTheme.typography.labelMedium,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.padding(start = 4.dp),
+					modifier = Modifier.padding(start = Space.xs),
 				)
 			}
 		}
-		item(key = "list-top") { Spacer(Modifier.height(4.dp)) }
+		item(key = "list-top") { Spacer(Modifier.height(Space.xs)) }
 		items(rows, key = { it.key }) { r ->
 			ProcRow(r, onClick = r.proc?.let { p -> { selected = p } } ?: { query = r.name; grouped = false })
 		}
@@ -155,29 +158,29 @@ fun ProcessesTab(t: TabScope) {
 private fun ProcRow(r: ProcItem, onClick: () -> Unit) {
 	val c = Metric.colors
 	Surface(
-		Modifier.fillMaxWidth().padding(vertical = 3.dp),
-		shape = RoundedCornerShape(20.dp),
+		Modifier.fillMaxWidth().padding(vertical = Space.xsPlus / 2),
+		shape = RoundedCornerShape(Radius.xl),
 		color = MaterialTheme.colorScheme.surfaceContainerLow,
 	) {
-		Row(Modifier.clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+		Row(Modifier.clickable(onClick = onClick).padding(horizontal = Space.mPlus, vertical = Space.m), verticalAlignment = Alignment.CenterVertically) {
 			LetterAvatar(r.name)
-			Spacer(Modifier.width(12.dp))
+			Spacer(Modifier.width(Space.m))
 			Column(Modifier.weight(1f)) {
 				Text(r.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
 				Text(r.sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
 			}
-			Spacer(Modifier.width(10.dp))
-			Column(horizontalAlignment = Alignment.End, modifier = Modifier.width(96.dp)) {
+			Spacer(Modifier.width(Space.sPlus))
+			Column(horizontalAlignment = Alignment.End, modifier = Modifier.width(Sizes.processFigures)) {
 				Row(verticalAlignment = Alignment.CenterVertically) {
 					r.gpu?.let {
 						Text(stringResource(R.string.gpu_value, Fmt.percent(it)), style = MaterialTheme.typography.labelSmall, color = c.gpu)
-						Spacer(Modifier.width(6.dp))
+						Spacer(Modifier.width(Space.xsPlus))
 					}
-					Text(Fmt.percent(r.cpu, 1), style = MaterialTheme.typography.titleSmall, color = if (r.cpu >= 1f) loadColor(r.cpu / 25f, c.cpu) else MaterialTheme.colorScheme.onSurfaceVariant)
+					Text(Fmt.percent(r.cpu, 1), style = MaterialTheme.typography.titleSmall, color = if (r.cpu >= Thresholds.PROCESS_CPU_SHOWN) loadColor(processCpuFraction(r.cpu), c.cpu) else MaterialTheme.colorScheme.onSurfaceVariant)
 				}
 				Text(Fmt.bytes(r.mem), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-				Spacer(Modifier.height(4.dp))
-				UsageBar((r.cpu / 25f).coerceIn(0f, 1f), loadColor(r.cpu / 25f, c.cpu), height = 4.dp)
+				Spacer(Modifier.height(Space.xs))
+				UsageBar(processCpuFraction(r.cpu).coerceIn(0f, 1f), loadColor(processCpuFraction(r.cpu), c.cpu), height = Sizes.barHair)
 			}
 		}
 	}
@@ -190,10 +193,10 @@ private fun ProcessSheet(t: TabScope, p: Proc, gone: Boolean, onDismiss: () -> U
 	val prefs = LocalPrefs.current
 	var confirm by remember { mutableStateOf<String?>(null) }
 	ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-		Column(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+		Column(Modifier.padding(start = Space.xxl, end = Space.xxl, bottom = Space.xxxl), verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
-				LetterAvatar(p.name, 48.dp)
-				Spacer(Modifier.width(14.dp))
+				LetterAvatar(p.name, Sizes.avatarSheet)
+				Spacer(Modifier.width(Space.mPlus))
 				Column {
 					Text(p.name, style = MaterialTheme.typography.headlineSmall)
 					Text(listOfNotNull(p.user, stringResource(R.string.processes_pid, p.pid)).joinToString(" · "), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -202,14 +205,14 @@ private fun ProcessSheet(t: TabScope, p: Proc, gone: Boolean, onDismiss: () -> U
 			if (gone) {
 				Text(stringResource(R.string.processes_gone), style = MaterialTheme.typography.bodySmall, color = Metric.colors.warn)
 			}
-			Row(horizontalArrangement = Arrangement.spacedBy(24.dp), modifier = Modifier.padding(vertical = 6.dp)) {
+			Row(horizontalArrangement = Arrangement.spacedBy(Space.xxl), modifier = Modifier.padding(vertical = Space.xsPlus)) {
 				BigStat(stringResource(R.string.cpu), Fmt.percent(p.cpu, 1), color = Metric.colors.cpu)
 				BigStat(stringResource(R.string.memory), Fmt.bytes(p.mem), color = Metric.colors.memory)
 				p.gpu?.let { BigStat(stringResource(R.string.gpu), Fmt.percent(it, 1), color = Metric.colors.gpu) }
 			}
 			p.ppid?.let { StatRow(stringResource(R.string.processes_parent_pid), it.toString()) }
 			StatRow(stringResource(R.string.processes_state), statusName(p.status))
-			if (p.start > 0) StatRow(stringResource(R.string.processes_started), DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(p.start * 1000)))
+			if (p.start > 0) StatRow(stringResource(R.string.processes_started), DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(p.start * MS_PER_SECOND)))
 			StatRow(stringResource(R.string.processes_disk_read), Fmt.rate(p.read))
 			StatRow(stringResource(R.string.processes_disk_write), Fmt.rate(p.write))
 			p.gpuMem?.let { StatRow(stringResource(R.string.processes_gpu_memory), Fmt.bytes(it)) }
@@ -220,7 +223,7 @@ private fun ProcessSheet(t: TabScope, p: Proc, gone: Boolean, onDismiss: () -> U
 				}
 			}
 			if (control?.enabled == true) {
-				Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 8.dp)) {
+				Row(horizontalArrangement = Arrangement.spacedBy(Space.sPlus), modifier = Modifier.padding(top = Space.s)) {
 					FilledTonalButton(onClick = { if (prefs.confirmActions) confirm = "term" else t.vm.signal(p.pid, "term") }, modifier = Modifier.weight(1f)) {
 						Text(stringResource(R.string.processes_quit))
 					}
@@ -262,3 +265,11 @@ private fun statusName(s: String): String = when (s.lowercase()) {
 	"uninterruptibledisksleep", "uninterruptible disk sleep", "disk sleep" -> stringResource(R.string.process_disk_sleep)
 	else -> s.lowercase()
 }
+
+private const val MS_PER_SECOND = 1000L
+
+/** A process kept across a rotation, in the service's own JSON for it. */
+private val ProcSaver = Saver<Proc?, String>(
+	save = { p -> p?.let { ProtocolJson.encodeToString(Proc.serializer(), it) } },
+	restore = { orNull { ProtocolJson.decodeFromString(Proc.serializer(), it) } },
+)

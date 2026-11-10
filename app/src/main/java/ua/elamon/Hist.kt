@@ -3,6 +3,7 @@ package ua.elamon
 import kotlin.math.max
 import kotlin.math.min
 import ua.elamon.data.DEFAULT_HISTORY_SECONDS
+import ua.elamon.data.DEFAULT_INTERVAL_MS
 import ua.elamon.data.History
 import ua.elamon.data.Sample
 
@@ -38,7 +39,7 @@ class Hist {
 		}
 
 	/** How often points come now; gaps are measured against this as well as the median step. */
-	var stepHintMs: Long = 1000
+	var stepHintMs: Long = DEFAULT_INTERVAL_MS.toLong()
 
 	var version = 0L
 		private set

@@ -7,6 +7,7 @@ import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +28,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -75,9 +78,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import ua.elamon.Conn
@@ -85,12 +88,15 @@ import ua.elamon.R
 import ua.elamon.data.ActionInfo
 import ua.elamon.data.ActionResult
 import ua.elamon.data.ControlInfo
+import ua.elamon.data.Limits
 import ua.elamon.data.Listener
 import ua.elamon.data.Player
 import ua.elamon.data.ServiceDef
 import ua.elamon.data.ServiceStatus
 import ua.elamon.data.UnitInfo
 import ua.elamon.data.serviceUrl
+import ua.elamon.data.takeCodePoints
+import ua.elamon.data.takeUtf8Bytes
 
 @Composable
 fun ControlTab(t: TabScope) {
@@ -120,7 +126,7 @@ fun ControlTab(t: TabScope) {
 		Modifier.fillMaxSize(),
 		state = t.list,
 		contentPadding = listPadding(),
-		verticalArrangement = Arrangement.spacedBy(12.dp),
+		verticalArrangement = Arrangement.spacedBy(Space.m),
 	) {
 		item(key = "header") { t.header() }
 		controlError?.let { e ->
@@ -181,6 +187,15 @@ fun ControlTab(t: TabScope) {
 /** A new service's address before its port: the computer's own address, over plain HTTP. */
 private const val SERVICE_URL_START = "http://{host}:"
 
+/** Tiles inside a card: profiles, actions, power. */
+private val InnerTileShape = RoundedCornerShape(Radius.lPlus)
+
+/** The shortest address worth saving, like "a:80". */
+private const val URL_MIN = 4
+
+/** A track's length and position come in microseconds. */
+private const val US_PER_SECOND = 1e6
+
 @Composable
 private fun ControlOff(onHelp: () -> Unit) {
 	Section(stringResource(R.string.control_off), ElIcons.Lock, accent = MaterialTheme.colorScheme.secondary) {
@@ -208,8 +223,8 @@ private fun ControlError(message: String, onRetry: () -> Unit) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ServicesSection(services: List<ServiceStatus>, onOpen: (ServiceStatus) -> Unit, onMenu: (ServiceStatus) -> Unit, onAdd: () -> Unit) {
-	Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-		Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp)) {
+	Column(verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
+		Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = Space.xs)) {
 			Text(stringResource(R.string.control_services), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
 			FilledIconButton(onClick = onAdd, colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)) {
 				Icon(Icons.Default.Add, stringResource(R.string.control_add_service))
@@ -217,7 +232,7 @@ private fun ServicesSection(services: List<ServiceStatus>, onOpen: (ServiceStatu
 		}
 		if (services.isEmpty()) {
 			Surface(shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-				Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+				Column(Modifier.padding(Space.xl), verticalArrangement = Arrangement.spacedBy(Space.xsPlus)) {
 					Text(stringResource(R.string.control_services_empty), style = MaterialTheme.typography.titleMedium)
 					Text(
 						stringResource(R.string.control_services_empty_body),
@@ -227,7 +242,7 @@ private fun ServicesSection(services: List<ServiceStatus>, onOpen: (ServiceStatu
 				}
 			}
 		} else {
-			FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp), maxItemsInEachRow = 2) {
+			FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sPlus), verticalArrangement = Arrangement.spacedBy(Space.sPlus), maxItemsInEachRow = 2) {
 				for (svc in services) ServiceTile(svc, Modifier.weight(1f), onOpen = { onOpen(svc) }, onMenu = { onMenu(svc) })
 				if (services.size % 2 == 1) Spacer(Modifier.weight(1f))
 			}
@@ -258,28 +273,42 @@ private fun ServiceTile(svc: ServiceStatus, modifier: Modifier, onOpen: () -> Un
 	val haptics = LocalHapticFeedback.current
 	val prefs = LocalPrefs.current
 	val (label, color) = serviceState(svc)
+	val menu = stringResource(R.string.control_service_menu)
 	Surface(modifier = modifier, shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-		Column(
-			Modifier
-				.combinedClickable(onClick = onOpen, onLongClick = {
-					if (prefs.haptics) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-					onMenu()
-				})
-				.padding(14.dp),
-			verticalArrangement = Arrangement.spacedBy(10.dp),
-		) {
-			Row(verticalAlignment = Alignment.CenterVertically) {
-				LetterAvatar(svc.name, 40.dp)
-				Spacer(Modifier.weight(1f))
-				IconButton(onClick = onMenu, modifier = Modifier.size(32.dp)) {
-					Icon(Icons.Default.MoreVert, stringResource(R.string.control_service_menu), modifier = Modifier.size(18.dp))
+		Box {
+			Column(
+				Modifier
+					.fillMaxWidth()
+					.combinedClickable(
+						onClickLabel = stringResource(R.string.control_open),
+						role = Role.Button,
+						onLongClickLabel = menu,
+						onLongClick = {
+							if (prefs.haptics) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+							onMenu()
+						},
+						onClick = onOpen,
+					)
+					.padding(Space.mPlus),
+				verticalArrangement = Arrangement.spacedBy(Space.sPlus),
+			) {
+				LetterAvatar(svc.name, Sizes.avatar)
+				Column {
+					Text(svc.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+					Text(svc.port?.let { ":$it" } ?: svc.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
 				}
+				Pill(label, color, dot = true)
 			}
-			Column {
-				Text(svc.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-				Text(svc.port?.let { ":$it" } ?: svc.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+			// Drawn where a small button beside the avatar would be, but a full touch target, over the tile's padding.
+			IconButton(
+				onClick = onMenu,
+				modifier = Modifier.align(Alignment.TopEnd).padding(
+					top = Space.mPlus + (Sizes.avatar - Sizes.touchTarget) / 2,
+					end = Space.mPlus + (Sizes.tileMenu - Sizes.touchTarget) / 2,
+				),
+			) {
+				Icon(Icons.Default.MoreVert, menu, modifier = Modifier.size(Sizes.iconM))
 			}
-			Pill(label, color, dot = true)
 		}
 	}
 }
@@ -290,10 +319,10 @@ private fun ServiceSheet(t: TabScope, svc: ServiceStatus, control: Boolean, onDi
 	val prefs = LocalPrefs.current
 	var confirm by remember { mutableStateOf<String?>(null) }
 	ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-		Column(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+		Column(Modifier.padding(start = Space.xxl, end = Space.xxl, bottom = Space.xxxl), verticalArrangement = Arrangement.spacedBy(Space.m)) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
-				LetterAvatar(svc.name, 48.dp)
-				Spacer(Modifier.width(14.dp))
+				LetterAvatar(svc.name, Sizes.avatarSheet)
+				Spacer(Modifier.width(Space.mPlus))
 				Column(Modifier.weight(1f)) {
 					Text(svc.name, style = MaterialTheme.typography.headlineSmall)
 					Text(svc.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -305,22 +334,22 @@ private fun ServiceSheet(t: TabScope, svc: ServiceStatus, control: Boolean, onDi
 			svc.unitState?.let { StatRow(stringResource(R.string.control_unit_state), it) }
 			svc.port?.let { StatRow(stringResource(R.string.control_port), if (svc.localOnly) stringResource(R.string.control_port_computer_only, it) else it.toString()) }
 			Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
-				Icon(ElIcons.Globe, null, Modifier.size(18.dp))
-				Spacer(Modifier.width(8.dp))
+				Icon(ElIcons.Globe, null, Modifier.size(Sizes.iconM))
+				Spacer(Modifier.width(Space.s))
 				Text(stringResource(R.string.control_open))
 			}
 			if (svc.unit != null) {
 				if (control) {
-					Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+					Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 						val running = svc.unitState == "active" || svc.unitState == "activating"
 						FilledTonalButton(onClick = { t.vm.unit(svc.id, if (running) "stop" else "start") }, modifier = Modifier.weight(1f)) {
-							Icon(if (running) ElIcons.Pause else ElIcons.Play, null, Modifier.size(16.dp))
-							Spacer(Modifier.width(6.dp))
+							Icon(if (running) ElIcons.Pause else ElIcons.Play, null, Modifier.size(Sizes.iconS))
+							Spacer(Modifier.width(Space.xsPlus))
 							Text(stringResource(if (running) R.string.control_stop else R.string.control_start))
 						}
 						FilledTonalButton(onClick = { if (prefs.confirmActions) confirm = "restart" else t.vm.unit(svc.id, "restart") }, modifier = Modifier.weight(1f)) {
-							Icon(ElIcons.Restart, null, Modifier.size(16.dp))
-							Spacer(Modifier.width(6.dp))
+							Icon(ElIcons.Restart, null, Modifier.size(Sizes.iconS))
+							Spacer(Modifier.width(Space.xsPlus))
 							Text(stringResource(R.string.control_restart))
 						}
 					}
@@ -329,15 +358,15 @@ private fun ServiceSheet(t: TabScope, svc: ServiceStatus, control: Boolean, onDi
 				}
 			}
 			if (svc.editable) {
-				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+				Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 					TextButton(onClick = onEdit) {
-						Icon(Icons.Default.Edit, null, Modifier.size(16.dp))
-						Spacer(Modifier.width(6.dp))
+						Icon(Icons.Default.Edit, null, Modifier.size(Sizes.iconS))
+						Spacer(Modifier.width(Space.xsPlus))
 						Text(stringResource(R.string.control_edit))
 					}
 					TextButton(onClick = { confirm = "remove" }) {
-						Icon(Icons.Default.Delete, null, Modifier.size(16.dp), tint = Metric.colors.hot)
-						Spacer(Modifier.width(6.dp))
+						Icon(Icons.Default.Delete, null, Modifier.size(Sizes.iconS), tint = Metric.colors.hot)
+						Spacer(Modifier.width(Space.xsPlus))
 						Text(stringResource(R.string.control_remove), color = Metric.colors.hot)
 					}
 				}
@@ -379,14 +408,14 @@ private fun ServiceEditor(t: TabScope, existing: ServiceStatus?, onDismiss: () -
 
 	ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
 		Column(
-			Modifier.padding(start = 24.dp, end = 24.dp, bottom = 32.dp).verticalScroll(rememberScrollState()),
-			verticalArrangement = Arrangement.spacedBy(12.dp),
+			Modifier.padding(start = Space.xxl, end = Space.xxl, bottom = Space.xxxl).verticalScroll(rememberScrollState()),
+			verticalArrangement = Arrangement.spacedBy(Space.m),
 		) {
 			Text(if (existing == null) stringResource(R.string.control_add_title) else stringResource(R.string.control_edit_title, existing.name), style = MaterialTheme.typography.headlineSmall)
-			val suggestions = detected.filter { it.port !in taken && it.port < 32768 && it.process != "elamond" }
+			val suggestions = detected.filter { it.port !in taken && it.port < Limits.EPHEMERAL_PORT_MIN && it.process != "elamond" }
 			if (existing == null && suggestions.isNotEmpty()) {
 				Text(stringResource(R.string.control_listening), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-				Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+				Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 					for (l in suggestions) {
 						FilterChip(
 							selected = url.endsWith(":${l.port}") || url.contains(":${l.port}/"),
@@ -402,10 +431,10 @@ private fun ServiceEditor(t: TabScope, existing: ServiceStatus?, onDismiss: () -
 					}
 				}
 			}
-			OutlinedTextField(value = name, onValueChange = { name = it.take(64) }, label = { Text(stringResource(R.string.control_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+			OutlinedTextField(value = name, onValueChange = { name = it.takeCodePoints(Limits.SERVICE_NAME_MAX) }, label = { Text(stringResource(R.string.control_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
 			OutlinedTextField(
 				value = url,
-				onValueChange = { url = it.take(512) },
+				onValueChange = { url = it.takeUtf8Bytes(Limits.SERVICE_URL_MAX) },
 				label = { Text(stringResource(R.string.control_address)) },
 				supportingText = { Text(stringResource(R.string.control_address_hint)) },
 				singleLine = true,
@@ -417,17 +446,17 @@ private fun ServiceEditor(t: TabScope, existing: ServiceStatus?, onDismiss: () -
 					SegmentedButton(selected = scope == key, onClick = { scope = key }, shape = SegmentedButtonDefaults.itemShape(i, 2)) { Text(stringResource(label)) }
 				}
 			}
-			OutlinedTextField(value = unit, onValueChange = { unit = it.trim().take(256) }, label = { Text(stringResource(R.string.control_unit)) }, placeholder = { Text("name.service") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-			val matches = units.filter { unit.isBlank() || it.name.contains(unit, true) || it.description.contains(unit, true) }.take(8)
+			OutlinedTextField(value = unit, onValueChange = { unit = it.trim().takeUtf8Bytes(Limits.UNIT_MAX) }, label = { Text(stringResource(R.string.control_unit)) }, placeholder = { Text("name.service") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+			val matches = units.filter { unit.isBlank() || it.name.contains(unit, true) || it.description.contains(unit, true) }.take(Limits.UNIT_SUGGESTIONS)
 			if (matches.isNotEmpty() && matches.none { it.name == unit }) {
-				FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+				FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
 					for (u in matches) FilterChip(selected = false, onClick = { unit = u.name }, label = { Text(u.name.removeSuffix(".service")) })
 				}
 			}
-			Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+			Row(horizontalArrangement = Arrangement.spacedBy(Space.s), modifier = Modifier.padding(top = Space.xs)) {
 				TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.cancel)) }
 				Button(
-					enabled = name.isNotBlank() && url.length > 3,
+					enabled = name.isNotBlank() && url.length >= URL_MIN,
 					onClick = {
 						t.vm.saveService(ServiceDef(existing?.id, name.trim(), url.trim(), unit.ifBlank { null }, scope))
 						onDismiss()
@@ -446,14 +475,14 @@ private fun MediaSection(t: TabScope, players: List<Player>, volume: ua.elamon.d
 	var chosen by remember { mutableStateOf<String?>(null) }
 	val player = players.find { it.id == chosen } ?: players.firstOrNull()
 	Surface(shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-		Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+		Column(Modifier.padding(Space.lPlus), verticalArrangement = Arrangement.spacedBy(Space.mPlus)) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
 				IconBadge(ElIcons.Music, MaterialTheme.colorScheme.tertiary)
-				Spacer(Modifier.width(12.dp))
+				Spacer(Modifier.width(Space.m))
 				Text(player?.name ?: stringResource(R.string.control_media), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
 			}
 			if (players.size > 1) {
-				Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+				Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 					for (p in players) FilterChip(selected = p.id == player?.id, onClick = { chosen = p.id }, label = { Text(p.name) })
 				}
 			}
@@ -463,15 +492,10 @@ private fun MediaSection(t: TabScope, players: List<Player>, volume: ua.elamon.d
 	}
 }
 
-/** How big a cover shows, and so how big it is decoded. */
-private val ART_SIZE = 72.dp
-
-/** How often a playing track's position moves on between samples. */
-private const val POSITION_TICK_MS = 500L
 
 @Composable
 private fun NowPlaying(t: TabScope, p: Player) {
-	val artPx = with(LocalDensity.current) { ART_SIZE.roundToPx() }
+	val artPx = with(LocalDensity.current) { Sizes.art.roundToPx() }
 	var art by remember(p.id, p.title) { mutableStateOf<Bitmap?>(null) }
 	LaunchedEffect(p.id, p.title, p.hasArt) { art = if (p.hasArt) t.vm.art(p.id, artPx) else null }
 	val playing = p.status == "Playing"
@@ -481,21 +505,21 @@ private fun NowPlaying(t: TabScope, p: Player) {
 	LaunchedEffect(moving) {
 		while (moving) {
 			now = System.currentTimeMillis()
-			delay(POSITION_TICK_MS)
+			delay(Limits.MEDIA_TICK_MS)
 		}
 	}
 	Row(verticalAlignment = Alignment.CenterVertically) {
 		Box(
-			Modifier.size(ART_SIZE).clip(RoundedCornerShape(16.dp)).background(
+			Modifier.size(Sizes.art).clip(RoundedCornerShape(Radius.l)).background(
 				Brush.linearGradient(listOf(MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.primaryContainer))
 			),
 			contentAlignment = Alignment.Center,
 		) {
 			val a = art
 			if (a != null) Image(a.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-			else Icon(ElIcons.Music, null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(32.dp))
+			else Icon(ElIcons.Music, null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(Sizes.iconArt))
 		}
-		Spacer(Modifier.width(14.dp))
+		Spacer(Modifier.width(Space.mPlus))
 		Column(Modifier.weight(1f)) {
 			Text(p.title ?: stringResource(if (p.status == "Stopped") R.string.control_nothing_playing else R.string.control_unknown_track), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
 			listOfNotNull(p.artist, p.album).joinToString(" · ").takeIf { it.isNotEmpty() }?.let {
@@ -513,7 +537,7 @@ private fun NowPlaying(t: TabScope, p: Player) {
 				value = dragging ?: (pos.toFloat() / length),
 				onValueChange = { dragging = it },
 				onValueChangeFinished = {
-					dragging?.let { f -> t.vm.media(p.id, "seek", (f * length / 1e6)) }
+					dragging?.let { f -> t.vm.media(p.id, "seek", f * length / US_PER_SECOND) }
 					dragging = null
 				},
 				enabled = p.canSeek,
@@ -527,8 +551,8 @@ private fun NowPlaying(t: TabScope, p: Player) {
 	}
 	Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
 		IconButton(onClick = { t.vm.media(p.id, "previous") }, enabled = p.canPrevious) { Icon(ElIcons.Previous, stringResource(R.string.control_previous)) }
-		FilledIconButton(onClick = { t.vm.media(p.id, "play_pause") }, enabled = p.canPlay || p.canPause, modifier = Modifier.size(64.dp)) {
-			Icon(if (playing) ElIcons.Pause else ElIcons.Play, stringResource(if (playing) R.string.control_pause else R.string.control_play), modifier = Modifier.size(30.dp))
+		FilledIconButton(onClick = { t.vm.media(p.id, "play_pause") }, enabled = p.canPlay || p.canPause, modifier = Modifier.size(Sizes.playButton)) {
+			Icon(if (playing) ElIcons.Pause else ElIcons.Play, stringResource(if (playing) R.string.control_pause else R.string.control_play), modifier = Modifier.size(Sizes.iconXl))
 		}
 		IconButton(onClick = { t.vm.media(p.id, "next") }, enabled = p.canNext) { Icon(ElIcons.Next, stringResource(R.string.control_next)) }
 	}
@@ -550,7 +574,7 @@ private fun VolumeRow(t: TabScope, v: ua.elamon.data.Volume) {
 			},
 			modifier = Modifier.weight(1f),
 		)
-		Text(Fmt.percent((dragging ?: v.level) * 100), style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(44.dp).padding(start = 6.dp))
+		Text(Fmt.percent((dragging ?: v.level) * Thresholds.PERCENT), style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(Sizes.volumeLabel).padding(start = Space.xsPlus))
 	}
 }
 
@@ -559,17 +583,17 @@ private fun VolumeRow(t: TabScope, v: ua.elamon.data.Volume) {
 @Composable
 private fun ProfileSection(active: String, available: List<String>, onPick: (String) -> Unit) {
 	Section(stringResource(R.string.control_power_profile), ElIcons.Bolt, accent = Metric.colors.battery) {
-		Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+		Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 			for (p in available) {
 				val on = p == active
 				val bg by animateColorAsState(if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh, label = "profile")
 				val fg = if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
 				Column(
-					Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(18.dp)).background(bg)
-						.combinedClickableCompat { onPick(p) }
-						.padding(vertical = 14.dp, horizontal = 6.dp),
+					Modifier.weight(1f).fillMaxHeight().clip(InnerTileShape).background(bg)
+						.selectable(selected = on, role = Role.Button, onClick = { onPick(p) })
+						.padding(vertical = Space.mPlus, horizontal = Space.xsPlus),
 					horizontalAlignment = Alignment.CenterHorizontally,
-					verticalArrangement = Arrangement.spacedBy(6.dp),
+					verticalArrangement = Arrangement.spacedBy(Space.xsPlus),
 				) {
 					Icon(profileIcon(p), null, tint = fg)
 					Text(profileName(p), style = MaterialTheme.typography.labelLarge, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -585,9 +609,6 @@ private fun profileIcon(p: String): ImageVector = when (p) {
 	else -> ElIcons.Gauge
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-private fun Modifier.combinedClickableCompat(onClick: () -> Unit) = this.then(Modifier.combinedClickable(onClick = onClick))
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ActionsSection(t: TabScope, actions: List<ActionInfo>) {
@@ -597,19 +618,19 @@ private fun ActionsSection(t: TabScope, actions: List<ActionInfo>) {
 	Section(stringResource(R.string.control_actions), ElIcons.Terminal, accent = MaterialTheme.colorScheme.tertiary) {
 		for (a in actions) {
 			val last = state.results[a.id]
-			Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+			Surface(shape = InnerTileShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
 				Row(
-					Modifier.combinedClickableCompat { if (state.running == null) { if (a.confirm && prefs.confirmActions) confirm = a else t.vm.runAction(a.id) } }
-						.padding(horizontal = 16.dp, vertical = 14.dp),
+					Modifier.clickable(role = Role.Button) { if (state.running == null) { if (a.confirm && prefs.confirmActions) confirm = a else t.vm.runAction(a.id) } }
+						.padding(horizontal = Space.l, vertical = Space.mPlus),
 					verticalAlignment = Alignment.CenterVertically,
 				) {
-					Icon(ElIcons.Play, null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(18.dp))
-					Spacer(Modifier.width(12.dp))
+					Icon(ElIcons.Play, null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(Sizes.iconM))
+					Spacer(Modifier.width(Space.m))
 					Text(a.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
 					when {
-						state.running == a.id -> androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+						state.running == a.id -> androidx.compose.material3.CircularProgressIndicator(Modifier.size(Sizes.iconM), strokeWidth = Sizes.spinnerStroke)
 						// The last run's outcome; its output opens on a tap.
-						last != null -> ActionOutcome(last, Modifier.clip(RoundedCornerShape(50)).combinedClickableCompat { t.vm.showActionResult(a.id) })
+						last != null -> ActionOutcome(last, Modifier.clip(PillShape).clickable(role = Role.Button) { t.vm.showActionResult(a.id) })
 					}
 				}
 			}
@@ -627,18 +648,18 @@ private fun ActionsSection(t: TabScope, actions: List<ActionInfo>) {
 	val shown = state.shown?.let { id -> actions.find { it.id == id }?.let { a -> state.results[id]?.let { a to it } } }
 	shown?.let { (a, r) ->
 		ModalBottomSheet(onDismissRequest = { t.vm.showActionResult(null) }, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-			Column(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+			Column(Modifier.padding(start = Space.xxl, end = Space.xxl, bottom = Space.xxxl), verticalArrangement = Arrangement.spacedBy(Space.m)) {
 				Row(verticalAlignment = Alignment.CenterVertically) {
 					Text(a.name, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
 					ActionOutcome(r)
 				}
-				Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
+				Surface(shape = RoundedCornerShape(Radius.mPlus), color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth().heightIn(max = Sizes.outputMax)) {
 					SelectionContainer {
 						Text(
 							r.output.ifBlank { stringResource(R.string.control_no_output) },
 							fontFamily = FontFamily.Monospace,
 							style = MaterialTheme.typography.bodySmall,
-							modifier = Modifier.verticalScroll(rememberScrollState()).padding(12.dp),
+							modifier = Modifier.verticalScroll(rememberScrollState()).padding(Space.m),
 						)
 					}
 				}
@@ -682,7 +703,7 @@ private fun PowerSection(t: TabScope, control: ControlInfo) {
 	}
 	if (shown.isEmpty()) return
 	Section(stringResource(R.string.control_power), ElIcons.Power, accent = Metric.colors.hot) {
-		FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 2) {
+		FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s), verticalArrangement = Arrangement.spacedBy(Space.s), maxItemsInEachRow = 2) {
 			for (a in shown) {
 				val needsAuth = when (a.key) {
 					"suspend" -> caps.suspend == "challenge"
@@ -692,18 +713,18 @@ private fun PowerSection(t: TabScope, control: ControlInfo) {
 				}
 				val danger = a.key == "poweroff" || a.key == "reboot"
 				Column(
-					Modifier.weight(1f).heightIn(min = 112.dp).clip(RoundedCornerShape(18.dp))
-						.background(if (danger) Metric.colors.hot.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainerHigh)
-						.combinedClickableCompat {
+					Modifier.weight(1f).heightIn(min = Sizes.powerTileMin).clip(InnerTileShape)
+						.background(if (danger) Metric.colors.hot.copy(alpha = Alpha.DANGER) else MaterialTheme.colorScheme.surfaceContainerHigh)
+						.clickable(role = Role.Button) {
 							when {
 								needsAuth -> denied = a
 								prefs.confirmActions -> confirm = a
 								else -> t.vm.power(a.key)
 							}
 						}
-						.padding(vertical = 16.dp),
+						.padding(vertical = Space.l),
 					horizontalAlignment = Alignment.CenterHorizontally,
-					verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
+					verticalArrangement = Arrangement.spacedBy(Space.xsPlus, Alignment.CenterVertically),
 				) {
 					Icon(a.icon, null, tint = if (danger) Metric.colors.hot else MaterialTheme.colorScheme.onSurface)
 					Text(stringResource(a.label), style = MaterialTheme.typography.labelLarge)

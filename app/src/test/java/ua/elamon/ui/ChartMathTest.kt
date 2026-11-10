@@ -64,4 +64,36 @@ class ChartMathTest {
 		assertEquals(0f, tooltipLeft(100f, 800f, 600f))
 		assertEquals(0f, tooltipLeft(0f, 0f, 0f))
 	}
+
+	@Test
+	fun scales() {
+		// Fixed, as for percentages.
+		assertEquals(100f, chartScale(130f, 100f, 1f, binary = false))
+		// The data with headroom, rounded: 80 °C wants 92, which reads as 100.
+		assertEquals(100f, chartScale(80f, null, 60f, binary = false))
+		assertEquals(50f, chartScale(30f, null, 50f, binary = false))
+		assertEquals(2048f, chartScale(1000f, null, 64f, binary = true))
+		// A temperature sparkline: 100 °C unless the data runs hotter, then the data itself.
+		assertEquals(100f, chartScale(80f, null, Thresholds.TEMP_BAR_TOP, binary = false, round = false))
+		assertEquals(110f * Thresholds.CHART_HEADROOM, chartScale(110f, null, Thresholds.TEMP_BAR_TOP, binary = false, round = false))
+	}
+
+	private class Values(private val times: LongArray, private val values: FloatArray) : Points {
+		override val size get() = times.size
+		override val windowMs = 600_000L
+		override val gapMs = 3000L
+		override fun t(i: Int) = times[i]
+		override fun v(i: Int) = values[i]
+	}
+
+	@Test
+	fun latestAndPeak() {
+		val p = Values(longArrayOf(1000, 2000, 3000, 4000), floatArrayOf(90f, 20f, 50f, Float.NaN))
+		assertEquals(50f, p.latest())
+		assertEquals(90f, p.peak(0))
+		// From 2500 on, with the point just before it that the line enters by.
+		assertEquals(50f, p.peak(2500))
+		assertTrue(Values(longArrayOf(1000), floatArrayOf(Float.NaN)).latest().isNaN())
+		assertTrue(Values(longArrayOf(), floatArrayOf()).peak(0).isNaN())
+	}
 }

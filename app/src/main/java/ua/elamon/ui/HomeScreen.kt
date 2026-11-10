@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -47,10 +48,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -63,6 +66,7 @@ import ua.elamon.pollEach
 import ua.elamon.data.ElamondClient
 import ua.elamon.data.DEFAULT_PORT
 import ua.elamon.data.Found
+import ua.elamon.data.Limits
 import ua.elamon.data.PairTarget
 import ua.elamon.data.Sample
 import ua.elamon.data.Server
@@ -93,59 +97,68 @@ fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit, onHelp: (
 	val lifecycle = LocalLifecycleOwner.current.lifecycle
 	LaunchedEffect(servers, lifecycle) {
 		lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-			pollEach(servers, HOME_POLL_MS, probe = ::reading, report = { s, l -> live[s.id] = l })
+			pollEach(servers, Limits.HOME_POLL_MS, probe = ::reading, report = { s, l -> live[s.id] = l })
 		}
 	}
 
 	CompositionLocalProvider(LocalHaze provides haze) {
-		Box(Modifier.fillMaxSize()) {
-			LazyColumn(
-				Modifier.fillMaxSize().hazeSource(haze),
-				state = list,
-				contentPadding = listPadding(bottomNav = true),
-				verticalArrangement = Arrangement.spacedBy(12.dp),
-			) {
-				item(key = "title") {
-					BigTitle(
-						stringResource(R.string.app_name),
-						subtitle = {
-							Text(
-								if (servers.isEmpty()) stringResource(R.string.home_subtitle_empty)
-								else pluralStringResource(R.plurals.home_computers, servers.size, servers.size),
-								style = MaterialTheme.typography.titleSmall,
-								color = MaterialTheme.colorScheme.onSurfaceVariant,
-							)
-						},
-						list = list,
-					)
+		// The add button is measured first, so the end of the list can scroll clear of it.
+		BottomBarLayout(
+			Modifier.fillMaxSize(),
+			barAlignment = Alignment.End,
+			bar = {
+				val add = stringResource(R.string.home_add_computer)
+				ExtendedFloatingActionButton(
+					onClick = { addDialog = true },
+					icon = { Icon(Icons.Default.Add, null) },
+					text = { Text(add) },
+					shape = RoundedCornerShape(Radius.field),
+					containerColor = MaterialTheme.colorScheme.primaryContainer,
+					// Material's extended button hides its text from screen readers: the button says it instead.
+					modifier = Modifier.navigationBarsPadding().padding(Space.xl).semantics { contentDescription = add },
+				)
+			},
+		) {
+			Box(Modifier.fillMaxSize()) {
+				LazyColumn(
+					Modifier.fillMaxSize().hazeSource(haze),
+					state = list,
+					contentPadding = listPadding(),
+					verticalArrangement = Arrangement.spacedBy(Space.m),
+				) {
+					item(key = "title") {
+						BigTitle(
+							stringResource(R.string.app_name),
+							subtitle = {
+								Text(
+									if (servers.isEmpty()) stringResource(R.string.home_subtitle_empty)
+									else pluralStringResource(R.plurals.home_computers, servers.size, servers.size),
+									style = MaterialTheme.typography.titleSmall,
+									color = MaterialTheme.colorScheme.onSurfaceVariant,
+								)
+							},
+							list = list,
+						)
+					}
+					items(servers, key = { it.id }) { s -> ComputerCard(s, live[s.id] ?: Live.Unknown) { onOpen(s) } }
+					if (unpaired.isNotEmpty()) {
+						item(key = "found-header") { GroupLabel(stringResource(R.string.home_found)) }
+						items(unpaired, key = { "found-" + it.id }) { f -> FoundCard(f) { onPair(f.toTarget()) } }
+					}
+					if (servers.isEmpty()) {
+						item(key = "setup") { SetupGuide(onHelp) }
+					}
 				}
-				items(servers, key = { it.id }) { s -> ComputerCard(s, live[s.id] ?: Live.Unknown) { onOpen(s) } }
-				if (unpaired.isNotEmpty()) {
-					item(key = "found-header") { GroupLabel(stringResource(R.string.home_found)) }
-					items(unpaired, key = { "found-" + it.id }) { f -> FoundCard(f) { onPair(f.toTarget()) } }
-				}
-				if (servers.isEmpty()) {
-					item(key = "setup") { SetupGuide(onHelp) }
-				}
+
+				GlassTopBar(
+					title = stringResource(R.string.app_name),
+					collapsed = rememberCollapsed(list),
+					actions = {
+						IconButton(onClick = onHelp) { Icon(ElIcons.Help, stringResource(R.string.help)) }
+						IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, stringResource(R.string.settings)) }
+					},
+				)
 			}
-
-			GlassTopBar(
-				title = stringResource(R.string.app_name),
-				collapsed = rememberCollapsed(list),
-				actions = {
-					IconButton(onClick = onHelp) { Icon(ElIcons.Help, stringResource(R.string.help)) }
-					IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, stringResource(R.string.settings)) }
-				},
-			)
-
-			ExtendedFloatingActionButton(
-				onClick = { addDialog = true },
-				icon = { Icon(Icons.Default.Add, null) },
-				text = { Text(stringResource(R.string.home_add_computer)) },
-				shape = RoundedCornerShape(28.dp),
-				containerColor = MaterialTheme.colorScheme.primaryContainer,
-				modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(20.dp),
-			)
 		}
 	}
 
@@ -159,9 +172,6 @@ fun HomeScreen(onOpen: (Server) -> Unit, onPair: (PairTarget) -> Unit, onHelp: (
 		)
 	}
 }
-
-/** How often the home screen reads each computer. */
-private const val HOME_POLL_MS = 5_000L
 
 /** One reading of [s], on whichever of its addresses answers. */
 private suspend fun reading(s: Server): Live = orNull {
@@ -180,16 +190,16 @@ private fun ComputerCard(s: Server, live: Live, onClick: () -> Unit) {
 	Surface(modifier = Modifier.fillMaxWidth(), shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
 		Column(
 			Modifier
-				.background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary.copy(alpha = if (online) 0.12f else 0.04f), Color.Transparent)))
+				.background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary.copy(alpha = if (online) Alpha.CARD_ONLINE else Alpha.CARD_OFFLINE), Color.Transparent)))
 				.clickable(onClick = onClick)
-				.padding(18.dp),
-			verticalArrangement = Arrangement.spacedBy(14.dp),
+				.padding(Space.lPlus),
+			verticalArrangement = Arrangement.spacedBy(Space.mPlus),
 		) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
-				Box(Modifier.size(52.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
+				Box(Modifier.size(Sizes.badgeComputer).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
 					Icon(ElIcons.Laptop, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
 				}
-				Spacer(Modifier.width(14.dp))
+				Spacer(Modifier.width(Space.mPlus))
 				Column(Modifier.weight(1f)) {
 					Text(s.name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
 					Text(s.os ?: s.hostsToTry().firstOrNull().orEmpty(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -203,11 +213,20 @@ private fun ComputerCard(s: Server, live: Live, onClick: () -> Unit) {
 			if (live is Live.Online) {
 				val sample = live.sample
 				val m = sample.memory
-				Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-					MiniStat(stringResource(R.string.cpu), Fmt.percent(sample.cpu.usage), sample.cpu.usage / 100f, c.cpu, Modifier.weight(1f))
+				Row(horizontalArrangement = Arrangement.spacedBy(Space.sPlus)) {
+					MiniStat(stringResource(R.string.cpu), Fmt.percent(sample.cpu.usage), sample.cpu.usage / Thresholds.PERCENT, c.cpu, Modifier.weight(1f))
 					val mf = if (m.total > 0) m.used.toFloat() / m.total else 0f
-					MiniStat(stringResource(R.string.ram), Fmt.percent(mf * 100), mf, c.memory, Modifier.weight(1f))
-					sample.cpu.temp?.let { MiniStat(stringResource(R.string.home_temp), Fmt.temp(it, p.fahrenheit), it / 100f, tempColor(it), Modifier.weight(1f)) }
+					MiniStat(stringResource(R.string.ram), Fmt.percent(mf * Thresholds.PERCENT), mf, c.memory, Modifier.weight(1f))
+					sample.cpu.temp?.let {
+						val sensor = cpuSensor(sample.temps, it)
+						MiniStat(
+							stringResource(R.string.home_temp),
+							Fmt.temp(it, p.fahrenheit),
+							tempBarFraction(it, sensor?.high, sensor?.crit),
+							tempColor(it, sensor?.high, sensor?.crit),
+							Modifier.weight(1f),
+						)
+					}
 				}
 			}
 		}
@@ -216,19 +235,19 @@ private fun ComputerCard(s: Server, live: Live, onClick: () -> Unit) {
 
 @Composable
 private fun MiniStat(label: String, value: String, fraction: Float, color: Color, modifier: Modifier) {
-	Column(modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(16.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+	Column(modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(Radius.l)).padding(Space.m), verticalArrangement = Arrangement.spacedBy(Space.xsPlus)) {
 		Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		RollingText(value, MaterialTheme.typography.titleMedium)
-		UsageBar(fraction, color, height = 5.dp)
+		UsageBar(fraction, color, height = Sizes.barMini)
 	}
 }
 
 @Composable
 private fun FoundCard(f: Found, onClick: () -> Unit) {
 	Surface(modifier = Modifier.fillMaxWidth(), shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-		Row(Modifier.clickable(onClick = onClick).padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-			IconBadge(ElIcons.Monitor, MaterialTheme.colorScheme.tertiary, 44.dp)
-			Spacer(Modifier.width(14.dp))
+		Row(Modifier.clickable(onClick = onClick).padding(Space.lPlus), verticalAlignment = Alignment.CenterVertically) {
+			IconBadge(ElIcons.Monitor, MaterialTheme.colorScheme.tertiary, Sizes.badgeFound)
+			Spacer(Modifier.width(Space.mPlus))
 			Column(Modifier.weight(1f)) {
 				Text(f.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
 				Text(stringResource(R.string.home_found_tap, f.host), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -241,7 +260,7 @@ private fun FoundCard(f: Found, onClick: () -> Unit) {
 @Composable
 private fun SetupGuide(onHelp: () -> Unit) {
 	Surface(shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-		Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+		Column(Modifier.padding(Space.xl), verticalArrangement = Arrangement.spacedBy(Space.mPlus)) {
 			Text(stringResource(R.string.home_setup_title), style = MaterialTheme.typography.titleLarge)
 			Text(
 				stringResource(R.string.home_setup_intro),
@@ -260,18 +279,18 @@ private fun SetupGuide(onHelp: () -> Unit) {
 @Composable
 private fun Step(n: Int, text: String, command: String?) {
 	Row {
-		Box(Modifier.size(28.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
+		Box(Modifier.size(Sizes.stepNumber).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
 			Text(n.toString(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
 		}
-		Spacer(Modifier.width(12.dp))
-		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+		Spacer(Modifier.width(Space.m))
+		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.xsPlus)) {
 			Text(text, style = MaterialTheme.typography.bodyMedium)
 			if (command != null) {
 				Text(
 					command,
 					fontFamily = FontFamily.Monospace,
 					style = MaterialTheme.typography.bodySmall,
-					modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 8.dp),
+					modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(Radius.sPlus)).padding(horizontal = Space.sPlus, vertical = Space.s),
 				)
 			}
 		}
@@ -287,7 +306,7 @@ private fun AddDialog(onDismiss: () -> Unit, onAddress: (String, Int) -> Unit) {
 		title = stringResource(R.string.home_add_computer),
 		icon = ElIcons.Qr,
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+			Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
 				Text(stringResource(R.string.home_add_qr))
 				Text(stringResource(R.string.home_add_or_address), color = MaterialTheme.colorScheme.onSurfaceVariant)
 				OutlinedTextField(
@@ -296,7 +315,9 @@ private fun AddDialog(onDismiss: () -> Unit, onAddress: (String, Int) -> Unit) {
 					singleLine = true,
 					label = { Text(stringResource(R.string.home_add_address)) },
 					placeholder = { Text(stringResource(R.string.home_add_address_hint)) },
-					keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+					// The keyboard's own key goes on as Next does, once the address reads.
+					keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
+					keyboardActions = KeyboardActions(onGo = { parsed?.let { onAddress(it.first, it.second) } }),
 				)
 			}
 		},

@@ -14,13 +14,18 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -32,6 +37,7 @@ import ua.elamon.data.ElamondException
 import ua.elamon.data.ControlInfo
 import ua.elamon.data.History
 import ua.elamon.data.Info
+import ua.elamon.data.Limits
 import ua.elamon.data.Listener
 import ua.elamon.data.Proc
 import ua.elamon.data.Sample
@@ -61,12 +67,10 @@ data class MachineState(
 /** What a list of processes needs from the service: the order, and how many of the heaviest. */
 data class ProcRequest(val sort: String, val count: Int) {
 	companion object {
-		/** A detail page's top list. */
-		const val TOP = 8
-		const val LIST = 200
-
-		/** Searching or grouping needs every process. */
-		const val ALL = 10_000
+		/** A detail page's top list, the Processes tab's, and every process for searching or grouping. */
+		const val TOP = Limits.PROCESSES_TOP
+		const val LIST = Limits.PROCESSES_LIST
+		const val ALL = Limits.PROCESSES_ALL
 	}
 }
 
@@ -143,7 +147,7 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 	val compatDismissed: StateFlow<Boolean> = _compatDismissed.asStateFlow()
 
 	// Kept until the screen collects them, even across a rotation.
-	private val _messages = Channel<Message>(capacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+	private val _messages = Channel<Message>(capacity = Limits.MESSAGES_KEPT, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
 	/** One-line results and errors for a snackbar. */
 	val messages: Flow<Message> = _messages.receiveAsFlow()
@@ -164,6 +168,22 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 	init {
 		// A new update interval takes a new stream, on the same address.
 		viewModelScope.launch { settings.state.collect { wanted.value = params() } }
+		// Paired again while this screen stays open (the pairing screen was left before the computer
+		// answered): the stream starts over with the new token instead of staying turned away.
+		viewModelScope.launch {
+			store.servers
+				.map { list -> list.find { it.id == serverId }?.let { it.token to it.fingerprint } }
+				.distinctUntilChanged()
+				.drop(1)
+				.collect { if (it != null) credentialsChanged() }
+		}
+	}
+
+	/** Shown, the stream starts over now; not shown, it does when the screen is back. */
+	private fun credentialsChanged() {
+		job?.cancel()
+		job = null
+		if (visible) start()
 	}
 
 	private fun params() = StreamParams(
@@ -185,7 +205,7 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 			if (job?.isActive != true) start()
 		} else if (job?.isActive == true && stopping == null) {
 			stopping = viewModelScope.launch {
-				delay(STOP_GRACE_MS)
+				delay(Limits.STOP_GRACE_MS)
 				job?.cancel()
 				job = null
 				stopping = null
@@ -242,7 +262,7 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 			}
 			if (host == null) {
 				_state.update { it.copy(conn = Conn.Offline) }
-				delay(backoff(attempt++))
+				delay(Limits.backoffMs(attempt++))
 				continue
 			}
 
@@ -265,7 +285,7 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 			// Lost: look for the computer on every address again.
 			workingHost = null
 			_state.update { it.copy(conn = Conn.Reconnecting) }
-			delay(backoff(attempt++))
+			delay(Limits.backoffMs(attempt++))
 		}
 	}
 
@@ -274,7 +294,8 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 	 * the stream there at once, without asking every address and without leaving Live.
 	 */
 	private suspend fun streamOn(host: String, client: ElamondClient): ElamondException = try {
-		wanted.settle(PARAMS_SETTLE_MS).collectLatest { p ->
+		// A change undone within the settling time (a tab left and come back to) reopens nothing.
+		wanted.settle(Limits.PARAMS_SETTLE_MS).distinctUntilChanged().collectLatest { p ->
 			current = p
 			hist.stepHintMs = Intervals.effective(p.intervalMs, _state.value.info?.intervalMs).toLong()
 			// History on every connection: it fills whatever the app missed meanwhile.
@@ -282,6 +303,8 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 				attempt = 0
 				handle(msg, host)
 			}
+			// Replaced by newer parameters, this block is cancelled: that is no reason to look for the computer again.
+			currentCoroutineContext().ensureActive()
 			throw ElamondException(ElamondException.Kind.Unreachable, "closed")
 		}
 		ElamondException(ElamondException.Kind.Unreachable, "closed")
@@ -331,8 +354,6 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 			}
 		}
 	}
-
-	private fun backoff(attempt: Int): Long = (1000L shl attempt.coerceAtMost(3)).coerceAtMost(8000L)
 
 	fun dismissCompat() {
 		_compatDismissed.value = true
@@ -417,7 +438,7 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 		viewModelScope.launch {
 			try {
 				val c = client() ?: throw ElamondException(ElamondException.Kind.Unreachable)
-				val r = c.post<ActionReq, ActionResult>("/api/v1/control/action", ActionReq(id), timeoutMs = 3_700_000)
+				val r = c.post<ActionReq, ActionResult>("/api/v1/control/action", ActionReq(id), timeoutMs = Limits.ACTION_TIMEOUT_MS)
 				_actions.update { it.copy(results = it.results + (id to r), shown = id) }
 			} catch (e: CancellationException) {
 				throw e
@@ -483,13 +504,5 @@ class MachineViewModel(app: Application, private val serverId: String) : Android
 	class Factory(private val app: Application, private val id: String) : ViewModelProvider.Factory {
 		@Suppress("UNCHECKED_CAST")
 		override fun <T : ViewModel> create(modelClass: Class<T>): T = MachineViewModel(app, id) as T
-	}
-
-	companion object {
-		/** How long a stopped screen keeps the stream: enough for a rotation. */
-		const val STOP_GRACE_MS = 5_000L
-
-		/** How long a new sort, search or tab has to stay before the stream is reopened for it. */
-		const val PARAMS_SETTLE_MS = 400L
 	}
 }

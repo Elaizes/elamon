@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 import ua.elamon.data.ElamondClient
 import ua.elamon.data.ElamondException
 import ua.elamon.data.Hello
+import ua.elamon.data.Limits
 import ua.elamon.data.PairTarget
 import ua.elamon.data.Server
 import ua.elamon.data.ServerStore
@@ -87,7 +88,7 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 		val ready = s.step as? PairStep.Ready ?: return
 		if (s.busy || s.paired != null) return
 		val digits = code.filter { it in '0'..'9' }
-		if (digits.length != 6) return
+		if (digits.length != Limits.PAIRING_DIGITS) return
 		_state.update { it.copy(busy = true, codeError = null) }
 		val app = getApplication<Application>()
 		val device = deviceName(app)

@@ -540,4 +540,24 @@
 	<string name="help_privacy_body">The phone talks to your computer directly, encrypted, and trusts only the certificate it saw when pairing. Nothing passes through any server, and the app has no trackers, ads or analytics. Each phone has its own key, which the computer can revoke; keys are kept out of Android backups. Unless control is turned on, the service only reads; with it on, it acts as your user, and every action is logged with the name of the phone that asked.</string>
 	<string name="help_version">Elamon %1$s · GPL-3.0-or-later</string>
 	<string name="help_source">Source code</string>
+
+	<!-- What a screen reader says for charts, gauges and other drawn things -->
+	<!-- A chart: the time it spans ("10 min"), then each line: "Last 10 min: CPU 34%, peak 80%". -->
+	<string name="a11y_chart">Last %1$s: %2$s</string>
+	<!-- One line of a chart: its name, its newest value and its highest: "CPU 34%, peak 80%". -->
+	<string name="a11y_chart_series">%1$s %2$s, peak %3$s</string>
+	<string name="a11y_chart_series_empty">%1$s, no readings yet</string>
+	<!-- Between the lines of a chart, read aloud. -->
+	<string name="a11y_list_separator">"; "</string>
+	<!-- The ring on the CPU and memory tiles. -->
+	<string name="a11y_gauge_load">Load %1$s</string>
+	<string name="a11y_gauge_used">Used %1$s</string>
+	<!-- The bars of the CPU cores: how many, their average and the busiest. -->
+	<plurals name="a11y_cores">
+		<item quantity="one">%1$d core, average %2$s, busiest %3$s</item>
+		<item quantity="other">%1$d cores, average %2$s, busiest %3$s</item>
+	</plurals>
+	<!-- A question in the guide, open or closed. -->
+	<string name="a11y_expanded">Expanded</string>
+	<string name="a11y_collapsed">Collapsed</string>
 </resources>

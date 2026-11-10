@@ -43,3 +43,55 @@ fun isGap(previous: Long, t: Long, gapMs: Long): Boolean = t - previous > gapMs
 /** The left edge of a tooltip [boxWidth] wide, centred on [x] but inside a chart [width] wide, or at 0 when it can't fit. */
 fun tooltipLeft(x: Float, boxWidth: Float, width: Float): Float =
 	(x - boxWidth / 2).coerceIn(0f, max(0f, width - boxWidth))
+
+/** 1, 2, 2.5, 5, 10… so the scale label reads as a round number. */
+fun niceCeiling(v: Float): Float {
+	if (v <= 0f) return 1f
+	var p = 1f
+	while (p * 10 <= v) p *= 10
+	while (p > v) p /= 10
+	for (m in NICE_STEPS) if (p * m >= v) return p * m
+	return p * 10
+}
+
+private val NICE_STEPS = floatArrayOf(1f, 2f, 2.5f, 5f, 10f)
+
+/** The next power of two at or above [v]: 512 KiB, 1 MiB, 2 MiB… */
+fun niceBinary(v: Float): Float {
+	var p = 1f
+	while (p < v) p *= 2
+	return p
+}
+
+/**
+ * The value at a chart's top: [maxValue] when the scale is fixed; otherwise the data's [top] with
+ * headroom, never under [minScale], and rounded up ([binary] for bytes) unless [round] is off.
+ */
+fun chartScale(top: Float, maxValue: Float?, minScale: Float, binary: Boolean, round: Boolean = true): Float {
+	if (maxValue != null) return maxValue
+	val wanted = max(top * Thresholds.CHART_HEADROOM, minScale)
+	return when {
+		!round -> wanted
+		binary -> niceBinary(wanted)
+		else -> niceCeiling(wanted)
+	}
+}
+
+/** The newest value that isn't missing, or NaN when there is none. */
+fun Points.latest(): Float {
+	for (i in size - 1 downTo 0) {
+		val v = v(i)
+		if (!v.isNaN()) return v
+	}
+	return Float.NaN
+}
+
+/** The highest value from [tStart] on, or NaN when there is none. */
+fun Points.peak(tStart: Long): Float {
+	var top = Float.NaN
+	for (i in firstVisibleIndex(this, tStart) until size) {
+		val v = v(i)
+		if (!v.isNaN() && (top.isNaN() || v > top)) top = v
+	}
+	return top
+}

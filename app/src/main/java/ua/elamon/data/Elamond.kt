@@ -11,6 +11,8 @@ import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.X509TrustManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -19,7 +21,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
@@ -66,6 +68,33 @@ class ElamondException(
 }
 
 /**
+ * Runs [block], which blocks on I/O that ignores coroutine cancellation, and calls [close] (closing
+ * the connection) as soon as the coroutine is cancelled, so the block ends at once; [close] also
+ * runs when the block ends by itself. Whatever the block throws once cancelled, like the read that
+ * failed because the socket was closed under it, comes out as the cancellation it is: an error
+ * escaping a cancelled coroutine would fail its parent instead of letting it carry on. Run it on a
+ * dispatcher with threads to spare (Dispatchers.IO): the closing runs beside the blocked block.
+ */
+internal suspend fun <T> closeOnCancel(close: () -> Unit, block: suspend CoroutineScope.() -> T): T = coroutineScope {
+	// Started at once: a closer cancelled before it ever ran would never close anything.
+	val closer = launch(start = CoroutineStart.UNDISPATCHED) {
+		try {
+			awaitCancellation()
+		} finally {
+			close()
+		}
+	}
+	try {
+		block()
+	} catch (e: Throwable) {
+		currentCoroutineContext().ensureActive()
+		throw e
+	} finally {
+		closer.cancel()
+	}
+}
+
+/**
  * Talks to one service at [host]:[port] over HTTPS.
  *
  * The service's certificate is self-signed, so instead of a certificate authority the app trusts
@@ -107,7 +136,7 @@ class ElamondClient(
 		c.sslSocketFactory = socketFactory
 		// The pin replaces name checks: the certificate is this service's or the handshake failed.
 		c.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
-		c.connectTimeout = 4000
+		c.connectTimeout = Limits.CONNECT_TIMEOUT_MS
 		c.readTimeout = readTimeoutMs
 		c.useCaches = false
 		c.setRequestProperty("Accept", "application/json")
@@ -140,7 +169,7 @@ class ElamondClient(
 	}
 
 	/** A request with an optional JSON body; returns the response body. */
-	suspend fun request(method: String, path: String, body: String? = null, timeoutMs: Int = 15_000): String = withContext(Dispatchers.IO) {
+	suspend fun request(method: String, path: String, body: String? = null, timeoutMs: Int = Limits.REQUEST_TIMEOUT_MS): String = withContext(Dispatchers.IO) {
 		call {
 			val c = open(path, timeoutMs)
 			try {
@@ -160,7 +189,7 @@ class ElamondClient(
 
 	suspend inline fun <reified T> get(path: String): T = ProtocolJson.decodeFromString(request("GET", path))
 
-	suspend inline fun <reified B, reified T> post(path: String, body: B, timeoutMs: Int = 15_000): T =
+	suspend inline fun <reified B, reified T> post(path: String, body: B, timeoutMs: Int = Limits.REQUEST_TIMEOUT_MS): T =
 		ProtocolJson.decodeFromString(request("POST", path, ProtocolJson.encodeToString(body), timeoutMs))
 
 	suspend fun delete(path: String) {
@@ -170,7 +199,7 @@ class ElamondClient(
 	/** Raw bytes, for album art. */
 	suspend fun bytes(path: String): ByteArray = withContext(Dispatchers.IO) {
 		call {
-			val c = open(path, 10_000)
+			val c = open(path, Limits.BYTES_TIMEOUT_MS)
 			try {
 				checkStatus(c)
 				c.inputStream.use { it.readBytes() }
@@ -182,7 +211,7 @@ class ElamondClient(
 
 	suspend fun hello(): Hello = withContext(Dispatchers.IO) {
 		call {
-			val c = open("/api/v1/hello", 4000)
+			val c = open("/api/v1/hello", Limits.HELLO_TIMEOUT_MS)
 			try {
 				checkStatus(c)
 				val h = ProtocolJson.decodeFromString<Hello>(c.inputStream.bufferedReader().readText())
@@ -196,7 +225,7 @@ class ElamondClient(
 
 	suspend fun pair(code: String, device: String): PairResponse = withContext(Dispatchers.IO) {
 		call {
-			val c = open("/api/v1/pair", 8000)
+			val c = open("/api/v1/pair", Limits.PAIR_TIMEOUT_MS)
 			try {
 				c.requestMethod = "POST"
 				c.doOutput = true
@@ -218,28 +247,19 @@ class ElamondClient(
 	fun stream(intervalMs: Int, procs: Int, sort: String, history: Boolean, media: Boolean = false): Flow<StreamMessage> = flow {
 		val query = "interval=$intervalMs&procs=$procs&sort=$sort&history=${if (history) 1 else 0}&media=${if (media) 1 else 0}"
 		// A silent service is a dead connection after a few missed samples.
-		val c = call { open("/api/v1/stream?$query", maxOf(15_000, intervalMs * 4)) }
-		coroutineScope {
-			// Socket reads ignore coroutine cancellation; closing the connection ends a blocked one.
-			val closer = launch {
-				try {
-					awaitCancellation()
-				} finally {
-					c.disconnect()
-				}
-			}
-			try {
-				call { checkStatus(c) }
-				val reader = call { c.inputStream.bufferedReader() }
-				while (currentCoroutineContext().isActive) {
-					val line = call { reader.readLine() } ?: throw ElamondException(ElamondException.Kind.Unreachable, "closed")
-					if (line.isBlank()) continue
-					// A kind of message from a newer service is skipped; a broken one ends the stream.
-					val msg = call { decodeStreamLine(line) } ?: continue
-					emit(msg)
-				}
-			} finally {
-				closer.cancel()
+		val c = call { open("/api/v1/stream?$query", Limits.streamReadTimeoutMs(intervalMs)) }
+		// Socket reads ignore coroutine cancellation; closing the connection ends a blocked one, and
+		// the failed read that follows is that cancellation, not a lost computer.
+		closeOnCancel(close = { c.disconnect() }) {
+			call { checkStatus(c) }
+			val reader = call { c.inputStream.bufferedReader() }
+			while (true) {
+				currentCoroutineContext().ensureActive()
+				val line = call { reader.readLine() } ?: throw ElamondException(ElamondException.Kind.Unreachable, "closed")
+				if (line.isBlank()) continue
+				// A kind of message from a newer service is skipped; a broken one ends the stream.
+				val msg = call { decodeStreamLine(line) } ?: continue
+				emit(msg)
 			}
 		}
 	}.flowOn(Dispatchers.IO)
@@ -250,7 +270,7 @@ class ElamondClient(
 
 		/** The same grouping `elamond pair` prints, for comparing by eye. */
 		fun prettyFingerprint(fp: String): String =
-			fp.take(32).uppercase().chunked(4).joinToString(" ")
+			fp.take(Limits.FINGERPRINT_SHOWN).uppercase().chunked(Limits.FINGERPRINT_GROUP).joinToString(" ")
 
 		/**
 		 * Tries every address at once and returns the first that answers as the expected service.

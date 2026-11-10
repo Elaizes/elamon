@@ -93,13 +93,9 @@ data class PairTarget(
 		/** The pairing links this app reads; a newer elamond may write others. */
 		const val LINK_VERSION = 1
 
-		private val HEX_ID = Regex("[0-9a-f]{32}")
-		private val HEX_FINGERPRINT = Regex("[0-9a-fA-F]{64}")
-		private val CODE = Regex("[0-9]{6}")
-
-		/** The most addresses a link may list. */
-		private const val MAX_HOSTS = 8
-		private const val MAX_NAME = 64
+		private val HEX_ID = Regex("[0-9a-f]{${Limits.ID_HEX}}")
+		private val HEX_FINGERPRINT = Regex("[0-9a-fA-F]{${Limits.FINGERPRINT_HEX}}")
+		private val CODE = Regex("[0-9]{${Limits.PAIRING_DIGITS}}")
 
 		fun fromUri(uri: Uri): PairLink? = fromQuery(uri.scheme, uri.host) { uri.getQueryParameter(it) }
 
@@ -113,19 +109,19 @@ data class PairTarget(
 			val v = param("v")?.trim() ?: return PairLink.Invalid
 			if (v != LINK_VERSION.toString()) {
 				// A number past ours is a newer elamond; anything else is a broken link.
-				val n = v.takeIf { it.length in 1..9 && it.all { c -> c in '0'..'9' } }?.toInt()
+				val n = v.takeIf { it.length in 1..Limits.LINK_VERSION_DIGITS && it.all { c -> c in '0'..'9' } }?.toInt()
 				return if (n != null && n > LINK_VERSION) PairLink.Newer else PairLink.Invalid
 			}
 			val id = param("id")?.takeIf { HEX_ID.matches(it) } ?: return PairLink.Invalid
 			val fp = param("fp")?.takeIf { HEX_FINGERPRINT.matches(it) }?.lowercase() ?: return PairLink.Invalid
 			val code = param("code")?.takeIf { CODE.matches(it) } ?: return PairLink.Invalid
 			val hosts = param("h")?.split(',')?.map { it.trim().removeSurrounding("[", "]") }?.filter { it.isNotEmpty() }.orEmpty()
-			if (hosts.isEmpty() || hosts.size > MAX_HOSTS || !hosts.all(Hosts::isValid)) return PairLink.Invalid
+			if (hosts.isEmpty() || hosts.size > Limits.LINK_MAX_HOSTS || !hosts.all(Hosts::isValid)) return PairLink.Invalid
 			val port = when (val p = param("port")) {
 				null -> DEFAULT_PORT
-				else -> p.takeIf { it.length in 1..5 && it.all { c -> c in '0'..'9' } }?.toInt()?.takeIf { it in 1..65535 } ?: return PairLink.Invalid
+				else -> parsePort(p) ?: return PairLink.Invalid
 			}
-			val name = param("name")?.filterNot { it.isISOControl() }?.trim()?.take(MAX_NAME)?.ifEmpty { null }
+			val name = param("name")?.filterNot { it.isISOControl() }?.trim()?.take(Limits.LINK_MAX_NAME)?.ifEmpty { null }
 			return PairLink.Target(PairTarget(hosts = hosts.distinct(), port = port, name = name, id = id, fingerprint = fp, code = code))
 		}
 	}
