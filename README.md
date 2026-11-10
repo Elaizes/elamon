@@ -91,7 +91,7 @@ Without Nix: Android SDK 37, JDK 17, and Rust 1.88 or newer. A release build is 
 Tests:
 
 ```sh
-nix develop -c bash -c 'cd elamond && cargo test'   # service, and the protocol fixtures in elamond/fixtures
+nix develop -c bash -c 'cd elamond && cargo test' # service, and the protocol fixtures in elamond/fixtures
 nix develop -c ./gradlew :app:testDebugUnitTest    # app, against the same fixtures
 nix flake check                                   # the NixOS module in a VM
 maestro/run.sh                                    # the app on an emulator against a throwaway service
