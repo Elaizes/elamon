@@ -102,7 +102,7 @@
 						openFirewall = lib.mkOption {
 							type = lib.types.bool;
 							default = false;
-							description = "Open TCP 47823 for the app and UDP 5353 so it finds the computer by mDNS. Works without `enable`, for services run by Home Manager.";
+							description = "Open the service's TCP port (`settings.port`, 47823 by default) for the app and UDP 5353 so it finds the computer by mDNS. Works without `enable`, for services run by Home Manager.";
 						};
 						control = {
 							users = lib.mkOption {
@@ -127,6 +127,8 @@
 					config = lib.mkMerge [
 						(lib.mkIf cfg.enable {
 							environment.systemPackages = [ cfg.package ];
+							# `elamond pair`, `snapshot` and `clients` read the same settings as the service.
+							environment.variables = lib.mkIf (cfg.settings != { }) { ELAMON_CONFIG = "${configFile}"; };
 							systemd.user.services.elamond = {
 								description = "Elamon service";
 								wantedBy = [ "default.target" ];
@@ -145,7 +147,7 @@
 						})
 						(lib.mkIf cfg.openFirewall {
 							networking.firewall = {
-								allowedTCPPorts = [ 47823 ];
+								allowedTCPPorts = [ (cfg.settings.port or 47823) ];
 								allowedUDPPorts = [ 5353 ];
 							};
 						})
