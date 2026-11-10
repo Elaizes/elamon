@@ -28,12 +28,12 @@ val releaseSigning: Properties? = run {
 }
 
 android {
-	namespace = "ua.elamon"
+	namespace = "io.github.elaizes.elamon"
 	compileSdk = 37
 	buildToolsVersion = "37.0.0"
 
 	defaultConfig {
-		applicationId = "ua.elamon"
+		applicationId = "io.github.elaizes.elamon"
 		minSdk = 26
 		targetSdk = 36
 		versionCode = 4

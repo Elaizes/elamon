@@ -1,0 +1,217 @@
+package io.github.elaizes.elamon.data
+
+import java.io.File
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlin.test.fail
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
+
+/**
+ * The app against elamond/fixtures, which the service's own tests write: every shape it sends, with
+ * every optional field filled. A field the service sends that the app doesn't model fails here, and
+ * so does a field the app models that the service never sends (a typo in a @SerialName).
+ */
+class ProtocolContractTest {
+	private val dir = File(System.getProperty("elamon.fixtures") ?: error("elamon.fixtures isn't set; run the tests through Gradle"))
+
+	/** Every fixture and what the app reads it into. */
+	private val shapes: Map<String, KSerializer<*>> = mapOf(
+		"hello" to Hello.serializer(),
+		"pair" to PairResponse.serializer(),
+		"info" to Info.serializer(),
+		"sample" to Sample.serializer(),
+		"history" to History.serializer(),
+		"control" to ControlInfo.serializer(),
+		"action-result" to ActionResult.serializer(),
+		"detected" to ListSerializer(Listener.serializer()),
+		"units" to ListSerializer(UnitInfo.serializer()),
+	)
+
+	/**
+	 * Fields the service sends that the app leaves alone on purpose, as "fixture.path.field" (a list's
+	 * items as "[]") to the reason. Empty while the app models everything.
+	 */
+	private val ignored: Map<String, String> = emptyMap()
+
+	/** No unknown keys, no coercion: whatever the app can't place is an error. */
+	private val strict = Json {
+		ignoreUnknownKeys = false
+		coerceInputValues = false
+		explicitNulls = false
+		classDiscriminator = "type"
+	}
+
+	/** Every field the app declares, defaults and nulls included. */
+	private val everything = Json {
+		encodeDefaults = true
+		explicitNulls = true
+		classDiscriminator = "type"
+	}
+
+	private fun fixture(name: String): JsonElement = Json.parseToJsonElement(File(dir, "$name.json").readText())
+
+	private fun withoutIgnored(e: JsonElement, path: String): JsonElement = when (e) {
+		is JsonObject -> JsonObject(e.filterKeys { "$path.$it" !in ignored }.mapValues { (k, v) -> withoutIgnored(v, "$path.$k") })
+		is JsonArray -> JsonArray(e.map { withoutIgnored(it, "$path[]") })
+		else -> e
+	}
+
+	/** Keys in [app] that [service] lacks, through objects and the first item of lists. */
+	private fun missing(app: JsonElement, service: JsonElement, path: String, out: MutableList<String>) {
+		when {
+			app is JsonObject && service is JsonObject -> for ((k, v) in app) {
+				val a = service[k]
+				if (a == null) out += "$path.$k" else missing(v, a, "$path.$k", out)
+			}
+			app is JsonArray && service is JsonArray && app.isNotEmpty() && service.isNotEmpty() -> missing(app[0], service[0], "$path[]", out)
+		}
+	}
+
+	private fun <T> roundTrip(name: String, serializer: KSerializer<T>): List<String> {
+		val raw = fixture(name)
+		val decoded = try {
+			strict.decodeFromJsonElement(serializer, withoutIgnored(raw, name))
+		} catch (e: SerializationException) {
+			return listOf("$name: the app can't read what the service sends: ${e.message}")
+		}
+		val back = everything.encodeToJsonElement(serializer, decoded)
+		val out = mutableListOf<String>()
+		missing(back, raw, name, out)
+		return out.map { "$it: the app reads it, the service never sends it" }
+	}
+
+	/** Fixtures that aren't a body the app decodes, and the test that reads them. */
+	private val checkedElsewhere = mapOf("errors" to "ErrorsTest: every error code and its status")
+
+	@Test
+	fun everyFixtureHasAShape() {
+		val files = dir.listFiles { f -> f.extension == "json" }.orEmpty().map { it.nameWithoutExtension }.toSet()
+		assertTrue(files.isNotEmpty(), "no fixtures in $dir")
+		assertEquals(files.sorted(), (shapes.keys + checkedElsewhere.keys).sorted(), "a fixture without a shape in the app, or a shape without a fixture")
+	}
+
+	@Test
+	fun fixturesMatchTheAppBothWays() {
+		val problems = shapes.flatMap { (name, serializer) -> roundTrip(name, serializer) }
+		if (problems.isNotEmpty()) fail(problems.joinToString("\n"))
+	}
+
+	@Test
+	fun ignoredFieldsStillExist() {
+		// An entry for a field the service dropped would hide nothing; keep the list honest.
+		for (path in ignored.keys) {
+			val name = path.substringBefore('.')
+			var e: JsonElement? = fixture(name)
+			for (part in path.substringAfter('.').split('.')) {
+				val key = part.removeSuffix("[]")
+				e = (e as? JsonObject)?.get(key)
+				if (part.endsWith("[]")) e = (e as? JsonArray)?.firstOrNull()
+			}
+			assertTrue(e != null, "$path is allowed to be ignored but the service doesn't send it")
+		}
+	}
+
+	@Test
+	fun strictDecodingCatchesAnUnknownField() {
+		val sample = fixture("sample").jsonObject
+		val extra = JsonObject(sample + ("brand_new" to JsonPrimitive(1)))
+		assertFailsWith<SerializationException> { strict.decodeFromJsonElement(Sample.serializer(), extra) }
+	}
+
+	@Test
+	fun productionToleratesNewFields() {
+		for ((name, serializer) in shapes) {
+			val raw = fixture(name)
+			ProtocolJson.decodeFromJsonElement(serializer, addField(raw))
+		}
+	}
+
+	private fun addField(e: JsonElement): JsonElement = when (e) {
+		is JsonObject -> JsonObject(e.mapValues { addField(it.value) } + ("added_later" to JsonPrimitive("x")))
+		is JsonArray -> JsonArray(e.map(::addField))
+		else -> e
+	}
+
+	private fun dropping(name: String, path: String): JsonElement {
+		// "temps[].value": into the list, then the field of each item.
+		fun go(e: JsonElement, parts: List<String>): JsonElement {
+			val part = parts.first()
+			val key = part.removeSuffix("[]")
+			val obj = e as JsonObject
+			if (parts.size == 1) return JsonObject(obj - key)
+			val child = obj.getValue(key)
+			val next = if (part.endsWith("[]")) JsonArray((child as JsonArray).map { go(it, parts.drop(1)) }) else go(child, parts.drop(1))
+			return JsonObject(obj + (key to next))
+		}
+		return go(fixture(name), path.split('.'))
+	}
+
+	@Test
+	fun identityAndTimeAreRequired() {
+		val required = mapOf(
+			"sample" to listOf("t", "uptime", "gpus[].id", "temps[].value", "temps[].kind", "net[].kind", "net[].name", "disks[].mount", "displays[].connector", "processes[].pid", "services[].id", "media.players[].id"),
+			"history" to listOf("t", "gpus[].id"),
+			"info" to listOf("id", "service_version", "api", "cpu_logical_cores", "memory_total", "boot_time", "gpus[].id"),
+			"hello" to listOf("app", "api", "id", "version"),
+			"control" to listOf("enabled", "actions[].id"),
+		)
+		for ((name, paths) in required) {
+			for (path in paths) {
+				val broken = dropping(name, path)
+				assertFailsWith<SerializationException>("$name.$path missing should fail, not read as a default") {
+					ProtocolJson.decodeFromJsonElement(shapes.getValue(name), broken)
+				}
+			}
+		}
+	}
+
+	@Test
+	fun olderServicesGetFallbacks() {
+		// What 0.2 and 0.3 sent: no min_app, interval_ms or history_seconds.
+		val info = dropping("info", "min_app").jsonObject - "interval_ms" - "history_seconds"
+		val decoded = ProtocolJson.decodeFromJsonElement(Info.serializer(), JsonObject(info))
+		assertNull(decoded.minApp)
+		assertEquals(DEFAULT_INTERVAL_MS, decoded.intervalMs)
+		assertEquals(DEFAULT_HISTORY_SECONDS, decoded.historySeconds)
+		val hello = ProtocolJson.decodeFromJsonElement(Hello.serializer(), dropping("hello", "min_app"))
+		assertNull(hello.minApp)
+	}
+
+	private fun line(type: String, name: String): String =
+		JsonObject(mapOf("type" to JsonPrimitive(type)) + fixture(name).jsonObject).toString()
+
+	@Test
+	fun streamLinesDecodeByType() {
+		assertIs<Info>(decodeStreamLine(line("info", "info")))
+		assertIs<History>(decodeStreamLine(line("history", "history")))
+		val sample = assertIs<Sample>(decodeStreamLine(line("sample", "sample")))
+		assertEquals(1, sample.processes?.size)
+		// The type need not come first.
+		val late = JsonObject(fixture("info").jsonObject + ("type" to JsonPrimitive("info"))).toString()
+		assertIs<Info>(decodeStreamLine(late))
+	}
+
+	@Test
+	fun unknownStreamLinesAreSkipped() {
+		assertNull(decodeStreamLine("""{"type":"notice","text":"hi"}"""))
+		assertNull(decodeStreamLine("""{"text":"no type"}"""))
+	}
+
+	@Test
+	fun brokenKnownStreamLinesFail() {
+		assertFailsWith<SerializationException> { decodeStreamLine("""{"type":"sample","uptime":5}""") }
+		assertFailsWith<SerializationException> { decodeStreamLine("""{"type":"sample",""") }
+	}
+}
