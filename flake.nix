@@ -137,6 +137,9 @@
 								unitConfig.ConditionUser = [ "!@system" ] ++ map (u: "|${u}") cfg.users;
 								environment = lib.mkIf (cfg.settings != { }) { ELAMON_CONFIG = "${configFile}"; };
 								restartTriggers = lib.optional (cfg.settings != { }) configFile;
+								# A broken identity or setting fails at once; ten tries in five minutes, then stop.
+								startLimitIntervalSec = 300;
+								startLimitBurst = 10;
 								serviceConfig = {
 									ExecStart = "${cfg.package}/bin/elamond serve";
 									ExecReload = "${pkgs.coreutils}/bin/kill -HUP $MAINPID";
@@ -218,8 +221,10 @@
 						systemd.user.services.elamond = {
 							Unit = {
 								Description = "Elamon service";
-								# A new elamond.toml restarts the service, which reads it only at start.
+								# A new elamond.toml restarts the service: port, interval and history only apply at start.
 								X-Restart-Triggers = lib.optional (cfg.settings != { }) "${configFile}";
+								StartLimitIntervalSec = 300;
+								StartLimitBurst = 10;
 							};
 							Service = {
 								ExecStart = "${cfg.package}/bin/elamond serve";

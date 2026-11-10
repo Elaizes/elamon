@@ -411,6 +411,8 @@ To see what the service finds, without the app: `elamond snapshot`.
   Android backups.
 - A pairing code works for five minutes and five attempts, one attempt at a time.
 - Without a key the service answers only its name (`hello`) and pairing.
-- Unless `control = true`, the service only reads. With control on it acts as your user, commands
-  can only come from `elamond.toml`, and every action is logged with the name of the phone that
-  asked: `journalctl --user -u elamond`.
+- Unless `control = true`, the service doesn't act on the computer: phones only read, and may keep
+  their list of service links. With control on it acts as your user; commands can only come from
+  the settings files, never from a phone; it never signals itself, its parents or PID 1; and
+  every action is logged with the name of the phone that asked: `journalctl --user -u elamond`.
+- `elamond revoke` cuts a phone off at once, open streams included.
