@@ -43,7 +43,13 @@ class ElamondException(
 	/** The service doesn't know the path at all: an older elamond, asked for something newer. */
 	val unknownPath: Boolean get() = status == 404 && code == "not_found"
 
-	enum class Kind { Unreachable, Unauthorized, WrongCode, NoPairing, CertificateChanged, NotElamond, Protocol, ControlDisabled, NotPermitted, Forbidden, NotFound, BadRequest, Failed }
+	/** The service doesn't let this phone do that: its role on the computer is too low. */
+	val notAllowed: Boolean get() = kind == Kind.NotAllowed
+
+	enum class Kind {
+		Unreachable, Unauthorized, WrongCode, NoPairing, CertificateChanged, NotElamond, Protocol, ControlDisabled, NotPermitted,
+		NotAllowed, TooManyRequests, Conflict, Forbidden, NotFound, BadRequest, Failed,
+	}
 
 	companion object {
 		/** An error answer: its status and the body, {"error": code} or {"error": "failed", "message": text}. */
@@ -57,6 +63,11 @@ class ElamondException(
 				error == "no_pairing" -> Kind.NoPairing
 				error == "control_disabled" -> Kind.ControlDisabled
 				error == "not_permitted" || error == "protected_process" -> Kind.NotPermitted
+				error == "not_allowed" -> Kind.NotAllowed
+				// Acting too often, or too many wrong pairing codes from this address.
+				status == 429 || error == "too_many_requests" -> Kind.TooManyRequests
+				// A signal's process isn't the one that has its pid now (process_changed).
+				status == 409 -> Kind.Conflict
 				status == 403 -> Kind.Forbidden
 				status == 404 -> Kind.NotFound
 				status == 400 -> Kind.BadRequest

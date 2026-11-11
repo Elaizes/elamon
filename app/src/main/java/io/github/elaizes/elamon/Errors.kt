@@ -27,6 +27,9 @@ private val CODE_MESSAGES = mapOf(
 	"bad_unit" to R.string.err_bad_unit,
 	"bad_scope" to R.string.err_bad_scope,
 	"storage" to R.string.err_storage,
+	"not_allowed" to R.string.err_not_allowed,
+	"too_many_requests" to R.string.err_too_many_requests,
+	"process_changed" to R.string.err_process_changed,
 )
 
 /** What to tell about a failed request: the computer's own words for a failed command, else one of the app's strings. */
@@ -44,10 +47,12 @@ fun messageFor(e: Throwable): Message {
 		Kind.NotElamond -> Message.Res(R.string.err_not_elamond)
 		Kind.ControlDisabled -> Message.Res(R.string.err_control_disabled)
 		Kind.NotPermitted -> Message.Res(R.string.err_not_permitted)
+		Kind.NotAllowed -> Message.Res(R.string.err_not_allowed)
+		Kind.TooManyRequests -> Message.Res(R.string.err_too_many_requests)
 		Kind.NotFound -> Message.Res(R.string.err_not_found)
 		Kind.Failed -> Message.Res(R.string.err_failed)
 		// A code from a newer service is still more use than nothing.
-		Kind.Forbidden, Kind.BadRequest -> a.code?.let { Message.Res(R.string.err_code, listOf(it)) } ?: Message.Res(R.string.err_refused)
+		Kind.Forbidden, Kind.BadRequest, Kind.Conflict -> a.code?.let { Message.Res(R.string.err_code, listOf(it)) } ?: Message.Res(R.string.err_refused)
 		Kind.Protocol -> a.code?.let { Message.Res(R.string.err_code, listOf(it)) } ?: Message.Res(R.string.err_protocol)
 	}
 }

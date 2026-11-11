@@ -16,6 +16,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
 /**
@@ -33,11 +34,13 @@ class ProtocolContractTest {
 		"pair" to PairResponse.serializer(),
 		"info" to Info.serializer(),
 		"sample" to Sample.serializer(),
+		"sample-glance" to Sample.serializer(),
 		"history" to History.serializer(),
 		"control" to ControlInfo.serializer(),
 		"action-result" to ActionResult.serializer(),
 		"detected" to ListSerializer(Listener.serializer()),
 		"units" to ListSerializer(UnitInfo.serializer()),
+		"log" to ListSerializer(LogEntry.serializer()),
 	)
 
 	/**
@@ -45,6 +48,16 @@ class ProtocolContractTest {
 	 * items as "[]") to the reason. Empty while the app models everything.
 	 */
 	private val ignored: Map<String, String> = emptyMap()
+
+	/**
+	 * Fields the app reads that a fixture leaves out on purpose, as "fixture.path.field" to the reason;
+	 * another fixture has each of them.
+	 */
+	private val leftOut: Map<String, String> = mapOf(
+		"sample-glance.media" to "a glance phone gets no media",
+		"sample-glance.process_count" to "nor processes",
+		"sample-glance.processes" to "nor processes",
+	)
 
 	/** No unknown keys, no coercion: whatever the app can't place is an error. */
 	private val strict = Json {
@@ -90,7 +103,7 @@ class ProtocolContractTest {
 		val back = everything.encodeToJsonElement(serializer, decoded)
 		val out = mutableListOf<String>()
 		missing(back, raw, name, out)
-		return out.map { "$it: the app reads it, the service never sends it" }
+		return out.filter { it !in leftOut }.map { "$it: the app reads it, the service never sends it" }
 	}
 
 	/** Fixtures that aren't a body the app decodes, and the test that reads them. */
@@ -121,6 +134,50 @@ class ProtocolContractTest {
 				if (part.endsWith("[]")) e = (e as? JsonArray)?.firstOrNull()
 			}
 			assertTrue(e != null, "$path is allowed to be ignored but the service doesn't send it")
+		}
+	}
+
+	@Test
+	fun leftOutFieldsAreLeftOutAndSentElsewhere() {
+		for (path in leftOut.keys) {
+			val name = path.substringBefore('.')
+			val field = path.substringAfter('.')
+			assertTrue(field !in fixture(name).jsonObject, "$path is said to be left out, but $name has it")
+			assertTrue(field in fixture("sample").jsonObject, "$path is in no fixture at all")
+		}
+	}
+
+	@Test
+	fun aGlancePhonesSampleHasTheBasicsOnly() {
+		val glance = ProtocolJson.decodeFromJsonElement(Sample.serializer(), fixture("sample-glance"))
+		assertNull(glance.processes)
+		assertNull(glance.processCount)
+		assertNull(glance.media)
+		assertEquals(emptyList(), glance.displays)
+		assertEquals(emptyList(), glance.links)
+		assertTrue(glance.gpus.isNotEmpty() && glance.disks.isNotEmpty() && glance.net.isNotEmpty())
+	}
+
+	@Test
+	fun rolesAndTheLog() {
+		val pair = ProtocolJson.decodeFromJsonElement(PairResponse.serializer(), fixture("pair"))
+		assertEquals("admin", pair.role)
+		val control = ProtocolJson.decodeFromJsonElement(ControlInfo.serializer(), fixture("control"))
+		assertEquals("admin", control.role)
+		assertEquals("processes", control.allowed?.first())
+		// What elamond before 0.5 sends: no role, nothing allowed by name.
+		val old = ProtocolJson.decodeFromJsonElement(ControlInfo.serializer(), without("control", "role", "allowed"))
+		assertNull(old.role)
+		assertNull(old.allowed)
+		assertNull(ProtocolJson.decodeFromJsonElement(PairResponse.serializer(), without("pair", "role")).role)
+		val log = ProtocolJson.decodeFromJsonElement(ListSerializer(LogEntry.serializer()), fixture("log"))
+		assertEquals(listOf("ok", "not_allowed"), log.map { it.result })
+		assertTrue(log.first().t > log.last().t, "the log comes newest first")
+		assertNull(log.last().message)
+		// An entry without its time is broken, not from 1970.
+		val timeless = JsonArray(listOf(JsonObject(fixture("log").jsonArray.first().jsonObject - "t")))
+		assertFailsWith<SerializationException> {
+			ProtocolJson.decodeFromJsonElement(ListSerializer(LogEntry.serializer()), timeless)
 		}
 	}
 

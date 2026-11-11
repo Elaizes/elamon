@@ -115,6 +115,7 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 				val error = when ((e as? ElamondException)?.kind) {
 					ElamondException.Kind.WrongCode -> R.string.pair_wrong_code
 					ElamondException.Kind.NoPairing -> R.string.pair_no_pairing
+					ElamondException.Kind.TooManyRequests -> R.string.pair_too_many
 					else -> R.string.pair_unreachable
 				}
 				_state.update { it.copy(busy = false, codeError = error) }

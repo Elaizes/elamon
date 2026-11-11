@@ -70,6 +70,7 @@
 	<string name="pair_cert_mismatch">Something answered at this address, but not with the certificate the computer announced. Pairing was stopped to be safe.</string>
 	<string name="pair_wrong_code">Wrong code. After five wrong codes the computer needs a new one.</string>
 	<string name="pair_no_pairing">The computer isn\'t waiting for a phone. Run elamond pair on it first.</string>
+	<string name="pair_too_many">Too many wrong codes from this phone. Run elamond pair on the computer again for a new code.</string>
 	<string name="pair_link_newer">This pairing code is from a newer elamond than this app reads. Update the app, then scan it again.</string>
 	<string name="pair_link_invalid">This pairing link is incomplete or damaged. Run elamond pair on the computer and scan the new code.</string>
 
@@ -398,6 +399,9 @@
 	<string name="err_bad_unit">That isn\'t a valid systemd unit name</string>
 	<string name="err_bad_scope">A unit is either the user\'s or the system\'s</string>
 	<string name="err_storage">The computer couldn\'t save it</string>
+	<string name="err_not_allowed">This phone\'s role on the computer doesn\'t allow that</string>
+	<string name="err_too_many_requests">Too many requests in a row. Wait a moment and try again.</string>
+	<string name="err_process_changed">That process has ended or been replaced, so nothing was sent to it. The list is up to date again.</string>
 	<string name="err_failed">It didn\'t work</string>
 	<string name="err_unreachable">Can\'t reach the computer</string>
 	<string name="err_unauthorized">The computer no longer accepts this phone. Pair again.</string>

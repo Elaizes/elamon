@@ -27,6 +27,12 @@ class ErrorsTest {
 		assertEquals(Kind.WrongCode, answer(403, "wrong_code").kind)
 		assertEquals(Kind.NoPairing, answer(403, "no_pairing").kind)
 		assertEquals(Kind.Forbidden, answer(403, "something_new").kind)
+		assertEquals(Kind.NotAllowed, answer(403, "not_allowed").kind)
+		assertTrue(answer(403, "not_allowed").notAllowed)
+		assertTrue(!answer(403, "control_disabled").notAllowed)
+		assertEquals(Kind.TooManyRequests, answer(429, "too_many_requests").kind)
+		assertEquals(Kind.TooManyRequests, ElamondException.fromResponse(429, "").kind)
+		assertEquals(Kind.Conflict, answer(409, "process_changed").kind)
 		for (code in listOf("not_found", "no_such_process", "no_such_action", "no_such_link", "no_such_service", "no_art")) {
 			assertEquals(Kind.NotFound, answer(404, code).kind, code)
 		}
@@ -70,6 +76,9 @@ class ErrorsTest {
 			(400 to "bad_unit") to R.string.err_bad_unit,
 			(400 to "bad_scope") to R.string.err_bad_scope,
 			(500 to "storage") to R.string.err_storage,
+			(403 to "not_allowed") to R.string.err_not_allowed,
+			(429 to "too_many_requests") to R.string.err_too_many_requests,
+			(409 to "process_changed") to R.string.err_process_changed,
 		)
 		for ((sent, id) in expected) {
 			assertEquals(Message.Res(id), messageFor(answer(sent.first, sent.second)), sent.second)
@@ -117,6 +126,9 @@ class ErrorsTest {
 		assertEquals(Message.Res(R.string.err_code, listOf("rate_limited")), messageFor(answer(403, "rate_limited")))
 		assertEquals(Message.Res(R.string.err_code, listOf("too_long")), messageFor(answer(400, "too_long")))
 		assertEquals(Message.Res(R.string.err_refused), messageFor(ElamondException.fromResponse(403, "")))
+		// Statuses 0.5 brought in, from a service that gives no code or a newer one.
+		assertEquals(Message.Res(R.string.err_too_many_requests), messageFor(ElamondException.fromResponse(429, "")))
+		assertEquals(Message.Res(R.string.err_code, listOf("pid_reused")), messageFor(answer(409, "pid_reused")))
 	}
 
 	@Test

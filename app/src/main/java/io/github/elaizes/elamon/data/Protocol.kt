@@ -64,6 +64,8 @@ data class PairResponse(
 	@SerialName("client_id") val clientId: String = "",
 	val id: String = "",
 	val name: String = "",
+	/** What the phone may do there, "glance" to "admin"; elamond before 0.5 has no roles and doesn't say. */
+	val role: String? = null,
 )
 
 @Serializable
@@ -329,11 +331,32 @@ data class Player(
 
 @Serializable
 data class ControlInfo(
+	/** Control is on now: in the settings, and not held off with `elamond control off`. */
 	val enabled: Boolean,
 	val power: PowerCaps = PowerCaps(),
 	val profiles: Profiles? = null,
 	val actions: List<ActionInfo> = emptyList(),
 	val volume: Boolean = false,
+	/** This phone's role; null from elamond before 0.5, which has none. */
+	val role: String? = null,
+	/** What this phone may do now, by name, in the service's order; null before 0.5 (see Permissions). */
+	val allowed: List<String>? = null,
+)
+
+/** One request to act on the computer, from any paired phone, let through or refused. */
+@Serializable
+data class LogEntry(
+	/** Unix milliseconds on the service's clock. */
+	val t: Long,
+	/** The phone's name when it asked. */
+	val phone: String = "",
+	@SerialName("client_id") val clientId: String = "",
+	/** What it asked for, in the service's words: "power reboot", "unit restart nginx.service". */
+	val what: String = "",
+	/** "ok", or the error code it was answered with. */
+	val result: String = "",
+	/** What failed, or how an action ended: "exit 0", "timed out". */
+	val message: String? = null,
 )
 
 /** logind's answers: "yes", "challenge" (needs a password), "no" or "na". */
