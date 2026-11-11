@@ -99,6 +99,11 @@ dependencies {
 	implementation("dev.chrisbanes.haze:haze:1.7.3")
 	implementation("dev.chrisbanes.haze:haze-materials:1.7.3")
 	implementation("androidx.activity:activity-compose:1.13.0")
+	// Unlocking the phone before an action, down to Android 8: the prompt lives in a FragmentActivity
+	// and, before Android 9, shows a fingerprint dialog of AppCompat's, whose theme the app's extends.
+	implementation("androidx.biometric:biometric:1.1.0")
+	implementation("androidx.fragment:fragment:1.9.1")
+	implementation("androidx.appcompat:appcompat:1.8.0")
 	implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
 	implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
 	implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")

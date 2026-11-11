@@ -29,6 +29,10 @@ data class Prefs(
 	val networkBits: Boolean = false,
 	/** Ask before power, kill and other actions that can't be undone. */
 	val confirmActions: Boolean = true,
+	/** Kinds of action the phone must be unlocked for first (biometric or its screen lock), in place of confirming. */
+	val unlockFor: Set<Guarded> = Guarded.DEFAULTS,
+	/** How long an unlock lasts before the next action asks again. */
+	val unlockGrace: UnlockGrace = UnlockGrace.EveryTime,
 	val haptics: Boolean = true,
 ) {
 	val blurAvailable: Boolean get() = Build.VERSION.SDK_INT >= 31
@@ -99,6 +103,8 @@ class Settings private constructor(context: Context) {
 			fahrenheit = prefs.getBoolean("fahrenheit", d.fahrenheit),
 			networkBits = prefs.getBoolean("network_bits", d.networkBits),
 			confirmActions = prefs.getBoolean("confirm_actions", d.confirmActions),
+			unlockFor = Guarded.entries.filter { prefs.getBoolean(UNLOCK + it.key, it.byDefault) }.toSet(),
+			unlockGrace = runCatching { UnlockGrace.valueOf(prefs.getString(UNLOCK_GRACE, d.unlockGrace.name)!!) }.getOrDefault(d.unlockGrace),
 			haptics = prefs.getBoolean("haptics", d.haptics),
 		)
 	}
@@ -116,6 +122,8 @@ class Settings private constructor(context: Context) {
 			.putBoolean("fahrenheit", p.fahrenheit)
 			.putBoolean("network_bits", p.networkBits)
 			.putBoolean("confirm_actions", p.confirmActions)
+			.also { e -> for (k in Guarded.entries) e.putBoolean(UNLOCK + k.key, k in p.unlockFor) }
+			.putString(UNLOCK_GRACE, p.unlockGrace.name)
 			.putBoolean("haptics", p.haptics)
 			.apply()
 		_state.value = p
@@ -123,6 +131,10 @@ class Settings private constructor(context: Context) {
 
 	companion object {
 		private const val DISPLAYS_OPEN = "displays_open"
+
+		/** Before each kind's key: "unlock_power", "unlock_media". */
+		private const val UNLOCK = "unlock_"
+		private const val UNLOCK_GRACE = "unlock_grace"
 
 		@Volatile private var instance: Settings? = null
 		fun get(context: Context): Settings =

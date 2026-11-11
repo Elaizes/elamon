@@ -376,6 +376,7 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 									c(CONTROL_ACTIONS),
 									t(R.string.help_control_polkit),
 									c(CONTROL_POLKIT),
+									t(R.string.help_control_unlock),
 								)
 							)
 						}

@@ -393,6 +393,33 @@
 	<string name="power_needs_permission_body">The Elamon service runs outside a login session, so the system asks for a password it can\'t give. Allow it with a polkit rule: on NixOS, services.elamond.control.users = [ \"you\" ]; elsewhere, a rule that permits org.freedesktop.login1 power actions for your user.</string>
 	<string name="power_try_anyway">Try anyway</string>
 
+	<!-- Unlocking the phone before an action: the prompt's title names the action and the computer, "Restart Test computer". -->
+	<string name="unlock_lock">Lock %1$s</string>
+	<string name="unlock_sleep">Put %1$s to sleep</string>
+	<string name="unlock_restart">Restart %1$s</string>
+	<string name="unlock_shut_down">Shut down %1$s</string>
+	<!-- A process, a link or an action, then the computer: "Force kill firefox on Test computer". -->
+	<string name="unlock_quit">Quit %1$s on %2$s</string>
+	<string name="unlock_force_kill">Force kill %1$s on %2$s</string>
+	<string name="unlock_run">Run %1$s on %2$s</string>
+	<string name="unlock_start">Start %1$s on %2$s</string>
+	<string name="unlock_stop">Stop %1$s on %2$s</string>
+	<string name="unlock_restart_unit">Restart %1$s on %2$s</string>
+	<!-- The computer, then the profile: "Switch Test computer to Performance". -->
+	<string name="unlock_profile">Switch %1$s to %2$s</string>
+	<string name="unlock_media">Control playback on %1$s</string>
+	<string name="unlock_volume">Change the volume on %1$s</string>
+	<!-- Confirmations for what isn't confirmed otherwise, asked instead of unlocking a phone that has no screen lock. -->
+	<string name="control_start_title">Start %1$s?</string>
+	<string name="control_stop_title">Stop %1$s?</string>
+	<string name="control_profile_title">Switch to %1$s?</string>
+	<string name="control_switch">Switch</string>
+	<string name="control_media_title">Control playback on %1$s?</string>
+	<string name="control_volume_title">Change the volume on %1$s?</string>
+	<string name="control_continue">Continue</string>
+	<!-- Under the first such confirmation in a run of the app. -->
+	<string name="unlock_no_lock_screen">This phone has no screen lock, so Elamon can\'t ask to unlock it first. Set one in the phone\'s settings to be asked.</string>
+
 	<!-- The activity log: what phones asked the computer to do, let through or refused, newest first. -->
 	<string name="activity_title">Activity</string>
 	<string name="activity_summary">What phones asked this computer to do</string>
@@ -493,6 +520,23 @@
 	<string name="settings_confirm_actions_summary">Ask before power, kill, restart and commands</string>
 	<string name="settings_haptics">Haptic feedback</string>
 	<string name="settings_haptics_summary">A tick on long presses</string>
+	<!-- Which actions need the phone unlocked first, with a fingerprint, the face or the screen lock, in place of the confirmation. -->
+	<string name="settings_unlock">Ask to unlock before</string>
+	<string name="settings_unlock_power">Power</string>
+	<string name="settings_unlock_power_summary">Shut down, restart, sleep and lock</string>
+	<string name="settings_unlock_processes">Ending processes</string>
+	<string name="settings_unlock_processes_summary">Quit and force kill</string>
+	<string name="settings_unlock_actions">Actions</string>
+	<string name="settings_unlock_actions_summary">Commands from the computer\'s settings</string>
+	<string name="settings_unlock_units">Units</string>
+	<string name="settings_unlock_units_summary">Starting, stopping and restarting what a link runs</string>
+	<string name="settings_unlock_profile">Power profile</string>
+	<string name="settings_unlock_profile_summary">Switching to another profile</string>
+	<string name="settings_unlock_media">Media and volume</string>
+	<string name="settings_unlock_media_summary">Playing, skipping, seeking and the volume</string>
+	<string name="settings_unlock_grace">Ask again after</string>
+	<string name="settings_unlock_every_time">Every time</string>
+	<string name="settings_unlock_no_lock">This phone has no screen lock, so these actions are confirmed instead. Set one in the phone\'s settings to be asked to unlock.</string>
 	<string name="settings_about">About</string>
 	<string name="settings_help_summary">Installing the service, the firewall, pairing, troubleshooting</string>
 	<string name="settings_source">Source code</string>
@@ -583,6 +627,7 @@
 	<string name="help_control_links">Links to the web pages the computer hosts show up in the Control tab with their state; tap one to open it, hold it for start, stop and restart. Add them in the app, or on the computer:</string>
 	<string name="help_control_actions">Commands are defined only on the computer, so a phone can\'t run anything else. Each becomes a button in the app; its output comes back:</string>
 	<string name="help_control_polkit">Elsewhere, power actions and system units need a polkit rule, because the service runs outside a login session. Without it the app marks them \"needs permission\". Save this as /etc/polkit-1/rules.d/50-elamon.rules, with your user name:</string>
+	<string name="help_control_unlock">Before power, ending processes and the computer\'s actions, the app asks to unlock the phone with a fingerprint, the face or the screen lock. Settings, under Ask to unlock before, chooses which actions ask and how long an unlock lasts.</string>
 	<string name="help_commands">Service commands</string>
 	<string name="cmd_pair">pair a phone: shows a QR code and a code</string>
 	<string name="cmd_clients">list paired phones with their IDs</string>

@@ -3,7 +3,6 @@ package io.github.elaizes.elamon
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -17,6 +16,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.graphics.drawable.toDrawable
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
@@ -32,9 +33,13 @@ import io.github.elaizes.elamon.data.PairLink
 import io.github.elaizes.elamon.data.PairTarget
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.ui.ElamonTheme
+import io.github.elaizes.elamon.ui.Guard
+import io.github.elaizes.elamon.ui.GuardDialog
+import io.github.elaizes.elamon.ui.GuardState
 import io.github.elaizes.elamon.ui.HelpScreen
 import io.github.elaizes.elamon.ui.HelpTopic
 import io.github.elaizes.elamon.ui.HomeScreen
+import io.github.elaizes.elamon.ui.LocalGuard
 import io.github.elaizes.elamon.ui.MachineScreen
 import io.github.elaizes.elamon.ui.Motion
 import io.github.elaizes.elamon.ui.PairScreen
@@ -118,8 +123,10 @@ class Nav : ViewModel() {
 	}
 }
 
-class MainActivity : ComponentActivity() {
+/** A FragmentActivity: the unlock prompt lives in one. */
+class MainActivity : FragmentActivity() {
 	private val nav: Nav by viewModels()
+	private val guardState: GuardState by viewModels()
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
@@ -128,67 +135,72 @@ class MainActivity : ComponentActivity() {
 		val start = Settings.get(this).current
 		window.setBackgroundDrawable(appColorScheme(this, start, isDark(this, start)).surface.toArgb().toDrawable())
 		if (savedInstanceState == null) handle(intent)
+		val guard = Guard(this, guardState)
 		setContent {
 			val prefs by Settings.get(this).state.collectAsStateWithLifecycle()
 			ElamonTheme(prefs) {
-				Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-					BackHandler(enabled = nav.stack.size > 1) { nav.pop() }
-					AnimatedContent(
-						nav.top,
-						transitionSpec = {
-							if (prefs.animations) (fadeIn(tween(Motion.SCREEN_IN)) + scaleIn(tween(Motion.SCREEN_IN), initialScale = Motion.SCREEN_SCALE)) togetherWith fadeOut(tween(Motion.SCREEN_OUT))
-							else fadeIn(tween(0)) togetherWith fadeOut(tween(0))
-						},
-						label = "screen",
-					) { screen ->
-						DisposableEffect(screen) {
-							nav.attach(screen)
-							onDispose { nav.detach(screen) }
-						}
-						when (screen) {
-							Screen.Home -> HomeScreen(
-								onOpen = { nav.push(Screen.Machine(it.id)) },
-								onPair = { nav.push(Screen.Pair(it)) },
-								onHelp = { nav.push(Screen.Help()) },
-								onSettings = { nav.push(Screen.Settings) },
-							)
-							is Screen.Machine -> {
-								val store = MachineStore.get(this@MainActivity)
-								// Watched, not read once: the entry may go or be replaced while the screen is open.
-								val machines by store.machines.collectAsStateWithLifecycle()
-								val machine = machines.find { it.id == screen.id }
-								if (machine == null) {
-									LaunchedEffect(screen) {
-										// Only the screen on top moves; one on its way out is left alone.
-										if (nav.top != screen) return@LaunchedEffect
-										// Paired again under a new id, with the pairing screen left before it
-										// finished: on to the new entry. Otherwise it's gone: back home.
-										val next = store.successor(screen.id)
-										if (next != null) nav.paired(next) else nav.reset(Screen.Home)
-									}
-								} else {
-									MachineScreen(
-										machine,
-										owner = nav.owner(screen),
-										onBack = { nav.pop() },
-										onPairAgain = { nav.push(Screen.Pair(it)) },
-										onForgotten = { nav.reset(Screen.Home) },
-										onHelp = { nav.push(Screen.Help(it)) },
-										onSettings = { nav.push(Screen.Settings) },
-									)
-								}
+				CompositionLocalProvider(LocalGuard provides guard) {
+					Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+						BackHandler(enabled = nav.stack.size > 1) { nav.pop() }
+						AnimatedContent(
+							nav.top,
+							transitionSpec = {
+								if (prefs.animations) (fadeIn(tween(Motion.SCREEN_IN)) + scaleIn(tween(Motion.SCREEN_IN), initialScale = Motion.SCREEN_SCALE)) togetherWith fadeOut(tween(Motion.SCREEN_OUT))
+								else fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+							},
+							label = "screen",
+						) { screen ->
+							DisposableEffect(screen) {
+								nav.attach(screen)
+								onDispose { nav.detach(screen) }
 							}
-							is Screen.Pair -> PairScreen(
-								screen.target,
-								owner = nav.owner(screen),
-								onBack = { nav.pop() },
-								onPaired = { nav.paired(it.id) },
-								onHelp = { nav.push(Screen.Help(HelpTopic.TROUBLESHOOTING)) },
-							)
-							is Screen.Help -> HelpScreen(screen.topic, onBack = { nav.pop() })
-							Screen.Settings -> SettingsScreen(onBack = { nav.pop() }, onHelp = { nav.push(Screen.Help()) })
+							when (screen) {
+								Screen.Home -> HomeScreen(
+									onOpen = { nav.push(Screen.Machine(it.id)) },
+									onPair = { nav.push(Screen.Pair(it)) },
+									onHelp = { nav.push(Screen.Help()) },
+									onSettings = { nav.push(Screen.Settings) },
+								)
+								is Screen.Machine -> {
+									val store = MachineStore.get(this@MainActivity)
+									// Watched, not read once: the entry may go or be replaced while the screen is open.
+									val machines by store.machines.collectAsStateWithLifecycle()
+									val machine = machines.find { it.id == screen.id }
+									if (machine == null) {
+										LaunchedEffect(screen) {
+											// Only the screen on top moves; one on its way out is left alone.
+											if (nav.top != screen) return@LaunchedEffect
+											// Paired again under a new id, with the pairing screen left before it
+											// finished: on to the new entry. Otherwise it's gone: back home.
+											val next = store.successor(screen.id)
+											if (next != null) nav.paired(next) else nav.reset(Screen.Home)
+										}
+									} else {
+										MachineScreen(
+											machine,
+											owner = nav.owner(screen),
+											onBack = { nav.pop() },
+											onPairAgain = { nav.push(Screen.Pair(it)) },
+											onForgotten = { nav.reset(Screen.Home) },
+											onHelp = { nav.push(Screen.Help(it)) },
+											onSettings = { nav.push(Screen.Settings) },
+										)
+									}
+								}
+								is Screen.Pair -> PairScreen(
+									screen.target,
+									owner = nav.owner(screen),
+									onBack = { nav.pop() },
+									onPaired = { nav.paired(it.id) },
+									onHelp = { nav.push(Screen.Help(HelpTopic.TROUBLESHOOTING)) },
+								)
+								is Screen.Help -> HelpScreen(screen.topic, onBack = { nav.pop() })
+								Screen.Settings -> SettingsScreen(onBack = { nav.pop() }, onHelp = { nav.push(Screen.Help()) })
+							}
 						}
 					}
+					// One confirmation for every action that may ask, over whatever screen asked.
+					GuardDialog(guard)
 				}
 			}
 		}

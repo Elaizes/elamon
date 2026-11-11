@@ -111,6 +111,8 @@ class TabScope(
 	val header: @Composable () -> Unit,
 	val openDetail: (String) -> Unit,
 	val openHelp: (String?) -> Unit,
+	/** The computer's name as shown, for what asks before acting on it. */
+	val name: String,
 )
 
 @Composable
@@ -168,6 +170,11 @@ fun MachineScreen(
 	val res by rememberUpdatedState(resources())
 	LaunchedEffect(Unit) {
 		vm.messages.collect { m -> snackbar.showSnackbar(m.text(res)) }
+	}
+	// Why unlocking the phone for an action failed, when it wasn't just cancelled.
+	val guard = LocalGuard.current
+	LaunchedEffect(guard) {
+		guard.messages.collect { snackbar.showSnackbar(it) }
 	}
 
 	val view = LocalView.current
@@ -252,7 +259,7 @@ fun MachineScreen(
 											if (compat != Compat.Ok && !compatDismissed && info != null) CompatBanner(compat, info) { vm.dismissCompat() }
 										}
 									}
-									val s = TabScope(state, vm, perms, lists.getValue(t), header, { detail = it }, onHelp)
+									val s = TabScope(state, vm, perms, lists.getValue(t), header, { detail = it }, onHelp, name)
 									when (t) {
 										Tab.Overview -> OverviewTab(s)
 										Tab.Processes -> ProcessesTab(s)

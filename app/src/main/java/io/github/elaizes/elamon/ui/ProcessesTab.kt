@@ -30,7 +30,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +46,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import io.github.elaizes.elamon.Guarded
 import io.github.elaizes.elamon.ProcRequest
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.orNull
@@ -189,8 +189,20 @@ private fun ProcRow(r: ProcItem, onClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProcessSheet(t: TabScope, p: Proc, gone: Boolean, onDismiss: () -> Unit) {
-	val prefs = LocalPrefs.current
-	var confirm by remember { mutableStateOf<String?>(null) }
+	val guard = LocalGuard.current
+	val res = resources()
+	// Quitting or killing closes the sheet, once something has asked first.
+	fun send(signal: String) {
+		val kill = signal == "kill"
+		val ask = Ask(
+			Guarded.Processes,
+			prompt = res.getString(if (kill) R.string.unlock_force_kill else R.string.unlock_quit, p.name, t.name),
+			question = res.getString(if (kill) R.string.processes_force_kill_title else R.string.processes_quit_title, p.name),
+			button = res.getString(if (kill) R.string.processes_force_kill else R.string.processes_quit),
+			body = res.getString(if (kill) R.string.processes_force_kill_body else R.string.processes_quit_body),
+		)
+		guard.run(ask, afterAsking = onDismiss) { t.vm.signal(p.pid, p.start, signal) }
+	}
 	ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
 		Column(Modifier.padding(start = Space.xxl, end = Space.xxl, bottom = Space.xxxl), verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
@@ -224,34 +236,15 @@ private fun ProcessSheet(t: TabScope, p: Proc, gone: Boolean, onDismiss: () -> U
 			// Quitting and killing need the admin role and control on.
 			if (t.perms.signal) {
 				Row(horizontalArrangement = Arrangement.spacedBy(Space.sPlus), modifier = Modifier.padding(top = Space.s)) {
-					FilledTonalButton(onClick = { if (prefs.confirmActions) confirm = "term" else t.vm.signal(p.pid, p.start, "term") }, modifier = Modifier.weight(1f)) {
+					FilledTonalButton(onClick = { send("term") }, modifier = Modifier.weight(1f)) {
 						Text(stringResource(R.string.processes_quit))
 					}
-					FilledTonalButton(onClick = { if (prefs.confirmActions) confirm = "kill" else t.vm.signal(p.pid, p.start, "kill") }, modifier = Modifier.weight(1f)) {
+					FilledTonalButton(onClick = { send("kill") }, modifier = Modifier.weight(1f)) {
 						Text(stringResource(R.string.processes_force_kill), color = Metric.colors.hot)
 					}
 				}
 			}
 		}
-	}
-	confirm?.let { sig ->
-		GlassDialog(
-			onDismiss = { confirm = null },
-			title = stringResource(if (sig == "kill") R.string.processes_force_kill_title else R.string.processes_quit_title, p.name),
-			text = {
-				Text(
-					stringResource(if (sig == "kill") R.string.processes_force_kill_body else R.string.processes_quit_body),
-				)
-			},
-			confirm = {
-				TextButton(onClick = {
-					t.vm.signal(p.pid, p.start, sig)
-					confirm = null
-					onDismiss()
-				}) { Text(stringResource(if (sig == "kill") R.string.processes_force_kill else R.string.processes_quit)) }
-			},
-			dismiss = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.cancel)) } },
-		)
 	}
 }
 

@@ -1,6 +1,7 @@
 package io.github.elaizes.elamon.ui
 
 import android.content.Intent
+import android.content.res.Resources
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.annotation.StringRes
@@ -86,6 +87,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import io.github.elaizes.elamon.Can
 import io.github.elaizes.elamon.Conn
+import io.github.elaizes.elamon.Guarded
 import io.github.elaizes.elamon.PhoneRole
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.data.ActionInfo
@@ -119,6 +121,8 @@ fun ControlTab(t: TabScope) {
 	val localOnly = linkById(localOnlyId)
 	val ctx = LocalContext.current
 	val perms = t.perms
+	val guard = LocalGuard.current
+	val res = resources()
 
 	LaunchedEffect(Unit) { vm.refreshControl() }
 	// Players ride the stream only while they can be shown here.
@@ -167,7 +171,12 @@ fun ControlTab(t: TabScope) {
 			item(key = "media") { MediaSection(t, media.players, media.volume) }
 		}
 		control?.profiles?.takeIf { perms.profile && it.available.isNotEmpty() }?.let { p ->
-			item(key = "profile") { ProfileSection(s.power.ppdProfile ?: p.active, p.available) { vm.setProfile(it) } }
+			item(key = "profile") {
+				ProfileSection(s.power.ppdProfile ?: p.active, p.available) { profile, label ->
+					val ask = Ask(Guarded.Profile, res.getString(R.string.unlock_profile, t.name, label), res.getString(R.string.control_profile_title, label), res.getString(R.string.control_switch), confirmable = false)
+					guard.run(ask) { vm.setProfile(profile) }
+				}
+			}
 		}
 		control?.actions?.takeIf { perms.actions && it.isNotEmpty() }?.let { actions ->
 			item(key = "actions") { ActionsSection(t, actions) }
@@ -363,9 +372,10 @@ private fun LinkTile(link: LinkStatus, modifier: Modifier, onOpen: () -> Unit, o
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LinkSheet(t: TabScope, link: LinkStatus, onDismiss: () -> Unit, onOpen: () -> Unit, onEdit: () -> Unit) {
-	val prefs = LocalPrefs.current
 	val perms = t.perms
-	var confirm by rememberSaveable { mutableStateOf<String?>(null) }
+	val guard = LocalGuard.current
+	val res = resources()
+	var confirmRemove by rememberSaveable { mutableStateOf(false) }
 	ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
 		Column(Modifier.padding(start = Space.xxl, end = Space.xxl, bottom = Space.xxxl), verticalArrangement = Arrangement.spacedBy(Space.m)) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
@@ -390,12 +400,37 @@ private fun LinkSheet(t: TabScope, link: LinkStatus, onDismiss: () -> Unit, onOp
 				if (perms.units) {
 					Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 						val running = link.unitState == "active" || link.unitState == "activating"
-						FilledTonalButton(onClick = { t.vm.unit(link.id, if (running) "stop" else "start") }, modifier = Modifier.weight(1f)) {
+						FilledTonalButton(
+							onClick = {
+								// Starting and stopping weren't confirmed before; unlocking may be asked for.
+								val ask = Ask(
+									Guarded.Units,
+									prompt = res.getString(if (running) R.string.unlock_stop else R.string.unlock_start, link.name, t.name),
+									question = res.getString(if (running) R.string.control_stop_title else R.string.control_start_title, link.name),
+									button = res.getString(if (running) R.string.control_stop else R.string.control_start),
+									confirmable = false,
+								)
+								guard.run(ask) { t.vm.unit(link.id, if (running) "stop" else "start") }
+							},
+							modifier = Modifier.weight(1f),
+						) {
 							Icon(if (running) ElIcons.Pause else ElIcons.Play, null, Modifier.size(Sizes.iconS))
 							Spacer(Modifier.width(Space.xsPlus))
 							Text(stringResource(if (running) R.string.control_stop else R.string.control_start))
 						}
-						FilledTonalButton(onClick = { if (prefs.confirmActions) confirm = "restart" else t.vm.unit(link.id, "restart") }, modifier = Modifier.weight(1f)) {
+						FilledTonalButton(
+							onClick = {
+								val ask = Ask(
+									Guarded.Units,
+									prompt = res.getString(R.string.unlock_restart_unit, link.name, t.name),
+									question = res.getString(R.string.control_restart_title, link.name),
+									button = res.getString(R.string.control_restart),
+									body = res.getString(R.string.control_restart_body),
+								)
+								guard.run(ask, afterAsking = onDismiss) { t.vm.unit(link.id, "restart") }
+							},
+							modifier = Modifier.weight(1f),
+						) {
 							Icon(ElIcons.Restart, null, Modifier.size(Sizes.iconS))
 							Spacer(Modifier.width(Space.xsPlus))
 							Text(stringResource(R.string.control_restart))
@@ -414,7 +449,7 @@ private fun LinkSheet(t: TabScope, link: LinkStatus, onDismiss: () -> Unit, onOp
 						Spacer(Modifier.width(Space.xsPlus))
 						Text(stringResource(R.string.control_edit))
 					}
-					TextButton(onClick = { confirm = "remove" }) {
+					TextButton(onClick = { confirmRemove = true }) {
 						Icon(Icons.Default.Delete, null, Modifier.size(Sizes.iconS), tint = Metric.colors.hot)
 						Spacer(Modifier.width(Space.xsPlus))
 						Text(stringResource(R.string.control_remove), color = Metric.colors.hot)
@@ -425,19 +460,19 @@ private fun LinkSheet(t: TabScope, link: LinkStatus, onDismiss: () -> Unit, onOp
 			}
 		}
 	}
-	confirm?.let { what ->
+	if (confirmRemove) {
 		GlassDialog(
-			onDismiss = { confirm = null },
-			title = stringResource(if (what == "remove") R.string.control_remove_title else R.string.control_restart_title, link.name),
-			text = { Text(stringResource(if (what == "remove") R.string.control_remove_body else R.string.control_restart_body)) },
+			onDismiss = { confirmRemove = false },
+			title = stringResource(R.string.control_remove_title, link.name),
+			text = { Text(stringResource(R.string.control_remove_body)) },
 			confirm = {
 				TextButton(onClick = {
-					if (what == "remove") t.vm.deleteLink(link.id) else t.vm.unit(link.id, "restart")
-					confirm = null
+					t.vm.deleteLink(link.id)
+					confirmRemove = false
 					onDismiss()
-				}) { Text(stringResource(if (what == "remove") R.string.control_remove else R.string.control_restart)) }
+				}) { Text(stringResource(R.string.control_remove)) }
 			},
-			dismiss = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.cancel)) } },
+			dismiss = { TextButton(onClick = { confirmRemove = false }) { Text(stringResource(R.string.cancel)) } },
 		)
 	}
 }
@@ -545,8 +580,18 @@ private fun MediaSection(t: TabScope, players: List<Player>, volume: io.github.e
 }
 
 
+/** Playback and the volume are sent as they are, unless the phone is to be unlocked for media. */
+private fun mediaAsk(res: Resources, name: String) =
+	Ask(Guarded.Media, res.getString(R.string.unlock_media, name), res.getString(R.string.control_media_title, name), res.getString(R.string.control_continue), confirmable = false)
+
+private fun volumeAsk(res: Resources, name: String) =
+	Ask(Guarded.Media, res.getString(R.string.unlock_volume, name), res.getString(R.string.control_volume_title, name), res.getString(R.string.control_continue), confirmable = false)
+
 @Composable
 private fun NowPlaying(t: TabScope, p: Player) {
+	val guard = LocalGuard.current
+	val res = resources()
+	fun send(op: String, value: Double? = null) = guard.run(mediaAsk(res, t.name)) { t.vm.media(p.id, op, value) }
 	val artPx = with(LocalDensity.current) { Sizes.art.roundToPx() }
 	var art by remember(p.id, p.title) { mutableStateOf<Bitmap?>(null) }
 	LaunchedEffect(p.id, p.title, p.hasArt) { art = if (p.hasArt) t.vm.art(p.id, artPx) else null }
@@ -589,7 +634,7 @@ private fun NowPlaying(t: TabScope, p: Player) {
 				value = dragging ?: (pos.toFloat() / length),
 				onValueChange = { dragging = it },
 				onValueChangeFinished = {
-					dragging?.let { f -> t.vm.media(p.id, "seek", f * length / US_PER_SECOND) }
+					dragging?.let { f -> send("seek", f * length / US_PER_SECOND) }
 					dragging = null
 				},
 				enabled = p.canSeek && t.perms.media,
@@ -602,27 +647,30 @@ private fun NowPlaying(t: TabScope, p: Player) {
 		}
 	}
 	if (t.perms.media) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-		IconButton(onClick = { t.vm.media(p.id, "previous") }, enabled = p.canPrevious) { Icon(ElIcons.Previous, stringResource(R.string.control_previous)) }
-		FilledIconButton(onClick = { t.vm.media(p.id, "play_pause") }, enabled = p.canPlay || p.canPause, modifier = Modifier.size(Sizes.playButton)) {
+		IconButton(onClick = { send("previous") }, enabled = p.canPrevious) { Icon(ElIcons.Previous, stringResource(R.string.control_previous)) }
+		FilledIconButton(onClick = { send("play_pause") }, enabled = p.canPlay || p.canPause, modifier = Modifier.size(Sizes.playButton)) {
 			Icon(if (playing) ElIcons.Pause else ElIcons.Play, stringResource(if (playing) R.string.control_pause else R.string.control_play), modifier = Modifier.size(Sizes.iconXl))
 		}
-		IconButton(onClick = { t.vm.media(p.id, "next") }, enabled = p.canNext) { Icon(ElIcons.Next, stringResource(R.string.control_next)) }
+		IconButton(onClick = { send("next") }, enabled = p.canNext) { Icon(ElIcons.Next, stringResource(R.string.control_next)) }
 	}
 }
 
 @Composable
 private fun VolumeRow(t: TabScope, v: io.github.elaizes.elamon.data.Volume) {
+	val guard = LocalGuard.current
+	val res = resources()
+	fun send(level: Float? = null, muted: Boolean? = null) = guard.run(volumeAsk(res, t.name)) { t.vm.volume(level, muted) }
 	var dragging by remember { mutableStateOf<Float?>(null) }
 	val canSet = t.perms.volume
 	Row(verticalAlignment = Alignment.CenterVertically) {
-		IconButton(onClick = { t.vm.volume(muted = !v.muted) }, enabled = canSet) {
+		IconButton(onClick = { send(muted = !v.muted) }, enabled = canSet) {
 			Icon(if (v.muted) ElIcons.Mute else ElIcons.Volume, stringResource(if (v.muted) R.string.control_unmute else R.string.control_mute), tint = if (v.muted) Metric.colors.hot else MaterialTheme.colorScheme.onSurface)
 		}
 		Slider(
 			value = dragging ?: v.level.coerceIn(0f, 1f),
 			onValueChange = { dragging = it },
 			onValueChangeFinished = {
-				dragging?.let { t.vm.volume(level = it) }
+				dragging?.let { send(level = it) }
 				dragging = null
 			},
 			enabled = canSet,
@@ -634,23 +682,25 @@ private fun VolumeRow(t: TabScope, v: io.github.elaizes.elamon.data.Volume) {
 
 // ---- power profile, actions, power --------------------------------------------------------
 
+/** The profiles side by side; [onPick] gets one with its name as shown. */
 @Composable
-private fun ProfileSection(active: String, available: List<String>, onPick: (String) -> Unit) {
+private fun ProfileSection(active: String, available: List<String>, onPick: (String, String) -> Unit) {
 	Section(stringResource(R.string.control_power_profile), ElIcons.Bolt, accent = Metric.colors.battery) {
 		Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 			for (p in available) {
 				val on = p == active
+				val label = profileName(p)
 				val bg by animateColorAsState(if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh, label = "profile")
 				val fg = if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
 				Column(
 					Modifier.weight(1f).fillMaxHeight().clip(InnerTileShape).background(bg)
-						.selectable(selected = on, role = Role.Button, onClick = { onPick(p) })
+						.selectable(selected = on, role = Role.Button, onClick = { onPick(p, label) })
 						.padding(vertical = Space.mPlus, horizontal = Space.xsPlus),
 					horizontalAlignment = Alignment.CenterHorizontally,
 					verticalArrangement = Arrangement.spacedBy(Space.xsPlus),
 				) {
 					Icon(profileIcon(p), null, tint = fg)
-					Text(profileName(p), style = MaterialTheme.typography.labelLarge, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+					Text(label, style = MaterialTheme.typography.labelLarge, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
 				}
 			}
 		}
@@ -666,15 +716,27 @@ private fun profileIcon(p: String): ImageVector = when (p) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ActionsSection(t: TabScope, actions: List<ActionInfo>) {
-	val prefs = LocalPrefs.current
 	val state by t.vm.actions.collectAsStateWithLifecycle()
-	var confirm by remember { mutableStateOf<ActionInfo?>(null) }
+	val guard = LocalGuard.current
+	val res = resources()
+	fun run(a: ActionInfo) {
+		val ask = Ask(
+			Guarded.Actions,
+			prompt = res.getString(R.string.unlock_run, a.name, t.name),
+			question = res.getString(R.string.control_run_title, a.name),
+			button = res.getString(R.string.control_run),
+			icon = ElIcons.Terminal,
+			// The computer's settings say whether it's confirmed.
+			confirmable = a.confirm,
+		)
+		guard.run(ask) { t.vm.runAction(a.id) }
+	}
 	Section(stringResource(R.string.control_actions), ElIcons.Terminal, accent = MaterialTheme.colorScheme.tertiary) {
 		for (a in actions) {
 			val last = state.results[a.id]
 			Surface(shape = InnerTileShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
 				Row(
-					Modifier.clickable(role = Role.Button) { if (state.running == null) { if (a.confirm && prefs.confirmActions) confirm = a else t.vm.runAction(a.id) } }
+					Modifier.clickable(role = Role.Button) { if (state.running == null) run(a) }
 						.padding(horizontal = Space.l, vertical = Space.mPlus),
 					verticalAlignment = Alignment.CenterVertically,
 				) {
@@ -689,15 +751,6 @@ private fun ActionsSection(t: TabScope, actions: List<ActionInfo>) {
 				}
 			}
 		}
-	}
-	confirm?.let { a ->
-		GlassDialog(
-			onDismiss = { confirm = null },
-			title = stringResource(R.string.control_run_title, a.name),
-			icon = ElIcons.Terminal,
-			confirm = { TextButton(onClick = { confirm = null; t.vm.runAction(a.id) }) { Text(stringResource(R.string.control_run)) } },
-			dismiss = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.cancel)) } },
-		)
 	}
 	val shown = state.shown?.let { id -> actions.find { it.id == id }?.let { a -> state.results[id]?.let { a to it } } }
 	shown?.let { (a, r) ->
@@ -731,20 +784,34 @@ private fun ActionOutcome(r: ActionResult, modifier: Modifier = Modifier) {
 	}
 }
 
-private data class PowerAction(val key: String, @StringRes val label: Int, val icon: ImageVector, @StringRes val ask: Int, @StringRes val explain: Int)
+/** A power tile: what it sends, its label, the confirmation's question and why, and the unlock prompt's title with the computer's name. */
+private data class PowerAction(val key: String, @StringRes val label: Int, val icon: ImageVector, @StringRes val ask: Int, @StringRes val explain: Int, @StringRes val unlock: Int)
 
 private val POWER = listOf(
-	PowerAction("lock", R.string.power_lock, ElIcons.Lock, R.string.power_lock_ask, R.string.power_lock_explain),
-	PowerAction("suspend", R.string.power_sleep, ElIcons.Moon, R.string.power_sleep_ask, R.string.power_sleep_explain),
-	PowerAction("reboot", R.string.power_restart, ElIcons.Restart, R.string.power_restart_ask, R.string.power_restart_explain),
-	PowerAction("poweroff", R.string.power_shut_down, ElIcons.Power, R.string.power_shut_down_ask, R.string.power_shut_down_explain),
+	PowerAction("lock", R.string.power_lock, ElIcons.Lock, R.string.power_lock_ask, R.string.power_lock_explain, R.string.unlock_lock),
+	PowerAction("suspend", R.string.power_sleep, ElIcons.Moon, R.string.power_sleep_ask, R.string.power_sleep_explain, R.string.unlock_sleep),
+	PowerAction("reboot", R.string.power_restart, ElIcons.Restart, R.string.power_restart_ask, R.string.power_restart_explain, R.string.unlock_restart),
+	PowerAction("poweroff", R.string.power_shut_down, ElIcons.Power, R.string.power_shut_down_ask, R.string.power_shut_down_explain, R.string.unlock_shut_down),
 )
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PowerSection(t: TabScope, control: ControlInfo) {
-	val prefs = LocalPrefs.current
-	var confirm by remember { mutableStateOf<PowerAction?>(null) }
+	val guard = LocalGuard.current
+	val res = resources()
+	// [confirmable] false where the dialog about permission has just asked.
+	fun send(a: PowerAction, confirmable: Boolean = true) {
+		val ask = Ask(
+			Guarded.Power,
+			prompt = res.getString(a.unlock, t.name),
+			question = res.getString(a.ask),
+			button = res.getString(a.label),
+			body = res.getString(a.explain),
+			icon = a.icon,
+			confirmable = confirmable,
+		)
+		guard.run(ask) { t.vm.power(a.key) }
+	}
 	var denied by remember { mutableStateOf<PowerAction?>(null) }
 	val caps = control.power
 	val shown = POWER.filter {
@@ -770,11 +837,7 @@ private fun PowerSection(t: TabScope, control: ControlInfo) {
 					Modifier.weight(1f).heightIn(min = Sizes.powerTileMin).clip(InnerTileShape)
 						.background(if (danger) Metric.colors.hot.copy(alpha = Alpha.DANGER) else MaterialTheme.colorScheme.surfaceContainerHigh)
 						.clickable(role = Role.Button) {
-							when {
-								needsAuth -> denied = a
-								prefs.confirmActions -> confirm = a
-								else -> t.vm.power(a.key)
-							}
+							if (needsAuth) denied = a else send(a)
 						}
 						.padding(vertical = Space.l),
 					horizontalAlignment = Alignment.CenterHorizontally,
@@ -787,16 +850,6 @@ private fun PowerSection(t: TabScope, control: ControlInfo) {
 			}
 		}
 	}
-	confirm?.let { a ->
-		GlassDialog(
-			onDismiss = { confirm = null },
-			title = stringResource(a.ask),
-			icon = a.icon,
-			text = { Text(stringResource(a.explain)) },
-			confirm = { TextButton(onClick = { confirm = null; t.vm.power(a.key) }) { Text(stringResource(a.label)) } },
-			dismiss = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.cancel)) } },
-		)
-	}
 	denied?.let { a ->
 		GlassDialog(
 			onDismiss = { denied = null },
@@ -807,7 +860,7 @@ private fun PowerSection(t: TabScope, control: ControlInfo) {
 					stringResource(R.string.power_needs_permission_body),
 				)
 			},
-			confirm = { TextButton(onClick = { denied = null; t.vm.power(a.key) }) { Text(stringResource(R.string.power_try_anyway)) } },
+			confirm = { TextButton(onClick = { denied = null; send(a, confirmable = false) }) { Text(stringResource(R.string.power_try_anyway)) } },
 			dismiss = { TextButton(onClick = { denied = null; t.openHelp(null) }) { Text(stringResource(R.string.help)) } },
 		)
 	}

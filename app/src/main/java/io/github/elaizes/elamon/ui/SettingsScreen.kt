@@ -3,6 +3,7 @@ package io.github.elaizes.elamon.ui
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,15 +39,18 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import io.github.elaizes.elamon.BuildConfig
+import io.github.elaizes.elamon.Guarded
 import io.github.elaizes.elamon.Intervals
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.Settings
 import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.ThemeMode
+import io.github.elaizes.elamon.UnlockGrace
 
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
@@ -59,6 +63,12 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 	var license by remember { mutableStateOf(false) }
 	var customInterval by remember { mutableStateOf(false) }
 	val elamondInterval by settings.elamondIntervalMs.collectAsStateWithLifecycle()
+	// Checked again on coming back, as from setting a screen lock.
+	var lockScreen by remember { mutableStateOf(hasScreenLock(ctx)) }
+	LifecycleResumeEffect(Unit) {
+		lockScreen = hasScreenLock(ctx)
+		onPauseOrDispose {}
+	}
 
 	CompositionLocalProvider(LocalHaze provides haze) {
 		Box(Modifier.fillMaxSize()) {
@@ -122,6 +132,34 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 						SwitchRow(stringResource(R.string.settings_confirm_actions), stringResource(R.string.settings_confirm_actions_summary), p.confirmActions) { v -> settings.update { it.copy(confirmActions = v) } }
 						GroupDivider()
 						SwitchRow(stringResource(R.string.settings_haptics), stringResource(R.string.settings_haptics_summary), p.haptics) { v -> settings.update { it.copy(haptics = v) } }
+					}
+				}
+
+				item { GroupLabel(stringResource(R.string.settings_unlock)) }
+				if (!lockScreen) {
+					item {
+						Text(
+							stringResource(R.string.settings_unlock_no_lock),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.padding(horizontal = Space.xl, vertical = Space.xs),
+						)
+					}
+				}
+				item {
+					ListGroup {
+						Guarded.entries.forEachIndexed { i, kind ->
+							if (i > 0) GroupDivider()
+							SwitchRow(stringResource(kind.title()), stringResource(kind.summary()), kind in p.unlockFor) { v ->
+								settings.update { it.copy(unlockFor = if (v) it.unlockFor + kind else it.unlockFor - kind) }
+							}
+						}
+						GroupDivider()
+						Choice(
+							stringResource(R.string.settings_unlock_grace),
+							UnlockGrace.entries.map { it to if (it == UnlockGrace.EveryTime) stringResource(R.string.settings_unlock_every_time) else stringResource(R.string.duration_minutes, it.minutes) },
+							p.unlockGrace,
+						) { v -> settings.update { it.copy(unlockGrace = v) } }
 					}
 				}
 
@@ -233,4 +271,24 @@ private fun <T> Choice(title: String, options: List<Pair<T, String>>, value: T, 
 			}
 		}
 	}
+}
+
+@StringRes
+private fun Guarded.title(): Int = when (this) {
+	Guarded.Power -> R.string.settings_unlock_power
+	Guarded.Processes -> R.string.settings_unlock_processes
+	Guarded.Actions -> R.string.settings_unlock_actions
+	Guarded.Units -> R.string.settings_unlock_units
+	Guarded.Profile -> R.string.settings_unlock_profile
+	Guarded.Media -> R.string.settings_unlock_media
+}
+
+@StringRes
+private fun Guarded.summary(): Int = when (this) {
+	Guarded.Power -> R.string.settings_unlock_power_summary
+	Guarded.Processes -> R.string.settings_unlock_processes_summary
+	Guarded.Actions -> R.string.settings_unlock_actions_summary
+	Guarded.Units -> R.string.settings_unlock_units_summary
+	Guarded.Profile -> R.string.settings_unlock_profile_summary
+	Guarded.Media -> R.string.settings_unlock_media_summary
 }
