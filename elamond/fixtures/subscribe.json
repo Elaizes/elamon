@@ -1,0 +1,5 @@
+{
+  "dashboard": "detail",
+  "interval": 2000,
+  "sort": { "detail/procs": "mem" }
+}

@@ -1,0 +1,18 @@
+{
+  "type": "data",
+  "t": 1700000001123,
+  "dashboard": "detail",
+  "widgets": {
+    "detail/load": { "v": [12.5] },
+    "detail/procs": {
+      "rows": [
+        {
+          "key": "4242",
+          "level": "normal",
+          "f": { "pid": 4242, "name": "some", "cpu": 3.5, "mem": 123456789, "cmd": "/usr/bin/some --flag", "start": 1700000100 }
+        }
+      ],
+      "total": 1
+    }
+  }
+}

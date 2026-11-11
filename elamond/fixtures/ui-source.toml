@@ -1,0 +1,288 @@
+# The settings that ui.json and stream-*.json describe: elamond's tests read this file with the
+# fixture readings (fixtures.rs) for an admin client of profile "owner" that draws every widget
+# type, and check that what they build is those files. Every widget type, key and kind of action
+# parameter is in here at least once.
+name = "fixture"
+control = true
+default_profile = "owner"
+
+[links.web]
+name = "Web"
+url = "http://{host}:8080"
+unit = "web.service"
+
+[actions.mode]
+name = "Mode"
+command = ["modectl", "{mode}"]
+params.mode = { choices = ["server", "desktop"], labels = { server = "Server", desktop = "Desktop" }, default = "desktop" }
+icon = "leaf"
+
+[actions.fan]
+name = "Fan speed"
+command = ["fanctl", "--speed", "{speed}"]
+params.speed = { range = [0, 100], step = 5, unit = "%", default = 50, label = "Speed" }
+confirm = false
+
+[actions.backup]
+name = "Back up now"
+command = ["backup", "--verify", "{verify}"]
+params.verify = { type = "bool", default = true, label = "Verify" }
+role = "admin"
+unlock = true
+timeout = 600
+
+[profiles.owner]
+use = "default"
+name = "Owner"
+theme = "dark"
+pure_black = true
+dashboards = ["home"]
+unlock = { for = ["power", "signal", "actions", "units"], grace = "1m" }
+
+[profiles.owner.android]
+dynamic_color = false
+
+[templates.small_graph]
+type = "graph"
+height = "small"
+span = 2
+range = 300
+
+[dashboards.home]
+title = "Home"
+icon = "overview"
+
+[[dashboards.home.widgets]]
+id = "cpu"
+type = "gauge"
+value = "cpu.usage"
+label = "CPU"
+icon = "chip"
+color = "cpu"
+caption = "{cpu.temp:temp} · {cpu.freq_max:mhz}"
+open = "detail"
+
+[[dashboards.home.widgets]]
+id = "memory"
+type = "meter"
+value = "mem.used"
+max = "mem.total"
+label = "Memory"
+icon = "memory"
+color = "memory"
+caption = "{mem.used:bytes} of {mem.total:bytes}"
+
+[[dashboards.home.widgets]]
+id = "temp"
+type = "value"
+value = "cpu.temp"
+label = "Temperature"
+icon = "thermometer"
+color = "hot"
+spark = true
+
+[[dashboards.home.widgets]]
+id = "battery"
+type = "status"
+value = "battery.status"
+label = "Battery"
+icon = "battery"
+map = { charging = "Charging", discharging = "On battery" }
+levels = { discharging = "warning" }
+
+[[dashboards.home.widgets]]
+id = "net"
+use = "small_graph"
+values = ["net.rx", "net.tx"]
+labels = ["Download", "Upload"]
+colors = ["rx", "tx"]
+label = "Network"
+icon = "network"
+color = "rx"
+floor = 65536
+
+[[dashboards.home.widgets]]
+id = "gpus"
+type = "value"
+for_each = "gpus"
+value = "gpu.{item}.usage"
+label = "{item.short_name}"
+icon = "gpu"
+color = "gpu"
+empty = "{gpu.{item}.summary}"
+
+[[dashboards.home.widgets]]
+id = "cores"
+type = "bars"
+source = "cores"
+field = "usage"
+max = 100
+label = "Cores"
+icon = "chip"
+color = "cpu"
+span = 4
+
+[[dashboards.home.widgets]]
+id = "facts"
+type = "list"
+label = "Details"
+icon = "overview"
+items = [
+  { label = "Model", value = "cpu.model" },
+  { label = "Uptime", value = "system.uptime" },
+  { label = "Cores", text = "{cpu.cores} cores · {cpu.threads} threads" },
+  { label = "Battery health", value = "battery.health", when = "battery.health" },
+]
+
+[[dashboards.home.widgets]]
+id = "disks"
+type = "table"
+source = "disks"
+label = "Disks"
+icon = "storage"
+caption = "Read {disk.read:rate} · write {disk.write:rate}"
+filter = { removable = false }
+hide_empty = true
+collapsed = true
+limit = 10
+sort = { field = "percent", desc = true }
+columns = [
+  { field = "mount", grow = true },
+  { field = "available", label = "free" },
+  { field = "percent", bar = { max = 100 } },
+]
+expand = [
+  { field = "fs", label = "File system" },
+  { field = "device", label = "Device" },
+]
+
+[[dashboards.home.widgets]]
+id = "links"
+type = "table"
+source = "links"
+label = "Links"
+icon = "globe"
+row_open = "url"
+columns = [
+  { field = "name", grow = true },
+  { field = "up", map = { "true" = "Up", "false" = "Down" } },
+]
+row_actions = [{ action = "unit.restart", label = "Restart", params = { link = "{id}" } }]
+
+[[dashboards.home.widgets]]
+id = "mute"
+type = "toggle"
+value = "volume.muted"
+action = "volume.set"
+param = "muted"
+label = "Mute"
+icon = "volume"
+
+[[dashboards.home.widgets]]
+id = "mode"
+type = "select"
+action = "mode"
+param = "mode"
+label = "Mode"
+icon = "leaf"
+
+[[dashboards.home.widgets]]
+id = "fan"
+type = "slider"
+action = "fan"
+param = "speed"
+label = "Fan speed"
+icon = "fan"
+span = 4
+
+[[dashboards.home.widgets]]
+id = "backup"
+type = "button"
+action = "backup"
+params = { verify = true }
+label = "Back up now"
+icon = "terminal"
+
+[[dashboards.home.widgets]]
+id = "more"
+type = "button"
+open = "detail"
+label = "More"
+icon = "overview"
+
+[[dashboards.home.widgets]]
+id = "note"
+type = "text"
+text = "Readings from the fixture."
+
+[[dashboards.home.widgets]]
+id = "up"
+type = "text"
+text = "Up for {system.uptime:duration}"
+level = "normal"
+
+[[dashboards.home.widgets]]
+id = "power"
+type = "group"
+label = "Power"
+icon = "power"
+color = "hot"
+widgets = [
+  { id = "reboot", type = "button", action = "power.reboot", label = "Restart", icon = "restart" },
+  { id = "off", type = "button", action = "power.poweroff", label = "Shut down", icon = "power" },
+]
+
+[[dashboards.home.widgets]]
+id = "media"
+type = "media"
+label = "Media"
+icon = "music"
+
+[[dashboards.home.widgets]]
+id = "ups"
+type = "gauge"
+value = "ups.charge"
+when = "ups.charge"
+label = "Not on this computer: left out"
+
+[dashboards.detail]
+title = "Detail"
+icon = "chip"
+
+[[dashboards.detail.widgets]]
+id = "load"
+type = "graph"
+values = ["cpu.usage"]
+labels = ["CPU"]
+colors = ["cpu"]
+label = "Load"
+icon = "chip"
+color = "cpu"
+min = 0
+max = 100
+
+[[dashboards.detail.widgets]]
+id = "procs"
+type = "table"
+source = "processes"
+label = "Processes"
+icon = "processes"
+search = true
+limit = 100
+sort = { field = "cpu", desc = true }
+sorts = ["cpu", "mem", "gpu", "io"]
+columns = [
+  { field = "name", grow = true },
+  { field = "cpu", label = "CPU", bar = { max = 25 } },
+  { field = "mem", label = "Memory" },
+]
+expand = [
+  { field = "cmd", label = "Command" },
+  { field = "start", label = "Started" },
+]
+row_actions = [
+  { action = "process.signal", label = "Quit", params = { pid = "{pid}", start = "{start}", signal = "term" } },
+]
+
+[dashboards.unused]
+title = "Not opened from a tab: left out"

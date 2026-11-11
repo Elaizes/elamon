@@ -1,0 +1,388 @@
+{
+  "version": "0f1e2d3c4b5a6978",
+  "service": {
+    "id": "0123456789abcdef0123456789abcdef",
+    "name": "fixture",
+    "version": "9.9.9",
+    "interval_ms": 1000,
+    "history_seconds": 600
+  },
+  "role": "admin",
+  "control": {
+    "enabled": true,
+    "off_reason": null
+  },
+  "profile": {
+    "id": "owner",
+    "name": "Owner",
+    "theme": "dark",
+    "pure_black": true,
+    "animations": true,
+    "interval_ms": 1000,
+    "fahrenheit": false,
+    "network_bits": false,
+    "confirm_actions": true,
+    "unlock": {
+      "for": ["power", "signal", "actions", "units"],
+      "grace": "1m"
+    },
+    "android": {
+      "dynamic_color": false,
+      "blur": true,
+      "haptics": true,
+      "keep_screen_on": false
+    }
+  },
+  "tabs": ["home"],
+  "dashboards": [
+    {
+      "id": "home",
+      "title": "Home",
+      "icon": "overview",
+      "widgets": [
+        {
+          "id": "home/cpu",
+          "type": "gauge",
+          "span": 2,
+          "label": "CPU",
+          "icon": "chip",
+          "color": "cpu",
+          "open": "detail",
+          "caption": true,
+          "unit": "%",
+          "format": "percent",
+          "min": 0,
+          "max": 100
+        },
+        {
+          "id": "home/memory",
+          "type": "meter",
+          "span": 2,
+          "label": "Memory",
+          "icon": "memory",
+          "color": "memory",
+          "caption": true,
+          "unit": "B",
+          "format": "bytes",
+          "min": 0
+        },
+        {
+          "id": "home/temp",
+          "type": "value",
+          "span": 2,
+          "label": "Temperature",
+          "icon": "thermometer",
+          "color": "hot",
+          "unit": "°C",
+          "format": "temp",
+          "spark": true
+        },
+        {
+          "id": "home/battery",
+          "type": "status",
+          "span": 2,
+          "label": "Battery",
+          "icon": "battery",
+          "format": "text"
+        },
+        {
+          "id": "home/net",
+          "type": "graph",
+          "span": 2,
+          "label": "Network",
+          "icon": "network",
+          "color": "rx",
+          "series": [
+            { "label": "Download", "color": "rx", "unit": "B/s", "format": "rate" },
+            { "label": "Upload", "color": "tx", "unit": "B/s", "format": "rate" }
+          ],
+          "range": 300,
+          "height": "small",
+          "floor": 65536
+        },
+        {
+          "id": "home/gpus.nvidia",
+          "type": "value",
+          "span": 2,
+          "label": "Some GPU",
+          "icon": "gpu",
+          "color": "gpu",
+          "unit": "%",
+          "format": "percent"
+        },
+        {
+          "id": "home/cores",
+          "type": "bars",
+          "span": 4,
+          "label": "Cores",
+          "icon": "chip",
+          "color": "cpu",
+          "unit": "%",
+          "format": "percent",
+          "max": 100
+        },
+        {
+          "id": "home/facts",
+          "type": "list",
+          "span": 4,
+          "label": "Details",
+          "icon": "overview",
+          "items": [
+            { "label": "Model", "format": "text" },
+            { "label": "Uptime", "unit": "s", "format": "duration" },
+            { "label": "Cores", "format": "text" },
+            { "label": "Battery health", "unit": "%", "format": "percent" }
+          ]
+        },
+        {
+          "id": "home/disks",
+          "type": "table",
+          "span": 4,
+          "label": "Disks",
+          "icon": "storage",
+          "caption": true,
+          "collapsed": true,
+          "source": "disks",
+          "columns": [
+            { "field": "mount", "format": "text", "grow": true },
+            { "field": "available", "label": "free", "unit": "B", "format": "bytes" },
+            { "field": "percent", "unit": "%", "format": "percent", "bar": { "max": 100 } }
+          ],
+          "sort": { "field": "percent", "desc": true },
+          "sorts": [],
+          "search": false,
+          "hide_empty": true,
+          "expand": [
+            { "field": "fs", "label": "File system", "format": "text" },
+            { "field": "device", "label": "Device", "format": "text" }
+          ]
+        },
+        {
+          "id": "home/links",
+          "type": "table",
+          "span": 4,
+          "label": "Links",
+          "icon": "globe",
+          "source": "links",
+          "columns": [
+            { "field": "name", "format": "text", "grow": true },
+            { "field": "up", "format": "text" }
+          ],
+          "sorts": [],
+          "search": false,
+          "hide_empty": false,
+          "row_open": "url",
+          "row_actions": [
+            { "action": "unit.restart", "label": "Restart", "params": { "link": "{id}" } }
+          ]
+        },
+        {
+          "id": "home/mute",
+          "type": "toggle",
+          "span": 2,
+          "label": "Mute",
+          "icon": "volume",
+          "action": "volume.set",
+          "param": "muted",
+          "on": true,
+          "off": false
+        },
+        {
+          "id": "home/mode",
+          "type": "select",
+          "span": 2,
+          "label": "Mode",
+          "icon": "leaf",
+          "action": "mode",
+          "param": "mode"
+        },
+        {
+          "id": "home/fan",
+          "type": "slider",
+          "span": 4,
+          "label": "Fan speed",
+          "icon": "fan",
+          "action": "fan",
+          "param": "speed"
+        },
+        {
+          "id": "home/backup",
+          "type": "button",
+          "span": 2,
+          "label": "Back up now",
+          "icon": "terminal",
+          "action": "backup",
+          "params": { "verify": true }
+        },
+        {
+          "id": "home/more",
+          "type": "button",
+          "span": 2,
+          "label": "More",
+          "icon": "overview",
+          "open": "detail"
+        },
+        {
+          "id": "home/note",
+          "type": "text",
+          "span": 4,
+          "text": "Readings from the fixture.",
+          "level": "normal"
+        },
+        {
+          "id": "home/up",
+          "type": "text",
+          "span": 4,
+          "level": "normal"
+        },
+        {
+          "id": "home/power",
+          "type": "group",
+          "span": 4,
+          "label": "Power",
+          "icon": "power",
+          "color": "hot",
+          "collapsed": false,
+          "widgets": [
+            {
+              "id": "home/power/reboot",
+              "type": "button",
+              "span": 2,
+              "label": "Restart",
+              "icon": "restart",
+              "action": "power.reboot"
+            },
+            {
+              "id": "home/power/off",
+              "type": "button",
+              "span": 2,
+              "label": "Shut down",
+              "icon": "power",
+              "action": "power.poweroff"
+            }
+          ]
+        },
+        {
+          "id": "home/media",
+          "type": "media",
+          "span": 4,
+          "label": "Media",
+          "icon": "music"
+        }
+      ]
+    },
+    {
+      "id": "detail",
+      "title": "Detail",
+      "icon": "chip",
+      "widgets": [
+        {
+          "id": "detail/load",
+          "type": "graph",
+          "span": 4,
+          "label": "Load",
+          "icon": "chip",
+          "color": "cpu",
+          "series": [
+            { "label": "CPU", "color": "cpu", "unit": "%", "format": "percent" }
+          ],
+          "range": 600,
+          "height": "medium",
+          "min": 0,
+          "max": 100
+        },
+        {
+          "id": "detail/procs",
+          "type": "table",
+          "span": 4,
+          "label": "Processes",
+          "icon": "processes",
+          "source": "processes",
+          "columns": [
+            { "field": "name", "format": "text", "grow": true },
+            { "field": "cpu", "label": "CPU", "unit": "%", "format": "percent", "bar": { "max": 25 } },
+            { "field": "mem", "label": "Memory", "unit": "B", "format": "bytes" }
+          ],
+          "sort": { "field": "cpu", "desc": true },
+          "sorts": ["cpu", "mem", "gpu", "io"],
+          "search": true,
+          "hide_empty": false,
+          "expand": [
+            { "field": "cmd", "label": "Command", "format": "text" },
+            { "field": "start", "label": "Started", "unit": "s", "format": "time" }
+          ],
+          "row_actions": [
+            { "action": "process.signal", "label": "Quit", "params": { "pid": "{pid}", "start": "{start}", "signal": "term" } }
+          ]
+        }
+      ]
+    }
+  ],
+  "actions": [
+    { "id": "power.poweroff", "name": "Shut down", "kind": "power", "icon": "power", "confirm": true, "unlock": true, "params": [] },
+    { "id": "power.reboot", "name": "Restart", "kind": "power", "icon": "restart", "confirm": true, "unlock": true, "params": [] },
+    { "id": "power.suspend", "name": "Sleep", "kind": "power", "icon": "moon", "confirm": true, "unlock": true, "params": [] },
+    { "id": "power.lock", "name": "Lock", "kind": "power", "icon": "lock", "confirm": true, "unlock": true, "params": [] },
+    {
+      "id": "profile.set", "name": "Power profile", "kind": "profile", "icon": "bolt", "confirm": false, "unlock": false,
+      "params": [
+        { "id": "profile", "kind": "choice", "label": "Profile",
+          "choices": [
+            { "value": "power-saver", "label": "Power saver" },
+            { "value": "balanced", "label": "Balanced" },
+            { "value": "performance", "label": "Performance" }
+          ] }
+      ]
+    },
+    {
+      "id": "process.signal", "name": "Signal", "kind": "signal", "icon": "processes", "confirm": true, "unlock": true,
+      "params": [
+        { "id": "pid", "kind": "integer", "label": "Process" },
+        { "id": "signal", "kind": "choice", "label": "Signal",
+          "choices": [ { "value": "term", "label": "Quit" }, { "value": "kill", "label": "Force kill" } ] },
+        { "id": "start", "kind": "integer", "label": "Started", "optional": true }
+      ]
+    },
+    {
+      "id": "unit.start", "name": "Start", "kind": "units", "icon": "play", "confirm": false, "unlock": true,
+      "params": [ { "id": "link", "kind": "choice", "label": "Link", "choices": [ { "value": "web", "label": "Web" } ] } ]
+    },
+    {
+      "id": "unit.stop", "name": "Stop", "kind": "units", "icon": "pause", "confirm": false, "unlock": true,
+      "params": [ { "id": "link", "kind": "choice", "label": "Link", "choices": [ { "value": "web", "label": "Web" } ] } ]
+    },
+    {
+      "id": "unit.restart", "name": "Restart", "kind": "units", "icon": "restart", "confirm": false, "unlock": true,
+      "params": [ { "id": "link", "kind": "choice", "label": "Link", "choices": [ { "value": "web", "label": "Web" } ] } ]
+    },
+    { "id": "media.play_pause", "name": "Play or pause", "kind": "media", "icon": "play", "confirm": false, "unlock": false,
+      "params": [ { "id": "player", "kind": "string", "label": "Player" } ] },
+    { "id": "media.next", "name": "Next", "kind": "media", "icon": "next", "confirm": false, "unlock": false,
+      "params": [ { "id": "player", "kind": "string", "label": "Player" } ] },
+    { "id": "media.previous", "name": "Previous", "kind": "media", "icon": "previous", "confirm": false, "unlock": false,
+      "params": [ { "id": "player", "kind": "string", "label": "Player" } ] },
+    { "id": "media.seek", "name": "Seek", "kind": "media", "icon": "play", "confirm": false, "unlock": false,
+      "params": [ { "id": "player", "kind": "string", "label": "Player" }, { "id": "position", "kind": "number", "label": "Position", "unit": "s" } ] },
+    { "id": "volume.set", "name": "Volume", "kind": "media", "icon": "volume", "confirm": false, "unlock": false,
+      "params": [
+        { "id": "level", "kind": "range", "label": "Level", "min": 0, "max": 100, "step": 1, "unit": "%", "optional": true },
+        { "id": "muted", "kind": "bool", "label": "Muted", "optional": true }
+      ] },
+    {
+      "id": "backup", "name": "Back up now", "kind": "actions", "icon": "terminal", "confirm": true, "unlock": true,
+      "params": [ { "id": "verify", "kind": "bool", "label": "Verify", "default": true } ]
+    },
+    {
+      "id": "fan", "name": "Fan speed", "kind": "actions", "icon": "terminal", "confirm": false, "unlock": true,
+      "params": [ { "id": "speed", "kind": "range", "label": "Speed", "min": 0, "max": 100, "step": 5, "unit": "%", "default": 50 } ]
+    },
+    {
+      "id": "mode", "name": "Mode", "kind": "actions", "icon": "leaf", "confirm": true, "unlock": true,
+      "params": [
+        { "id": "mode", "kind": "choice", "label": "mode",
+          "choices": [ { "value": "server", "label": "Server" }, { "value": "desktop", "label": "Desktop" } ],
+          "default": "desktop" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "type": "data",
+  "t": 1700000000123,
+  "dashboard": "home",
+  "widgets": {
+    "home/cpu": { "v": 12.5, "level": "normal", "caption": "56°C · 3.10 GHz" },
+    "home/memory": { "v": 8000000000, "level": "normal", "max": 16000000000, "caption": "7.45 GiB of 14.9 GiB" },
+    "home/temp": { "v": 55.5, "level": "normal", "blend": 0.025 },
+    "home/battery": { "v": "discharging", "text": "On battery", "level": "warning" },
+    "home/net": { "v": [1500.5, 300.5] },
+    "home/gpus.nvidia": { "v": 33.0, "level": "normal" },
+    "home/cores": { "v": [10.0, 15.0], "levels": ["normal", "normal"] },
+    "home/facts": {
+      "items": [
+        { "v": "Some CPU" },
+        { "v": 3600 },
+        { "text": "8 cores · 12 threads" },
+        { "v": 95.2, "level": "normal" }
+      ]
+    },
+    "home/disks": {
+      "caption": "Read 1.00 KiB/s · write 2.00 KiB/s",
+      "rows": [
+        {
+          "key": "root",
+          "level": "warning",
+          "blend": 0.333,
+          "f": { "mount": "/", "available": 100000000000, "percent": 80.0, "fs": "btrfs", "device": "/dev/nvme0n1p2" }
+        }
+      ],
+      "total": 1
+    },
+    "home/links": {
+      "rows": [
+        {
+          "key": "web",
+          "f": { "id": "web", "name": "Web", "up": "Up", "url": "http://{host}:8080" }
+        }
+      ],
+      "total": 1
+    },
+    "home/mute": { "v": false, "enabled": true },
+    "home/mode": { "v": null, "enabled": true },
+    "home/fan": { "v": null, "enabled": true },
+    "home/backup": { "enabled": true },
+    "home/more": { "enabled": true },
+    "home/up": { "text": "Up for 1 h 0 min", "level": "normal" },
+    "home/power/reboot": { "enabled": true },
+    "home/power/off": { "enabled": true },
+    "home/media": {
+      "players": [
+        {
+          "id": "org.mpris.MediaPlayer2.some",
+          "name": "Some player",
+          "status": "Playing",
+          "title": "Title",
+          "artist": "Artist",
+          "album": "Album",
+          "length": 240.0,
+          "position": 60.0,
+          "volume": 50.0,
+          "has_art": true,
+          "can_next": true,
+          "can_previous": true,
+          "can_play": true,
+          "can_pause": true,
+          "can_seek": true
+        }
+      ],
+      "volume": { "level": 75.0, "muted": false }
+    }
+  },
+  "history": {
+    "home/temp": {
+      "t": [1700000000000, 1700000001000],
+      "v": [[50.0, null]]
+    },
+    "home/net": {
+      "t": [1700000000000, 1700000001000],
+      "v": [[100.5, 200.5], [10.5, 20.5]]
+    }
+  }
+}

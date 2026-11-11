@@ -1,26 +1,55 @@
-# Elamon protocol, API 1
+# Elamon protocol, API 2
 
 elamond, the Elamon service, serves HTTPS on port 47823. Its certificate is self-signed; clients
 identify the service by the SHA-256 of that certificate (lowercase hex, 64 characters), not by a
 name. A certificate the service renews, it signs over with the one before
 ([certificate rotation](#certificate-rotation)).
 
-All bodies are JSON. Numbers in bytes are integers; rates are bytes per second; temperatures are
-°C; frequencies MHz; power W. Clients must ignore fields they don't know: new fields are added
-without changing the API number. A field keeps its name and its meaning for as long as the API
-number stays the same.
+All bodies are JSON. Clients must ignore fields they don't know: new fields are added without
+changing the API number. A field keeps its name and its meaning for as long as the API number stays
+the same.
+
+What a client shows is not in this protocol but in the service's settings ([config.md](config.md)):
+the service describes dashboards of widgets ([`GET /api/v1/ui`](#get-apiv1ui)), sends the values
+of the one on screen, ready to draw ([`GET /api/v1/stream`](#get-apiv1stream)), and runs the
+actions its settings define ([`POST /api/v1/actions/{id}`](#post-apiv1actionsid)). A new reading,
+a new integration or another layout is a change to the service alone; the client changes only for a
+new kind of widget.
 
 Every shape below, with each optional field filled in, is in
 [`elamond/fixtures`](../elamond/fixtures): the service's tests write those files and the app's
 tests read them, so the two can't drift apart.
 
-## Versions
+## Versions and what each side can do
 
-- `api` (in `hello` and `info`) changes only if something incompatible ever has to; a client that
-  sees a higher `api` than it knows should ask to be updated.
-- `min_app` (in `hello` and `info`) is the oldest app version that understands this service.
-- `version` / `service_version` is the service's own version; a client may expect a minimum one
-  and ask for the service to be updated below it.
+- `api` (in `hello`) changes only if something incompatible has to. API 2 came with elamond 0.6;
+  nothing of API 1 is served any more, and a client that sees another `api` than its own asks for
+  the app or the service to be updated.
+- `widgets` (in `hello`) is the version of the dictionary of widget types and their keys. It grows:
+  a type or a key is added, never changed.
+- `min_app` is the oldest app version that understands this service.
+- `version` is the service's own.
+
+### `GET /api/v1/hello` (no token)
+
+```json
+{ "app": "elamon", "api": 2, "widgets": 1, "id": "…", "name": "…", "version": "0.6.0",
+  "min_app": "0.6.0", "features": ["control", "media", "power", "power_profiles", "processes", "units"] }
+```
+
+`features` says what this computer can offer at all (whatever a client's role):
+`control` (`control = true` in the settings), `power` (logind), `power_profiles`
+(power-profiles-daemon or tuned-ppd), `units` (systemd), `media` (a session bus for MPRIS),
+`processes`, `displays`, `nvml`. A client ignores those it doesn't know.
+
+### The client says what it is
+
+Every request with a token carries `Elamon-Client: <kind>/<version>`: `android/0.6.0`, later
+`web/0.8.0`. The service shows it in `elamond clients`, and gives each client the profile's part for
+its kind. A request without it is taken as `android` of an unknown version.
+
+What widget types a client draws it says in `GET /api/v1/ui?widgets=…`; the service describes the
+dashboards with those alone ([below](#what-a-client-cant-draw)).
 
 ## Discovery
 
@@ -60,7 +89,7 @@ a DNS name, and refuses the link whole for anything else or for more than 8. It 
 computer at any of them and accepts it only with the `id` and the certificate `fp` of the link, so
 a name or address that leads to another computer is never taken for it. Stopping
 `elamond pair` withdraws its code. The phone that pairs with it gets the role `elamond pair --role` named, or
-`default_role` from the settings ([roles](#roles)).
+`default_role` from the settings ([roles](#roles)), and the profile `elamond pair --profile` named, or `default_profile` ([profiles](#profiles)).
 
 An address may try 5 wrong codes; after that it is answered 429 `too_many_requests`, whatever it
 sends, for as long as the code lives (an IPv6 address counts by its /64). Other addresses can still
@@ -85,7 +114,7 @@ At most 64 phones are paired at once, keys of their own ([`rekey`](#post-apiv1re
 { "code": "123456", "device": "Phone name" }
 ```
 
-200: `{ "token": "…", "client_id": "…", "id": "<service id>", "name": "<computer name>", "role": "<role>" }`,
+200: `{ "token": "…", "client_id": "…", "id": "<service id>", "name": "<computer name>", "role": "<role>", "profile": "<profile id>" }`,
 after up to 90 seconds while the person at `elamond pair` decides.
 403: `{ "error": "wrong_code" }`, `{ "error": "no_pairing" }` when no code is pending (or a phone
 that gave it waits to be let in), `{ "error": "pair_declined" }` when the phone wasn't let in,
@@ -119,8 +148,8 @@ A key of its own for a phone that holds another's token, as one does after Impor
 { "device": "Phone name" }
 ```
 
-200, as pairing answers: `{ "token": "…", "client_id": "…", "id": "<service id>", "name": "<computer name>", "role": "<role>" }`.
-It is a new entry among the paired phones, named `device`, with a new token and the role of the
+200, as pairing answers: `{ "token": "…", "client_id": "…", "id": "<service id>", "name": "<computer name>", "role": "<role>", "profile": "<profile id>" }`.
+It is a new entry among the paired phones, named `device`, with a new token and the role and profile of the
 entry whose token asked. That token stays good: the phone it came from keeps working until
 `elamond revoke` of its own entry, which leaves the new one paired. `elamond clients` shows the
 new entry as added with the key of the one that asked, and `elamond revoke` of that one names the
@@ -138,10 +167,6 @@ it imported at the first connection to it that works. After `rekey_refused` or `
 it keeps the shared token, so there the two phones stay one entry and revoking it cuts off both,
 and doesn't ask again until the app is restarted: asking again won't change them. After any other
 failure it asks again at a later connection.
-
-### `GET /api/v1/hello` (no token)
-
-`{ "app": "elamon", "api": 1, "id": "…", "name": "…", "version": "0.5.0", "min_app": "0.5.0" }`
 
 ## Certificate rotation
 
@@ -205,267 +230,253 @@ A phone that missed rotations follows as long as the one it pinned is among the 
 
 ## Roles
 
-Each paired phone has a role. They are ordered, each allowing what the one before does and more:
+Each paired client has a role. They are ordered, each allowing what the one before does and more:
 
-| role | |
-|---|---|
-| `glance` | `info`, `history`, `stream` and `snapshot` with the basics: CPU, memory, GPUs, temperatures, fans, disks, disk I/O, network, battery and power. `procs` and `media` are ignored (no `processes`, `process_count` or `media`), and `displays` and `links` are `[]`. And `GET /api/v1/control`, to learn its role |
-| `monitor` | everything there is to read: processes with their commands and users, monitors, links with the ports in use and the units to pick from, media with their covers, the activity log |
-| `operate` | adding, changing and removing links; starting, stopping and restarting their units, those the settings name; media and the volume; the power profile; the actions in the settings |
-| `admin` | power (shut down, restart, sleep, lock) and signals to processes |
+| role | sees | may run |
+|---|---|---|
+| `glance` | the basics: CPU, memory, GPUs, temperatures, fans, disks, disk I/O, network, battery, power, the system | nothing |
+| `monitor` | everything there is to read: also processes with their commands and users, monitors, links, media with their covers, the activity log | nothing |
+| `operate` | | actions of kind `profile`, `units`, `media` and `actions` |
+| `admin` | | `power` and `signal` too |
 
 Any role may ask for a key of its own ([`rekey`](#post-apiv1rekey)), which keeps that role.
 
+The role filters the values themselves, on the service: a widget, a table or a dashboard whose
+values the role doesn't see isn't described to the client at all, nor are its values sent. A
+dashboard's or a widget's `role` in the settings can only ask for more.
+
 The person at the computer chooses: `elamond pair --role <role>`, otherwise `default_role` from
-the settings (`admin` unless set); a phone with no role in the list of paired phones is `admin`.
-`elamond clients role` changes a paired phone's role, which applies from its next request, and in
-a stream it has open from the next sample.
+the settings (`admin` unless set); a client with no role in the list of paired clients is `admin`.
+`elamond clients role` changes a paired client's role, which applies from its next request; a stream
+it has open gets [`ui`](#get-apiv1stream) at once.
 
 Acting on the computer also needs control, whatever the role: `control = true` in settings that
 parse, and no `elamond control off`. A request the role doesn't allow is answered 403
 `not_allowed`; one it allows while control is off, 403 `control_disabled`.
 
-`GET /api/v1/control` gives the phone its `role`, and in `allowed` what it may do now:
+## Profiles
 
-| name | role | needs control | covers |
-|---|---|---|---|
-| `processes` | monitor | | `processes` and `process_count` in samples |
-| `displays` | monitor | | `displays` in samples |
-| `links` | monitor | | `links` in samples, `GET /api/v1/links`, `/api/v1/links/detected`, `/api/v1/units` |
-| `media.read` | monitor | | `media` in samples, `GET /api/v1/media/art` |
-| `log` | monitor | | `GET /api/v1/control/log` |
-| `links.edit` | operate | | `POST /api/v1/links`, `DELETE /api/v1/links/{id}` |
-| `units` | operate | yes | `POST /api/v1/links/{id}/unit` |
-| `media` | operate | yes | `POST /api/v1/media` |
-| `volume` | operate | yes | `POST /api/v1/media/volume` |
-| `profile` | operate | yes | `POST /api/v1/control/profile` |
-| `actions` | operate | yes | `POST /api/v1/control/action` |
-| `power` | admin | yes | `POST /api/v1/control/power` |
-| `signal` | admin | yes | `POST /api/v1/control/signal` |
+Each paired client also has a profile: how it looks and behaves ([config.md](config.md#profiles)).
+`elamond pair --profile <id>`, otherwise `default_profile` from the settings; `elamond clients
+profile <id|all> <profile>` changes it, from the client's next request (a stream it has open gets
+`ui` at once). A client whose profile the settings no longer have gets `default_profile`.
 
-A name is in `allowed` when the role allows it and, where it needs control, control is on; the
-list is in this order. Whether the computer offers a thing is told beside it, in `power`,
-`profiles`, `actions` and `volume`. A client ignores names it doesn't know: later versions may add
-some.
+## `GET /api/v1/ui`
 
-## Data
+What the client shows: its profile, its tabs, the dashboards and the actions, all as far as its role
+goes. Query: `widgets`, the widget types the client draws, comma-separated
+(`widgets=value,gauge,meter,status,graph,list,table,button,toggle,select,slider,text,group,media`).
 
-### `GET /api/v1/stream`
+```json
+{
+  "version": "5c1f0e2a9d3b7a41",
+  "service": { "id": "…", "name": "…", "version": "0.6.0", "interval_ms": 1000, "history_seconds": 600 },
+  "role": "admin",
+  "control": { "enabled": true, "off_reason": null },
+  "profile": { "id": "owner", "name": "Owner", "theme": "dark", "pure_black": true, "animations": true,
+               "interval_ms": 1000, "fahrenheit": false, "network_bits": false, "confirm_actions": true,
+               "unlock": { "for": ["power", "signal", "actions", "units"], "grace": "every_time" },
+               "android": { "dynamic_color": true, "blur": true, "haptics": true, "keep_screen_on": false } },
+  "tabs": ["overview", "processes", "sensors", "control"],
+  "dashboards": [{ "id": "overview", "title": "Overview", "icon": "overview", "widgets": [ … ] }, …],
+  "actions": [{ "id": "power.reboot", "name": "Restart", "kind": "power", "icon": "restart",
+                "confirm": true, "unlock": true, "params": [] }, …]
+}
+```
 
-Newline-delimited JSON (`application/x-ndjson`), one object per line, each with a `type`:
+- `version` changes whenever anything else in the document would: the settings, the client's role
+  or profile, control turned on or off, a GPU, disk, sensor or interface that comes or goes. A
+  client keeps the last document of each computer (a cache, not settings) to start at once and to
+  show while offline, and fetches it again when a stream says `ui` with another version.
+- `profile` holds the part every client reads, and the part for this client's kind (`android`)
+  only.
+- `tabs` are the profile's dashboards the role sees, in order; `dashboards` the tabs, then the
+  dashboards their widgets open, and those theirs open, each once and as far as the role sees.
+- `actions` are those the role may run and the computer can do. `confirm` and `unlock` are final:
+  the action's own, the profile's `confirm_actions` and `unlock.for` already applied. A client asks
+  before running an action with `confirm`, unlocks the phone first for one with `unlock` (within the
+  profile's `unlock.grace`, an unlock for a kind covers the kinds after it in
+  `power`, `signal`, `actions`, `units`, `profile`, `media`), and asks for the values of `params` a
+  widget doesn't fix.
+- `control.off_reason`: `null` while control is on, else `settings` (`control = false`),
+  `held_off` (`elamond control off`) or `settings_unreadable` (the settings files stopped
+  parsing; the service keeps those it read before). While it's off, action widgets are drawn
+  disabled.
 
-1. `info`, then again whenever it changes
-2. `history`, if asked for
-3. `sample`, every interval, until the client disconnects
+### Widgets in `ui`
 
-Query parameters:
+Each widget as [config.md](config.md#widgets) describes it, resolved: templates applied, `for_each`
+spread out, `when` decided, strings without values filled in, defaults written out. Every one has
+an `id` unique in the document (`overview/cpu`, `overview/gpus.nvidia`), its `type` and `span`.
+Values aren't named by address: the stream sends each widget's state by its id. The keys a client
+reads, beside `id`, `type`, `span`, `label`, `icon`, `color` and `open`:
+
+| type | keys |
+|---|---|
+| `value`, `gauge`, `meter`, `status` | `unit`, `format`, `min`, `max` (a number; one that changes comes in the state), `spark` (`value`) |
+| `bars` | `unit`, `format`, `max` |
+| `graph` | `series: [{ label, color, unit, format }]`, `range` (s), `height`, `min`, `max`, `floor` |
+| `list` | `items: [{ label, unit, format }]` |
+| `table` | `source`, `columns: [{ field, label, format, unit, bar: { max }, grow }]` (`max` a number, a field or `"top"`), `sort: { field, desc }`, `sorts`, `search`, `hide_empty`, `row_open`, `row_actions: [{ action, label, params }]`, `expand: [{ field, label, format, unit }]` |
+| `button` | `action`, `params`, `open` |
+| `toggle` | `action`, `param`, `on`, `off` |
+| `select`, `slider` | `action`, `param` |
+| `text` | `text` (when it holds no values; otherwise it comes in the state), `level` |
+| `group` | `widgets`, `collapsed` |
+| every type | `caption` (`true` when it holds values: its text comes in the state), `collapsed` (`table`) |
+| `media` | |
+
+### What a client can't draw
+
+A widget type the client didn't list in `widgets` is replaced by the nearest it did: `gauge` and
+`meter` by `value`, `select` by buttons in a `group`, `slider` by `select`… and where there's none,
+by a `text` with `level` `warning` saying the app needs updating to show it. An unknown key on a
+known type, a client ignores.
+
+## `GET /api/v1/stream`
+
+Newline-delimited JSON (`application/x-ndjson`), one object per line, each with a `type`. Query:
 
 | name | default | |
 |---|---|---|
-| `interval` | the service's | milliseconds between samples, from the service's own `interval_ms` up to 60 000 |
-| `procs` | 0 | how many processes to include, heaviest first, at most 10 000 |
-| `sort` | `cpu` | `cpu`, `mem`, `gpu` or `io`: what "heaviest" means |
-| `history` | 0 | 1 to get the last minutes first |
-| `media` | 0 | 1 to include `media` in samples: the players, and the volume when `control` is on |
+| `dashboard` | the first tab | the dashboard on screen: values are read and sent for it alone |
+| `interval` | the profile's `interval_ms` | milliseconds between `data` lines, from the service's `interval_ms` up to 60 000 |
 
-`procs` and `media` are ignored for a `glance` phone ([roles](#roles)). When a phone's role
-changes, its open stream follows from the next sample: processes come back a tick or two later,
-as they do when first asked for.
+Lines:
 
-The service reads costlier sources (NVML, DRM, process list) only while some client streams and
-asks for them, and lets a powered-down GPU sleep. The first sample with processes comes a tick
-after they are first asked for: process CPU and disk use are rates, which need two readings.
+1. `open`, first: `{ "type": "open", "stream": "<id>", "ui": "<version>" }`. The id names this
+   stream for [changing what it sends](#post-apiv1streamid); `ui` is the version of the client's
+   `ui` now: a client holding another fetches it.
+2. `data`, every interval: `{ "type": "data", "t": <Unix ms>, "dashboard": "<id>", "widgets": { … } }`,
+   the state of each widget of the dashboard by its id, nested groups included. The first after
+   opening, or after the dashboard changed, also has `history`: the graphs' points so far.
+3. `ui`, whenever the client's `ui` changes: `{ "type": "ui", "ui": "<version>" }`. The stream goes
+   on, with the dashboard it had (or the first tab, when that one is gone for this client).
 
-### `GET /api/v1/snapshot`
+A widget's state:
 
-One `sample` (without `type`). It takes `procs`, `sort` and `media` like the stream and waits up
-to a few ticks for a reading that has everything asked for; `interval` and `history` don't apply.
+| type | state |
+|---|---|
+| `value`, `gauge`, `meter`, `status` | `{ "v": 42.5, "text": "On battery", "level": "warning", "blend": 0.4, "max": 16000000000, "caption": "4.1 GiB of 16 GiB" }`: `v` the value (number, string, bool or `null` when missing) in the widget's unit; `text` when `map` gave it a word, or the value is missing and the widget has `empty` (filled in); `level` and `blend` ([levels](config.md#levels)); `max` when it is an address; `caption` filled in |
+| `graph` | `{ "v": [1.5, 0.2], "max": 16000000000, "text": "Asleep" }`, the newest point of each series, at the line's `t`; `max` when it is an address; `text`, the widget's `empty` while the first series has no value |
+| `bars` | `{ "v": [12.5, 80.0, …], "labels": ["0", "1", …], "levels": ["normal", "critical", …] }` |
+| `list` | `{ "items": [{ "v": …, "text": …, "level": … }] }`, in the order of `items` |
+| `table` | `{ "rows": [{ "key": "4242", "level": "normal", "f": { "pid": 4242, "name": "firefox", … } }], "total": 312 }`: at most `limit` rows in the table's order, each with the fields its columns, `expand`, `row_open` and `row_actions` need; `total`, how many there are in all |
+| `button` | `{ "enabled": true }` |
+| any, with a `caption` that holds values | `"caption": "…"` beside the rest |
+| `toggle`, `select`, `slider` | `{ "v": "server", "enabled": true }` |
+| `text` | `{ "text": "…", "level": "normal" }` when it holds values |
+| `group` | none |
+| `media` | `{ "players": [ … ], "volume": { "level": 40.0, "muted": false } }` (%) |
 
-### `GET /api/v1/info`, `GET /api/v1/history`
+Numbers in states come rounded to one decimal (`blend` to three); a client formats them by the
+widget's `format` and `unit` ([config.md](config.md#formats)).
 
-The `info` and `history` objects alone.
+`history`: `{ "<widget id>": { "t": [ … ], "v": [[ … ], [ … ]] } }` for each `graph` and each
+`value` with `spark`, oldest first, one array per series, `null` where a value was missing,
+reaching the graph's `range` back (a spark's: all the service keeps). A client appends each `data`
+line's `v` at its `t` and drops what falls out of the range. Levels are `normal`,
+`warning` and `critical`; `blend` (0–1) is how far it has turned toward the next and is left out at 0.
 
-## Objects
+A media player: `{ id, name, status (Playing|Paused|Stopped), title?, artist?, album?, length? (s),
+position? (s), volume? (%), has_art, can_next, can_previous, can_play, can_pause, can_seek }`; `volume`
+of the computer is left out where it can't be read.
 
-A field marked `?` is `null` when the computer doesn't report it. Only `media`, `process_count`
-and `processes` are left out of a sample, when they weren't asked for or the phone's role doesn't
-allow them; a `glance` phone's samples also have `displays` and `links` empty
-([`sample-glance.json`](../elamond/fixtures/sample-glance.json)).
+The service reads costlier sources (NVML, DRM, the process list, MPRIS) only while some client's
+dashboard on screen needs them, and lets a powered-down GPU sleep. A table of processes fills a tick
+after it is first asked for: their CPU and disk use are rates, which need two readings.
 
-`info`:
+### `POST /api/v1/stream/{id}`
 
-```
-id, name, service_version, api, min_app, interval_ms (the service's tick), history_seconds (how
-far history reaches), os, kernel, arch, cpu_model, cpu_physical_cores?, cpu_logical_cores,
-memory_total, boot_time,
-gpus: [{ id (PCI slot), vendor (nvidia|amd|intel|other), name, driver, boot_display }],
-capabilities: ["processes", "displays", "history", "sensors", "links", …]
-```
+Changes what an open stream of this client sends, from its next line, without reconnecting:
 
-`sample`:
-
-```
-t (Unix ms, the service's clock), uptime (s),
-cpu: { usage (0–100), cores [], freq [], temp?, load [1, 5, 15 min] },
-memory: { total, used, available, swap_total, swap_used },
-gpus: [{ id, state (active|sleeping|unknown), usage?, mem_used?, mem_total?, temp?, power?,
-         freq?, freq_max?, mem_freq?, fan? (%) }],
-temps: [{ chip, kind (cpu|gpu|storage|wireless|board|battery|other), device?, label, value,
-          high?, crit? }],
-fans: [{ chip, label, rpm }],
-battery?: { name, model?, percent?, status (charging|discharging|full|not_charging|unknown),
-            power?, energy_now?, energy_full?, energy_design? (Wh), cycles?, time_left? (s) },
-power: { on_ac?, profile?, profiles [], governor?, epp?, ppd_profile?, ppd_profiles [] },
-disks: [{ device, mount, fs, total, available, removable }],
-disk_io: [{ name, model?, read, write }],
-net: [{ name, kind (wired|wireless|vpn|virtual), up, addrs [], rx, tx, rx_total, tx_total,
-        speed? (Mbit/s) }],
-displays: [{ connector, gpu, connected, active, dpms? (On|Standby|Suspend|Off), internal,
-             vendor?, model?, year?, width_mm?, height_mm?, mode?, preferred?, max_refresh?,
-             position? [x, y] }],
-  mode: { width, height, refresh },
-links: [{ id, name, url, unit?, scope (user|system), editable, port?, up?, local_only,
-          unit_state? }],
-process_count?, processes?: [{ pid, ppid?, name, cmd, user?, cpu (% of the whole CPU), mem,
-                               status, start (Unix s), read, write, gpu?, gpu_mem? }],
-media?: { players: [{ id, name, status (Playing|Paused|Stopped), title?, artist?, album?,
-                      length? (µs), position? (µs), volume?, has_art, can_next, can_previous,
-                      can_play, can_pause, can_seek }],
-          volume?: { level (1.0 = 100 %), muted } }
+```json
+{ "dashboard": "cpu", "interval": 2000, "sort": { "processes/table": "mem" } }
 ```
 
-`ppd_profile` and `ppd_profiles` are power-profiles-daemon's, which the app can switch; `profile`
-and `profiles` are the firmware's platform profile. A process `status` is the kernel's state as
-a word (Runnable, Sleeping, Idle, Zombie, Stopped, …).
+Each key is optional. `sort` asks a table for another of its `sorts` (descending). 200
+`{ "ok": true }`; 404 `no_such_stream` when the stream has ended or isn't this client's;
+404 `no_such_dashboard`; 400 `bad_sort`.
 
-`history`: parallel arrays, oldest first, one entry per tick of the service, reaching
-`history_seconds` back:
+## `GET /api/v1/snapshot`
 
+One `data` object (without `type`, with `history`) for `dashboard=<id>`, after waiting a few ticks
+for a reading that has everything it needs.
+
+## `POST /api/v1/actions/{id}`
+
+```json
+{ "params": { "mode": "server" } }
 ```
-t [], cpu [], cpu_temp [], mem [], swap [], rx [], tx [], read [], write [], battery_power [],
-gpus: [{ id, usage [], temp [] }]
-```
 
-`rx`/`tx` sum wired and wireless links only, so VPN and bridge traffic isn't counted twice.
-Missing values are `null`.
+Runs an action of `ui`'s `actions`. Each parameter is checked against the action's: a choice among
+its choices, a number in its range on its step, a bool; one missing without a default, or one the
+action hasn't, is 400 `bad_param` with the parameter's name in `message`. 200: `{ "ok": true }`,
+and for an action the settings define `{ "ok": true, "exit_code": 0, "timed_out": false,
+"output": "…" }` (its first 4 KiB and last 12 KiB, also when it timed out). 404 `no_such_action` for
+an id the client's `ui` doesn't have; 403 `not_allowed`, `control_disabled`, `not_permitted`;
+409 `process_changed`; 429 `too_many_requests`; 502 `failed` with a `message`.
 
-## Control
+`process.signal` with `start` signals only the process that started then: if the pid now belongs to
+another, 409 `process_changed`. `unit.*` act on the unit of the link given, only one the settings
+name; system units also need polkit's leave ([the guide](guide.md#power-the-profile-and-system-units-polkit)).
 
-Everything below needs a token, and the [role](#roles) for it. Requests that change the computer
-also need control: `control = true` in the service's settings and no `elamond control off` on the
-computer, or the service answers 403 `control_disabled`. Settings that stop parsing hold control
-off too until they parse again (the service keeps the settings it read before for the rest).
-Adding, changing and removing links only changes the list the app shows: it needs the `operate`
-role, not control.
+## `GET /api/v1/media/art?player=`
 
-| request | body | |
-|---|---|---|
-| `GET /api/v1/control` | | `{ enabled, off_reason?, power: { poweroff, reboot, suspend: "yes"\|"challenge"\|"no"\|"na", lock }, profiles?: { active, available }, actions: [{ id, name, confirm }], volume, role, allowed: [] }` |
-| `GET /api/v1/control/log?limit=` | | the activity log, newest first, at most `limit` entries (all kept, up to 500, by default) |
-| `POST /api/v1/control/power` | `{ action: "poweroff"\|"reboot"\|"suspend"\|"lock" }` | |
-| `POST /api/v1/control/profile` | `{ profile }` | power-profiles-daemon |
-| `POST /api/v1/control/signal` | `{ pid, signal: "term"\|"kill", start? }` | never the service, its parents or PID 1 |
-| `POST /api/v1/control/action` | `{ id }` | `{ exit_code?, timed_out, output }` |
-| `POST /api/v1/media` | `{ player, op: "play_pause"\|"next"\|"previous"\|"seek"\|"volume", value? }` | MPRIS; seek in seconds |
-| `POST /api/v1/media/volume` | `{ level?, muted? }` | the default output, level 0–1 |
-| `GET /api/v1/media/art?player=` | | the cover (PNG, JPEG or WebP, 4 MiB at most), when the player has it in a local file; reading, so no control needed |
-| `GET /api/v1/links` | | the links with their state, as in samples |
-| `POST /api/v1/links` | `{ id?, name, url, unit?, scope? }` | add, or change one added from the app; answers the saved `{ id, name, url, unit, scope }` |
-| `DELETE /api/v1/links/{id}` | | links from the settings files can't be changed or removed here |
-| `POST /api/v1/links/{id}/unit` | `{ op: "start"\|"stop"\|"restart" }` | needs control, and a unit the settings name |
-| `GET /api/v1/links/detected` | | `[{ port, local_only, process? }]`: ports something listens on |
-| `GET /api/v1/units?scope=user\|system` | | `[{ name, description, active }]`: the loaded units of that scope a link may be given, those the settings name |
-
-In `GET /api/v1/control`, `enabled` says whether control is on now, `elamond control off`
-included; `role` and `allowed` are the asking phone's ([roles](#roles)). `off_reason` says why
-control is off, and is `null` while it's on: `settings` (`control = false`),
-`held_off` (`elamond control off`) or `settings_unreadable` (the settings files stopped parsing;
-[`control-off.json`](../elamond/fixtures/control-off.json)). `power`, `profiles`, `actions` and
-`volume` go only as far as the role: beyond it they read as on a computer without them (`"na"`
-and `false`, `null`, `[]`, `false`), so a client that doesn't read `allowed` offers no more than
-the phone may do.
-
-A link opens a web page: its `url` is an `http://` or `https://` one, or a bare host and port
-(`{host}:8096`), which a client opens as `http://`. Another scheme (`javascript:`, `intent:`,
-`file:`, …) is refused with 400 `bad_url`, and a link that has one anyway (in the settings, or
-written into `links.json` by hand) is left out of what phones get.
-
-A link's unit is only ever one the computer's settings name: on a `[[links]]` entry, or
-in `units`, in the same scope. Only service units (`NAME.service`), never one whose name starts
-with `-` or the Elamon service's own, and a template's instance (`name@instance.service`) only as
-the settings name it. `POST /api/v1/links` with any other unit is answered 403 `not_allowed` (a
-malformed name 400 `bad_unit`); `POST /api/v1/links/{id}/unit` asks again, so a link's unit the
-settings don't name (any more) is refused there with 403 `not_allowed` and its state isn't read
-(`unit_state` is `null`). System units also need polkit's leave
-([the guide](guide.md#power-the-profile-and-system-units-polkit)).
-
-Action ids come from the action's name and command, not its place in the settings, so a phone
-holding an old list can't run a different command after the settings change; an id that no
-longer exists answers 404 `no_such_action`. An action's output keeps its first 4 KiB and last
-12 KiB; a timed-out action answers with what it printed so far.
-
-A signal's `start` is the process's start time as samples give it (Unix s). With it, the service
-signals only the process that started then: if the pid now belongs to another, it answers 409
-`process_changed` and signals nothing. Without it, whatever has the pid gets the signal.
-
-Successful actions answer `{ "ok": true }`.
+The cover (PNG, JPEG or WebP, 4 MiB at most), when the player has it in a local file; for roles that
+see media. 404 `no_art`.
 
 ### How often
 
-A phone may make 10 acting requests (every one in the table but the `GET`s, and
-[`rekey`](#post-apiv1rekey)) in a row, then one more each second; beyond that it gets 429
-`too_many_requests`. Reading isn't counted. The rate is a family's: a phone and the keys of their
-own its token gave share it.
+A client may make 10 acting requests (actions, and [`rekey`](#post-apiv1rekey)) in a row, then one
+more each second; beyond that it gets 429 `too_many_requests`. Reading isn't counted. The rate is a
+family's: a client and the keys of their own its token gave share it.
 
 ### Connections
 
 The service holds 256 connections at once, and 16 from one address (an IPv6 one by its /64) that
-haven't yet made a request with a paired phone's token; more are closed as they come, before the
+haven't yet made a request with a paired client's token; more are closed as they come, before the
 TLS handshake. A connection has 10 seconds for its TLS handshake, then 15 for its first request,
 and 15 for the headers of each request after it, an idle wait between requests included: a client
 reconnects as it would after any closed connection. A stream, once its headers are read, isn't
-bound by these.
+bound by these. A client has 4 streams open at most; a fifth ends its oldest.
 
 ### Activity log
 
 Every acting request is recorded, let through or refused, with how it ended. The service keeps up
 to 500, in a private file in its data directory (`activity.jsonl`), so they survive restarts.
-A family (a phone and the keys of their own its token gave) keeps 100 of them at most:
-its newest push out its own oldest, never another phone's. Each entry:
+A family keeps 100 of them at most: its newest push out its own oldest, never another client's.
+Clients read it as the `activity` collection (role `monitor`). Each entry:
 
 ```
-{ t (Unix ms), phone (its name then), client_id, what, result ("ok" or the error code),
+{ t (Unix ms), phone (the client's name then), client_id, what, result ("ok" or the error code),
   message? (what failed, or how an action ended: "exit 0", "timed out"),
-  family? (the client_id its key came from, for a phone that got one with another's token) }
+  family? (the client_id its key came from, for a client that got one with another's token) }
 ```
 
 `what` reads like `power reboot`, `profile balanced`, `signal term 1234 firefox`,
-`action Back up now`, `unit restart nginx.service`, `media play_pause`, `volume 40 %`,
-`link add Jellyfin`, `link remove Jellyfin`, `phone added: Pixel 9` (a key of its own, the
-`message` `id <client_id>, <role>`). Of a run of 429 refusals only the first is
-recorded. A request whose body the service can't read at all isn't. Requests that were let through
-are also in the journal (`journalctl --user -u elamond`).
+`action Mode server`, `unit restart nginx.service`, `media play_pause`, `volume 40 %`,
+`phone added: Pixel 9`. Of a run of 429 refusals only the first is recorded. Requests that were let
+through are also in the journal (`journalctl --user -u elamond`).
 
 ## Errors
 
-Errors are `{ "error": "<code>" }` with these statuses (the same list is in
+Errors are `{ "error": "<code>" }`, some with a `message`, with these statuses (the same list is in
 [`elamond/fixtures/errors.json`](../elamond/fixtures/errors.json)):
 
 | status | codes |
 |---|---|
-| 400 | `unknown_signal`, `empty_command`, `no_unit`, `bad_name`, `bad_url`, `bad_unit`, `bad_scope` |
+| 400 | `bad_param` (with `message`, the parameter), `bad_sort`, `unknown_signal` |
 | 401 | `unauthorized` |
-| 403 | `no_pairing`, `wrong_code`, `pair_declined` (the person at `elamond pair` didn't let the phone in), `too_many_phones` (64 are paired), `rekey_refused` (this token gave its key of its own already, or came of one), `control_disabled`, `not_permitted` (polkit refused, or a protected process), `not_allowed` (the phone's role doesn't allow it, or the settings don't name the unit) |
-| 404 | `not_found`, `no_such_process`, `no_such_action`, `no_such_link`, `no_art` |
-| 409 | `process_changed` (a signal's `start` names another process than the pid's) |
-| 429 | `too_many_requests` (acting too often, or too many wrong pairing codes from one address) |
+| 403 | `no_pairing`, `wrong_code`, `pair_declined`, `too_many_phones` (64 are paired), `rekey_refused`, `control_disabled`, `not_permitted` (polkit refused, or a protected process), `not_allowed` (the client's role doesn't allow it) |
+| 404 | `not_found`, `no_such_process`, `no_such_action`, `no_such_dashboard`, `no_such_stream`, `no_art` |
+| 409 | `process_changed` |
+| 429 | `too_many_requests` |
 | 500 | `storage` |
-| 502 | `failed`, with `"message"` |
+| 502 | `failed`, with `message` |
 
-
-`failed` carries a `message`: either one of `unknown_action`, `unknown_operation`,
-`unknown_player`, `unknown_profile`, `no_value`, `no_track`, `no_session`, `no_system_bus`,
-`no_session_bus`, `no_power_profiles`, `volume_failed`, `mute_failed`, `timed_out`, or the
-system's own error text (D-Bus, a command). A request whose JSON or query the service can't read
-at all gets a plain-text 400, 415 or 422, and a body over its limit (4 KiB for `pair` and `rekey`)
-a plain-text 413.
+`failed` carries a `message`: either one of `unknown_player`, `unknown_profile`, `no_value`,
+`no_track`, `no_session`, `no_system_bus`, `no_session_bus`, `no_power_profiles`, `volume_failed`,
+`mute_failed`, `timed_out`, or the system's own error text (D-Bus, a command). A request whose JSON
+or query the service can't read at all gets a plain-text 400, 415 or 422, and a body over its limit
+(4 KiB for `pair`, `rekey`, `actions` and `stream`) a plain-text 413.

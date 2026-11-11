@@ -1,0 +1,637 @@
+# The standard dashboards and the default profile, built into elamond. `elamond defaults` prints
+# this file: copy what you want to change into elamond.toml or a file in elamond.d/, where a table
+# of the same id overrides this one key by key (a list, like `widgets`, is replaced whole).
+#:schema elamond-schema.json
+
+[profiles.default]
+name = "Default"
+theme = "system"
+pure_black = false
+animations = true
+interval_ms = 1000
+fahrenheit = false
+network_bits = false
+confirm_actions = true
+unlock = { for = ["power", "signal", "actions", "units"], grace = "every_time" }
+dashboards = ["overview", "processes", "sensors", "control"]
+
+[profiles.default.android]
+dynamic_color = true
+blur = true
+haptics = true
+keep_screen_on = false
+
+# ---- Overview ------------------------------------------------------------------------------
+
+[dashboards.overview]
+title = "Overview"
+icon = "overview"
+
+[[dashboards.overview.widgets]]
+id = "cpu"
+type = "gauge"
+value = "cpu.usage"
+label = "CPU"
+icon = "chip"
+color = "cpu"
+caption = "{cpu.temp:temp} · {cpu.freq_max:mhz}"
+open = "cpu"
+
+[[dashboards.overview.widgets]]
+id = "memory"
+type = "gauge"
+value = "mem.percent"
+label = "Memory"
+icon = "memory"
+color = "memory"
+caption = "{mem.used:bytes} of {mem.total:bytes}"
+open = "memory"
+
+[[dashboards.overview.widgets]]
+id = "gpus"
+type = "value"
+for_each = "gpus"
+value = "gpu.{item}.usage"
+label = "{item.short_name}"
+icon = "gpu"
+color = "gpu"
+spark = true
+empty = "{gpu.{item}.summary}"
+caption = "{gpu.{item}.temp:temp} · {gpu.{item}.power:watts}"
+open = "gpu.{item}"
+
+[[dashboards.overview.widgets]]
+id = "temperature"
+type = "value"
+value = "cpu.temp"
+label = "Temperature"
+icon = "thermometer"
+color = "hot"
+spark = true
+caption = "{fans.summary}"
+open = "sensors"
+
+[[dashboards.overview.widgets]]
+id = "network"
+type = "graph"
+values = ["net.rx", "net.tx"]
+labels = ["Download", "Upload"]
+colors = ["rx", "tx"]
+label = "Network"
+icon = "network"
+color = "rx"
+height = "small"
+floor = 65536
+caption = "{net.up_names}"
+open = "network"
+
+[[dashboards.overview.widgets]]
+id = "storage"
+type = "table"
+source = "disks"
+label = "Storage"
+icon = "storage"
+color = "read"
+limit = 3
+columns = [
+  { field = "mount", grow = true },
+  { field = "available", format = "bytes", label = "free" },
+  { field = "percent", bar = { max = 100 } },
+]
+caption = "Read {disk.read:rate} · write {disk.write:rate}"
+open = "storage"
+
+[[dashboards.overview.widgets]]
+id = "battery"
+type = "meter"
+value = "battery.percent"
+when = "battery.percent"
+label = "Battery"
+icon = "battery"
+color = "battery"
+span = 4
+caption = "{battery.status_text} · {battery.power:watts} · {battery.time_text} · health {battery.health:percent}"
+open = "battery"
+
+# ---- Processes -----------------------------------------------------------------------------
+
+[dashboards.processes]
+title = "Processes"
+icon = "processes"
+role = "monitor"
+
+[[dashboards.processes.widgets]]
+id = "table"
+type = "table"
+source = "processes"
+search = true
+limit = 500
+sort = { field = "cpu", desc = true }
+sorts = ["cpu", "mem", "gpu", "io"]
+columns = [
+  { field = "name", grow = true },
+  { field = "cpu", label = "CPU", format = "percent", bar = { max = 25 } },
+  { field = "mem", label = "Memory", format = "bytes" },
+]
+expand = [
+  { field = "cmd", label = "Command" },
+  { field = "user", label = "User" },
+  { field = "pid", label = "PID", format = "integer" },
+  { field = "ppid", label = "Parent", format = "integer" },
+  { field = "status", label = "State" },
+  { field = "start", label = "Started", format = "time" },
+  { field = "read", label = "Disk read", format = "rate" },
+  { field = "write", label = "Disk write", format = "rate" },
+  { field = "gpu", label = "GPU", format = "percent" },
+  { field = "gpu_mem", label = "GPU memory", format = "bytes" },
+]
+row_actions = [
+  { action = "process.signal", label = "Quit", params = { pid = "{pid}", start = "{start}", signal = "term" } },
+  { action = "process.signal", label = "Force kill", params = { pid = "{pid}", start = "{start}", signal = "kill" } },
+]
+
+# ---- Sensors -------------------------------------------------------------------------------
+
+[dashboards.sensors]
+title = "Sensors"
+icon = "thermometer"
+
+[templates.sensor_table]
+type = "table"
+source = "temps"
+hide_empty = true
+sort = { field = "label", desc = false }
+columns = [
+  { field = "label", grow = true },
+  { field = "value", format = "temp", bar = { max = "crit" } },
+]
+expand = [
+  { field = "chip", label = "Chip" },
+  { field = "high", label = "High", format = "temp" },
+  { field = "crit", label = "Critical", format = "temp" },
+]
+
+[[dashboards.sensors.widgets]]
+id = "cpu"
+use = "sensor_table"
+label = "Processor"
+icon = "chip"
+color = "cpu"
+filter = { kind = "cpu" }
+
+[[dashboards.sensors.widgets]]
+id = "gpu"
+use = "sensor_table"
+label = "Graphics"
+icon = "gpu"
+color = "gpu"
+filter = { kind = "gpu" }
+
+[[dashboards.sensors.widgets]]
+id = "storage"
+use = "sensor_table"
+label = "Storage"
+icon = "storage"
+color = "read"
+filter = { kind = "storage" }
+
+[[dashboards.sensors.widgets]]
+id = "wireless"
+use = "sensor_table"
+label = "Wireless"
+icon = "network"
+color = "rx"
+filter = { kind = "wireless" }
+
+[[dashboards.sensors.widgets]]
+id = "battery"
+use = "sensor_table"
+label = "Battery"
+icon = "battery"
+color = "battery"
+filter = { kind = "battery" }
+
+[[dashboards.sensors.widgets]]
+id = "board"
+use = "sensor_table"
+label = "Board"
+icon = "thermometer"
+color = "hot"
+filter = { kind = "board" }
+
+[[dashboards.sensors.widgets]]
+id = "other"
+use = "sensor_table"
+label = "Other"
+icon = "thermometer"
+color = "hot"
+filter = { kind = "other" }
+
+[[dashboards.sensors.widgets]]
+id = "fans"
+type = "table"
+source = "fans"
+label = "Fans"
+icon = "fan"
+hide_empty = true
+columns = [
+  { field = "label", grow = true },
+  { field = "rpm", format = "rpm", bar = { max = "top" } },
+]
+
+# ---- Control -------------------------------------------------------------------------------
+
+[dashboards.control]
+title = "Control"
+icon = "control"
+
+[[dashboards.control.widgets]]
+id = "links"
+type = "table"
+source = "links"
+label = "Links"
+icon = "globe"
+hide_empty = true
+row_open = "url"
+columns = [
+  { field = "name", grow = true },
+  { field = "unit_state", label = "Unit" },
+  { field = "up", format = "bool", map = { "true" = "Up", "false" = "Down" } },
+]
+expand = [
+  { field = "url", label = "Address" },
+  { field = "unit", label = "Unit" },
+  { field = "port", label = "Port", format = "integer" },
+]
+row_actions = [
+  { action = "unit.start", label = "Start", params = { link = "{id}" } },
+  { action = "unit.stop", label = "Stop", params = { link = "{id}" } },
+  { action = "unit.restart", label = "Restart", params = { link = "{id}" } },
+]
+
+[[dashboards.control.widgets]]
+id = "media"
+type = "media"
+label = "Media"
+icon = "music"
+
+[[dashboards.control.widgets]]
+id = "profile"
+type = "select"
+value = "power.profile"
+action = "profile.set"
+param = "profile"
+label = "Power profile"
+icon = "bolt"
+color = "battery"
+span = 4
+
+[[dashboards.control.widgets]]
+id = "actions"
+type = "group"
+label = "Actions"
+icon = "terminal"
+color = "tertiary"
+for_each = "actions"
+widgets = [{ type = "button", action = "{item}", label = "{item.name}", icon = "{item.icon}" }]
+
+[[dashboards.control.widgets]]
+id = "power"
+type = "group"
+label = "Power"
+icon = "power"
+color = "hot"
+widgets = [
+  { type = "button", action = "power.lock", label = "Lock", icon = "lock", span = 1 },
+  { type = "button", action = "power.suspend", label = "Sleep", icon = "moon", span = 1 },
+  { type = "button", action = "power.reboot", label = "Restart", icon = "restart", span = 1 },
+  { type = "button", action = "power.poweroff", label = "Shut down", icon = "power", span = 1 },
+]
+
+[[dashboards.control.widgets]]
+id = "displays"
+type = "table"
+source = "displays"
+label = "Displays"
+icon = "monitor"
+hide_empty = true
+collapsed = true
+caption = "{displays.summary}"
+columns = [
+  { field = "name", grow = true },
+  { field = "state" },
+  { field = "mode" },
+]
+expand = [
+  { field = "connector", label = "Port" },
+  { field = "gpu", label = "GPU" },
+  { field = "size", label = "Size" },
+  { field = "preferred", label = "Best mode" },
+  { field = "max_refresh", label = "Fastest", format = "{:.0}", unit = "Hz" },
+  { field = "position", label = "Position" },
+  { field = "year", label = "Made", format = "integer" },
+]
+
+[[dashboards.control.widgets]]
+id = "activity"
+type = "button"
+label = "Activity log"
+icon = "clock"
+open = "activity"
+span = 4
+role = "monitor"
+
+# ---- Pages the tiles open ------------------------------------------------------------------
+
+[dashboards.cpu]
+title = "CPU"
+icon = "chip"
+
+[[dashboards.cpu.widgets]]
+id = "load"
+type = "graph"
+values = ["cpu.usage"]
+labels = ["CPU"]
+colors = ["cpu"]
+label = "Load"
+icon = "chip"
+color = "cpu"
+min = 0
+max = 100
+
+[[dashboards.cpu.widgets]]
+id = "cores"
+type = "bars"
+source = "cores"
+field = "usage"
+max = 100
+label = "Cores"
+icon = "chip"
+color = "cpu"
+span = 4
+
+[[dashboards.cpu.widgets]]
+id = "details"
+type = "list"
+label = "Details"
+icon = "overview"
+items = [
+  { label = "Model", value = "cpu.model" },
+  { label = "Cores", text = "{cpu.cores} cores · {cpu.threads} threads" },
+  { label = "Temperature", value = "cpu.temp" },
+  { label = "Clock (average / top)", text = "{cpu.freq:mhz} / {cpu.freq_max:mhz}" },
+  { label = "Load average", text = "{cpu.load1:load}  {cpu.load5:load}  {cpu.load15:load}" },
+  { label = "Uptime", value = "system.uptime" },
+]
+
+[[dashboards.cpu.widgets]]
+id = "top"
+use = "top_processes"
+sort = { field = "cpu", desc = true }
+
+[templates.top_processes]
+type = "table"
+source = "processes"
+label = "Top processes"
+icon = "processes"
+limit = 5
+columns = [
+  { field = "name", grow = true },
+  { field = "cpu", format = "percent" },
+  { field = "mem", format = "bytes" },
+]
+open = "processes"
+
+[dashboards.memory]
+title = "Memory"
+icon = "memory"
+
+[[dashboards.memory.widgets]]
+id = "use"
+type = "graph"
+values = ["mem.used", "swap.used"]
+labels = ["RAM", "Swap"]
+colors = ["memory", "swap"]
+label = "Memory use"
+icon = "memory"
+color = "memory"
+min = 0
+max = "mem.total"
+
+[[dashboards.memory.widgets]]
+id = "details"
+type = "list"
+label = "Details"
+icon = "overview"
+items = [
+  { label = "Used", text = "{mem.used:bytes} of {mem.total:bytes}" },
+  { label = "Available", value = "mem.available" },
+  { label = "Swap", text = "{swap.used:bytes} of {swap.total:bytes}", when = "swap.total" },
+]
+
+[[dashboards.memory.widgets]]
+id = "top"
+use = "top_processes"
+sort = { field = "mem", desc = true }
+
+[dashboards.gpu]
+title = "{item.name}"
+icon = "gpu"
+for_each = "gpus"
+
+[[dashboards.gpu.widgets]]
+id = "load"
+type = "graph"
+values = ["gpu.{item}.usage"]
+labels = ["Load"]
+colors = ["gpu"]
+label = "Load"
+icon = "gpu"
+color = "gpu"
+min = 0
+max = 100
+empty = "{gpu.{item}.summary}"
+
+[[dashboards.gpu.widgets]]
+id = "temp"
+type = "graph"
+values = ["gpu.{item}.temp"]
+labels = ["Temperature"]
+colors = ["hot"]
+label = "Temperature"
+icon = "thermometer"
+color = "hot"
+floor = 60
+when = "gpu.{item}.temp"
+
+[[dashboards.gpu.widgets]]
+id = "details"
+type = "list"
+label = "Details"
+icon = "overview"
+items = [
+  { label = "Name", value = "gpu.{item}.name" },
+  { label = "Driver", value = "gpu.{item}.driver" },
+  { label = "State", value = "gpu.{item}.summary" },
+  { label = "Memory", text = "{gpu.{item}.mem_used:bytes} of {gpu.{item}.mem_total:bytes}" },
+  { label = "Clock", text = "{gpu.{item}.freq:mhz} / {gpu.{item}.freq_max:mhz}" },
+  { label = "Memory clock", value = "gpu.{item}.mem_freq" },
+  { label = "Power", value = "gpu.{item}.power" },
+  { label = "Fan", value = "gpu.{item}.fan" },
+]
+
+[[dashboards.gpu.widgets]]
+id = "top"
+use = "top_processes"
+sort = { field = "gpu", desc = true }
+columns = [
+  { field = "name", grow = true },
+  { field = "gpu", format = "percent" },
+  { field = "gpu_mem", format = "bytes" },
+]
+
+[dashboards.network]
+title = "Network"
+icon = "network"
+
+[[dashboards.network.widgets]]
+id = "traffic"
+type = "graph"
+values = ["net.rx", "net.tx"]
+labels = ["Download", "Upload"]
+colors = ["rx", "tx"]
+label = "Traffic"
+icon = "network"
+color = "rx"
+floor = 65536
+
+[[dashboards.network.widgets]]
+id = "interfaces"
+type = "table"
+source = "net"
+label = "Interfaces"
+icon = "network"
+filter = { up = true }
+columns = [
+  { field = "name", grow = true },
+  { field = "kind" },
+  { field = "rx", label = "↓", format = "rate" },
+  { field = "tx", label = "↑", format = "rate" },
+]
+expand = [
+  { field = "rx_total", label = "Received", format = "bytes" },
+  { field = "tx_total", label = "Sent", format = "bytes" },
+  { field = "speed", label = "Link speed", format = "integer", unit = "Mbit/s" },
+  { field = "addrs", label = "Addresses" },
+]
+
+[dashboards.storage]
+title = "Storage"
+icon = "storage"
+
+[[dashboards.storage.widgets]]
+id = "throughput"
+type = "graph"
+values = ["disk.read", "disk.write"]
+labels = ["Read", "Write"]
+colors = ["read", "write"]
+label = "Throughput"
+icon = "storage"
+color = "read"
+floor = 1048576
+
+[[dashboards.storage.widgets]]
+id = "devices"
+type = "table"
+source = "disk_io"
+label = "Devices"
+icon = "storage"
+hide_empty = true
+columns = [
+  { field = "name", grow = true },
+  { field = "read", label = "↓", format = "rate" },
+  { field = "write", label = "↑", format = "rate" },
+]
+
+[[dashboards.storage.widgets]]
+id = "disks"
+type = "table"
+source = "disks"
+label = "File systems"
+icon = "storage"
+columns = [
+  { field = "mount", grow = true },
+  { field = "available", label = "free", format = "bytes" },
+  { field = "percent", bar = { max = 100 } },
+]
+expand = [
+  { field = "used", label = "Used", format = "bytes" },
+  { field = "total", label = "Size", format = "bytes" },
+  { field = "fs", label = "File system" },
+  { field = "device", label = "Device" },
+]
+
+[[dashboards.storage.widgets]]
+id = "top"
+use = "top_processes"
+sort = { field = "io", desc = true }
+columns = [
+  { field = "name", grow = true },
+  { field = "read", format = "rate" },
+  { field = "write", format = "rate" },
+]
+
+[dashboards.battery]
+title = "Battery"
+icon = "battery"
+
+[[dashboards.battery.widgets]]
+id = "power"
+type = "graph"
+values = ["battery.power"]
+labels = ["Power"]
+colors = ["battery"]
+label = "Power draw"
+icon = "bolt"
+color = "battery"
+floor = 5
+
+[[dashboards.battery.widgets]]
+id = "details"
+type = "list"
+label = "Details"
+icon = "battery"
+items = [
+  { label = "Charge", value = "battery.percent" },
+  { label = "State", value = "battery.status_text" },
+  { label = "Power", value = "battery.power" },
+  { label = "Time", value = "battery.time_text" },
+  { label = "Energy now", value = "battery.energy_now" },
+  { label = "Full charge", value = "battery.energy_full" },
+  { label = "Design capacity", value = "battery.energy_design" },
+  { label = "Health", value = "battery.health" },
+  { label = "Charge cycles", value = "battery.cycles" },
+  { label = "Model", value = "battery.model" },
+]
+
+[dashboards.activity]
+title = "Activity log"
+icon = "clock"
+role = "monitor"
+
+[[dashboards.activity.widgets]]
+id = "log"
+type = "table"
+source = "activity"
+search = true
+limit = 500
+sort = { field = "t", desc = true }
+columns = [
+  { field = "what", grow = true },
+  { field = "result" },
+  { field = "t", format = "time" },
+]
+expand = [
+  { field = "phone", label = "Phone" },
+  { field = "message", label = "Message" },
+]
