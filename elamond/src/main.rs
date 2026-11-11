@@ -67,7 +67,17 @@ Settings: ~/.config/elamon/elamond.toml   State: ~/.local/share/elamon/
 
 fn main() {
 	let args: Vec<String> = std::env::args().skip(1).collect();
-	let result = match args.first().map(String::as_str).unwrap_or("serve") {
+	let command = args.first().map(String::as_str).unwrap_or("serve");
+	// Rust ignores SIGPIPE, so `elamond clients | head` would panic once head has had
+	// enough. The commands end quietly like other tools instead; the service keeps it
+	// ignored, a phone that hangs up mid-write is an error to handle, not a reason to die.
+	if command != "serve" {
+		// SAFETY: restoring a signal's default disposition before any thread starts.
+		unsafe {
+			libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+		}
+	}
+	let result = match command {
 		"serve" => serve(),
 		"pair" => pair(&args[1..]),
 		"clients" => clients(&args[1..]),

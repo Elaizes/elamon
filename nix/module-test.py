@@ -164,7 +164,7 @@ with subtest("elamond control off stops every phone at once, until elamond contr
 	assert call("POST", "/api/v1/control/power", auth, nothing) == (403, {"error": "control_disabled"})
 	_, control = call("GET", "/api/v1/control", auth)
 	assert not control["enabled"] and control["role"] == "admin" and "power" not in control["allowed"], control
-	machine.succeed("su - alice -c 'elamond control status' | grep -q 'held off'")
+	machine.succeed("su - alice -c 'elamond control status' | grep 'held off'")
 	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -q 'control: held off'", timeout=30)
 	machine.succeed("su - alice -c 'elamond control on'")
 	assert call("POST", "/api/v1/control/power", auth, nothing) == unknown
@@ -286,7 +286,7 @@ with subtest("elamond rotate-cert: a new certificate signed by the old key, the 
 	old_key = machine.succeed(served_key).strip()
 	machine.succeed(f"curl -sk --pinnedpubkey 'sha256//{old_key}' https://localhost:47823/api/v1/hello")
 	assert call("GET", "/api/v1/identity/rotations") == (200, [])
-	machine.succeed("su - alice -c 'elamond rotate-cert' | grep -q 'New certificate'")
+	machine.succeed("su - alice -c 'elamond rotate-cert' | grep 'New certificate'")
 	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -q 'certificate: now'", timeout=30)
 	new_fp = machine.succeed(served_fp).strip()
 	assert new_fp != old_fp
