@@ -305,7 +305,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 			val host = workingHost ?: run {
 				_state.update { it.copy(conn = if (it.sample == null) Conn.Connecting else Conn.Reconnecting) }
 				val reached = try {
-					reachPaired(machine) { fp -> renewed(fp) }
+					reachPaired(machine) { from, to -> renewed(from, to) }
 				} catch (e: ElamondException) {
 					_state.update { it.copy(conn = Conn.CertificateChanged) }
 					return
@@ -470,11 +470,12 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 
 	/**
 	 * The computer renewed its certificate (`elamond rotate-cert`) and the steps from the one pinned
-	 * check out: pinned from now on, which starts the stream over with it, and said once.
+	 * check out: pinned from now on, which starts the stream over with it, and said once. Only while
+	 * the computer is still pinned to [from], the certificate followed: paired again meanwhile, it
+	 * keeps the new pairing's.
 	 */
-	private fun renewed(fingerprint: String) {
-		store.update(machineId) { it.copy(fingerprint = fingerprint) }
-		say(Message.Res(R.string.machine_cert_renewed))
+	private fun renewed(from: String, to: String) {
+		if (store.repin(machineId, from, to)) say(Message.Res(R.string.machine_cert_renewed))
 	}
 
 	private fun say(m: Message) {

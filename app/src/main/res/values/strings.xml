@@ -89,6 +89,7 @@
 	<string name="pair_no_pairing">The computer isn\'t waiting for a phone. Run elamond pair on it first.</string>
 	<string name="pair_too_many">Too many wrong codes from this phone. Run elamond pair on the computer again for a new code.</string>
 	<string name="pair_keystore">The computer paired this phone, but the phone\'s key store couldn\'t keep the key safe, so nothing was saved. Try again; elamond revoke on the computer removes the pairing left unused.</string>
+	<string name="pair_not_saved">The computer paired this phone, but the phone couldn\'t save the pairing, so nothing was kept. Try again; elamond revoke on the computer removes the pairing left unused.</string>
 	<string name="pair_link_newer">This pairing code is from a newer elamond than this app reads. Update the app, then scan it again.</string>
 	<string name="pair_link_invalid">This pairing link is incomplete or damaged. Run elamond pair on the computer and scan the new code.</string>
 
@@ -623,6 +624,7 @@
 	<string name="transfer_newer">This file is from a newer Elamon. Update the app, then import it.</string>
 	<string name="transfer_damaged">The file is damaged. Nothing was imported.</string>
 	<string name="transfer_keystore">This phone\'s key store doesn\'t work, so the pairings can\'t be kept on it. Nothing was imported.</string>
+	<string name="transfer_not_saved">The pairings couldn\'t be saved on this phone. Nothing was imported.</string>
 	<string name="transfer_no_picker">This phone has no app to choose files with.</string>
 
 	<!-- Times in numbers (Fmt.duration, Fmt.ago, the activity log's agoWords); the unit symbols of other numbers stay in Format.kt -->

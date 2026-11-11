@@ -106,14 +106,14 @@ internal suspend fun <T : Any> reachFollowing(
 
 /**
  * [ElamondClient.firstReachable] for the paired [machine], following its certificate when the
- * computer renewed it ([Rotations]): then [repin] gets the new fingerprint to keep.
+ * computer renewed it ([Rotations]): then [repin] gets the fingerprint followed and the new one to keep.
  */
-suspend fun reachPaired(machine: Machine, repin: suspend (String) -> Unit): Pair<ElamondClient, Hello>? {
+suspend fun reachPaired(machine: Machine, repin: suspend (from: String, to: String) -> Unit): Pair<ElamondClient, Hello>? {
 	val hosts = machine.hostsToTry()
 	return reachFollowing(
 		pinned = machine.fingerprint,
 		reach = { pin -> ElamondClient.firstReachable(hosts, machine.port, pin, machine.id) },
 		renewed = { pin -> ElamondClient.renewedPin(hosts, machine.port, pin, machine.id) },
-		repin = repin,
+		repin = { to -> repin(machine.fingerprint, to) },
 	)
 }

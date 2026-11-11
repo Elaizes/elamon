@@ -115,7 +115,7 @@ object PairingsFile {
 		val header = Header(FORMAT, KDF, iterations, b64.encodeToString(salt), CIPHER, b64.encodeToString(nonce))
 		val head = (MAGIC + json.encodeToString(Header.serializer(), header) + "\n").toByteArray(Charsets.UTF_8)
 		// Only what a computer is reached and recognised by goes along, never this phone's sealing of its token.
-		val plain = json.encodeToString(Contents.serializer(), Contents(machines.map { it.copy(tokenSealed = null, tokenIv = null) }, exportedAt, appVersion))
+		val plain = json.encodeToString(Contents.serializer(), Contents(machines.map { it.copy(tokenSealed = null, tokenIv = null, tokenBound = false) }, exportedAt, appVersion))
 			.toByteArray(Charsets.UTF_8)
 		try {
 			val c = Cipher.getInstance(TRANSFORMATION)
@@ -146,7 +146,7 @@ object PairingsFile {
 		try {
 			val contents = runCatching { json.decodeFromString(Contents.serializer(), String(plain, Charsets.UTF_8)) }.getOrNull() ?: return Opened.Damaged
 			if (!contents.machines.all(::usable)) return Opened.Damaged
-			return Opened.Pairings(contents.machines.map { it.copy(tokenSealed = null, tokenIv = null) })
+			return Opened.Pairings(contents.machines.map { it.copy(tokenSealed = null, tokenIv = null, tokenBound = false) })
 		} finally {
 			plain.fill(0)
 		}

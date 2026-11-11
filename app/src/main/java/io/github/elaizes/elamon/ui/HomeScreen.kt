@@ -194,9 +194,10 @@ private suspend fun reading(s: Machine, store: MachineStore, ownKeys: OwnKeys, d
 	return try {
 		// A certificate the computer renewed is followed and kept here too.
 		var pin = s.fingerprint
-		val reached = reachPaired(s) { fp ->
-			pin = fp
-			store.update(s.id) { it.copy(fingerprint = fp) }
+		val reached = reachPaired(s) { from, to ->
+			pin = to
+			// Kept only while still pinned to the one followed: a pairing made meanwhile stays as it is.
+			store.repin(s.id, from, to)
 		} ?: return Live.Offline
 		val host = reached.first.host
 		val own = ownKeys.renew(s.id, device) { ElamondClient(host, s.port, pin, token).rekey(it) }

@@ -1,7 +1,9 @@
 package io.github.elaizes.elamon.data
 
 import java.security.GeneralSecurityException
+import java.security.InvalidKeyException
 import java.security.ProviderException
+import java.security.UnrecoverableKeyException
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import kotlin.test.Test
@@ -34,6 +36,14 @@ internal class MemoryFile(var json: String? = null) : MachineFile {
 		writes += json
 		this.json = json
 	}
+
+	/** The writes that were to be on disk before going on: those with a new token. */
+	val durable = mutableListOf<String>()
+
+	override fun writeNow(json: String) {
+		write(json)
+		durable += json
+	}
 }
 
 /** A key in memory, as the key store keeps one; setting [key] to null is a key store that lost it. */
@@ -59,9 +69,9 @@ internal class FakeCipher(val keys: MemoryKeys = MemoryKeys()) : TokenCipher {
 	var sealing = true
 	var opening = true
 
-	override fun seal(plain: ByteArray): Sealed = if (sealing) inner.seal(plain) else throw ProviderException("key store down")
+	override fun seal(plain: ByteArray, aad: ByteArray?): Sealed = if (sealing) inner.seal(plain, aad) else throw ProviderException("key store down")
 
-	override fun open(sealed: Sealed): ByteArray = if (opening) inner.open(sealed) else throw GeneralSecurityException("can't open")
+	override fun open(sealed: Sealed, aad: ByteArray?): ByteArray = if (opening) inner.open(sealed, aad) else throw GeneralSecurityException("can't open")
 }
 
 /** How 0.4 kept a computer: the token required, other fields left alone. */
@@ -72,6 +82,8 @@ private data class OldServer(val id: String, val name: String, val hosts: List<S
 private val OldJson = Json { ignoreUnknownKeys = true }
 
 class MachineStoreTest {
+	private val aad = tokenAad("a")
+
 	/** Two computers as an app before 0.5 left them: plain tokens, no client id or role. */
 	private val before = """
 		[{"id":"a","name":"Test computer","hosts":["192.168.200.101","laptop.lan"],"port":47823,"fingerprint":"aa","token":"secret-a","lastHost":"192.168.200.101","os":"NixOS","addedAt":5},
@@ -252,30 +264,33 @@ class MachineStoreTest {
 	fun gcmSealsUnderAFreshIvAndOpensWhatItSealed() {
 		val keys = MemoryKeys()
 		val c = GcmTokenCipher(keys)
-		val one = c.seal("secret-c".toByteArray())
-		val two = c.seal("secret-c".toByteArray())
+		val one = c.seal("secret-c".toByteArray(), aad)
+		val two = c.seal("secret-c".toByteArray(), aad)
 		assertEquals(1, keys.created)
 		assertEquals(12, one.iv.size)
 		assertFalse(one.iv.contentEquals(two.iv))
 		assertFalse(one.data.contentEquals(two.data))
-		assertEquals("secret-c", String(c.open(one)))
-		assertEquals("secret-c", String(c.open(two)))
+		assertEquals("secret-c", String(c.open(one, aad)))
+		assertEquals("secret-c", String(c.open(two, aad)))
 
 		// Changed or under another IV, it doesn't open.
-		assertFailsWith<GeneralSecurityException> { c.open(Sealed(one.data.copyOf().also { it[0] = (it[0] + 1).toByte() }, one.iv)) }
-		assertFailsWith<GeneralSecurityException> { c.open(Sealed(one.data, two.iv)) }
+		assertFailsWith<GeneralSecurityException> { c.open(Sealed(one.data.copyOf().also { it[0] = (it[0] + 1).toByte() }, one.iv), aad) }
+		assertFailsWith<GeneralSecurityException> { c.open(Sealed(one.data, two.iv), aad) }
+		// Nor for another computer, or for none.
+		assertFailsWith<GeneralSecurityException> { c.open(one, tokenAad("b")) }
+		assertFailsWith<GeneralSecurityException> { c.open(one, null) }
 	}
 
 	@Test
 	fun gcmWithoutItsKeyOpensNothingAndSealsUnderANewOne() {
 		val keys = MemoryKeys()
 		val c = GcmTokenCipher(keys)
-		val old = c.seal("secret-a".toByteArray())
+		val old = c.seal("secret-a".toByteArray(), aad)
 		keys.key = null
-		assertFailsWith<GeneralSecurityException> { c.open(old) }
-		val new = c.seal("secret-new".toByteArray())
+		assertFailsWith<GeneralSecurityException> { c.open(old, aad) }
+		val new = c.seal("secret-new".toByteArray(), aad)
 		assertEquals(2, keys.created)
-		assertEquals("secret-new", String(c.open(new)))
+		assertEquals("secret-new", String(c.open(new, aad)))
 	}
 
 	@Test
@@ -322,13 +337,118 @@ class MachineStoreTest {
 	}
 
 	@Test
-	fun gcmReplacesAKeyThatCantSeal() {
+	fun gcmNeverDropsAKeyForAnErrorThatMayPass() {
 		val keys = MemoryKeys()
-		// Not an AES key: the cipher refuses it, as the key store refuses a broken one.
-		keys.key = KeyGenerator.getInstance("HmacSHA256").generateKey()
+		// Not an AES key: the cipher refuses it, as a key store that fails refuses its key.
+		val broken = KeyGenerator.getInstance("HmacSHA256").generateKey()
+		keys.key = broken
 		val c = GcmTokenCipher(keys)
-		val s = c.seal("secret-c".toByteArray())
+		assertFailsWith<KeystoreException> { c.seal("secret-c".toByteArray(), aad) }
+		assertEquals(0, keys.created)
+		assertEquals(broken, keys.key)
+
+		// Nor when reading it fails.
+		val unreadable = object : KeySource {
+			var dropped = false
+			override fun existing(): SecretKey = throw UnrecoverableKeyException("busy")
+			override fun create(): SecretKey = error("not to be made")
+			override fun drop() {
+				dropped = true
+			}
+		}
+		assertFailsWith<KeystoreException> { GcmTokenCipher(unreadable).seal("secret-c".toByteArray(), aad) }
+		assertFalse(unreadable.dropped)
+	}
+
+	@Test
+	fun gcmReplacesOnlyAKeyGoneForGood() {
+		val keys = MemoryKeys()
+		keys.key = KeyGenerator.getInstance("HmacSHA256").generateKey()
+		// What the key store says of a key that can never be used again, standing in for KeyPermanentlyInvalidatedException.
+		val c = GcmTokenCipher(keys, invalidated = { it is InvalidKeyException })
+		val s = c.seal("secret-c".toByteArray(), aad)
 		assertEquals(1, keys.created)
-		assertEquals("secret-c", String(c.open(s)))
+		assertEquals("secret-c", String(c.open(s, aad)))
+		// Found anywhere among the causes.
+		assertFalse(permanentlyInvalidated(IllegalStateException(UnrecoverableKeyException("x"))))
+	}
+
+	@Test
+	fun aTokenIsBoundToItsComputer() {
+		val file = MemoryFile()
+		val cipher = FakeCipher()
+		val store = MachineStore(file, cipher)
+		store.put(machine("a"), "secret-a")
+		store.put(machine("b"), "secret-b")
+		val a = store.get("a")!!
+		val b = store.get("b")!!
+		assertTrue(a.tokenBound && b.tokenBound)
+		// a's sealed token in b's entry, as whoever could write the app's files might put it: it doesn't open there.
+		val swapped = b.copy(tokenSealed = a.tokenSealed, tokenIv = a.tokenIv)
+		assertNull(store.token(swapped))
+		assertNull(MachineStore(MemoryFile(ProtocolJson.encodeToString(listOf(a, swapped))), FakeCipher(cipher.keys)).let { it.token(it.get("b")!!) })
+		// Nor as one never bound, which would be opened without its id.
+		assertNull(MachineStore(MemoryFile(ProtocolJson.encodeToString(listOf(swapped.copy(tokenBound = false)))), FakeCipher(cipher.keys)).let { it.token(it.get("b")!!) })
+		assertEquals("secret-a", store.token(a))
+		assertEquals("secret-b", store.token(b))
+	}
+
+	@Test
+	fun tokensSealedUnboundAreBoundOnLoadInOneWrite() {
+		val cipher = FakeCipher()
+		// As a build of 0.5 in the making left them: sealed, but not bound to their computer.
+		fun unbound(id: String, token: String): Machine {
+			val s = cipher.seal(token.toByteArray(), null)
+			val b64 = java.util.Base64.getEncoder()
+			return machine(id).copy(tokenSealed = b64.encodeToString(s.data), tokenIv = b64.encodeToString(s.iv))
+		}
+		val list = listOf(unbound("a", "secret-a"), unbound("b", "secret-b"))
+		val file = MemoryFile(ProtocolJson.encodeToString(list))
+		val store = MachineStore(file, FakeCipher(cipher.keys))
+		assertEquals(1, file.writes.size)
+		assertTrue(store.machines.value.all { it.tokenBound })
+		assertNotEquals(list[0].tokenSealed, store.get("a")!!.tokenSealed)
+		assertEquals("secret-a", store.token(store.get("a")!!))
+		// Another run opens them bound, and has nothing to write.
+		val again = MachineStore(file, FakeCipher(cipher.keys))
+		assertEquals(1, file.writes.size)
+		assertEquals("secret-a", again.token(again.get("a")!!))
+		assertEquals("secret-b", again.token(again.get("b")!!))
+		// Before the key store worked again, the token was still read unbound, and kept as it was.
+		val broken = FakeCipher(cipher.keys).apply { sealing = false }
+		val waiting = MachineStore(MemoryFile(ProtocolJson.encodeToString(list)), broken)
+		assertFalse(waiting.get("a")!!.tokenBound)
+		assertEquals("secret-a", waiting.token(waiting.get("a")!!))
+	}
+
+	@Test
+	fun aRenewedCertificateIsPinnedOnlyOverTheOneFollowed() {
+		val store = MachineStore(MemoryFile(), FakeCipher())
+		store.put(machine("a"), "secret-a")
+		assertTrue(store.repin("a", "f-a", "f-renewed"))
+		assertEquals("f-renewed", store.get("a")!!.fingerprint)
+		// Paired again meanwhile: the old chain's end doesn't take the new pairing's place.
+		store.put(machine("a").copy(fingerprint = "f-paired-again"), "secret-new")
+		assertFalse(store.repin("a", "f-renewed", "f-stale"))
+		assertEquals("f-paired-again", store.get("a")!!.fingerprint)
+		assertFalse(store.repin("gone", "f-a", "f-b"))
+	}
+
+	@Test
+	fun newTokensAreOnDiskBeforeGoingOn() {
+		val file = MemoryFile(before)
+		val store = MachineStore(file, FakeCipher())
+		assertTrue(file.durable.isEmpty())
+		store.put(machine("c"), "secret-c")
+		assertEquals(1, file.durable.size)
+		store.addImported(listOf(machine("d").copy(token = "secret-new")))
+		assertEquals(2, file.durable.size)
+		assertTrue(store.ownToken(store.get("d")!!, "secret-own", "0123abcd", "admin"))
+		assertEquals(3, file.durable.size)
+		// What can be written again if lost needn't wait.
+		store.update("a") { it.copy(lastHost = "laptop.lan") }
+		store.remove("b")
+		assertEquals(3, file.durable.size)
+		assertEquals(file.writes.last(), file.json)
 	}
 }

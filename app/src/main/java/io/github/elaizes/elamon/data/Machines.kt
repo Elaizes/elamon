@@ -1,8 +1,10 @@
 package io.github.elaizes.elamon.data
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
 import androidx.core.content.edit
+import java.io.IOException
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +33,11 @@ data class Machine(
 	/** The token sealed ([MachineStore.token] opens it), and the IV it was sealed with, in base64. */
 	val tokenSealed: String? = null,
 	val tokenIv: String? = null,
+	/**
+	 * The token was sealed bound to this entry's id ([tokenAad]), as from 0.5 on: one sealed before
+	 * that, by a build of 0.5 in the making, is sealed again bound as the list is loaded.
+	 */
+	val tokenBound: Boolean = false,
 	val lastHost: String? = null,
 	val os: String? = null,
 	val addedAt: Long = 0,
@@ -55,16 +62,25 @@ data class Machine(
 /** Where the list of paired computers is kept: one JSON text, written whole. */
 interface MachineFile {
 	fun read(): String?
+
+	/** Written soon: what can be written again if it is lost (an address that worked, a name). */
 	fun write(json: String)
+
+	/** Written to disk before it returns, or it throws: a new token, which the computer already knows the phone by. */
+	fun writeNow(json: String) = write(json)
 }
 
 /**
- * The paired computers, kept in [file] with their tokens sealed by [cipher]. A token is only ever
- * written sealed, but for one an app before 0.5 kept in plain text that can't be sealed yet (the
- * key store fails): that one stays as it was, so the pairing isn't lost, and each save tries again.
+ * The paired computers, kept in [file] with their tokens sealed by [cipher], each bound to its
+ * computer's id ([tokenAad]). A token is only ever written sealed, but for one an app before 0.5
+ * kept in plain text that can't be sealed yet (the key store fails): that one stays as it was, so
+ * the pairing isn't lost, and each save tries again.
+ *
+ * Changes are made one at a time, whichever thread they come from. One that writes a token writes
+ * it to disk at once ([MachineFile.writeNow]): call it off the main thread.
  */
 class MachineStore(private val file: MachineFile, private val cipher: TokenCipher) {
-	/** Tokens opened this run, by their sealed text: the key store is asked once for each. */
+	/** Tokens opened this run, by their computer's id and their sealed text: the key store is asked once for each. */
 	private val opened = ConcurrentHashMap<String, String>()
 
 	private val _machines = MutableStateFlow(load())
@@ -74,21 +90,23 @@ class MachineStore(private val file: MachineFile, private val cipher: TokenCiphe
 	private val replacedBy = ConcurrentHashMap<String, String>()
 
 	/**
-	 * The list as kept, its plain tokens sealed and the list written again at once. One write
-	 * replaces the whole list, so an app stopped midway finds either the old list, to seal again,
-	 * or the new one: never one that lost a token.
+	 * The list as kept, its plain tokens sealed, those sealed before tokens were bound to their
+	 * computer sealed again bound, and the list written again at once. One write replaces the whole
+	 * list, so an app stopped midway finds either the old list, to do it again, or the new one:
+	 * never one that lost a token.
 	 */
 	private fun load(): List<Machine> {
 		val kept = runCatching { ProtocolJson.decodeFromString<List<Machine>>(file.read() ?: "[]") }.getOrDefault(emptyList())
 		// A name kept before names were cleaned as they came is cleaned now.
-		val sealed = kept.map { sealedIfPlain(it.copy(name = cleanName(it.name))) }
+		val sealed = kept.map { boundIfUnbound(sealedIfPlain(it.copy(name = cleanName(it.name)))) }
 		if (sealed != kept) file.write(ProtocolJson.encodeToString(sealed))
 		return sealed
 	}
 
-	private fun save(list: List<Machine>) {
+	private fun save(list: List<Machine>, now: Boolean = false) {
 		val sealed = list.map(::sealedIfPlain)
-		file.write(ProtocolJson.encodeToString(sealed))
+		val json = ProtocolJson.encodeToString(sealed)
+		if (now) file.writeNow(json) else file.write(json)
 		_machines.value = sealed
 	}
 
@@ -96,70 +114,104 @@ class MachineStore(private val file: MachineFile, private val cipher: TokenCiphe
 	private fun sealedIfPlain(m: Machine): Machine =
 		if (m.token.isEmpty()) m else runCatching { sealed(m, m.token) }.getOrDefault(m)
 
-	/** [m] with [token] sealed in it and no plain one; throws [KeystoreException] when it can't be sealed. */
+	/**
+	 * [m] whose token was sealed unbound (by 0.5 before tokens were bound to their computer), opened
+	 * and sealed again bound to its id; as it is when it can't be: the key store fails, or lost the key.
+	 */
+	private fun boundIfUnbound(m: Machine): Machine {
+		if (m.tokenBound || m.token.isNotEmpty()) return m
+		val token = open(m, aad = null) ?: return m
+		return runCatching { sealed(m, token) }.getOrDefault(m)
+	}
+
+	/** [m] with [token] sealed in it, bound to its id, and no plain one; throws [KeystoreException] when it can't be sealed. */
 	private fun sealed(m: Machine, token: String): Machine {
 		val s = try {
-			cipher.seal(token.toByteArray(Charsets.UTF_8))
+			cipher.seal(token.toByteArray(Charsets.UTF_8), tokenAad(m.id))
 		} catch (e: Exception) {
-			throw KeystoreException(e)
+			throw e as? KeystoreException ?: KeystoreException(e)
 		}
 		val data = B64.encodeToString(s.data)
-		opened[data] = token
-		return m.copy(token = "", tokenSealed = data, tokenIv = B64.encodeToString(s.iv))
+		opened[cacheKey(m.id, data)] = token
+		return m.copy(token = "", tokenSealed = data, tokenIv = B64.encodeToString(s.iv), tokenBound = true)
+	}
+
+	/** What [m]'s sealed token holds, opened with [aad]; null when it can't be opened. */
+	private fun open(m: Machine, aad: ByteArray?): String? {
+		val data = m.tokenSealed ?: return null
+		val iv = m.tokenIv ?: return null
+		return try {
+			String(cipher.open(Sealed(B64D.decode(data), B64D.decode(iv)), aad), Charsets.UTF_8)
+		} catch (e: Exception) {
+			null
+		}
 	}
 
 	/**
 	 * The token to send to [machine]; null when it can't be read back (the key store lost its key,
-	 * or the app's data came from elsewhere), which leaves the phone as good as unpaired there. The
-	 * key store opens each once a run, which may take a moment.
+	 * the app's data came from elsewhere, or the token is another computer's), which leaves the
+	 * phone as good as unpaired there. The key store opens each once a run, which may take a moment.
 	 */
 	fun token(machine: Machine): String? {
 		if (machine.token.isNotEmpty()) return machine.token
 		val data = machine.tokenSealed ?: return null
-		val iv = machine.tokenIv ?: return null
-		opened[data]?.let { return it }
-		return try {
-			String(cipher.open(Sealed(B64D.decode(data), B64D.decode(iv))), Charsets.UTF_8).also { opened[data] = it }
-		} catch (e: Exception) {
-			null
-		}
+		opened[cacheKey(machine.id, data)]?.let { return it }
+		// One still unbound is sealed again bound the next time the app starts.
+		val aad = if (machine.tokenBound) tokenAad(machine.id) else null
+		return open(machine, aad)?.also { opened[cacheKey(machine.id, data)] = it }
 	}
 
 	fun get(id: String): Machine? = _machines.value.find { it.id == id }
 
 	/**
 	 * Adds a computer paired with [token], replacing an older pairing with it or the entry
-	 * [replacing] (a reset computer has a new id). Throws [KeystoreException], saving nothing, when
-	 * the token can't be sealed.
+	 * [replacing] (a reset computer has a new id), on disk before it returns. Throws
+	 * [KeystoreException], saving nothing, when the token can't be sealed.
 	 */
+	@Synchronized
 	fun put(machine: Machine, token: String, replacing: String? = null) {
 		val m = sealed(machine, token)
 		val list = _machines.value
 		if (replacing != null && replacing != m.id && list.any { it.id == replacing }) replacedBy[replacing] = m.id
-		save(withMachine(list, m, replacing))
+		save(withMachine(list, m, replacing), now = true)
 	}
 
 	/** The entry that took the place of the gone entry [id] (paired again, the computer had a new id), if one is still here. */
 	fun successor(id: String): String? = successorOf(id, replacedBy) { get(it) != null }
 
+	@Synchronized
 	fun update(id: String, change: (Machine) -> Machine) {
 		save(_machines.value.map { if (it.id == id) change(it) else it })
 	}
 
+	@Synchronized
 	fun remove(id: String) {
 		save(_machines.value.filter { it.id != id })
+	}
+
+	/**
+	 * The computer [id] pinned to the certificate [to], which its rotations lead to from [from]; only
+	 * while it is still pinned to [from], so a pairing made meanwhile isn't pinned to where an
+	 * older one led. Returns whether it was.
+	 */
+	@Synchronized
+	fun repin(id: String, from: String, to: String): Boolean {
+		if (get(id)?.fingerprint?.equals(from, ignoreCase = true) != true) return false
+		save(_machines.value.map { if (it.id == id) it.copy(fingerprint = to) else it })
+		return true
 	}
 
 	/**
 	 * The computer [was]'s token replaced by [token], a key of this phone's own where it shared one
 	 * ([Machine.tokenShared] cleared), with this phone's [clientId] and [role] there; only while the
 	 * entry still holds the token it held as [was], so one paired again meanwhile is left as it is.
-	 * Returns whether it was kept; throws [KeystoreException], saving nothing, when it can't be sealed.
+	 * Returns whether it was kept, on disk; throws [KeystoreException], saving nothing, when it can't be sealed.
 	 */
+	@Synchronized
 	fun ownToken(was: Machine, token: String, clientId: String?, role: String?): Boolean {
 		val m = get(was.id)?.takeIf { it.tokenShared && it.token == was.token && it.tokenSealed == was.tokenSealed } ?: return false
 		val own = sealed(m.copy(tokenShared = false, clientId = clientId ?: m.clientId, role = role ?: m.role), token)
-		save(_machines.value.map { if (it.id == own.id) own else it })
+		save(_machines.value.map { if (it.id == own.id) own else it }, now = true)
 		return true
 	}
 
@@ -169,7 +221,7 @@ class MachineStore(private val file: MachineFile, private val cipher: TokenCiphe
 	 */
 	fun withTokens(): Pair<List<Machine>, Int> {
 		val list = _machines.value
-		val opened = list.mapNotNull { m -> token(m)?.let { m.copy(token = it, tokenSealed = null, tokenIv = null) } }
+		val opened = list.mapNotNull { m -> token(m)?.let { m.copy(token = it, tokenSealed = null, tokenIv = null, tokenBound = false) } }
 		return opened to list.size - opened.size
 	}
 
@@ -178,17 +230,21 @@ class MachineStore(private val file: MachineFile, private val cipher: TokenCiphe
 	 * takes that entry's place, the others go at the end. Every token is sealed with this phone's
 	 * key before anything is saved, so a key store that fails changes nothing ([KeystoreException]),
 	 * and marked as shared with the phone it came from, until the computer gives this one its own.
+	 * On disk before it returns.
 	 */
+	@Synchronized
 	fun addImported(imported: List<Machine>): Merged {
 		val sealed = imported.map { sealed(it.copy(token = "", tokenSealed = null, tokenIv = null, tokenShared = true), it.token) }
 		val merged = mergeImported(_machines.value, sealed)
-		save(merged.list)
+		save(merged.list, now = true)
 		return merged
 	}
 
 	companion object {
 		private val B64 = Base64.getEncoder()
 		private val B64D = Base64.getDecoder()
+
+		private fun cacheKey(id: String, sealed: String) = "$id\n$sealed"
 
 		@Volatile private var instance: MachineStore? = null
 		fun get(context: Context): MachineStore =
@@ -209,6 +265,12 @@ private class PrefsMachineFile(context: Context) : MachineFile {
 	override fun read(): String? = prefs.getString("list", null)
 
 	override fun write(json: String) = prefs.edit { putString("list", json) }
+
+	// The KTX edit {} drops commit()'s answer, which says whether the token reached the disk.
+	@SuppressLint("UseKtx")
+	override fun writeNow(json: String) {
+		if (!prefs.edit().putString("list", json).commit()) throw IOException("the list of computers wasn't written")
+	}
 }
 
 /**

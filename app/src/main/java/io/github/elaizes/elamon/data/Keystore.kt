@@ -9,6 +9,11 @@ import javax.crypto.SecretKey
 /**
  * The key that seals pairing tokens, in the Android key store: AES-256 for GCM, which never leaves
  * it. Not bound to unlocking the phone: the home screen reads tokens without asking.
+ *
+ * Nor is it made with setUnlockedDeviceRequired(true), which would keep it from opening anything
+ * while the phone is locked: work in the background to come (a notification about a computer, a
+ * widget) has to reach the computers then, with their tokens. Each token is bound to its computer
+ * instead ([tokenAad]), and the app's files stay out of backups and transfers.
  */
 object KeystoreKeys : KeySource {
 	private const val PROVIDER = "AndroidKeyStore"

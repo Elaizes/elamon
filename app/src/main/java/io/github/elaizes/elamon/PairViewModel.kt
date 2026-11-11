@@ -172,8 +172,12 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 					ElamondException.Kind.NoPairing -> R.string.pair_no_pairing
 					ElamondException.Kind.TooManyRequests -> R.string.pair_too_many
 					ElamondException.Kind.PairDeclined -> R.string.pair_declined
-					// Paired on the computer, but the token couldn't be kept: nothing was saved.
-					else -> if (e is KeystoreException) R.string.pair_keystore else R.string.pair_unreachable
+					// Paired on the computer, but the token couldn't be kept (the key store, or the disk): nothing was saved.
+					else -> when (e) {
+						is KeystoreException -> R.string.pair_keystore
+						is ElamondException -> R.string.pair_unreachable
+						else -> R.string.pair_not_saved
+					}
 				}
 				_state.update { it.copy(busy = false, confirmOnComputer = false, codeError = error) }
 			} finally {

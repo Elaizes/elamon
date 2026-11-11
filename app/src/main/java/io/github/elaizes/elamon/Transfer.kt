@@ -149,11 +149,14 @@ class TransferViewModel(app: Application) : AndroidViewModel(app) {
 				withContext(Dispatchers.Default) {
 					when (val opened = PairingsFile.open(bytes, passphrase)) {
 						is PairingsFile.Opened.Pairings -> try {
-							val merged = store.addImported(opened.machines)
+							// On disk before it says so.
+							val merged = withContext(Dispatchers.IO) { store.addImported(opened.machines) }
 							importBytes = null
 							Transfer.Imported(merged.added, merged.replaced)
 						} catch (e: KeystoreException) {
 							Transfer.Failed(R.string.transfer_keystore, export = false)
+						} catch (e: IOException) {
+							Transfer.Failed(R.string.transfer_not_saved, export = false)
 						}
 						PairingsFile.Opened.WrongPassphrase -> Transfer.ImportNeedsPassphrase(wrong = true)
 						else -> failure(opened)

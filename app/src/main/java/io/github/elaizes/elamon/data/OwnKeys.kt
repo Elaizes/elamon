@@ -3,6 +3,7 @@ package io.github.elaizes.elamon.data
 import android.content.Context
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -64,9 +65,12 @@ class OwnKeys(private val store: MachineStore, private val now: () -> Long = Sys
 			return null
 		}
 		return try {
-			if (store.ownToken(machine, resp.token, resp.clientId.ifEmpty { null }, resp.role)) resp.token else null
-		} catch (e: KeystoreException) {
-			// The computer made the entry, but this phone can't keep its token: asking again would only add another.
+			// Written to disk before the new key is used: the computer knows this phone by it from now on.
+			val kept = withContext(Dispatchers.IO) { store.ownToken(machine, resp.token, resp.clientId.ifEmpty { null }, resp.role) }
+			if (kept) resp.token else null
+		} catch (e: Exception) {
+			// The computer made the entry, but this phone can't keep its token (the key store, or the disk,
+			// failed): asking again would only add another.
 			notThisRun += machine.id
 			null
 		}

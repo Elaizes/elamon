@@ -116,7 +116,7 @@ class NamesReachTest {
 			// nothing new is pinned.
 			val machine = Machine(id = idA, name = "A", hosts = listOf(loopbackName), port = b.port, fingerprint = pinA, token = "t")
 			var repinned: String? = null
-			val gone = assertFailsWith<ElamondException> { reachPaired(machine) { repinned = it } }
+			val gone = assertFailsWith<ElamondException> { reachPaired(machine) { _, to -> repinned = to } }
 			assertEquals(ElamondException.Kind.CertificateChanged, gone.kind)
 			assertNull(repinned)
 			// B itself, by the same name, is B.
