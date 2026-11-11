@@ -102,10 +102,37 @@ the service answers 401 `{ "error": "unauthorized" }`. A phone removed with `ela
 401 from then on, and any stream it has open ends.
 
 The token is all the service knows a phone by. Since 0.5 the app can carry it to another phone
-(Export pairings, sealed with a passphrase); the service sees that phone as the one it was given to,
-and `elamond revoke` of that entry cuts off both. `elamond backup` and `elamond restore` carry the
+(Export pairings, sealed with a passphrase). Until that phone asks for a key of its own
+([`rekey`](#post-apiv1rekey)), which the app does at its first connection after the import, the
+service sees it as the phone the token was given to; afterwards each is an entry of its own, and
+`elamond revoke` of one leaves the other paired. `elamond backup` and `elamond restore` carry the
 service's side: its id, certificate and key, and the hashes of the tokens, so a restored service
 accepts the tokens it gave out before.
+
+### `POST /api/v1/rekey`
+
+Since 0.5: a key of its own for a phone that holds another's token, as one does after Import
+pairings.
+
+```json
+{ "device": "Phone name" }
+```
+
+200, as pairing answers: `{ "token": "…", "client_id": "…", "id": "<service id>", "name": "<computer name>", "role": "<role>" }`.
+It is a new entry among the paired phones, named `device`, with a new token and the role of the
+entry whose token asked. That token stays good: the phone it came from keeps working until
+`elamond revoke` of its own entry, which leaves the new one paired. `elamond clients` shows the
+new entry as added with the key of the one that asked, and `elamond revoke` of that one names the
+entries added with its key.
+
+Any role may ask, and none is raised (a `role` in the body is ignored). It needs no control, but
+counts as acting: it is limited as acting is ([how often](#how-often)) and recorded in the
+[activity log](#activity-log) as `phone added: <device>` under the phone that asked, with the new
+entry's id and role in `message`. 500 `storage` when the list of phones can't be written, or no
+longer parses (it is never written over). A service before 0.5 answers 404 `not_found`: there the
+two phones stay one entry, and revoking it cuts off both. The app asks each computer it imported at
+the first connection to it that works; after a 404 it keeps the shared token and doesn't ask again
+until the app is restarted, after any other failure it asks again at a later connection.
 
 ### `GET /api/v1/hello` (no token)
 
@@ -178,6 +205,8 @@ and more:
 | `monitor` | everything there is to read: processes with their commands and users, monitors, links with the ports in use and the units to pick from, media with their covers, the activity log |
 | `operate` | adding, changing and removing links; starting, stopping and restarting their units; media and the volume; the power profile; the actions in the settings |
 | `admin` | power (shut down, restart, sleep, lock) and signals to processes |
+
+Any role may ask for a key of its own ([`rekey`](#post-apiv1rekey)), which keeps that role.
 
 Phones paired before 0.5 have no role and are `admin`, which is what they could do then. The
 person at the computer chooses: `elamond pair --role <role>`, otherwise `default_role` from the
@@ -359,8 +388,9 @@ Successful actions answer `{ "ok": true }`.
 
 ### How often
 
-A phone may make 10 acting requests (every one in the table but the `GET`s) in a row, then one more
-each second; beyond that it gets 429 `too_many_requests`. Reading isn't counted.
+A phone may make 10 acting requests (every one in the table but the `GET`s, and
+[`rekey`](#post-apiv1rekey)) in a row, then one more each second; beyond that it gets 429
+`too_many_requests`. Reading isn't counted.
 
 ### Activity log
 
@@ -375,7 +405,8 @@ restarts. Each entry:
 
 `what` reads like `power reboot`, `profile balanced`, `signal term 1234 firefox`,
 `action Back up now`, `unit restart nginx.service`, `media play_pause`, `volume 40 %`,
-`link add Jellyfin`, `link remove Jellyfin`. Of a run of 429 refusals only the first is
+`link add Jellyfin`, `link remove Jellyfin`, `phone added: Pixel 9` (a key of its own, the
+`message` `id <client_id>, <role>`). Of a run of 429 refusals only the first is
 recorded. A request whose body the service can't read at all isn't. Requests that were let through
 are also in the journal (`journalctl --user -u elamond`), as before.
 

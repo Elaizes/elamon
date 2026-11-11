@@ -594,17 +594,22 @@ Android's key store for this alone and never written anywhere unencrypted. Copy 
 phone, install Elamon there and choose *Settings → Import pairings*, the file and its passphrase. A
 computer the new phone has already is replaced, the others are added, and the app says how many.
 
-Each computer sees the new phone as the old one: the same key and role, one entry in
-`elamond clients`, so revoking that entry cuts off both phones. Moving for good, forget the
-computers on the old phone, or reset it. To be sure the old phone can't come back, pair the new
-phone again with each computer (scan the QR code of `elamond pair`; the app replaces its entry), then
-revoke the old entry, the one with the old phone's name and the earlier date:
+Each computer gives the new phone a key of its own the first time the app reaches it after the
+import: a new entry in `elamond clients` with the new phone's name and the old phone's role, listed
+as *added … with the key of* the old phone's ID. The old phone keeps working until it is revoked,
+and revoking it leaves the new one paired. Moving for good, forget the computers on the old phone,
+or reset it, and revoke its entry:
 
 ```sh
-elamond pair
 elamond clients
 elamond revoke OLD_ID
 ```
+
+`elamond revoke` names the phones still paired that were added with the key it revoked: a phone
+you don't know there got its key from that one. A computer whose service is older than 0.5 can't
+give a key of its own; it sees the new phone as the old one, one entry for both, and revoking it
+cuts off both. Update the service there, or pair the new phone again (scan the QR code of
+`elamond pair`; the app replaces its entry) before revoking the old one.
 
 To remove the service: `systemctl --user disable --now elamond`, delete the binary and the unit
 file, and `~/.config/elamon` and `~/.local/share/elamon`. In the app, *Forget computer* in the
@@ -654,8 +659,10 @@ To see what the service finds, without the app: `elamond snapshot`.
 - `elamond revoke` cuts a phone off at once, open streams included.
 - A backup (`elamond backup`) and its passphrase together are the computer's identity; it is
   encrypted unless made with `--plain`, and written for your eyes only. Exported pairings are
-  encrypted with their own passphrase; a phone that imports them is, to each computer, the phone
-  that exported them ([section 8](#a-new-phone)).
+  encrypted with their own passphrase; a phone that imports them asks each computer for a key of
+  its own at its first connection, beside the exporting phone's, which stays until revoked
+  ([section 8](#a-new-phone)). Any paired phone may get such a key, with its own role and no more;
+  `elamond clients` and `elamond revoke` say whose key added it, and the activity log has it.
 
 ### A new certificate
 
