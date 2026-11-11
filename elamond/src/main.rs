@@ -779,10 +779,15 @@ fn percent_encode(s: &str) -> String {
 
 /// The paired phones, for the commands that list and change them.
 fn paired() -> Result<Vec<store::Client>, String> {
-	store::load_clients().map_err(|e| match e.kind() {
+	let mut list = store::load_clients().map_err(|e| match e.kind() {
 		std::io::ErrorKind::InvalidData => format!("{e}\n  fix the file, or move it away and pair the phones again"),
 		_ => e.to_string(),
-	})
+	})?;
+	// Names go to the terminal: cleaned again, should an older elamond have written one that isn't.
+	for c in &mut list {
+		c.name = store::sanitize_name(&c.name);
+	}
+	Ok(list)
 }
 
 fn role_arg(s: &str) -> Result<Role, String> {

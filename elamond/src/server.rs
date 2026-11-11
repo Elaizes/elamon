@@ -153,7 +153,8 @@ impl Hub {
 						.iter()
 						.map(|c| {
 							let family = store::family_of(&list, &c.id);
-							(c.token_hash.clone(), Caller { id: c.id.clone(), name: c.name.clone(), role: c.role, family })
+							// Cleaned again: an entry written by an older elamond may hold what doesn't show.
+							(c.token_hash.clone(), Caller { id: c.id.clone(), name: store::sanitize_name(&c.name), role: c.role, family })
 						})
 						.collect();
 					for (_, now) in &fresh {
