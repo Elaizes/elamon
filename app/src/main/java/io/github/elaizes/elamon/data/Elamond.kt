@@ -322,6 +322,25 @@ class ElamondClient(
 			if (result == null && certificateChanged) throw ElamondException(ElamondException.Kind.CertificateChanged)
 			return result
 		}
+
+		/**
+		 * The fingerprint to pin for the computer [expectId] that presents another certificate than
+		 * [pinned]: on the first of [hosts] whose rotations lead from [pinned] to the certificate it
+		 * presents. They are read over a connection that takes any certificate and remembers it, as
+		 * the steps prove themselves. Null when none leads there; elamond before 0.5 has none.
+		 */
+		suspend fun renewedPin(hosts: List<String>, port: Int, pinned: String, expectId: String?): String? =
+			firstAnswer(hosts.distinct()) { h ->
+				try {
+					val probe = ElamondClient(h, port, pin = null)
+					if (expectId != null && probe.hello().id != expectId) return@firstAnswer null
+					val chain = probe.get<List<Rotation>>(Rotations.PATH)
+					val presented = probe.seenCertificate.get() ?: return@firstAnswer null
+					Rotations.follow(chain, pinned, presented)
+				} catch (e: ElamondException) {
+					null
+				}
+			}
 	}
 }
 

@@ -47,6 +47,7 @@ import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.LinkDef
 import io.github.elaizes.elamon.data.StreamMessage
 import io.github.elaizes.elamon.data.UnitInfo
+import io.github.elaizes.elamon.data.reachPaired
 
 enum class Conn { Connecting, Live, Reconnecting, Offline, Unauthorized, CertificateChanged, Refused }
 
@@ -300,7 +301,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 			val host = workingHost ?: run {
 				_state.update { it.copy(conn = if (it.sample == null) Conn.Connecting else Conn.Reconnecting) }
 				val reached = try {
-					ElamondClient.firstReachable(machine.hostsToTry(), machine.port, machine.fingerprint, machine.id)
+					reachPaired(machine) { fp -> renewed(fp) }
 				} catch (e: ElamondException) {
 					_state.update { it.copy(conn = Conn.CertificateChanged) }
 					return
@@ -322,17 +323,14 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 					_state.update { it.copy(conn = Conn.Unauthorized, keyLost = false) }
 					return
 				}
-				e.kind == ElamondException.Kind.CertificateChanged -> {
-					_state.update { it.copy(conn = Conn.CertificateChanged) }
-					return
-				}
 				// Asking again won't change the answer: say why and wait for the user.
 				e.status == 403 -> {
 					_state.update { it.copy(conn = Conn.Refused, refused = messageFor(e)) }
 					return
 				}
 			}
-			// Lost: look for the computer on every address again.
+			// Lost, or another certificate (one the computer may have renewed, which the next look follows):
+			// look for the computer on every address again.
 			workingHost = null
 			_state.update { it.copy(conn = Conn.Reconnecting) }
 			delay(Limits.backoffMs(attempt++))
@@ -457,6 +455,15 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	/** Refused for this phone's role, which changed on the computer since the panel was read: read it again. */
 	private fun noteRefusal(e: Throwable) {
 		if ((e as? ElamondException)?.notAllowed == true) refreshControl()
+	}
+
+	/**
+	 * The computer renewed its certificate (`elamond rotate-cert`) and the steps from the one pinned
+	 * check out: pinned from now on, which starts the stream over with it, and said once.
+	 */
+	private fun renewed(fingerprint: String) {
+		store.update(machineId) { it.copy(fingerprint = fingerprint) }
+		say(Message.Res(R.string.machine_cert_renewed))
 	}
 
 	private fun say(m: Message) {

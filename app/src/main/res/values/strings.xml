@@ -90,6 +90,8 @@
 	<!-- The same notice when the phone itself can no longer read the key it was given. -->
 	<string name="machine_key_lost_body">This phone can no longer read its key for the computer, as happens when the phone\'s key store was reset. Run elamond pair on the computer and pair again; elamond revoke there removes the old pairing.</string>
 	<string name="machine_cert_title">The computer\'s certificate changed</string>
+	<!-- A snackbar, once: the computer replaced its certificate with elamond rotate-cert and the phone checked and followed it. -->
+	<string name="machine_cert_renewed">The computer\'s certificate was renewed</string>
 	<string name="machine_cert_body">This happens when the Elamon service\'s data was reset or reinstalled, but also when something else pretends to be the computer. If you didn\'t reset it, check your network before pairing again.</string>
 	<string name="machine_pair_again">Pair again</string>
 	<string name="machine_unreachable_title">Can\'t reach %1$s</string>
@@ -612,7 +614,7 @@
 	<string name="faq_logout_q">It works only while I\'m logged in</string>
 	<string name="faq_logout_a">A user\'s services stop at logout unless lingering is on:</string>
 	<string name="faq_cert_q">The app says the certificate changed</string>
-	<string name="faq_cert_a">The service made a new certificate: its folder ~/.local/share/elamon was deleted, or the system was reinstalled. If so, forget the computer in the app and pair again. If not, something else may be answering at that address; check the network first.</string>
+	<string name="faq_cert_a">The service made a new certificate it can\'t vouch for: its folder ~/.local/share/elamon was deleted, or the system was reinstalled. If so, forget the computer in the app and pair again. If not, something else may be answering at that address; check the network first. A certificate renewed with elamond rotate-cert is different: the app checks that the old one signed it and follows by itself.</string>
 	<string name="faq_sensors_q">No temperatures or fans</string>
 	<string name="faq_sensors_a">Some sensors need kernel modules. lm-sensors finds and loads them; then restart the service:</string>
 	<string name="faq_gpu_q">The graphics card shows no load</string>
@@ -635,12 +637,13 @@
 	<string name="cmd_revoke">unpair one phone</string>
 	<string name="cmd_revoke_all">unpair every phone</string>
 	<string name="cmd_control_off">hold control off for every phone at once, until elamond control on</string>
+	<string name="cmd_rotate_cert">a new certificate; paired phones check that the old one signed it and follow without pairing again</string>
 	<string name="cmd_snapshot">print one reading, to see what the service finds</string>
 	<string name="cmd_version">the service\'s version</string>
 	<string name="help_settings">Service settings</string>
 	<string name="help_settings_where">Optional, in ~/.config/elamon/elamond.toml. Restart the service after a change. The defaults:</string>
 	<string name="set_port">the TCP port the app connects to</string>
-	<string name="set_listen">the address to listen on; \"::\" covers IPv4 and IPv6</string>
+	<string name="set_listen">the addresses or interfaces to listen on, one or a list such as [\"tailscale0\", \"192.168.200.10\"]; \"::\" covers every address, IPv4 and IPv6</string>
 	<string name="set_name">the name shown in the app; the host name when empty</string>
 	<string name="set_mdns">announce the service on the local network, so the app finds it</string>
 	<string name="set_interval">milliseconds between readings</string>

@@ -75,6 +75,7 @@ import io.github.elaizes.elamon.data.Sample
 import io.github.elaizes.elamon.data.Machine
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.discoverElamond
+import io.github.elaizes.elamon.data.reachPaired
 import io.github.elaizes.elamon.data.parseAddress
 
 /** What the home screen knows about a paired computer. */
@@ -184,8 +185,13 @@ private suspend fun reading(s: Machine, store: MachineStore): Live {
 	// Opened by the key store off the main thread, the first time.
 	val token = withContext(Dispatchers.Default) { store.token(s) } ?: return Live.Unpaired
 	return try {
-		val reached = ElamondClient.firstReachable(s.hostsToTry(), s.port, s.fingerprint, s.id) ?: return Live.Offline
-		Live.Online(ElamondClient(reached.first.host, s.port, s.fingerprint, token).get<Sample>("/api/v1/snapshot"))
+		// A certificate the computer renewed is followed and kept here too.
+		var pin = s.fingerprint
+		val reached = reachPaired(s) { fp ->
+			pin = fp
+			store.update(s.id) { it.copy(fingerprint = fp) }
+		} ?: return Live.Offline
+		Live.Online(ElamondClient(reached.first.host, s.port, pin, token).get<Sample>("/api/v1/snapshot"))
 	} catch (e: CancellationException) {
 		throw e
 	} catch (e: Exception) {

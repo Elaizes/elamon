@@ -41,6 +41,7 @@ class ProtocolContractTest {
 		"detected" to ListSerializer(Listener.serializer()),
 		"units" to ListSerializer(UnitInfo.serializer()),
 		"log" to ListSerializer(LogEntry.serializer()),
+		"rotations" to ListSerializer(Rotation.serializer()),
 	)
 
 	/**

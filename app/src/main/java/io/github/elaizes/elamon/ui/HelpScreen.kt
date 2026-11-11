@@ -268,6 +268,7 @@ private val COMMANDS = listOf(
 	"elamond revoke ID" to R.string.cmd_revoke,
 	"elamond revoke all" to R.string.cmd_revoke_all,
 	"elamond control off" to R.string.cmd_control_off,
+	"elamond rotate-cert" to R.string.cmd_rotate_cert,
 	"elamond snapshot" to R.string.cmd_snapshot,
 	"elamond --version" to R.string.cmd_version,
 )
