@@ -17,6 +17,7 @@ mod mdns;
 mod model;
 mod names;
 mod server;
+mod setup;
 mod store;
 
 use std::io::IsTerminal;
@@ -54,6 +55,10 @@ Usage:
   elamond restore FILE                 put a backup back, the service stopped (--force: running);
                                        --with-settings puts elamond.toml and elamond.d back too
   elamond snapshot                     print one reading as JSON
+  elamond setup                        install the service for this user (systemd user unit, starter
+                                       settings) and print what needs root: lingering, the firewall,
+                                       the polkit rule (--print: only show it; --no-start)
+  elamond setup --check                tell whether the service, and what it uses, works here
   elamond --version
 
 Roles, each allowing what the one before does and more:
@@ -87,6 +92,7 @@ fn main() {
 		"restore" => backup::restore(&args[1..]),
 		"revoke" => revoke(&args[1..]),
 		"snapshot" => snapshot(),
+		"setup" => setup::run(&args[1..]),
 		"-V" | "--version" | "version" => {
 			println!("elamond {}", env!("CARGO_PKG_VERSION"));
 			Ok(())
