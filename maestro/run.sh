@@ -5,6 +5,7 @@
 # screen, makes the phone a glance one and an admin again with elamond clients role, and leaves the
 # screenshots in $OUT.
 #   cargo build --release (in elamond/) and ./gradlew :app:assembleDebug first.
+#   ELAMOND=path/to/elamond   another build of the service than elamond/target/release/elamond.
 #   FONT_SCALE=2.0 maestro/run.sh   repeats the screens with a large font; the phone's own comes back after.
 #   maestro/run.sh --yes-real-phone  runs on a phone that isn't an emulator: it wipes the debug app's
 #                                    data there and changes the font scale while it runs.
@@ -12,6 +13,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 APP_ID=io.github.elaizes.elamon.debug
+ELAMOND=$(realpath "${ELAMOND:-elamond/target/release/elamond}")
 PORT=${PORT:-47911}
 OUT=${OUT:-$(mktemp -d)}
 FONT_SCALE=${FONT_SCALE:-1.0}
@@ -79,7 +81,7 @@ run_elamond() {
 	exec env -i PATH="$PATH" HOME="$work" ELAMON_CONFIG_DIR="$work/cfg" ELAMON_DATA_DIR="$work/data" \
 		ELAMON_CONFIG="$work/cfg/elamond.toml" DBUS_SYSTEM_BUS_ADDRESS=unix:path=/nonexistent \
 		${ELAMON_PCI_IDS:+ELAMON_PCI_IDS="$ELAMON_PCI_IDS"} \
-		elamond/target/release/elamond "$@"
+		"$ELAMOND" "$@"
 }
 run_elamond serve > "$OUT/elamond.log" 2>&1 &
 service=$!
