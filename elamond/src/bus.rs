@@ -631,8 +631,12 @@ mod tests {
 		let big = dir.join("big.png");
 		let mut data = b"\x89PNG".to_vec();
 		data.resize(limit::ART_MAX + 1, 0);
-		std::fs::write(&big, data).unwrap();
+		std::fs::write(&big, &data).unwrap();
 		assert!(read_image(&big).await.is_none());
+		// 4 MiB, the most the app takes, is sent.
+		assert_eq!(limit::ART_MAX, 4 * 1024 * 1024);
+		std::fs::write(&big, &data[..limit::ART_MAX]).unwrap();
+		assert_eq!(read_image(&big).await.map(|(b, k)| (b.len(), k)), Some((limit::ART_MAX, "image/png")));
 		std::fs::remove_dir_all(dir).unwrap();
 	}
 }

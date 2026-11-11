@@ -155,8 +155,8 @@ pub mod limit {
 	pub const OUTPUT_MAX: usize = 16 * 1024;
 	/// Of `OUTPUT_MAX`, the part kept from the start; the rest is the end.
 	pub const OUTPUT_HEAD: usize = OUTPUT_MAX / 4;
-	/// The largest cover image sent.
-	pub const ART_MAX: usize = 8 * 1024 * 1024;
+	/// The largest cover image sent: the app takes no larger.
+	pub const ART_MAX: usize = 4 * 1024 * 1024;
 	/// A process's command line is cut to this many bytes.
 	pub const CMD_MAX: usize = 400;
 	/// The most processes one request may ask for.
