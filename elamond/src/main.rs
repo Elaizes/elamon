@@ -46,7 +46,9 @@ Usage:
                                        that got a key of their own with its token
   elamond revoke <id|all>              unpair a phone; --with-added: and those phones too
   elamond control [off|on|status]      hold control off for every phone, or let go
-  elamond rotate-cert                  a new certificate, which paired phones follow
+  elamond rotate-cert                  a new certificate, which paired phones follow (routine renewal)
+  elamond rotate-cert --no-statement   a new certificate nothing vouches for, after a leaked key:
+                                       phones pair again
   elamond backup FILE                  save the identity, the paired phones and the rest to FILE,
                                        encrypted with a passphrase (--plain: not encrypted)
   elamond restore FILE                 put a backup back, the service stopped (--force: running);
@@ -931,20 +933,53 @@ fn control(what: Option<&str>) -> Result<(), String> {
 	Ok(())
 }
 
+/// Copies of keys a restore set aside in the data directory `dir`, `key.der.before-restore-*`.
+fn keys_set_aside(dir: &std::path::Path) -> Vec<PathBuf> {
+	let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+		.map(|d| d.flatten().map(|e| e.path()).filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("key.der.before-restore-"))).collect())
+		.unwrap_or_default();
+	found.sort();
+	found
+}
+
 /// `elamond rotate-cert`: a new certificate and key, the old key signing that the new certificate
-/// follows it before it is deleted. The service presents the new one within seconds.
+/// follows it before it is deleted, for routine renewal; with `--no-statement` nothing signed, for
+/// a key that may have leaked. The service presents the new one within seconds.
 fn rotate_cert(args: &[String]) -> Result<(), String> {
-	if !args.is_empty() {
-		return Err("usage: elamond rotate-cert".into());
+	let unsigned = match args {
+		[] => false,
+		[flag] if flag == "--no-statement" => true,
+		_ => return Err("usage: elamond rotate-cert [--no-statement]".into()),
+	};
+	let dir = store::data_dir();
+	if unsigned {
+		let (old_fp, new_fp) = identity::renew_unsigned(&dir)?;
+		println!("New certificate:  {}", store::pretty_fingerprint(&new_fp));
+		println!("Old certificate:  {} (its key deleted, nothing signed with it)", store::pretty_fingerprint(&old_fp));
+		println!();
+		println!("Paired phones will say the computer's certificate changed: nothing vouches for the new one.");
+		println!("If the old key may have leaked, whoever has it can still pose as this computer to the phones");
+		println!("that trust it, and learn their keys. Unpair them all and pair each again:");
+		println!("  elamond revoke all");
+		println!("  elamond pair          (for each phone; the app replaces the computer it had)");
+	} else {
+		let r = identity::rotate(&dir)?;
+		println!("New certificate:  {}", store::pretty_fingerprint(&r.new_fp));
+		println!("Old certificate:  {}", store::pretty_fingerprint(&r.old_fp));
+		println!();
+		println!("The old certificate's key signed the new one and was then deleted. Paired phones with");
+		println!("Elamon 0.5 or newer check that signature the next time they connect and move to the new");
+		println!("certificate by themselves; older apps say the certificate changed, and pair again.");
+		println!("This is for routine renewal: if the old key may have leaked, phones mustn't follow what it");
+		println!("signed. Then run `elamond rotate-cert --no-statement` and pair the phones again.");
 	}
-	let r = identity::rotate(&store::data_dir())?;
-	println!("New certificate:  {}", store::pretty_fingerprint(&r.new_fp));
-	println!("Old certificate:  {}", store::pretty_fingerprint(&r.old_fp));
-	println!();
-	println!("The old certificate's key signed the new one and was then deleted. Paired phones with");
-	println!("Elamon 0.5 or newer check that signature the next time they connect and move to the new");
-	println!("certificate by themselves; older apps say the certificate changed, and pair again.");
 	println!("A running service presents the new certificate within a few seconds.");
+	println!();
+	println!("Older keys live on in backups made before now (elamond backup) and in files a restore set");
+	println!("aside; delete those you don't need.");
+	for path in keys_set_aside(&dir) {
+		println!("  {}", path.display());
+	}
 	Ok(())
 }
 

@@ -162,6 +162,10 @@ pub fn chain_to<'a>(rotations: &'a [Rotation], fp: &str) -> &'a [Rotation] {
 struct Next {
 	cert: String,
 	key: String,
+	/// A new identity no statement leads to (`elamond rotate-cert --no-statement`): taken up
+	/// without one.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	unsigned: bool,
 }
 
 /// Whether `bytes` read as next-identity.json, for `elamond restore` to check before it writes one.
@@ -182,7 +186,7 @@ fn finish_rotation(dir: &Path) -> Result<(), String> {
 	let decode = |s: &str| B64.decode(s.as_bytes()).map_err(|e| format!("{}: {e}", path.display()));
 	let (cert, key) = (decode(&next.cert)?, decode(&next.key)?);
 	let recorded = rotations(dir).ok().and_then(|r| r.last().map(|l| l.new_fp == sha256_hex(&cert))).unwrap_or(false);
-	if recorded {
+	if recorded || next.unsigned {
 		saved(&dir.join(KEY_FILE), &key)?;
 		saved(&dir.join(CERT_FILE), &cert)?;
 	}
@@ -222,7 +226,7 @@ pub fn rotate(dir: &Path) -> Result<Rotation, String> {
 	// The new pair first, then the statement, then the new pair in place: stopped anywhere, the
 	// next start (or rotation) finishes it or undoes it, and phones never meet a certificate the
 	// statements don't lead to.
-	let next = Next { cert: B64.encode(&cert), key: B64.encode(&new_key) };
+	let next = Next { cert: B64.encode(&cert), key: B64.encode(&new_key), unsigned: false };
 	saved(&dir.join(NEXT_FILE), &serde_json::to_vec(&next).map_err(|e| e.to_string())?)?;
 	kept.push(rotation.clone());
 	let drop = kept.len().saturating_sub(limit::ROTATIONS_KEPT);
@@ -230,6 +234,27 @@ pub fn rotate(dir: &Path) -> Result<Rotation, String> {
 	write_json::<Vec<Rotation>>(&dir.join(ROTATIONS_FILE), &kept).map_err(|e| format!("can't save the rotation: {e}"))?;
 	finish_rotation(dir)?;
 	Ok(rotation)
+}
+
+/// Replaces the certificate and key in `dir` with new ones that nothing leads to: for a key that
+/// may have leaked, which mustn't vouch for its successor. The old key is deleted unused, and the
+/// statements kept so far with it, so the service serves none; phones see the certificate changed
+/// and pair again. The id stays. Returns the old fingerprint and the new one.
+pub fn renew_unsigned(dir: &Path) -> Result<(String, String), String> {
+	finish_rotation(dir)?;
+	let old = Identity::load(dir)?;
+	let (cert, key) = new_certificate()?;
+	let new_fp = sha256_hex(&cert);
+	// The statements first: stopped anywhere after, the next start finishes it, and the old
+	// statements never lead a phone anywhere again.
+	match fs::remove_file(dir.join(ROTATIONS_FILE)) {
+		Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(format!("can't remove {}: {e}", dir.join(ROTATIONS_FILE).display())),
+		_ => {}
+	}
+	let next = Next { cert: B64.encode(&cert), key: B64.encode(&key), unsigned: true };
+	saved(&dir.join(NEXT_FILE), &serde_json::to_vec(&next).map_err(|e| e.to_string())?)?;
+	finish_rotation(dir)?;
+	Ok((old.fingerprint, new_fp))
 }
 
 /// What the app does with the rotations a service serves, for the tests: the fingerprint to pin
@@ -323,7 +348,7 @@ mod tests {
 		let dir = scratch();
 		let first = Identity::load_or_create(&dir).unwrap();
 		let (cert, key) = new_certificate().unwrap();
-		let next = serde_json::to_vec(&Next { cert: B64.encode(&cert), key: B64.encode(&key) }).unwrap();
+		let next = serde_json::to_vec(&Next { cert: B64.encode(&cert), key: B64.encode(&key), unsigned: false }).unwrap();
 		// Stopped before the statement was saved: the new pair is dropped.
 		fs::write(dir.join(NEXT_FILE), &next).unwrap();
 		assert_eq!(Identity::load_or_create(&dir).unwrap().fingerprint, first.fingerprint);
@@ -369,6 +394,34 @@ mod tests {
 		bad[1].t += 1;
 		assert_eq!(follow(&bad, &first, &last), None, "a changed time");
 		assert_eq!(follow(&good, &first, &first), None, "not to the certificate presented");
+		fs::remove_dir_all(dir).unwrap();
+	}
+
+	#[test]
+	fn a_new_identity_without_a_statement_leads_nowhere_from_the_old() {
+		let dir = scratch();
+		let first = Identity::load_or_create(&dir).unwrap();
+		rotate(&dir).unwrap();
+		let second = Identity::load_or_create(&dir).unwrap();
+		let (old_fp, new_fp) = renew_unsigned(&dir).unwrap();
+		let now = Identity::load_or_create(&dir).unwrap();
+		assert_eq!((old_fp.as_str(), new_fp.as_str()), (second.fingerprint.as_str(), now.fingerprint.as_str()));
+		assert_eq!(now.id, first.id, "the id stays");
+		// Nothing leads to it, from either certificate before it, and their keys are gone.
+		assert!(rotations(&dir).unwrap().is_empty());
+		assert!(chain_to(&rotations(&dir).unwrap(), &now.fingerprint).is_empty());
+		for entry in fs::read_dir(&dir).unwrap() {
+			let bytes = fs::read(entry.unwrap().path()).unwrap();
+			for old in [&first.key_der, &second.key_der] {
+				assert!(!bytes.windows(old.len()).any(|w| w == old.as_slice()));
+			}
+		}
+		// Stopped midway, it is finished at the next start, statement or none.
+		let (cert, key) = new_certificate().unwrap();
+		let next = serde_json::to_vec(&Next { cert: B64.encode(&cert), key: B64.encode(&key), unsigned: true }).unwrap();
+		fs::write(dir.join(NEXT_FILE), &next).unwrap();
+		assert_eq!(Identity::load_or_create(&dir).unwrap().fingerprint, sha256_hex(&cert));
+		assert!(!dir.join(NEXT_FILE).exists());
 		fs::remove_dir_all(dir).unwrap();
 	}
 
