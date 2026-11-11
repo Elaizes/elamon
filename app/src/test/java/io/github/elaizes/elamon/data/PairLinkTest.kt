@@ -93,9 +93,9 @@ class PairLinkTest {
 	@Test
 	fun namesComeAfterTheAddresses() {
 		// What elamond 0.5 writes with a name from its settings and its Tailscale name.
-		val h = "192.168.200.101,100.64.0.1,deskpc.example.net,deskpc.tail1234.ts.net"
+		val h = "192.168.200.101,100.64.0.1,pc.example.net,deskpc.tail1234.ts.net"
 		val t = assertIs<PairLink.Target>(changed("h" to h)).target
-		assertEquals(listOf("192.168.200.101", "100.64.0.1", "deskpc.example.net", "deskpc.tail1234.ts.net"), t.hosts)
+		assertEquals(listOf("192.168.200.101", "100.64.0.1", "pc.example.net", "deskpc.tail1234.ts.net"), t.hosts)
 		// Eight in all is what the app reads, names counted.
 		val eight = (1..6).joinToString(",") { "10.0.0.$it" } + ",pc.example.net,pc.tail1234.ts.net"
 		assertEquals(8, assertIs<PairLink.Target>(changed("h" to eight)).target.hosts.size)
@@ -118,9 +118,9 @@ class PairLinkTest {
 		assertEquals(listOf("100.64.0.1", "192.168.200.101", "deskpc.tail1234.ts.net"), m.copy(lastHost = "100.64.0.1").hostsToTry())
 		assertEquals(hosts, m.copy(lastHost = null).hostsToTry())
 		// Added by a name typed in: that name.
-		val typed = PairTarget(hosts = listOf("deskpc.example.net"), port = 47823, name = null, id = null, fingerprint = null)
-		assertEquals(listOf("deskpc.example.net"), typed.hostsToKeep("deskpc.example.net"))
-		assertEquals(listOf("deskpc.example.net"), parseAddress("deskpc.example.net", DEFAULT_PORT)?.let { listOf(it.first) })
+		val typed = PairTarget(hosts = listOf("pc.example.net"), port = 47823, name = null, id = null, fingerprint = null)
+		assertEquals(listOf("pc.example.net"), typed.hostsToKeep("pc.example.net"))
+		assertEquals(listOf("pc.example.net"), parseAddress("pc.example.net", DEFAULT_PORT)?.let { listOf(it.first) })
 	}
 
 	@Test
