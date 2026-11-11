@@ -9,14 +9,17 @@ mod control;
 mod errors;
 #[cfg(test)]
 mod fixtures;
+mod identity;
 mod links;
+mod listen;
+mod mdns;
 mod model;
 mod server;
 mod store;
 
-use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,7 +30,7 @@ use tokio::sync::watch;
 
 use consts::cadence::{self, Ticks};
 use access::Role;
-use consts::{limit, protocol, timeout};
+use consts::{limit, timeout};
 
 const HELP: &str = "\
 elamond — serves this computer's metrics to the Elamon app
@@ -39,6 +42,7 @@ Usage:
   elamond clients role <id|all> ROLE   change what a phone may do
   elamond revoke <id|all>              unpair a phone
   elamond control [off|on|status]      hold control off for every phone, or let go
+  elamond rotate-cert                  a new certificate, which paired phones follow
   elamond snapshot                     print one reading as JSON
   elamond --version
 
@@ -58,6 +62,7 @@ fn main() {
 		"pair" => pair(&args[1..]),
 		"clients" => clients(&args[1..]),
 		"control" => control(args.get(1).map(String::as_str)),
+		"rotate-cert" => rotate_cert(&args[1..]),
 		"revoke" => revoke(args.get(1).map(String::as_str)),
 		"snapshot" => snapshot(),
 		"-V" | "--version" | "version" => {
@@ -111,42 +116,26 @@ fn timing(config: &store::Config) -> (Duration, usize, Vec<String>) {
 
 fn serve() -> Result<(), String> {
 	let config = store::load_config()?;
-	let identity = store::Identity::load_or_create()?;
+	let dir = store::data_dir();
+	let identity = identity::Identity::load_or_create(&dir)?;
 	let name = machine_name(&config);
 	let (interval, history_len, notes) = timing(&config);
 	for n in notes {
 		eprintln!("settings: {n}");
 	}
+	let tls = tls_config(&identity, &dir)?;
 
-	let provider = Arc::new(rustls::crypto::ring::default_provider());
-	let cert = CertificateDer::from(identity.cert_der.clone());
-	let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(identity.key_der.clone()));
-	let mut tls = rustls::ServerConfig::builder_with_provider(provider)
-		.with_safe_default_protocol_versions()
-		.map_err(|e| e.to_string())?
-		.with_no_client_auth()
-		.with_single_cert(vec![cert], key)
-		.map_err(|e| {
-			format!(
-				"the TLS identity in {} doesn't load ({e}); remove cert.der and key.der to make a new one, then pair the phones again",
-				store::data_dir().display()
-			)
-		})?;
-	tls.alpn_protocols = vec![b"http/1.1".to_vec()];
-
-	// The port first: if it's taken, nothing else is started or announced.
-	let ip: IpAddr = config.listen.parse().map_err(|_| format!("listen: \"{}\" is not an IP address", config.listen))?;
-	let addr = SocketAddr::new(ip, config.port);
-	// "::" listens on IPv4 too, unless the kernel has IPv6 off; then fall back to IPv4.
-	let listener = match std::net::TcpListener::bind(addr) {
-		Ok(l) => l,
-		Err(_) if ip == IpAddr::from([0u16; 8]) => std::net::TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], config.port)))
-			.map_err(|e| format!("can't listen on port {}: {e}", config.port))?,
-		Err(e) => return Err(format!("can't listen on {addr}: {e}")),
-	};
-	listener.set_nonblocking(true).map_err(|e| e.to_string())?;
-	if let Err(e) = server::keep_alive(&listener) {
-		eprintln!("keepalive: {e}; phones that drop off the network count as watching until TCP gives up");
+	// The port first: if it's taken, nothing else is started or announced. An address that isn't
+	// the computer's yet, like an interface without one, is waited for.
+	let ifaces = listen::interfaces();
+	let plan = listen::Plan::of(&config.listen, &ifaces);
+	let mut ready = Vec::new();
+	for spot in &plan.spots {
+		match listen::bind(spot.addr, config.port) {
+			Ok(l) => ready.push((spot.clone(), l)),
+			Err(e) if listen::not_here(&e) => {}
+			Err(e) => return Err(format!("can't listen on {}: {e}", SocketAddr::new(spot.addr, config.port))),
+		}
 	}
 	eprintln!(
 		"elamond {} on port {}, certificate {}",
@@ -154,7 +143,7 @@ fn serve() -> Result<(), String> {
 		config.port,
 		store::pretty_fingerprint(&identity.fingerprint)
 	);
-	let held_off = store::control_held_off(&store::data_dir());
+	let held_off = store::control_held_off(&dir);
 	if config.control && held_off {
 		eprintln!("control is held off by `elamond control off`; `elamond control on` lets phones act again");
 	} else if config.control {
@@ -178,8 +167,9 @@ fn serve() -> Result<(), String> {
 		collect::HistoryRing::new(history_len),
 		interval,
 		Arc::new(config.clone()),
-		store::data_dir(),
+		dir.clone(),
 	));
+	hub.set_rotations(identity::chain_to(&served_rotations(&dir), &identity.fingerprint));
 
 	let runtime = tokio::runtime::Builder::new_multi_thread()
 		.worker_threads(2)
@@ -198,25 +188,130 @@ fn serve() -> Result<(), String> {
 			.map_err(|e| e.to_string())?;
 	}
 
-	let _mdns = if config.mdns { advertise(&name, &identity, config.port) } else { None };
-
 	runtime.block_on(async move {
 		tokio::spawn(watch_settings(hub.clone()));
-		let app = server::router(hub).into_make_service_with_connect_info::<SocketAddr>();
+		let app = server::router(hub.clone()).into_make_service_with_connect_info::<SocketAddr>();
 		let tls = RustlsConfig::from_config(Arc::new(tls));
-		let handle = axum_server::Handle::new();
-		let h = handle.clone();
-		tokio::spawn(async move {
-			shutdown_signal().await;
-			h.graceful_shutdown(Some(timeout::SHUTDOWN));
-		});
-		axum_server::from_tcp_rustls(listener, tls)
-			.map_err(|e| e.to_string())?
-			.handle(handle)
-			.serve(app)
-			.await
-			.map_err(|e| e.to_string())
+		let mut listeners = listen::Listeners::new(config.port, tls.clone(), app);
+		for (spot, l) in ready {
+			listeners.serve(spot, l);
+		}
+		let mut upkeep = Upkeep {
+			listeners,
+			announcer: config.mdns.then(|| mdns::Announcer::new(&name, &identity.id, &identity.fingerprint, config.port)),
+			targets: config.listen.clone(),
+			tls,
+			hub,
+			stamp: identity::stamp(&dir),
+			failed: None,
+			dir,
+		};
+		upkeep.network(&ifaces);
+		tokio::select! {
+			_ = shutdown_signal() => {}
+			_ = upkeep.run() => {}
+		}
+		upkeep.listeners.shutdown(timeout::SHUTDOWN).await;
+		Ok(())
 	})
+}
+
+/// TLS with the certificate and key of `identity`, from the data directory `dir`.
+fn tls_config(identity: &identity::Identity, dir: &std::path::Path) -> Result<rustls::ServerConfig, String> {
+	let provider = Arc::new(rustls::crypto::ring::default_provider());
+	let cert = CertificateDer::from(identity.cert_der.clone());
+	let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(identity.key_der.clone()));
+	let mut tls = rustls::ServerConfig::builder_with_provider(provider)
+		.with_safe_default_protocol_versions()
+		.map_err(|e| e.to_string())?
+		.with_no_client_auth()
+		.with_single_cert(vec![cert], key)
+		.map_err(|e| {
+			format!(
+				"the TLS identity in {} doesn't load ({e}); remove cert.der and key.der to make a new one, then pair the phones again",
+				dir.display()
+			)
+		})?;
+	tls.alpn_protocols = vec![b"http/1.1".to_vec()];
+	Ok(tls)
+}
+
+/// The rotations kept, or none, said so, when their file can't be read.
+fn served_rotations(dir: &std::path::Path) -> Vec<identity::Rotation> {
+	identity::rotations(dir).unwrap_or_else(|e| {
+		eprintln!("certificate: {e}\n  phones that meet a new certificate can't follow it and pair again");
+		Vec::new()
+	})
+}
+
+/// What the service keeps in step with the computer while it runs: the addresses it listens on
+/// and where it is announced, as interfaces come and go, and the certificate it presents, after
+/// `elamond rotate-cert`.
+struct Upkeep {
+	listeners: listen::Listeners,
+	announcer: Option<mdns::Announcer>,
+	targets: Vec<listen::Target>,
+	tls: RustlsConfig,
+	hub: Arc<server::Hub>,
+	dir: PathBuf,
+	/// cert.der as last taken up, and as last found not to load.
+	stamp: Option<identity::Stamp>,
+	failed: Option<identity::Stamp>,
+}
+
+impl Upkeep {
+	/// Every `cadence::NETWORK_POLL`, and at once on SIGHUP.
+	async fn run(&mut self) {
+		use tokio::signal::unix::{signal, SignalKind};
+		let mut hangup = signal(SignalKind::hangup()).ok();
+		loop {
+			let hup = async {
+				match hangup.as_mut() {
+					Some(h) => drop(h.recv().await),
+					None => std::future::pending().await,
+				}
+			};
+			tokio::select! {
+				_ = tokio::time::sleep(cadence::NETWORK_POLL) => {}
+				_ = hup => {}
+			}
+			self.certificate();
+			self.network(&listen::interfaces());
+		}
+	}
+
+	fn network(&mut self, ifaces: &[listen::Iface]) {
+		let plan = listen::Plan::of(&self.targets, ifaces);
+		self.listeners.update(&plan);
+		if let Some(a) = &mut self.announcer {
+			a.update(plan.mdns(ifaces));
+		}
+	}
+
+	/// Presents a new certificate from the next connection on; those open keep theirs.
+	fn certificate(&mut self) {
+		let now = identity::stamp(&self.dir);
+		if now == self.stamp || now == self.failed {
+			return;
+		}
+		let loaded = identity::Identity::load(&self.dir).and_then(|id| Ok((tls_config(&id, &self.dir)?, id)));
+		match loaded {
+			Ok((tls, id)) => {
+				self.tls.reload_from_config(Arc::new(tls));
+				self.hub.set_rotations(identity::chain_to(&served_rotations(&self.dir), &id.fingerprint));
+				if let Some(a) = &mut self.announcer {
+					a.set_fingerprint(&id.fingerprint);
+				}
+				eprintln!("certificate: now {}", store::pretty_fingerprint(&id.fingerprint));
+				self.stamp = now;
+				self.failed = None;
+			}
+			Err(e) => {
+				eprintln!("certificate: the one in {} now doesn't load ({e}); presenting the one before", self.dir.display());
+				self.failed = now;
+			}
+		}
+	}
 }
 
 /// Rereads the settings on SIGHUP, or when elamond.toml or a drop-in changes. Files that
@@ -317,24 +412,6 @@ fn collect_loop(
 	}
 }
 
-fn advertise(name: &str, identity: &store::Identity, port: u16) -> Option<mdns_sd::ServiceDaemon> {
-	let daemon = mdns_sd::ServiceDaemon::new().map_err(|e| eprintln!("mdns: {e}")).ok()?;
-	let host = sysinfo::System::host_name().unwrap_or_else(|_| "elamon".into());
-	let host: String = host.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' }).collect();
-	let props: HashMap<String, String> = [
-		("id".to_string(), identity.id.clone()),
-		("api".to_string(), protocol::API_VERSION.to_string()),
-		("fp".to_string(), identity.fingerprint[..protocol::MDNS_FINGERPRINT].to_string()),
-	]
-	.into();
-	let info = mdns_sd::ServiceInfo::new(protocol::SERVICE_TYPE, name, &format!("{host}.local."), (), port, props)
-		.map_err(|e| eprintln!("mdns: {e}"))
-		.ok()?
-		.enable_addr_auto();
-	daemon.register(info).map_err(|e| eprintln!("mdns: {e}")).ok()?;
-	Some(daemon)
-}
-
 /// Set by Ctrl+C, SIGTERM or a closed terminal while `elamond pair` waits.
 static STOP: AtomicBool = AtomicBool::new(false);
 
@@ -350,7 +427,7 @@ fn pair(args: &[String]) -> Result<(), String> {
 		[flag] if flag.starts_with("--role=") => role_arg(&flag["--role=".len()..])?,
 		_ => return Err(format!("usage: elamond pair [--role {}]", Role::choices())),
 	};
-	let identity = store::Identity::load_or_create()?;
+	let identity = identity::Identity::load_or_create(&store::data_dir())?;
 	let name = machine_name(&config);
 	let before: Vec<String> = match store::load_clients() {
 		Ok(list) => list.into_iter().map(|c| c.id).collect(),
@@ -367,8 +444,10 @@ fn pair(args: &[String]) -> Result<(), String> {
 	}
 	let new_phone = || store::load_clients().ok()?.into_iter().find(|c| !before.contains(&c.id));
 
-	let addrs = collect::local_addresses();
-	let hosts: Vec<String> = addrs.iter().map(|a| a.to_string()).collect();
+	// Where the service listens, as the phone can reach it: the local network first.
+	let ifaces = listen::interfaces();
+	let plan = listen::Plan::of(&config.listen, &ifaces);
+	let hosts: Vec<String> = plan.pairing_hosts(&ifaces).iter().map(IpAddr::to_string).collect();
 	let uri = format!(
 		"elamon://pair?v=1&id={}&name={}&port={}&fp={}&code={}&h={}",
 		identity.id,
@@ -380,7 +459,8 @@ fn pair(args: &[String]) -> Result<(), String> {
 	);
 
 	let tty = std::io::stdout().is_terminal();
-	if let Ok(qr) = qrcode::QrCode::new(uri.as_bytes()) {
+	// Without an address in it, the link would only be refused.
+	if let Some(qr) = qrcode::QrCode::new(uri.as_bytes()).ok().filter(|_| !hosts.is_empty()) {
 		let img = qr
 			.render::<qrcode::render::unicode::Dense1x2>()
 			.dark_color(qrcode::render::unicode::Dense1x2::Dark)
@@ -398,12 +478,23 @@ fn pair(args: &[String]) -> Result<(), String> {
 	}
 	let code = format!("{} {}", &pairing.code[..3], &pairing.code[3..]);
 	println!();
-	println!("  Scan the code with the phone's camera, or in Elamon tap Add and enter:");
+	if hosts.is_empty() {
+		println!("  In Elamon tap Add, give the address the phone reaches this computer at, and enter:");
+	} else {
+		println!("  Scan the code with the phone's camera, or in Elamon tap Add and enter:");
+	}
 	println!();
 	println!("      {code}");
 	println!();
 	println!("  Computer:     {name}");
-	println!("  Addresses:    {}  port {}", if hosts.is_empty() { "none found".into() } else { hosts.join(", ") }, config.port);
+	println!(
+		"  Addresses:    {}  port {}",
+		if hosts.is_empty() { "none a phone can reach".into() } else { hosts.join(", ") },
+		config.port
+	);
+	if !plan.waiting.is_empty() {
+		println!("                and {} once it has an address", plan.waiting.join(", "));
+	}
 	println!("  Certificate:  {}", store::pretty_fingerprint(&identity.fingerprint));
 	println!("  The app shows the same certificate digits when you pair by code; they must match.");
 	println!();
@@ -413,7 +504,9 @@ fn pair(args: &[String]) -> Result<(), String> {
 	}
 	println!("                later: elamond clients role ID ROLE");
 	println!();
-	if !service_running(config.port) {
+	// Not where it listens on nothing yet: that says nothing either way.
+	let probe = plan.probe_addrs();
+	if !probe.is_empty() && !service_running(&probe, config.port) {
 		println!("  ! The Elamon service isn't answering on port {}. Start it: systemctl --user start elamond", config.port);
 		println!();
 	}
@@ -454,8 +547,9 @@ fn used_up() -> String {
 	"the code was used up by wrong attempts; run `elamond pair` again".into()
 }
 
-fn service_running(port: u16) -> bool {
-	std::net::TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), timeout::SERVICE_CHECK).is_ok()
+/// Whether the service answers at one of `addrs`, where it listens.
+fn service_running(addrs: &[IpAddr], port: u16) -> bool {
+	addrs.iter().any(|a| std::net::TcpStream::connect_timeout(&SocketAddr::new(*a, port), timeout::SERVICE_CHECK).is_ok())
 }
 
 fn percent_encode(s: &str) -> String {
@@ -553,6 +647,23 @@ fn control(what: Option<&str>) -> Result<(), String> {
 		(None, true) => println!("Control: on. Phones act as far as their roles allow; `elamond control off` stops them all."),
 		(None, false) => println!("Control: off by the settings (control = false in elamond.toml)."),
 	}
+	Ok(())
+}
+
+/// `elamond rotate-cert`: a new certificate and key, the old key signing that the new certificate
+/// follows it before it is deleted. The service presents the new one within seconds.
+fn rotate_cert(args: &[String]) -> Result<(), String> {
+	if !args.is_empty() {
+		return Err("usage: elamond rotate-cert".into());
+	}
+	let r = identity::rotate(&store::data_dir())?;
+	println!("New certificate:  {}", store::pretty_fingerprint(&r.new_fp));
+	println!("Old certificate:  {}", store::pretty_fingerprint(&r.old_fp));
+	println!();
+	println!("The old certificate's key signed the new one and was then deleted. Paired phones with");
+	println!("Elamon 0.5 or newer check that signature the next time they connect and move to the new");
+	println!("certificate by themselves; older apps say the certificate changed, and pair again.");
+	println!("A running service presents the new certificate within a few seconds.");
 	Ok(())
 }
 

@@ -1,9 +1,10 @@
-//! Files elamond keeps: settings, its TLS identity, paired phones and the pending pairing code.
+//! Files elamond keeps: settings, paired phones and the pending pairing code; its TLS identity
+//! is in `identity`.
 //!
 //! Settings:  $XDG_CONFIG_HOME/elamon/elamond.toml (optional), then elamond.d/*.toml beside it
 //!            (elamond.toml and elamond.d/ before 0.5, still read; see `settings_files`)
 //! State:     $XDG_DATA_HOME/elamon/{id, cert.der, key.der, clients.json, pairing.json,
-//!            control-off.json, activity.jsonl, links.json}
+//!            control-off.json, activity.jsonl, links.json, rotations.json}
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -19,13 +20,15 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::access::Role;
+use crate::listen::Target;
 use crate::consts::{limit, protocol, timeout};
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
-	/// Address to listen on; "::" takes both IPv4 and IPv6.
-	pub listen: String,
+	/// Addresses and interfaces to listen on; "::", the default, takes every address, IPv4 too.
+	#[serde(deserialize_with = "crate::listen::deserialize")]
+	pub listen: Vec<Target>,
 	pub port: u16,
 	/// Name shown in the app; the hostname when empty.
 	pub name: String,
@@ -107,7 +110,7 @@ fn minute() -> u64 {
 impl Default for Config {
 	fn default() -> Self {
 		Config {
-			listen: "::".into(),
+			listen: vec![Target::ANY],
 			port: protocol::DEFAULT_PORT,
 			name: String::new(),
 			mdns: true,
@@ -240,10 +243,13 @@ fn old_links_to_links(table: &mut toml::Table) {
 	}
 }
 
+/// The settings a later file adds to rather than replaces.
+const ADDED_UP: [&str; 3] = ["links", "services", "actions"];
+
 fn merge_toml(into: &mut toml::Table, from: toml::Table) {
 	for (key, value) in from {
 		match (into.get_mut(&key), value) {
-			(Some(toml::Value::Array(a)), toml::Value::Array(b)) => a.extend(b),
+			(Some(toml::Value::Array(a)), toml::Value::Array(b)) if ADDED_UP.contains(&key.as_str()) => a.extend(b),
 			(Some(toml::Value::Table(a)), toml::Value::Table(b)) => merge_toml(a, b),
 			(_, v) => {
 				into.insert(key, v);
@@ -331,73 +337,6 @@ pub fn write_json<T: DeserializeOwned>(path: &Path, value: &(impl Serialize + ?S
 		Ok(_) => {}
 	}
 	write_private(path, &serde_json::to_vec_pretty(value).map_err(io::Error::other)?)
-}
-
-pub struct Identity {
-	pub id: String,
-	pub cert_der: Vec<u8>,
-	pub key_der: Vec<u8>,
-	/// SHA-256 of the certificate, the thing the app pins.
-	pub fingerprint: String,
-}
-
-/// A file's contents, or `None` when it doesn't exist.
-fn read_if_there(path: &Path) -> Result<Option<Vec<u8>>, String> {
-	match fs::read(path) {
-		Ok(b) => Ok(Some(b)),
-		Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-		Err(e) => Err(format!("can't read {}: {e}", path.display())),
-	}
-}
-
-impl Identity {
-	/// Loads the service's identity, creating it on first run. Paired phones trust exactly this
-	/// identity, so it is only made anew when its files don't exist: one that can't be read
-	/// stops the service with the reason instead of silently unpairing every phone.
-	pub fn load_or_create() -> Result<Identity, String> {
-		let dir = data_dir();
-		let id_path = dir.join("id");
-		let cert_path = dir.join("cert.der");
-		let key_path = dir.join("key.der");
-		let saved = |path: &Path, data: &[u8]| write_private(path, data).map_err(|e| format!("can't write {}: {e}", path.display()));
-
-		let id = match read_if_there(&id_path)? {
-			Some(b) => {
-				let id = String::from_utf8_lossy(&b).trim().to_string();
-				if id.is_empty() {
-					return Err(format!("{} is empty; remove it to make a new id, then pair the phones again", id_path.display()));
-				}
-				id
-			}
-			None => {
-				let id = data_encoding::HEXLOWER.encode(&random_bytes::<{ protocol::SERVICE_ID_BYTES }>());
-				saved(&id_path, id.as_bytes())?;
-				id
-			}
-		};
-
-		let (cert_der, key_der) = match (read_if_there(&cert_path)?, read_if_there(&key_path)?) {
-			(Some(c), Some(k)) if !c.is_empty() && !k.is_empty() => (c, k),
-			(None, None) => {
-				// The name inside doesn't matter: the app trusts this exact certificate, not a name.
-				let ck = rcgen::generate_simple_self_signed(vec!["elamon".to_string()])
-					.map_err(|e| format!("can't make a certificate: {e}"))?;
-				let cert = ck.cert.der().to_vec();
-				let key = ck.signing_key.serialize_der();
-				saved(&key_path, &key)?;
-				saved(&cert_path, &cert)?;
-				(cert, key)
-			}
-			_ => {
-				return Err(format!(
-					"the TLS identity in {} is incomplete: cert.der and key.der go together; remove both to make a new one, then pair the phones again",
-					dir.display()
-				));
-			}
-		};
-		let fingerprint = sha256_hex(&cert_der);
-		Ok(Identity { id, cert_der, key_der, fingerprint })
-	}
 }
 
 /// The fingerprint in groups of four, for people to compare by eye.
@@ -643,6 +582,15 @@ mod tests {
 		assert_eq!(c.port, 1);
 		assert_eq!(c.actions.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(), ["a", "b"]);
 		assert_eq!(c.links.len(), 1);
+		// `listen` is a list, but a drop-in's replaces the one before, in either form.
+		let mut m = table("listen = [\"eth0\", \"wg0\"]\n");
+		merge_toml(&mut m, table("listen = [\"tailscale0\"]\n"));
+		let c: Config = toml::Value::Table(m).try_into().unwrap();
+		assert_eq!(c.listen, [Target::Interface("tailscale0".into())]);
+		let mut m = table("listen = [\"eth0\"]\n");
+		merge_toml(&mut m, table("listen = \"::\"\n"));
+		assert_eq!(toml::Value::Table(m).try_into::<Config>().unwrap().listen, [Target::ANY]);
+		assert_eq!(Config::default().listen, [Target::ANY]);
 	}
 
 	fn link_names(c: &Config) -> Vec<&str> {

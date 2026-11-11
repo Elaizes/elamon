@@ -5,7 +5,6 @@ pub mod gpu;
 pub mod sysfs;
 
 use std::collections::{HashMap, VecDeque};
-use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -560,31 +559,6 @@ pub fn net_kind(name: &str) -> &'static str {
 	} else {
 		"virtual"
 	}
-}
-
-/// IPv4 addresses a phone could reach this computer on: the local network first, then VPNs.
-pub fn local_addresses() -> Vec<IpAddr> {
-	let Ok(networks) = Networks::new_with_refreshed_list() else { return Vec::new() };
-	let mut found: Vec<(u8, IpAddr)> = Vec::new();
-	for (name, data) in networks.iter() {
-		let rank = match net_kind(&name.to_string_lossy()) {
-			"wired" => 0,
-			"wireless" => 1,
-			"vpn" => 2,
-			_ => continue,
-		};
-		for n in data.ip_networks() {
-			if let IpAddr::V4(v4) = n.addr
-				&& !v4.is_loopback()
-				&& !v4.is_link_local()
-				&& !found.iter().any(|(_, a)| *a == n.addr)
-			{
-				found.push((rank, n.addr));
-			}
-		}
-	}
-	found.sort_by_key(|(rank, _)| *rank);
-	found.into_iter().map(|(_, a)| a).collect()
 }
 
 #[cfg(test)]

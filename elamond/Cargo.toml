@@ -35,3 +35,5 @@ zbus = { version = "5.19.0", default-features = false, features = ["tokio"] }
 [dev-dependencies]
 # Already among axum's; calls the router in tests as a phone would.
 tower = { version = "0.5.3", default-features = false, features = ["util"] }
+# Already among rustls's; checks rotation statements in tests as the app does.
+webpki = { package = "rustls-webpki", version = "0.103.16", default-features = false, features = ["ring"] }

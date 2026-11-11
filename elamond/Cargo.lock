@@ -444,6 +444,7 @@ dependencies = [
  "rand",
  "rcgen",
  "rustls",
+ "rustls-webpki",
  "serde",
  "serde_json",
  "sha2",

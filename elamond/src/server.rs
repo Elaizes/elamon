@@ -79,6 +79,8 @@ pub struct Hub {
 	pub boot_time: u64,
 	/// Each phone's streams, for the journal.
 	streams: Mutex<HashMap<String, StreamNotes>>,
+	/// The certificate rotations that lead to the certificate presented now, as served.
+	rotations: RwLock<Arc<String>>,
 }
 
 /// The hash of the token a request came with, so a stream can tell when it is revoked.
@@ -127,6 +129,7 @@ impl Hub {
 			activity: Activity::load(&dir),
 			boot_time: sysinfo::System::boot_time().unwrap_or(0),
 			streams: Mutex::new(HashMap::new()),
+			rotations: RwLock::new(Arc::new("[]".into())),
 			dir,
 		}
 	}
@@ -223,6 +226,14 @@ impl Hub {
 			*c = Arc::new(new);
 		}
 		self.refresh_soon();
+	}
+
+	/// The rotations to serve from now on: those leading to the certificate presented.
+	pub fn set_rotations(&self, chain: &[crate::identity::Rotation]) {
+		let json = serde_json::to_string(chain).unwrap_or_else(|_| "[]".into());
+		if let Ok(mut r) = self.rotations.write() {
+			*r = Arc::new(json);
+		}
 	}
 
 	/// Asks the collector to re-read links, profiles and media on its next watched tick.
@@ -331,6 +342,7 @@ pub fn router(hub: Arc<Hub>) -> Router {
 	Router::new()
 		.route("/api/v1/hello", get(hello))
 		.route("/api/v1/pair", post(pair))
+		.route("/api/v1/identity/rotations", get(rotations))
 		.merge(private)
 		.fallback(|| async { error(ErrorCode::NotFound) })
 		.with_state(hub)
@@ -445,6 +457,13 @@ async fn pair(
 			error(ErrorCode::Storage)
 		}
 	}
+}
+
+/// How the certificate presented came to replace those before it; see `identity`. Public: it only
+/// proves that one certificate follows another, which a phone checks for itself.
+async fn rotations(State(hub): State<Arc<Hub>>) -> Response {
+	let chain = hub.rotations.read().map(|r| r.clone()).unwrap_or_else(|p| p.into_inner().clone());
+	json_response(chain.as_str().to_owned())
 }
 
 async fn info(State(hub): State<Arc<Hub>>) -> Response {
@@ -1117,6 +1136,24 @@ mod tests {
 		set_role(None);
 		assert!(sample(&tx).await.is_none());
 		assert_eq!(hub.watchers.load(Ordering::SeqCst), 0);
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
+	async fn rotations_are_served_without_a_token() {
+		let (hub, _tx) = hub(true);
+		let get = async || {
+			let req = axum::http::Request::builder().uri("/api/v1/identity/rotations").body(Body::empty()).unwrap();
+			let resp = router(hub.clone()).oneshot(req).await.unwrap();
+			assert_eq!(resp.status(), StatusCode::OK);
+			let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+			serde_json::from_slice::<Vec<crate::identity::Rotation>>(&bytes).unwrap()
+		};
+		assert!(get().await.is_empty());
+		let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/rotations.json")).unwrap();
+		let chain: Vec<crate::identity::Rotation> = serde_json::from_str(&text).unwrap();
+		hub.set_rotations(&chain);
+		assert_eq!(get().await, chain);
 		std::fs::remove_dir_all(&hub.dir).unwrap();
 	}
 

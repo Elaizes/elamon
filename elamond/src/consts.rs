@@ -26,6 +26,11 @@ pub mod protocol {
 	pub const CONTENT_ID_LEN: usize = 12;
 	/// Digits in a pairing code.
 	pub const PAIRING_DIGITS: u32 = 6;
+	/// Addresses in a pairing link: the app reads no more than these.
+	pub const PAIR_HOSTS_MAX: usize = 8;
+	/// What a statement that one certificate follows another starts with, and what its `format`
+	/// says: the version of the text signed. The app follows only those it knows.
+	pub const ROTATION_FORMAT: &str = "elamon-rotate-v1";
 }
 
 /// How often things are read, as time rather than ticks: `Ticks` turns them into ticks of the
@@ -47,6 +52,9 @@ pub mod cadence {
 	/// The settings files, and `elamond control off`'s file, are looked at for edits; SIGHUP
 	/// rereads them at once. Acting requests look at `control off`'s file themselves.
 	pub const SETTINGS_POLL: Duration = Duration::from_secs(5);
+	/// The network interfaces are looked at for addresses to listen and announce on, and the
+	/// data directory for a certificate from `elamond rotate-cert`; SIGHUP looks at once.
+	pub const NETWORK_POLL: Duration = Duration::from_secs(5);
 	/// `elamond pair` looks for the new phone.
 	pub const PAIR_POLL: Duration = Duration::from_millis(500);
 	/// A phone that used up `limit::ACTS_BURST` may make one more acting request per this.
@@ -161,6 +169,10 @@ pub mod limit {
 	pub const WHAT_MAX: usize = 200;
 	/// Processes shown by `elamond snapshot`.
 	pub const SNAPSHOT_TOP: usize = 10;
+	/// Certificate rotations kept, the newest last: a phone that missed more than these pairs again.
+	pub const ROTATIONS_KEPT: usize = 5;
+	/// Addresses `elamond pair` tries, to tell whether the service runs.
+	pub const SERVICE_CHECK_ADDRS: usize = 3;
 }
 
 #[cfg(test)]

@@ -326,3 +326,32 @@ fn activity_log() {
 		],
 	);
 }
+
+/// Three certificate rotations in a row, as `GET /api/v1/identity/rotations` serves them. Their
+/// keys are new each time they are made, so the file is only written when blessed; otherwise it
+/// is read back, checked to be what the service writes, and followed as the app follows it.
+#[test]
+fn rotations() {
+	use crate::identity::{self, Identity};
+	let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/rotations.json");
+	if std::env::var_os("ELAMON_BLESS").is_some() {
+		let dir = std::env::temp_dir().join(format!("elamond-fixture-{}", std::process::id()));
+		std::fs::create_dir_all(&dir).unwrap();
+		Identity::load_or_create(&dir).unwrap();
+		for _ in 0..3 {
+			identity::rotate(&dir).unwrap();
+		}
+		let current = Identity::load(&dir).unwrap().fingerprint;
+		let chain = identity::rotations(&dir).unwrap();
+		let text = serde_json::to_string_pretty(identity::chain_to(&chain, &current)).unwrap() + "\n";
+		std::fs::write(&path, text).unwrap();
+		std::fs::remove_dir_all(dir).unwrap();
+	}
+	let text = std::fs::read_to_string(&path).unwrap();
+	let chain: Vec<identity::Rotation> = serde_json::from_str(&text).unwrap();
+	let again = serde_json::to_string_pretty(&chain).unwrap() + "\n";
+	assert!(again == text, "elamond/fixtures/rotations.json is out of date: run `ELAMON_BLESS=1 cargo test` and commit it");
+	assert_eq!(chain.len(), 3);
+	let last = chain[2].new_fp.clone();
+	assert_eq!(identity::follow(&chain, &chain[0].old_fp, &last), Some(last));
+}
