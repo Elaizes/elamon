@@ -133,10 +133,12 @@ It prints a QR code and a six-digit code, good for five minutes. Five wrong trie
 shut that address out for the rest of the code's life; twenty in all use the code up.
 
 - **QR code:** point the phone's camera at it and open the link. The link carries the computer's
-  addresses (those the service listens on, the local network first) and its certificate, so
-  pairing takes one tap.
+  addresses (those the service listens on, the local network first), then names that stay when
+  addresses change (those in `names` and its Tailscale name,
+  [section 7](#names-in-the-pairing-link)), and its certificate, so pairing takes one tap. The app
+  keeps them all, and later tries the one that worked last first.
 - **Code:** in the app, tap the computer under *Found on this network*, or *Add computer* and its
-  address. The app shows the computer's certificate digits first: they must match the
+  address or host name. The app shows the computer's certificate digits first: they must match the
   `Certificate:` line `elamond pair` printed. Then enter the code.
 
 Each phone gets its own key, and a role that says what it may see and do: by default `admin`,
@@ -416,6 +418,7 @@ All keys are optional.
 |---|---|---|
 | `port` | `47823` | TCP port |
 | `listen` | `"::"` | addresses and interfaces to listen on, one or a list; `"::"` covers every address, IPv4 and IPv6 ([below](#where-the-service-listens)) |
+| `names` | `[]` | host names that reach this computer, offered in the pairing link after its addresses ([below](#names-in-the-pairing-link)) |
 | `name` | host name | the name shown in the app |
 | `mdns` | `true` | announce the service on the local network: only on wired and wireless interfaces it listens on, never over a VPN |
 | `interval_ms` | `1000` | time between readings, 250–10 000 |
@@ -427,8 +430,8 @@ All keys are optional.
 
 The service rereads the files when one of them changes, or on `systemctl --user reload elamond`. A
 file that doesn't parse is named in the log and the running settings stay. `control`, `links`,
-`actions` and `default_role` apply at once; `port`, `listen`, `name`, `mdns`, `interval_ms` and
-`history_minutes` after a restart.
+`actions`, `default_role` and `names` apply at once; `port`, `listen`, `name`, `mdns`,
+`interval_ms` and `history_minutes` after a restart.
 
 ### Where the service listens
 
@@ -447,10 +450,11 @@ is let go (connections on it stay until they end); the journal says each. So doe
 the computer doesn't have yet. `"0.0.0.0"` covers every IPv4 address. A drop-in's `listen`
 replaces the one before rather than adding to it.
 
-`elamond pair` puts the addresses the service listens on in its QR code, the local network first,
-and looks for the running service at one of them. Discovery (`mdns`) only announces the service
-on the wired and wireless interfaces among them, never over a VPN or on a bridge for containers:
-over Tailscale alone, add the computer by address or QR code.
+`elamond pair` puts the addresses the service listens on in its QR code, the local network first
+(then names, [below](#names-in-the-pairing-link)), and looks for the running service at one of
+them. Discovery (`mdns`) only announces the service on the wired and wireless interfaces among
+them, never over a VPN or on a bridge for containers: over Tailscale alone, add the computer by
+address, name or QR code.
 
 Its state lives in `~/.local/share/elamon`: its id and certificate, the certificates before it
 with their signatures (`rotations.json`, [section 10](#a-new-certificate)), the paired phones
@@ -465,6 +469,28 @@ Where these live follows `XDG_CONFIG_HOME` and `XDG_DATA_HOME`. `ELAMON_CONFIG_D
 Before 0.5 the settings were `elamond.toml` and `elamond.d/`. They are still read: `elamond.toml` while
 there is no `elamond.toml`, and `elamond.d/*.toml` before `elamond.d/*.toml`. The log says once what
 to rename.
+
+### Names in the pairing link
+
+Addresses change with networks and leases; a name stays. After its addresses, `elamond pair` puts
+host names in the QR code, which the app keeps and tries as well:
+
+- those you give in `names`, in their order:
+
+  ```toml
+  names = ["deskpc.example.net", "deskpc.lan"]
+  ```
+
+- then the computer's Tailscale name (like `deskpc.tail1234.ts.net`), when Tailscale runs with
+  MagicDNS on and the service listens on the computer's Tailscale address (`listen` is `"::"` or
+  names `tailscale0`). `elamond pair` asks `tailscale status` for it, and goes on without it when
+  Tailscale isn't there or doesn't answer within a second and a half.
+
+The computer's `.local` name isn't added by itself, as Android looks such names up poorly; put it
+in `names` if your phone finds it. `elamond pair` prints the names on a `Names:` line. The QR code
+carries 8 addresses and names at most, addresses first; what doesn't fit is printed as left out.
+A name that leads to another computer does no harm: the app accepts only the computer with the id
+and the certificate it paired with. A drop-in's `names` replaces the one before.
 
 ### NixOS module
 
@@ -507,7 +533,7 @@ computer's menu.
 
 | What happens | What to do |
 |---|---|
-| The computer isn't under *Found on this network* | Same network, UDP 5353 open on the computer; VPNs and many guest Wi-Fi networks block discovery, and the service only announces itself on wired and wireless interfaces it listens on (`mdns: announced on …` in the journal). Add it by address: `elamond pair` prints them. |
+| The computer isn't under *Found on this network* | Same network, UDP 5353 open on the computer; VPNs and many guest Wi-Fi networks block discovery, and the service only announces itself on wired and wireless interfaces it listens on (`mdns: announced on …` in the journal). Add it by address or name: `elamond pair` prints them. |
 | The app can't connect | `systemctl --user status elamond`, `journalctl --user -u elamond -e`; TCP 47823 open; the address reachable from the phone, and one the service listens on (`listen: on …` in the journal). |
 | It works only while you're logged in | `loginctl enable-linger` |
 | *The computer's certificate changed* | The service's data was deleted or the system reinstalled; forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` the app 0.5 follows by itself; an older app says this, and pairs again ([section 10](#a-new-certificate)). |

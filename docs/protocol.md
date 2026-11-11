@@ -60,14 +60,24 @@ certificate's.
 
 `elamond pair` makes a six-digit code, valid for 5 minutes, and prints it with a QR code holding
 
-    elamon://pair?v=1&id=<id>&name=<name>&port=<port>&fp=<sha256>&code=<code>&h=<addr>,<addr>…
+    elamon://pair?v=1&id=<id>&name=<name>&port=<port>&fp=<sha256>&code=<code>&h=<host>,<host>…
 
 `h` lists the addresses the service listens on (`listen` in its settings), local network first,
 then VPNs: of each interface its IPv4 addresses, or its IPv6 ones when it has no IPv4 address the
-service listens on; never loopback or link-local ones, and at most 8. Listening on every address
-(`"::"`, the default), bridges for containers and virtual machines are left out. Without any
-address in it the link would be refused, so `elamond pair` then prints only the code. Before 0.5,
-`h` was every IPv4 address of the computer's wired, wireless and VPN interfaces. Stopping
+service listens on; never loopback or link-local ones. Listening on every address (`"::"`, the
+default), bridges for containers and virtual machines are left out. Since 0.5, host names follow
+the addresses: those in `names` in the settings, in their order, then the computer's Tailscale
+name (MagicDNS, `Self.DNSName` of `tailscale status`, without its final dot) when Tailscale runs
+with MagicDNS on and the service listens on one of the computer's Tailscale addresses. Each is
+there once; the computer's mDNS name (`host.local`) only when `names` has it. `h` holds at most 8:
+addresses first, so names never crowd them out, and `elamond pair` says what it left out. Without
+anything in `h` the link would be refused, so `elamond pair` then prints only the code. Before
+0.5, `h` was every IPv4 address of the computer's wired, wireless and VPN interfaces.
+
+A client takes each entry of `h` as an IPv4 address, an IPv6 address (with or without brackets) or
+a DNS name, and refuses the link whole for anything else or for more than 8. It reaches the
+computer at any of them and accepts it only with the `id` and the certificate `fp` of the link, so
+a name or address that leads to another computer is never taken for it. Stopping
 `elamond pair` withdraws its code. The phone that pairs with it gets the role `elamond pair --role` named, or
 `default_role` from the settings ([roles](#roles)).
 
