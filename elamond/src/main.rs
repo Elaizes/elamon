@@ -39,7 +39,8 @@ elamond — serves this computer's metrics to the Elamon app
 
 Usage:
   elamond serve                        run the service (what the systemd unit does)
-  elamond pair [--role ROLE]           show a code and QR to pair a phone
+  elamond pair [--role ROLE] [--yes]   show a code and QR to pair a phone, and ask before the phone
+                                       that gives it is let in (--yes: without asking)
   elamond clients                      list paired phones and their roles
   elamond clients role <id|all> ROLE   change what a phone may do; --with-added: and the phones
                                        that got a key of their own with its token
@@ -454,15 +455,120 @@ extern "C" fn on_stop(_: libc::c_int) {
 	STOP.store(true, Ordering::SeqCst);
 }
 
+/// Whether someone can answer `elamond pair` on its standard input: a terminal, or what a person
+/// or a script deliberately gives it (a pipe, a FIFO, a file); not /dev/null or nothing, as under
+/// systemd or cron.
+fn can_answer() -> bool {
+	if std::io::stdin().is_terminal() {
+		return true;
+	}
+	let mut st = std::mem::MaybeUninit::<libc::stat>::uninit();
+	// SAFETY: fstat fills the stat it is given, or fails and it is left unread.
+	if unsafe { libc::fstat(0, st.as_mut_ptr()) } != 0 {
+		return false;
+	}
+	// SAFETY: filled by fstat above.
+	let kind = unsafe { st.assume_init() }.st_mode & libc::S_IFMT;
+	matches!(kind, libc::S_IFIFO | libc::S_IFSOCK | libc::S_IFREG)
+}
+
+/// Lines from standard input as they are typed, and `None` at its end, read on a thread of their
+/// own so waiting for the phone goes on meanwhile.
+fn answers() -> std::sync::mpsc::Receiver<Option<String>> {
+	let (tx, rx) = std::sync::mpsc::channel();
+	let _ = std::thread::Builder::new().name("answers".into()).spawn(move || {
+		use std::io::BufRead;
+		let mut line = String::new();
+		loop {
+			line.clear();
+			let got = match std::io::stdin().lock().read_line(&mut line) {
+				Ok(0) | Err(_) => None,
+				Ok(_) => Some(line.trim().to_string()),
+			};
+			let end = got.is_none();
+			if tx.send(got).is_err() || end {
+				return;
+			}
+		}
+	});
+	rx
+}
+
+/// What the person at `elamond pair` said to a phone that gave the right code.
+enum Answer {
+	Allow,
+	Deny,
+	/// Not in time: the service turns it away by itself.
+	Late,
+	/// The phone stopped waiting.
+	Gone,
+	/// `elamond pair` was stopped.
+	Stopped,
+}
+
+/// Shows the phone `ask` to the person at the terminal and waits for a yes or a no, until the
+/// service stops waiting for it. Anything but yes is no, the end of the input too.
+fn ask_person(dir: &std::path::Path, ask: &store::Ask, role: Role, code: &str, lines: &std::sync::mpsc::Receiver<Option<String>>) -> Answer {
+	use std::io::Write;
+	use std::sync::mpsc::RecvTimeoutError;
+	// What was typed before the question isn't an answer to it.
+	while lines.try_recv().is_ok() {}
+	print!(
+		"  Phone \"{}\" from {} asks to pair as {}. Allow? [y/N] ",
+		store::sanitize_name(&ask.name),
+		store::sanitize_name(&ask.address),
+		role.as_str()
+	);
+	let _ = std::io::stdout().flush();
+	let shown = !std::io::stdin().is_terminal();
+	let left = (ask.at + timeout::PAIR_APPROVAL_SECS).saturating_sub(store::now());
+	let deadline = std::time::Instant::now() + Duration::from_secs(left);
+	loop {
+		match lines.recv_timeout(Duration::from_millis(250)) {
+			Ok(Some(line)) => {
+				if shown {
+					println!("{line}");
+				}
+				return if matches!(line.to_ascii_lowercase().as_str(), "y" | "yes") { Answer::Allow } else { Answer::Deny };
+			}
+			Ok(None) | Err(RecvTimeoutError::Disconnected) => {
+				println!();
+				return Answer::Deny;
+			}
+			Err(RecvTimeoutError::Timeout) => {}
+		}
+		if STOP.load(Ordering::SeqCst) {
+			println!();
+			return Answer::Stopped;
+		}
+		if std::time::Instant::now() >= deadline {
+			println!();
+			return Answer::Late;
+		}
+		if !store::read_pairing(dir).is_some_and(|p| p.code == code && p.ask.is_some_and(|a| a.id == ask.id)) {
+			println!();
+			return Answer::Gone;
+		}
+	}
+}
+
 fn pair(args: &[String]) -> Result<(), String> {
 	let config = store::load_config()?;
-	let role = match args {
+	let yes = args.iter().any(|a| a == "--yes");
+	let args: Vec<&str> = args.iter().map(String::as_str).filter(|a| *a != "--yes").collect();
+	let role = match args.as_slice() {
 		[] => config.default_role,
-		[flag, r] if flag == "--role" => role_arg(r)?,
+		["--role", r] => role_arg(r)?,
 		[flag] if flag.starts_with("--role=") => role_arg(&flag["--role=".len()..])?,
-		_ => return Err(format!("usage: elamond pair [--role {}]", Role::choices())),
+		_ => return Err(format!("usage: elamond pair [--role {}] [--yes]", Role::choices())),
 	};
-	let identity = identity::Identity::load_or_create(&store::data_dir())?;
+	if !yes && !can_answer() {
+		return Err("elamond pair asks you to let in the phone that gives its code, and there's no terminal to ask on.\n  \
+			 To let in whichever phone gives the code without asking, as a script would: elamond pair --yes"
+			.into());
+	}
+	let dir = store::data_dir();
+	let identity = identity::Identity::load_or_create(&dir)?;
 	let name = machine_name(&config);
 	let before: Vec<String> = match store::load_clients() {
 		Ok(list) => list.into_iter().map(|c| c.id).collect(),
@@ -471,12 +577,31 @@ fn pair(args: &[String]) -> Result<(), String> {
 			Vec::new()
 		}
 	};
-	let pairing = store::new_pairing(role).map_err(|e| format!("can't save the pairing code: {e}"))?;
+	let pairing = store::new_pairing(&dir, role, !yes).map_err(|e| format!("can't save the pairing code: {e}"))?;
+	// Held while this runs: the service turns a phone away when no one is here to answer. Another
+	// `elamond pair` whose code this one just replaced lets go of it within moments.
+	let _held = match store::hold_pairing(&dir, timeout::PAIR_TAKE_OVER) {
+		Ok(Some(lock)) => Some(lock),
+		Ok(None) => {
+			store::clear_pairing_code(&dir, &pairing.code);
+			return Err("another elamond pair is still running; stop it first".into());
+		}
+		// Where locks don't work, a phone can only be let in with --yes.
+		Err(e) if yes => {
+			eprintln!("  ! can't lock {}: {e}", dir.display());
+			None
+		}
+		Err(e) => {
+			store::clear_pairing_code(&dir, &pairing.code);
+			return Err(format!("can't lock {}: {e}; elamond pair --yes pairs without asking", dir.display()));
+		}
+	};
 	// From here on, stopping withdraws the code instead of leaving it to be guessed at.
 	for sig in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
 		// SAFETY: the handler only stores to an atomic, which is async-signal-safe.
 		unsafe { libc::signal(sig, on_stop as *const () as libc::sighandler_t) };
 	}
+	let lines = (!yes).then(answers);
 	let new_phone = || store::load_clients().ok()?.into_iter().find(|c| !before.contains(&c.id));
 
 	// Where the service listens, as the phone can reach it: the local network first, then the
@@ -546,32 +671,73 @@ fn pair(args: &[String]) -> Result<(), String> {
 		println!("  ! The Elamon service isn't answering on port {}. Start it: systemctl --user start elamond", config.port);
 		println!();
 	}
+	if yes {
+		println!("  Whichever phone gives the code is paired, without asking (--yes).");
+	} else {
+		println!("  The phone that gives the code is shown here first, for you to let in or not.");
+	}
 	println!("  Waiting for the phone… (the code works for {} minutes, Ctrl+C to stop)", timeout::PAIRING_TTL_SECS / 60);
 
 	let expired = || Err("the code expired; run `elamond pair` again".to_string());
+	let mut asked: Option<String> = None;
+	let paired = |c: store::Client| {
+		// Withdrawn here too, should the service not get to it.
+		store::clear_pairing_code(&dir, &pairing.code);
+		println!("  Paired with \"{}\".", c.name);
+		Ok(())
+	};
 	loop {
 		std::thread::sleep(cadence::PAIR_POLL);
 		if let Some(c) = new_phone() {
-			println!("  Paired with \"{}\".", c.name);
-			return Ok(());
+			return paired(c);
 		}
 		if STOP.load(Ordering::SeqCst) {
-			store::clear_pairing_code(&pairing.code);
+			store::clear_pairing_code(&dir, &pairing.code);
 			return Err("stopped; the code no longer works".into());
 		}
-		match store::read_pairing() {
+		match store::read_pairing(&dir) {
+			// A phone gave the right code and waits: the person here decides, once.
+			Some(p) if p.code == pairing.code && p.ask.is_some() => {
+				let (Some(ask), Some(lines)) = (p.ask, &lines) else { continue };
+				if ask.allow.is_some() || asked.as_deref() == Some(ask.id.as_str()) {
+					continue;
+				}
+				asked = Some(ask.id.clone());
+				let failed = |e: std::io::Error| format!("can't save the answer: {e}");
+				match ask_person(&dir, &ask, role, &pairing.code, lines) {
+					Answer::Allow => {
+						store::answer_pairing(&dir, &pairing.code, &ask.id, true).map_err(failed)?;
+						println!("  Letting it in…");
+					}
+					Answer::Deny => {
+						store::answer_pairing(&dir, &pairing.code, &ask.id, false).map_err(failed)?;
+						return Err("the phone was turned away, and the code no longer works; run `elamond pair` again for another".into());
+					}
+					Answer::Late => {
+						store::clear_pairing_code(&dir, &pairing.code);
+						return Err(format!("no answer within {} s: the phone was turned away, and the code no longer works", timeout::PAIR_APPROVAL_SECS));
+					}
+					Answer::Gone => {}
+					Answer::Stopped => {
+						store::clear_pairing_code(&dir, &pairing.code);
+						return Err("stopped; the phone was turned away, and the code no longer works".into());
+					}
+				}
+			}
 			// Expiry is judged by the time saved with the code, as the service judges it.
 			Some(p) if p.code == pairing.code && p.usable(store::now()) => {}
 			Some(p) if p.code == pairing.code => {
-				store::clear_pairing_code(&pairing.code);
+				store::clear_pairing_code(&dir, &pairing.code);
 				return if p.expires <= store::now() { expired() } else { Err(used_up()) };
 			}
 			Some(_) => return Err("another `elamond pair` replaced this code".into()),
 			None => {
 				// The service adds the phone before it withdraws the code.
 				if let Some(c) = new_phone() {
-					println!("  Paired with \"{}\".", c.name);
-					return Ok(());
+					return paired(c);
+				}
+				if asked.is_some() {
+					return Err("the phone stopped waiting before it was let in, and the code no longer works; run `elamond pair` again".into());
 				}
 				return if pairing.expires <= store::now() { expired() } else { Err(used_up()) };
 			}

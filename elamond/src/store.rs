@@ -630,6 +630,29 @@ pub struct Pairing {
 	/// Wrong codes tried per address (see `address_key`).
 	#[serde(default)]
 	pub wrong: BTreeMap<String, u32>,
+	/// A phone that gives the right code waits for the person at `elamond pair` to let it in. Not
+	/// with `elamond pair --yes`, nor for a code from an `elamond pair` before 0.5, which can't ask.
+	#[serde(default)]
+	pub confirm: bool,
+	/// The phone that gave the right code, while it waits for that answer.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ask: Option<Ask>,
+}
+
+/// A phone that gave the right code, as `elamond pair` shows it to the person who decides.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Ask {
+	/// Tells this request from any other.
+	pub id: String,
+	/// The name it gave, cleaned.
+	pub name: String,
+	/// Where it asked from.
+	pub address: String,
+	/// Unix time it asked.
+	pub at: u64,
+	/// The answer, once given.
+	#[serde(default)]
+	pub allow: Option<bool>,
 }
 
 /// How one attempt at the pending code went.
@@ -641,8 +664,11 @@ pub enum Attempt {
 	Blocked,
 }
 
-fn pairing_path() -> PathBuf {
-	data_dir().join("pairing.json")
+/// The pending pairing code's file in a data directory.
+pub const PAIRING_FILE: &str = "pairing.json";
+
+fn pairing_path(dir: &Path) -> PathBuf {
+	dir.join(PAIRING_FILE)
 }
 
 impl Pairing {
@@ -680,32 +706,33 @@ pub fn address_key(ip: IpAddr) -> String {
 }
 
 /// The pending code as saved, whether or not it is still good.
-pub fn read_pairing() -> Option<Pairing> {
-	read_json(&pairing_path()).ok().flatten()
+pub fn read_pairing(dir: &Path) -> Option<Pairing> {
+	read_json(&pairing_path(dir)).ok().flatten()
 }
 
 /// The pending code, if it is still good.
-pub fn load_pairing() -> Option<Pairing> {
-	read_pairing().filter(|p| p.usable(now()))
+pub fn load_pairing(dir: &Path) -> Option<Pairing> {
+	read_pairing(dir).filter(|p| p.usable(now()))
 }
 
-pub fn save_pairing(p: &Pairing) -> io::Result<()> {
-	write_private(&pairing_path(), &serde_json::to_vec(p).map_err(io::Error::other)?)
+pub fn save_pairing(dir: &Path, p: &Pairing) -> io::Result<()> {
+	write_private(&pairing_path(dir), &serde_json::to_vec(p).map_err(io::Error::other)?)
 }
 
-pub fn clear_pairing() {
-	let _ = fs::remove_file(pairing_path());
+pub fn clear_pairing(dir: &Path) {
+	let _ = fs::remove_file(pairing_path(dir));
 }
 
 /// Withdraws a code, unless another `elamond pair` has replaced it since.
-pub fn clear_pairing_code(code: &str) {
-	if read_pairing().is_some_and(|p| p.code == code) {
-		clear_pairing();
+pub fn clear_pairing_code(dir: &Path, code: &str) {
+	if read_pairing(dir).is_some_and(|p| p.code == code) {
+		clear_pairing(dir);
 	}
 }
 
-/// A new code, uniformly random, for a phone with `role`.
-pub fn new_pairing(role: Role) -> io::Result<Pairing> {
+/// A new code, uniformly random, for a phone with `role`, to be let in by the person at
+/// `elamond pair` when `confirm`.
+pub fn new_pairing(dir: &Path, role: Role, confirm: bool) -> io::Result<Pairing> {
 	let span = 10u32.pow(protocol::PAIRING_DIGITS);
 	let code = loop {
 		let n = u32::from_le_bytes(random_bytes::<4>());
@@ -714,9 +741,50 @@ pub fn new_pairing(role: Role) -> io::Result<Pairing> {
 			break format!("{:0width$}", n % span, width = protocol::PAIRING_DIGITS as usize);
 		}
 	};
-	let p = Pairing { code, expires: now() + timeout::PAIRING_TTL_SECS, attempts: 0, role, wrong: BTreeMap::new() };
-	save_pairing(&p)?;
+	let p = Pairing { code, expires: now() + timeout::PAIRING_TTL_SECS, attempts: 0, role, wrong: BTreeMap::new(), confirm, ask: None };
+	save_pairing(dir, &p)?;
 	Ok(p)
+}
+
+/// Gives the answer `allow` to the phone `ask_id` waiting with the code `code`, unless it no longer
+/// waits there.
+pub fn answer_pairing(dir: &Path, code: &str, ask_id: &str, allow: bool) -> io::Result<()> {
+	match read_pairing(dir) {
+		Some(mut p) if p.code == code && p.ask.as_ref().is_some_and(|a| a.id == ask_id && a.allow.is_none()) => {
+			if let Some(a) = p.ask.as_mut() {
+				a.allow = Some(allow);
+			}
+			save_pairing(dir, &p)
+		}
+		_ => Ok(()),
+	}
+}
+
+/// Held by `elamond pair` while it runs, so the service knows someone is there to answer a phone.
+const PAIRING_LOCK_FILE: &str = "pairing.lock";
+
+/// Takes the lock `elamond pair` holds in `dir`, waiting up to `wait` for another to let go.
+pub fn hold_pairing(dir: &Path, wait: std::time::Duration) -> io::Result<Option<fs::File>> {
+	private_dir(dir)?;
+	let f = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600).open(dir.join(PAIRING_LOCK_FILE))?;
+	let started = std::time::Instant::now();
+	loop {
+		if try_lock(&f)? {
+			return Ok(Some(f));
+		}
+		if started.elapsed() >= wait {
+			return Ok(None);
+		}
+		std::thread::sleep(std::time::Duration::from_millis(100));
+	}
+}
+
+/// Whether an `elamond pair` that can answer runs with the data directory `dir`.
+pub fn pairing_answered(dir: &Path) -> bool {
+	match fs::File::open(dir.join(PAIRING_LOCK_FILE)) {
+		Ok(f) => matches!(try_lock(&f), Ok(false)),
+		Err(_) => false,
+	}
 }
 
 /// `elamond control off`'s file in the data directory: while it exists, nobody acts on the
@@ -1011,7 +1079,7 @@ mod tests {
 
 	#[test]
 	fn pairing_codes_expire_and_run_out() {
-		let p = Pairing { code: "123456".into(), expires: 100, attempts: 0, role: Role::Glance, wrong: BTreeMap::new() };
+		let p = Pairing { code: "123456".into(), expires: 100, attempts: 0, role: Role::Glance, wrong: BTreeMap::new(), confirm: true, ask: None };
 		assert!(p.usable(99));
 		assert!(!p.usable(100));
 		assert!(!Pairing { attempts: limit::PAIRING_ATTEMPTS, ..p }.usable(0));
@@ -1019,7 +1087,7 @@ mod tests {
 
 	#[test]
 	fn wrong_codes_are_counted_per_address_and_in_all() {
-		let mut p = Pairing { code: "123456".into(), expires: u64::MAX, attempts: 0, role: Role::Admin, wrong: BTreeMap::new() };
+		let mut p = Pairing { code: "123456".into(), expires: u64::MAX, attempts: 0, role: Role::Admin, wrong: BTreeMap::new(), confirm: false, ask: None };
 		for _ in 0..limit::PAIRING_ATTEMPTS_PER_ADDRESS {
 			assert_eq!(p.attempt("192.0.2.1", "000000"), Attempt::Wrong);
 		}
@@ -1041,7 +1109,7 @@ mod tests {
 		let back: Pairing = serde_json::from_slice(&serde_json::to_vec(&p).unwrap()).unwrap();
 		assert_eq!(back, p);
 		let old: Pairing = serde_json::from_str(r#"{"code":"123456","expires":1,"attempts":2}"#).unwrap();
-		assert_eq!((old.role, old.wrong.len()), (Role::Admin, 0));
+		assert_eq!((old.role, old.wrong.len(), old.confirm, old.ask), (Role::Admin, 0, false, None));
 	}
 
 	#[test]

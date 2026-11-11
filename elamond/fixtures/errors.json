@@ -94,5 +94,9 @@
   {
     "error": "rekey_refused",
     "status": 403
+  },
+  {
+    "error": "pair_declined",
+    "status": 403
   }
 ]

@@ -128,6 +128,11 @@ pub mod timeout {
 	pub const WRONG_CODE_DELAY: Duration = Duration::from_secs(1);
 	/// A pairing code is good for this long after `elamond pair` prints it, in seconds.
 	pub const PAIRING_TTL_SECS: u64 = 300;
+	/// A phone that gave the right code waits this long, in seconds, for the person at
+	/// `elamond pair` to let it in; then it is turned away. The app waits a little longer.
+	pub const PAIR_APPROVAL_SECS: u64 = 90;
+	/// A new `elamond pair` waits this long for one it replaced to let go of its lock.
+	pub const PAIR_TAKE_OVER: Duration = Duration::from_secs(5);
 	/// An idle connection is probed after this, then every `KEEPALIVE_INTERVAL`, and dropped
 	/// after `KEEPALIVE_PROBES` unanswered probes: a phone that vanished stops counting as
 	/// watching within about a minute.
@@ -190,6 +195,9 @@ pub mod limit {
 	pub const ROTATIONS_KEPT: usize = 5;
 	/// Addresses `elamond pair` tries, to tell whether the service runs.
 	pub const SERVICE_CHECK_ADDRS: usize = 3;
+	/// Bytes in the body of a request that may come before a phone is known (`pair`), or that
+	/// only names one (`rekey`).
+	pub const PAIR_BODY_MAX: usize = 4 * 1024;
 	/// Connections the service holds at once; more are closed as they come. The systemd units give
 	/// it far more descriptors than these take.
 	pub const CONNECTIONS_MAX: usize = 256;

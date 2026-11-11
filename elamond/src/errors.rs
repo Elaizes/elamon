@@ -46,12 +46,14 @@ pub enum ErrorCode {
 	TooManyPhones,
 	/// `rekey` from an entry that came by `rekey` itself, or that asked once already.
 	RekeyRefused,
+	/// The person at `elamond pair` turned the phone away, didn't answer in time, or stopped it.
+	PairDeclined,
 }
 
 impl ErrorCode {
 	/// Every code, for elamond/fixtures/errors.json.
 	#[cfg(test)]
-	pub const ALL: [ErrorCode; 24] = [
+	pub const ALL: [ErrorCode; 25] = [
 		ErrorCode::NotFound,
 		ErrorCode::Unauthorized,
 		ErrorCode::NoPairing,
@@ -76,6 +78,7 @@ impl ErrorCode {
 		ErrorCode::ProcessChanged,
 		ErrorCode::TooManyPhones,
 		ErrorCode::RekeyRefused,
+		ErrorCode::PairDeclined,
 	];
 
 	fn parts(self) -> (&'static str, StatusCode) {
@@ -104,6 +107,7 @@ impl ErrorCode {
 			ErrorCode::ProcessChanged => ("process_changed", StatusCode::CONFLICT),
 			ErrorCode::TooManyPhones => ("too_many_phones", StatusCode::FORBIDDEN),
 			ErrorCode::RekeyRefused => ("rekey_refused", StatusCode::FORBIDDEN),
+			ErrorCode::PairDeclined => ("pair_declined", StatusCode::FORBIDDEN),
 		}
 	}
 

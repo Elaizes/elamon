@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime};
 
 use axum::body::{Body, Bytes};
-use axum::extract::{ConnectInfo, Extension, Query, Request, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Extension, Query, Request, State};
 use axum::http::{header, HeaderValue};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -346,11 +346,11 @@ pub fn router(hub: Arc<Hub>) -> Router {
 		.route("/api/v1/services/{id}", delete(control::link_delete))
 		.route("/api/v1/services/{id}/unit", post(control::link_unit))
 		.route("/api/v1/units", get(control::units))
-		.route("/api/v1/rekey", post(rekey))
+		.route("/api/v1/rekey", post(rekey).layer(DefaultBodyLimit::max(limit::PAIR_BODY_MAX)))
 		.route_layer(middleware::from_fn_with_state(hub.clone(), auth));
 	Router::new()
 		.route("/api/v1/hello", get(hello))
-		.route("/api/v1/pair", post(pair))
+		.route("/api/v1/pair", post(pair).layer(DefaultBodyLimit::max(limit::PAIR_BODY_MAX)))
 		.route("/api/v1/identity/rotations", get(rotations))
 		.merge(private)
 		.fallback(|| async { error(ErrorCode::NotFound) })
@@ -422,29 +422,36 @@ struct PairRequest {
 	device: String,
 }
 
-async fn pair(
-	State(hub): State<Arc<Hub>>,
-	ConnectInfo(peer): ConnectInfo<SocketAddr>,
-	Json(req): Json<PairRequest>,
-) -> Response {
-	// One attempt at a time, each wrong one slowed down, a few per address and some more in all.
-	let _guard = hub.pair_lock.lock().await;
-	let Some(mut pending) = store::load_pairing() else {
-		tokio::time::sleep(timeout::NO_PAIRING_DELAY).await;
-		return error(ErrorCode::NoPairing);
-	};
-	let ip = peer.ip().to_canonical();
+/// How an attempt at the pending code was judged.
+enum Judged {
+	/// No code is pending, or a phone that gave it waits for an answer.
+	Nothing,
+	Blocked,
+	Wrong,
+	/// The right code: the phone gets `role`, at once or, with `ask`, once let in.
+	Right { code: String, role: Role, ask: Option<String> },
+	/// The pending code couldn't be saved with the phone's request in it.
+	Unsaved,
+}
+
+/// Judges an attempt with `code` from `ip` by a phone named `name` (cleaned), counting a wrong one
+/// and, for a code from `elamond pair` without `--yes`, putting the phone's request in it for the
+/// person there to answer. Called with the pairing lock held: one attempt is judged at a time.
+fn judge(dir: &std::path::Path, code: &str, name: &str, ip: IpAddr) -> Judged {
+	let Some(mut pending) = store::load_pairing(dir) else { return Judged::Nothing };
+	// Spoken for: the phone that gave it is waiting to be let in.
+	if pending.ask.is_some() {
+		return Judged::Nothing;
+	}
 	let from = store::address_key(ip);
-	let code: String = req.code.chars().filter(char::is_ascii_digit).collect();
-	match pending.attempt(&from, &code) {
-		// Answered at once: waiting here would hold up everyone else's attempts.
-		Attempt::Blocked => return error(ErrorCode::TooManyRequests),
+	match pending.attempt(&from, code) {
+		Attempt::Blocked => Judged::Blocked,
 		Attempt::Wrong => {
 			if pending.attempts >= limit::PAIRING_ATTEMPTS {
-				store::clear_pairing();
+				store::clear_pairing(dir);
 				eprintln!("pairing: wrong code from {ip}; the code is used up");
 			} else {
-				let _ = store::save_pairing(&pending);
+				let _ = store::save_pairing(dir, &pending);
 				let tried = pending.wrong.get(&from).copied().unwrap_or(0);
 				if tried >= limit::PAIRING_ATTEMPTS_PER_ADDRESS {
 					eprintln!("pairing: wrong code from {ip}; {from} may not try this code again");
@@ -452,31 +459,117 @@ async fn pair(
 					eprintln!("pairing: wrong code from {ip}");
 				}
 			}
+			Judged::Wrong
+		}
+		Attempt::Right if !pending.confirm => Judged::Right { code: pending.code, role: pending.role, ask: None },
+		Attempt::Right => {
+			let id = data_encoding::HEXLOWER.encode(&store::random_bytes::<8>());
+			pending.ask = Some(store::Ask { id: id.clone(), name: name.to_string(), address: ip.to_string(), at: store::now(), allow: None });
+			if let Err(e) = store::save_pairing(dir, &pending) {
+				eprintln!("pairing: can't save the request of \"{name}\" from {ip}: {e}");
+				return Judged::Unsaved;
+			}
+			eprintln!("pairing: \"{name}\" from {ip} gave the right code; asking at elamond pair whether to let it in");
+			Judged::Right { code: pending.code, role: pending.role, ask: Some(id) }
+		}
+	}
+}
+
+/// Withdraws the code a phone waits with when its request goes away unanswered (it hung up), so
+/// it can't be let in afterwards with no one to tell.
+struct Waiting {
+	dir: PathBuf,
+	code: String,
+	ask: Option<String>,
+}
+
+impl Drop for Waiting {
+	fn drop(&mut self) {
+		if let Some(id) = self.ask.take()
+			&& store::read_pairing(&self.dir).is_some_and(|p| p.code == self.code && p.ask.is_some_and(|a| a.id == id))
+		{
+			store::clear_pairing_code(&self.dir, &self.code);
+			eprintln!("pairing: the phone that gave the right code hung up before it was let in; the code no longer works");
+		}
+	}
+}
+
+/// Waits for the person at `elamond pair` to answer the phone `ask` waiting with `code`: whether
+/// to let it in, or why not.
+async fn answer(dir: &std::path::Path, code: &str, ask: &str) -> Result<(), &'static str> {
+	let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout::PAIR_APPROVAL_SECS);
+	loop {
+		tokio::time::sleep(cadence::PAIR_POLL).await;
+		let Some(p) = store::read_pairing(dir).filter(|p| p.code == code) else {
+			return Err("elamond pair withdrew the code");
+		};
+		match p.ask.filter(|a| a.id == ask).map(|a| a.allow) {
+			None => return Err("elamond pair withdrew the code"),
+			Some(Some(true)) => return Ok(()),
+			Some(Some(false)) => return Err("turned away at elamond pair"),
+			Some(None) if !store::pairing_answered(dir) => return Err("elamond pair isn't running to answer"),
+			Some(None) if tokio::time::Instant::now() >= deadline => return Err("no answer at elamond pair in time"),
+			Some(None) => {}
+		}
+	}
+}
+
+async fn pair(
+	State(hub): State<Arc<Hub>>,
+	ConnectInfo(peer): ConnectInfo<SocketAddr>,
+	Json(req): Json<PairRequest>,
+) -> Response {
+	let ip = peer.ip().to_canonical();
+	let code: String = req.code.chars().filter(char::is_ascii_digit).collect();
+	let name = store::sanitize_name(&req.device);
+	// Without a pending code there's nothing to judge; the lock isn't taken for it, nor held
+	// while anyone waits, so one attempt can't hold up the others.
+	let judged = if store::load_pairing(&hub.dir).is_none() {
+		Judged::Nothing
+	} else {
+		let _guard = hub.pair_lock.lock().await;
+		judge(&hub.dir, &code, &name, ip)
+	};
+	let (code, role, ask) = match judged {
+		Judged::Nothing => {
+			tokio::time::sleep(timeout::NO_PAIRING_DELAY).await;
+			return error(ErrorCode::NoPairing);
+		}
+		// Answered at once: it may not try again whatever it sends.
+		Judged::Blocked => return error(ErrorCode::TooManyRequests),
+		Judged::Wrong => {
 			tokio::time::sleep(timeout::WRONG_CODE_DELAY).await;
 			return error(ErrorCode::WrongCode);
 		}
-		Attempt::Right => {}
+		Judged::Unsaved => return error(ErrorCode::Storage),
+		Judged::Right { code, role, ask } => (code, role, ask),
+	};
+	let mut waiting = Waiting { dir: hub.dir.clone(), code: code.clone(), ask: ask.clone() };
+	if let Some(ask) = &ask
+		&& let Err(why) = answer(&hub.dir, &code, ask).await
+	{
+		waiting.ask = None;
+		store::clear_pairing_code(&hub.dir, &code);
+		eprintln!("pairing: \"{name}\" from {ip} not added: {why}; the code no longer works");
+		return error(ErrorCode::PairDeclined);
 	}
+	waiting.ask = None;
 	// The phone is added before the code is withdrawn: `elamond pair` takes a code gone with
 	// no new phone for one used up by wrong attempts.
-	let (dir, device, role) = (hub.dir.clone(), req.device.clone(), pending.role);
-	match tokio::task::spawn_blocking(move || store::add_client_in(&dir, &device, role)).await {
-		Ok(Ok((client, token))) => {
-			store::clear_pairing();
+	let (dir, device) = (hub.dir.clone(), name.clone());
+	let added = tokio::task::spawn_blocking(move || store::add_client_in(&dir, &device, role))
+		.await
+		.unwrap_or_else(|e| Err(store::NotAdded::Io(std::io::Error::other(e))));
+	match added {
+		Ok((client, token)) => {
+			store::clear_pairing_code(&hub.dir, &code);
 			eprintln!("pairing: added \"{}\" ({}) as {} from {ip}", client.name, client.id, client.role.as_str());
 			Json(paired_body(&token, &client.id, &hub.id, &hub.name, client.role)).into_response()
 		}
-		Ok(Err(store::NotAdded::Full)) => {
-			eprintln!("pairing: \"{}\" from {ip} not added: {}", store::sanitize_name(&req.device), store::NotAdded::Full);
-			error(ErrorCode::TooManyPhones)
-		}
-		Ok(Err(e)) => {
-			eprintln!("pairing: can't save the client: {e}");
-			error(ErrorCode::Storage)
-		}
 		Err(e) => {
-			eprintln!("pairing: can't save the client: {e}");
-			error(ErrorCode::Storage)
+			store::clear_pairing_code(&hub.dir, &code);
+			eprintln!("pairing: \"{name}\" from {ip} not added: {e}");
+			error(if matches!(e, store::NotAdded::Full) { ErrorCode::TooManyPhones } else { ErrorCode::Storage })
 		}
 	}
 }
@@ -1288,6 +1381,89 @@ mod tests {
 		assert_eq!((old.unit.as_deref(), old.unit_state.as_deref()), (Some("user@1000.service"), None));
 		let log = hub.activity.newest(usize::MAX);
 		assert!(log.iter().any(|e| e.what == "unit stop user@1000.service" && e.result == "not_allowed"), "{log:?}");
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	/// A phone's attempt at pairing from 192.0.2.7, answered on a task of its own: it may wait.
+	fn pair_from(hub: &Arc<Hub>, code: &str, device: &str) -> tokio::task::JoinHandle<(StatusCode, serde_json::Value)> {
+		let (hub, body) = (hub.clone(), serde_json::json!({ "code": code, "device": device }).to_string());
+		tokio::spawn(async move {
+			let req = axum::http::Request::builder()
+				.method(Method::POST)
+				.uri("/api/v1/pair")
+				.header(header::CONTENT_TYPE, "application/json")
+				.extension(ConnectInfo(SocketAddr::from(([192, 0, 2, 7], 50000))))
+				.body(Body::from(body))
+				.unwrap();
+			let resp = router(hub).oneshot(req).await.unwrap();
+			let status = resp.status();
+			let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+			(status, serde_json::from_slice(&bytes).unwrap_or_default())
+		})
+	}
+
+	/// The phone waiting with the pending code, once there is one.
+	async fn asked(dir: &std::path::Path) -> store::Ask {
+		let wait = async {
+			loop {
+				if let Some(a) = store::read_pairing(dir).and_then(|p| p.ask) {
+					return a;
+				}
+				tokio::time::sleep(Duration::from_millis(50)).await;
+			}
+		};
+		tokio::time::timeout(Duration::from_secs(5), wait).await.expect("the phone's request in time")
+	}
+
+	#[tokio::test]
+	async fn a_phone_with_the_right_code_waits_to_be_let_in() {
+		let (hub, _tx) = hub(false);
+		let declined = (StatusCode::FORBIDDEN, Some("pair_declined"));
+		let paired = |hub: &Arc<Hub>, name: &str| store::load_clients_in(&hub.dir).unwrap().into_iter().find(|c| c.name == name);
+		// `elamond pair` is there to answer while this is held.
+		let held = store::hold_pairing(&hub.dir, Duration::ZERO).unwrap().unwrap();
+
+		// Turned away: nothing added, the code gone.
+		let p = store::new_pairing(&hub.dir, Role::Monitor, true).unwrap();
+		let waiting = pair_from(&hub, &p.code, "Stranger\u{202e}");
+		let ask = asked(&hub.dir).await;
+		assert_eq!((ask.name.as_str(), ask.address.as_str(), ask.allow), ("Stranger", "192.0.2.7", None));
+		// Meanwhile the code is spoken for, even the right one.
+		let (status, v) = pair_from(&hub, &p.code, "Another").await.unwrap();
+		assert_eq!((status, v["error"].as_str()), (StatusCode::FORBIDDEN, Some("no_pairing")));
+		store::answer_pairing(&hub.dir, &p.code, &ask.id, false).unwrap();
+		let (status, v) = waiting.await.unwrap();
+		assert_eq!((status, v["error"].as_str()), declined);
+		assert!(store::read_pairing(&hub.dir).is_none() && paired(&hub, "Stranger").is_none());
+
+		// Let in, with the code's role.
+		let p = store::new_pairing(&hub.dir, Role::Monitor, true).unwrap();
+		let waiting = pair_from(&hub, &p.code, "Mine");
+		let ask = asked(&hub.dir).await;
+		store::answer_pairing(&hub.dir, &p.code, &ask.id, true).unwrap();
+		let (status, v) = waiting.await.unwrap();
+		assert_eq!((status, v["role"].as_str()), (StatusCode::OK, Some("monitor")), "{v}");
+		assert_eq!(paired(&hub, "Mine").unwrap().role, Role::Monitor);
+		assert!(store::read_pairing(&hub.dir).is_none());
+
+		// With no one at `elamond pair` to answer, turned away.
+		drop(held);
+		let p = store::new_pairing(&hub.dir, Role::Admin, true).unwrap();
+		let (status, v) = pair_from(&hub, &p.code, "Nobody asked").await.unwrap();
+		assert_eq!((status, v["error"].as_str()), declined);
+		assert!(paired(&hub, "Nobody asked").is_none() && store::read_pairing(&hub.dir).is_none());
+
+		// `elamond pair --yes`: at once.
+		let p = store::new_pairing(&hub.dir, Role::Glance, false).unwrap();
+		let (status, v) = pair_from(&hub, &p.code, "Scripted").await.unwrap();
+		assert_eq!((status, v["role"].as_str()), (StatusCode::OK, Some("glance")), "{v}");
+
+		// No code, or a body far bigger than a code and a name.
+		let (status, v) = pair_from(&hub, "123456", "Late").await.unwrap();
+		assert_eq!((status, v["error"].as_str()), (StatusCode::FORBIDDEN, Some("no_pairing")));
+		store::new_pairing(&hub.dir, Role::Glance, false).unwrap();
+		let (status, _) = pair_from(&hub, "123456", &"x".repeat(limit::PAIR_BODY_MAX)).await.unwrap();
+		assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
 		std::fs::remove_dir_all(&hub.dir).unwrap();
 	}
 
