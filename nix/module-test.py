@@ -138,9 +138,12 @@ with subtest("openFirewall with firewallInterfaces opens the port on those alone
 	assert opened("wg0", "tcp", 47823) and not opened("wg0", "udp", 5353), rules
 	assert not re.search(r'(-A nixos-fw -p tcp -m tcp --dport 47823 |^\s*tcp dport (\{ )?47823\b)', rules, re.M), rules
 
-def second(*args, unit):
-	"""elamond as alice with the settings and state in /tmp/second."""
-	env = " ".join(f"-p Environment={e}" for e in ["HOME=/home/alice", "ELAMON_CONFIG_DIR=/tmp/second/cfg", "ELAMON_DATA_DIR=/tmp/second/data", "ELAMON_CONFIG=/tmp/second/cfg/elamond.toml"])
+def second(*args, unit, path=None):
+	"""elamond as alice with the settings and state in /tmp/second, `path` before the system's PATH."""
+	env = ["HOME=/home/alice", "ELAMON_CONFIG_DIR=/tmp/second/cfg", "ELAMON_DATA_DIR=/tmp/second/data", "ELAMON_CONFIG=/tmp/second/cfg/elamond.toml"]
+	if path:
+		env.append(f"PATH={path}:/run/current-system/sw/bin")
+	env = " ".join(f"-p Environment={e}" for e in env)
 	machine.succeed(f"systemd-run --uid=alice {env} --unit={unit} /run/current-system/sw/bin/timeout 300 /run/current-system/sw/bin/elamond {' '.join(args)}")
 
 with subtest("listen names interfaces: eth1 at once, dummy0 once it has an address and until it loses it; mDNS on eth1 alone"):
@@ -177,6 +180,36 @@ with subtest("elamond pair offers the addresses listened on, and finds the servi
 	assert re.search(rf"Addresses: +{re.escape(eth1)}  port 47900$", out, re.M), out
 	assert "dummy0 once it has an address" in out and "isn't answering" not in out, out
 	machine.succeed("systemctl stop second-pair second")
+
+with subtest("elamond pair offers names after the addresses: those in the settings, and Tailscale's where it listens"):
+	# A stand-in for Tailscale: its interface with an address of Tailscale's, and a tailscale that
+	# answers `status` as the real one does, or hangs.
+	machine.succeed("ip link add tailscale0 type dummy && ip addr add 100.100.7.1/32 dev tailscale0 && ip link set tailscale0 up")
+	machine.succeed("""mkdir -p /tmp/fakebin && cat > /tmp/fakebin/tailscale <<'EOF'
+#!/bin/sh
+[ -e /tmp/fakebin/hang ] && exec sleep 60
+[ "$*" = "status --json --peers=false" ] || exit 2
+echo '{"BackendState": "Running", "Self": {"DNSName": "second.tail-test.ts.net.", "TailscaleIPs": ["100.100.7.1"]}, "CurrentTailnet": {"MagicDNSEnabled": true}}'
+EOF
+chmod 755 /tmp/fakebin/tailscale""")
+	def offered(listen, unit):
+		machine.succeed(f"""printf '%s\\n' 'port = 47900' 'listen = {listen}' 'names = ["second.example.net"]' > /tmp/second/cfg/elamond.toml""")
+		second("pair", unit=unit, path="/tmp/fakebin")
+		machine.wait_until_succeeds(f"journalctl -u {unit} -o cat | grep -q 'Waiting for the phone'", timeout=30)
+		out = machine.succeed(f"journalctl -u {unit} -o cat")
+		machine.succeed(f"systemctl stop {unit}")
+		return out
+	out = offered('["eth1", "tailscale0"]', "second-names")
+	assert re.search(rf"Addresses: +{re.escape(eth1)}, 100\.100\.7\.1  port 47900$", out, re.M), out
+	assert re.search(r"Names: +second\.example\.net, second\.tail-test\.ts\.net$", out, re.M), out
+	# Not listening on Tailscale: its name isn't offered.
+	out = offered('["eth1"]', "second-names-lan")
+	assert re.search(r"Names: +second\.example\.net$", out, re.M), out
+	# A Tailscale that doesn't answer holds pairing up for a moment, then is done without.
+	machine.succeed("touch /tmp/fakebin/hang")
+	out = offered('["eth1", "tailscale0"]', "second-names-hang")
+	assert re.search(r"Names: +second\.example\.net$", out, re.M), out
+	machine.succeed("ip link del tailscale0")
 
 with subtest("elamond rotate-cert: a new certificate signed by the old key, the phone's pairing kept"):
 	served_fp = "openssl s_client -connect localhost:47823 </dev/null 2>/dev/null | openssl x509 -outform DER | sha256sum | cut -d' ' -f1"
