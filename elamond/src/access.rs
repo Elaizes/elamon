@@ -21,7 +21,7 @@ pub enum Role {
 	Monitor,
 	/// And links, their units, media, the power profile and the configured actions.
 	Operate,
-	/// And power and signals to processes. Phones paired before 0.5 have no role and are this.
+	/// And power and signals to processes. A phone with no role in clients.json is this.
 	#[default]
 	Admin,
 }

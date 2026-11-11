@@ -1,6 +1,6 @@
 //! Every JSON shape the service sends, with each optional field filled in, kept in
-//! elamond/fixtures/. The app's tests read the same files, so a field renamed or dropped on
-//! either side fails a build instead of reading as zero on a phone.
+//! elamond/fixtures/. The app's tests read the same files, so a field missing or under another
+//! name on either side fails a build rather than reading as zero on a phone.
 //!
 //! After a deliberate change to the protocol: `ELAMON_BLESS=1 cargo test`, then commit the
 //! files with the change.
@@ -45,7 +45,6 @@ pub fn info() -> Info {
 		id: "0123456789abcdef0123456789abcdef".into(),
 		name: "fixture".into(),
 		service_version: "9.9.9",
-		service_version: "9.9.9",
 		api: crate::consts::protocol::API_VERSION,
 		min_app: "9.9.0",
 		interval_ms: 1000,
@@ -65,7 +64,7 @@ pub fn info() -> Info {
 			driver: "nvidia".into(),
 			boot_display: false,
 		}],
-		capabilities: vec!["processes", "displays", "history", "sensors", "links", "services", "media", "control"],
+		capabilities: vec!["processes", "displays", "history", "sensors", "links", "media", "control"],
 	}
 }
 
@@ -73,7 +72,7 @@ pub fn sample() -> Sample {
 	Sample {
 		t: 1_700_000_000_123,
 		uptime: 3600,
-		cpu: Cpu { usage: 12.5, cores: vec![10.0, 15.0], freq: vec![2400, 3100], temp: Some(55.5), load: [0.5, 0.4, 0.3] },
+		cpu: Cpu { usage: 12.5, cores: vec![10.0, 15.0], freq: vec![2400, 3100], temp: Some(55.5), load: [0.75, 0.5, 0.25] },
 		memory: Memory { total: 16_000_000_000, used: 8_000_000_000, available: 7_000_000_000, swap_total: 4_000_000_000, swap_used: 1_000_000 },
 		gpus: vec![Gpu {
 			id: "0000:01:00.0".into(),
@@ -150,7 +149,6 @@ pub fn sample() -> Sample {
 			position: Some([1920, 0]),
 		}],
 		links: vec![link()],
-		services: vec![link()],
 	}
 }
 
@@ -270,7 +268,7 @@ fn sample_for_a_glance() {
 	for gone in ["processes", "process_count", "media"] {
 		assert!(line.get(gone).is_none(), "{gone}");
 	}
-	for empty in ["displays", "links", "services"] {
+	for empty in ["displays", "links"] {
 		assert_eq!(line[empty], serde_json::json!([]), "{empty}");
 	}
 	check("sample-glance", &line);

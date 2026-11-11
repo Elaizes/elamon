@@ -32,7 +32,7 @@ pub enum ErrorCode {
 	BadUrl,
 	BadUnit,
 	BadScope,
-	/// No link with that id; `no_such_service` before 0.5.
+	/// No link with that id.
 	NoSuchLink,
 	/// The link has no unit to start or stop.
 	NoUnit,

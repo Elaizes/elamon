@@ -153,7 +153,7 @@ impl Hub {
 						.iter()
 						.map(|c| {
 							let family = store::family_of(&list, &c.id);
-							// Cleaned again: an entry written by an older elamond may hold what doesn't show.
+							// Cleaned again: the file may hold what doesn't show, whoever wrote it.
 							(c.token_hash.clone(), Caller { id: c.id.clone(), name: store::sanitize_name(&c.name), role: c.role, family })
 						})
 						.collect();
@@ -377,11 +377,6 @@ pub fn router(hub: Arc<Hub>) -> Router {
 		.route("/api/v1/links/detected", get(control::detected))
 		.route("/api/v1/links/{id}", delete(control::link_delete))
 		.route("/api/v1/links/{id}/unit", post(control::link_unit))
-		// What the links were called before 0.5, for apps 0.4.
-		.route("/api/v1/services", get(control::links_list).post(control::link_put))
-		.route("/api/v1/services/detected", get(control::detected))
-		.route("/api/v1/services/{id}", delete(control::link_delete))
-		.route("/api/v1/services/{id}/unit", post(control::link_unit))
 		.route("/api/v1/units", get(control::units))
 		.route("/api/v1/rekey", post(rekey).layer(DefaultBodyLimit::max(limit::PAIR_BODY_MAX)))
 		.route_layer(middleware::from_fn_with_state(hub.clone(), auth));
@@ -1189,11 +1184,6 @@ mod tests {
 		("GET", "/api/v1/links/detected", "", Some(Can::Links)),
 		("DELETE", "/api/v1/links/nothing", "", Some(Can::LinksEdit)),
 		("POST", "/api/v1/links/nothing/unit", r#"{"op":"restart"}"#, Some(Can::Units)),
-		("GET", "/api/v1/services", "", Some(Can::Links)),
-		("POST", "/api/v1/services", r#"{"name":"","url":""}"#, Some(Can::LinksEdit)),
-		("GET", "/api/v1/services/detected", "", Some(Can::Links)),
-		("DELETE", "/api/v1/services/nothing", "", Some(Can::LinksEdit)),
-		("POST", "/api/v1/services/nothing/unit", r#"{"op":"restart"}"#, Some(Can::Units)),
 		("GET", "/api/v1/units", "", Some(Can::Links)),
 		("POST", "/api/v1/rekey", r#"{"device":"Route phone"}"#, None),
 	];
@@ -1538,7 +1528,6 @@ mod tests {
 			assert_eq!(v.get("media").is_some(), all, "{phone}");
 			assert_eq!(v["displays"].as_array().unwrap().is_empty(), !all, "{phone}");
 			assert_eq!(v["links"].as_array().unwrap().is_empty(), !all, "{phone}");
-			assert_eq!(v["services"].as_array().unwrap().is_empty(), !all, "{phone}");
 			assert!(v["cpu"]["usage"].is_number() && v["net"].is_array() && v["battery"].is_object(), "{phone}");
 		}
 		std::fs::remove_dir_all(&hub.dir).unwrap();

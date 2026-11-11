@@ -2,7 +2,7 @@
   "api": 1,
   "app": "elamon",
   "id": "0123456789abcdef0123456789abcdef",
-  "min_app": "0.4.0",
+  "min_app": "0.5.0",
   "name": "fixture",
   "version": "0.5.0"
 }

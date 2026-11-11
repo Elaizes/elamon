@@ -46,7 +46,7 @@ const ARGON2ID: &str = "argon2id";
 /// a computer whose control was held off is never open in between; the identity before the phones
 /// that trust it; the key before the certificate, as a running service takes up a new cert.der with
 /// the key beside it. The pending pairing code is never carried.
-const STATE_FILES: [&str; 10] = [
+const STATE_FILES: [&str; 9] = [
 	store::CONTROL_OFF_FILE,
 	identity::ID_FILE,
 	identity::ROTATIONS_FILE,
@@ -55,7 +55,6 @@ const STATE_FILES: [&str; 10] = [
 	identity::CERT_FILE,
 	store::CLIENTS_FILE,
 	links::FILE,
-	links::OLD_FILE,
 	activity::FILE,
 ];
 
@@ -360,9 +359,7 @@ pub fn verify(c: &Contents, with_settings: bool) -> Result<Summary, String> {
 		return Err(format!("{} in the backup doesn't read", identity::NEXT_FILE));
 	}
 	let phones = parsed::<Vec<store::Client>>(c, store::CLIENTS_FILE)?.unwrap_or_default();
-	// links.json, or services.json while there is none, as the service reads them.
-	let old_links = parsed::<Vec<links::LinkDef>>(c, links::OLD_FILE)?;
-	let links = parsed::<Vec<links::LinkDef>>(c, links::FILE)?.or(old_links).map_or(0, |l| l.len());
+	let links = parsed::<Vec<links::LinkDef>>(c, links::FILE)?.map_or(0, |l| l.len());
 	let activity = file(activity::FILE)
 		.map(|b| String::from_utf8_lossy(b).lines().filter(|l| serde_json::from_str::<activity::Entry>(l).is_ok()).count())
 		.unwrap_or(0);
@@ -395,13 +392,13 @@ fn parsed<T: serde::de::DeserializeOwned>(c: &Contents, name: &str) -> Result<Op
 }
 
 /// Whether a settings file's name in a backup is one `elamond backup` gives: the main file, or a
-/// drop-in right in one of the drop-in folders.
+/// drop-in right in the drop-in folder.
 fn settings_name(name: &str) -> bool {
 	if name == store::CONFIG_FILE {
 		return true;
 	}
 	let Some((folder, file)) = name.split_once('/') else { return false };
-	[store::DROPIN_DIR, store::OLD_DROPIN_DIR].contains(&folder)
+	folder == store::DROPIN_DIR
 		&& !file.contains('/')
 		&& !file.starts_with('.')
 		&& file.strip_suffix(".toml").is_some_and(|stem| !stem.is_empty())
@@ -470,12 +467,11 @@ pub fn restore_into(c: &Contents, dir: &Path, settings: Option<&SettingsPlace>, 
 				restored.settings_written.push(target);
 			}
 		}
-		for folder in [store::OLD_DROPIN_DIR, store::DROPIN_DIR] {
-			let Ok(entries) = fs::read_dir(place.dir.join(folder)) else { continue };
+		if let Ok(entries) = fs::read_dir(place.dir.join(store::DROPIN_DIR)) {
 			let mut kept: Vec<PathBuf> = entries
 				.flatten()
 				.filter(|e| e.path().extension().is_some_and(|x| x == "toml"))
-				.filter(|e| !c.settings.contains_key(&format!("{folder}/{}", e.file_name().to_string_lossy())))
+				.filter(|e| !c.settings.contains_key(&format!("{}/{}", store::DROPIN_DIR, e.file_name().to_string_lossy())))
 				.map(|e| e.path())
 				.collect();
 			kept.sort();

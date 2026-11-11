@@ -865,7 +865,6 @@ impl Extras {
 		self.tick = self.tick.wrapping_add(1);
 		if watched {
 			sample.links = self.links.clone();
-			sample.services = self.links.clone();
 			if let Some(p) = &self.profiles {
 				sample.power.ppd_profile = Some(p.active.clone());
 				sample.power.ppd_profiles = p.available.clone();

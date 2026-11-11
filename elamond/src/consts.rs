@@ -5,7 +5,7 @@ pub mod protocol {
 	/// The API the app speaks. Fields are only ever added; a change that breaks clients raises it.
 	pub const API_VERSION: u32 = 1;
 	/// The oldest app that understands this service; an older one asks to be updated.
-	pub const MIN_APP: &str = "0.4.0";
+	pub const MIN_APP: &str = "0.5.0";
 	/// The port the service listens on unless the settings say otherwise.
 	pub const DEFAULT_PORT: u16 = 47823;
 	/// What the service announces itself as over mDNS.

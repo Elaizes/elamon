@@ -793,7 +793,7 @@ fn paired() -> Result<Vec<store::Client>, String> {
 		std::io::ErrorKind::InvalidData => format!("{e}\n  fix the file, or move it away and pair the phones again"),
 		_ => e.to_string(),
 	})?;
-	// Names go to the terminal: cleaned again, should an older elamond have written one that isn't.
+	// Names go to the terminal: cleaned again, should the file hold one that isn't.
 	for c in &mut list {
 		c.name = store::sanitize_name(&c.name);
 	}
@@ -982,9 +982,8 @@ fn rotate_cert(args: &[String]) -> Result<(), String> {
 		println!("New certificate:  {}", store::pretty_fingerprint(&r.new_fp));
 		println!("Old certificate:  {}", store::pretty_fingerprint(&r.old_fp));
 		println!();
-		println!("The old certificate's key signed the new one and was then deleted. Paired phones with");
-		println!("Elamon 0.5 or newer check that signature the next time they connect and move to the new");
-		println!("certificate by themselves; older apps say the certificate changed, and pair again.");
+		println!("The old certificate's key signed the new one and was then deleted. Paired phones check");
+		println!("that signature the next time they connect and move to the new certificate by themselves.");
 		println!("This is for routine renewal: if the old key may have leaked, phones mustn't follow what it");
 		println!("signed. Then run `elamond rotate-cert --no-statement` and pair the phones again.");
 	}

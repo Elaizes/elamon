@@ -2,7 +2,6 @@
 //! is in `identity`.
 //!
 //! Settings:  $XDG_CONFIG_HOME/elamon/elamond.toml (optional), then elamond.d/*.toml beside it
-//!            (elamond.toml and elamond.d/ before 0.5, still read; see `settings_files`)
 //! State:     $XDG_DATA_HOME/elamon/{id, cert.der, key.der, clients.json, pairing.json,
 //!            control-off.json, activity.jsonl, links.json, rotations.json}
 
@@ -12,7 +11,6 @@ use std::io::{self, Write};
 use std::net::IpAddr;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::de::DeserializeOwned;
@@ -47,10 +45,6 @@ pub struct Config {
 	/// Links to web pages this computer hosts, shown in the app beside those added from the
 	/// app itself.
 	pub links: Vec<LinkConfig>,
-	/// `[[services]]`, what `[[links]]` were called before 0.5, still accepted. `load_config`
-	/// moves them into `links` file by file, so this is only filled while one file is checked.
-	#[serde(rename = "services")]
-	pub old_links: Vec<LinkConfig>,
 	/// Commands the app can run, defined only here: a phone can't add its own.
 	pub actions: Vec<ActionConfig>,
 	/// Units a link added from the app may start, stop and restart, beside those of `[[links]]`:
@@ -169,7 +163,6 @@ impl Default for Config {
 			control: false,
 			default_role: Role::Admin,
 			links: Vec::new(),
-			old_links: Vec::new(),
 			actions: Vec::new(),
 			units: Vec::new(),
 		}
@@ -202,10 +195,6 @@ fn home() -> PathBuf {
 /// The settings file in the config directory, and the folder of drop-ins beside it.
 pub const CONFIG_FILE: &str = "elamond.toml";
 pub const DROPIN_DIR: &str = "elamond.d";
-/// Their names before 0.5, still read: the file while there is no elamond.toml, the folder
-/// before elamond.d.
-const OLD_CONFIG_FILE: &str = "elamond.toml";
-pub const OLD_DROPIN_DIR: &str = "elamond.d";
 
 /// The settings files in the order they are read: the main file, then the drop-ins by name.
 pub fn config_files() -> Vec<PathBuf> {
@@ -213,55 +202,22 @@ pub fn config_files() -> Vec<PathBuf> {
 }
 
 /// The main file is the one ELAMON_CONFIG names (the NixOS module points it into the store), or
-/// elamond.toml in the config directory `dir`, or elamond.toml there while there is no
-/// elamond.toml. Drop-ins are always in the user's own config directory: where NixOS or Home
-/// Manager make the main file a read-only one in the store, these stay the user's to write.
-/// elamond.d/ is read before elamond.d/, so the new folder has the last word.
+/// elamond.toml in the config directory `dir`. Drop-ins are always in the user's own config
+/// directory: where NixOS or Home Manager make the main file a read-only one in the store, these
+/// stay the user's to write.
 fn settings_files(dir: &Path, named: Option<PathBuf>) -> Vec<PathBuf> {
-	let main = named.unwrap_or_else(|| {
-		let (new, old) = (dir.join(CONFIG_FILE), dir.join(OLD_CONFIG_FILE));
-		if !new.exists() && old.exists() { old } else { new }
-	});
-	let dropins = [OLD_DROPIN_DIR, DROPIN_DIR].into_iter().flat_map(|name| {
-		let mut files: Vec<PathBuf> = fs::read_dir(dir.join(name))
-			.map(|d| d.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "toml")).collect())
-			.unwrap_or_default();
-		files.sort();
-		files
-	});
+	let main = named.unwrap_or_else(|| dir.join(CONFIG_FILE));
+	let mut dropins: Vec<PathBuf> = fs::read_dir(dir.join(DROPIN_DIR))
+		.map(|d| d.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "toml")).collect())
+		.unwrap_or_default();
+	dropins.sort();
 	std::iter::once(main).chain(dropins).collect()
 }
-
-/// What to tell about settings under their names before 0.5, among `files` read from `dir`.
-fn old_name_notes(dir: &Path, files: &[PathBuf]) -> Vec<String> {
-	let (new, old) = (dir.join(CONFIG_FILE), dir.join(OLD_CONFIG_FILE));
-	let old_dir = dir.join(OLD_DROPIN_DIR);
-	let mut notes = Vec::new();
-	if files.first() == Some(&old) {
-		notes.push(format!("{} is read for now; rename it to {CONFIG_FILE}", old.display()));
-	} else if files.first() == Some(&new) && old.exists() {
-		notes.push(format!("{} is not read: {CONFIG_FILE} beside it takes its place", old.display()));
-	}
-	if files.iter().any(|f| f.parent() == Some(old_dir.as_path())) {
-		notes.push(format!("{}/ is read for now; move its files to {DROPIN_DIR}/", old_dir.display()));
-	}
-	notes
-}
-
-/// Set once the old names have been told about, so a reread doesn't repeat it.
-static OLD_NAMES_TOLD: AtomicBool = AtomicBool::new(false);
 
 /// Settings from elamond.toml and the drop-ins. A later file adds to the lists (links,
 /// actions, units) and replaces anything else it sets.
 pub fn load_config() -> Result<Config, String> {
-	let files = config_files();
-	let notes = old_name_notes(&config_dir(), &files);
-	if !notes.is_empty() && !OLD_NAMES_TOLD.swap(true, Ordering::SeqCst) {
-		for n in notes {
-			eprintln!("settings: {n}");
-		}
-	}
-	read_settings(&files)
+	read_settings(&config_files())
 }
 
 fn read_settings(files: &[PathBuf]) -> Result<Config, String> {
@@ -274,28 +230,14 @@ fn read_settings(files: &[PathBuf]) -> Result<Config, String> {
 		};
 		// Each file on its own first, so a mistake names the file and the line it is in.
 		toml::from_str::<Config>(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-		let mut table: toml::Table = text.parse().map_err(|e| format!("{}: {e}", path.display()))?;
-		old_links_to_links(&mut table);
+		let table: toml::Table = text.parse().map_err(|e| format!("{}: {e}", path.display()))?;
 		merge_toml(&mut merged, table);
 	}
 	toml::Value::Table(merged).try_into().map_err(|e| format!("settings: {e}"))
 }
 
-/// A file's `[[services]]` after its own `[[links]]`, under the one name: done to each file
-/// before they are merged, so links in one file add to services in another, and the merged
-/// settings never hold both.
-fn old_links_to_links(table: &mut toml::Table) {
-	let Some(old) = table.remove("services") else { return };
-	match (table.get_mut("links"), old) {
-		(Some(toml::Value::Array(links)), toml::Value::Array(old)) => links.extend(old),
-		(_, old) => {
-			table.insert("links".into(), old);
-		}
-	}
-}
-
 /// The settings a later file adds to rather than replaces.
-const ADDED_UP: [&str; 4] = ["links", "services", "actions", "units"];
+const ADDED_UP: [&str; 3] = ["links", "actions", "units"];
 
 fn merge_toml(into: &mut toml::Table, from: toml::Table) {
 	for (key, value) in from {
@@ -421,8 +363,7 @@ pub struct Client {
 	/// SHA-256 of the client's token; the token itself is only ever on the phone.
 	pub token_hash: String,
 	pub created: u64,
-	/// What the phone may do. Phones paired before 0.5 have none in the file and are admins,
-	/// as they were.
+	/// What the phone may do. A phone with no role in the file is an admin.
 	#[serde(default)]
 	pub role: Role,
 	/// The entry whose token asked for this one (`POST /api/v1/rekey`): a phone that came by
@@ -623,15 +564,14 @@ pub struct Pairing {
 	pub expires: u64,
 	/// Wrong codes tried, from anywhere.
 	pub attempts: u32,
-	/// The role the phone that pairs with this code gets. A code from `elamond pair` before
-	/// 0.5 has none and pairs an admin, as it did.
+	/// The role the phone that pairs with this code gets. A code with no role pairs an admin.
 	#[serde(default)]
 	pub role: Role,
 	/// Wrong codes tried per address (see `address_key`).
 	#[serde(default)]
 	pub wrong: BTreeMap<String, u32>,
 	/// A phone that gives the right code waits for the person at `elamond pair` to let it in. Not
-	/// with `elamond pair --yes`, nor for a code from an `elamond pair` before 0.5, which can't ask.
+	/// with `elamond pair --yes`.
 	#[serde(default)]
 	pub confirm: bool,
 	/// The phone that gave the right code, while it waits for that answer.
@@ -900,65 +840,48 @@ mod tests {
 	}
 
 	#[test]
-	fn services_are_links_under_their_old_name() {
+	fn links_in_every_file_add_up() {
 		let dir = scratch();
 		let write = |name: &str, text: &str| fs::write(dir.join(name), text).unwrap();
-		write("main.toml", "[[services]]\nname = \"a\"\nurl = \"http://{host}:1\"\n");
-		// Both names in one file: its links first.
-		write("both.toml", "[[services]]\nname = \"c\"\nurl = \"http://{host}:3\"\n[[links]]\nname = \"b\"\nurl = \"http://{host}:2\"\n");
-		write("new.toml", "[[links]]\nname = \"d\"\nurl = \"http://{host}:4\"\n");
-		let c = read_settings(&[dir.join("main.toml"), dir.join("both.toml"), dir.join("new.toml"), dir.join("missing.toml")]).unwrap();
+		write("main.toml", "[[links]]\nname = \"a\"\nurl = \"http://{host}:1\"\n");
+		write("two.toml", "[[links]]\nname = \"b\"\nurl = \"http://{host}:2\"\n[[links]]\nname = \"c\"\nurl = \"http://{host}:3\"\n");
+		write("one.toml", "[[links]]\nname = \"d\"\nurl = \"http://{host}:4\"\n");
+		let c = read_settings(&[dir.join("main.toml"), dir.join("two.toml"), dir.join("one.toml"), dir.join("missing.toml")]).unwrap();
 		assert_eq!(link_names(&c), ["a", "b", "c", "d"]);
-		assert!(c.old_links.is_empty());
-		// A mistake under the old name still names the file and the line.
-		write("bad.toml", "port = 1\n\n[[services]]\nname = 5\nurl = \"x\"\n");
+		// A mistake names the file and the line.
+		write("bad.toml", "port = 1\n\n[[links]]\nname = 5\nurl = \"x\"\n");
 		let e = read_settings(&[dir.join("bad.toml")]).unwrap_err();
 		assert!(e.contains("bad.toml") && e.contains("line 4"), "{e}");
+		// So does a key the settings don't have.
+		write("unknown.toml", "port = 1\n[[pages]]\nname = \"a\"\n");
+		let e = read_settings(&[dir.join("unknown.toml")]).unwrap_err();
+		assert!(e.contains("unknown.toml") && e.contains("line 2"), "{e}");
 		fs::remove_dir_all(dir).unwrap();
 	}
 
 	#[test]
-	fn settings_files_by_their_old_names_too() {
+	fn settings_files_are_the_main_one_then_the_dropins_by_name() {
 		let dir = scratch();
 		let link = |name: &str| format!("[[links]]\nname = \"{name}\"\nurl = \"http://{{host}}\"\n");
-		let old = dir.join("elamond.toml");
-		let new = dir.join("elamond.toml");
-		// Nothing yet: the new name, for the settings to be written under.
-		assert_eq!(settings_files(&dir, None), std::slice::from_ref(&new));
-		assert!(old_name_notes(&dir, &settings_files(&dir, None)).is_empty());
+		let main = dir.join("elamond.toml");
+		// Nothing yet: the main file, for the settings to be written under.
+		assert_eq!(settings_files(&dir, None), std::slice::from_ref(&main));
 
-		fs::write(&old, "port = 1\n[[services]]\nname = \"main\"\nurl = \"http://{host}\"\n").unwrap();
+		fs::write(&main, "port = 1\n".to_string() + &link("main")).unwrap();
 		fs::create_dir_all(dir.join("elamond.d")).unwrap();
-		fs::write(dir.join("elamond.d/b.toml"), link("old b")).unwrap();
-		fs::write(dir.join("elamond.d/a.toml"), link("old a")).unwrap();
+		fs::write(dir.join("elamond.d/b.toml"), "port = 2\n".to_string() + &link("b")).unwrap();
+		fs::write(dir.join("elamond.d/a.toml"), link("a")).unwrap();
 		fs::write(dir.join("elamond.d/notes.txt"), "not settings").unwrap();
 		let files = settings_files(&dir, None);
-		assert_eq!(files, [old.clone(), dir.join("elamond.d/a.toml"), dir.join("elamond.d/b.toml")]);
-		assert_eq!(old_name_notes(&dir, &files).len(), 2);
+		assert_eq!(files, [main.clone(), dir.join("elamond.d/a.toml"), dir.join("elamond.d/b.toml")]);
 		let c = read_settings(&files).unwrap();
-		assert_eq!((c.port, link_names(&c)), (1, vec!["main", "old a", "old b"]));
-
-		// The new folder beside the old one: both, the new one last.
-		fs::create_dir_all(dir.join("elamond.d")).unwrap();
-		fs::write(dir.join("elamond.d/a.toml"), "port = 2\n".to_string() + &link("new a")).unwrap();
-		let c = read_settings(&settings_files(&dir, None)).unwrap();
-		assert_eq!((c.port, link_names(&c)), (2, vec!["main", "old a", "old b", "new a"]));
-
-		// elamond.toml takes elamond.toml's place, which is then left unread.
-		fs::write(&new, "port = 3\n").unwrap();
-		let files = settings_files(&dir, None);
-		assert_eq!(files[0], new);
-		let notes = old_name_notes(&dir, &files);
-		assert!(notes[0].contains("not read"), "{notes:?}");
-		let c = read_settings(&files).unwrap();
-		assert_eq!((c.port, link_names(&c)), (2, vec!["old a", "old b", "new a"]));
+		assert_eq!((c.port, link_names(&c)), (2, vec!["main", "a", "b"]));
 
 		// ELAMON_CONFIG names the main file outright; the drop-ins stay in the config directory.
 		let named = dir.join("store.toml");
 		assert_eq!(settings_files(&dir, Some(named.clone()))[..2], [named, dir.join("elamond.d/a.toml")]);
 		fs::remove_dir_all(dir).unwrap();
 	}
-
 	#[test]
 	fn ids_follow_content_not_position() {
 		let a = |name: &str, cmd: &[&str]| ActionConfig {
@@ -1105,11 +1028,11 @@ mod tests {
 			from += 1;
 		}
 		assert_eq!(p.attempts, limit::PAIRING_ATTEMPTS);
-		// What it saves reads back, and a code from before 0.5 pairs an admin.
+		// What it saves reads back, and a code with no role pairs an admin without asking.
 		let back: Pairing = serde_json::from_slice(&serde_json::to_vec(&p).unwrap()).unwrap();
 		assert_eq!(back, p);
-		let old: Pairing = serde_json::from_str(r#"{"code":"123456","expires":1,"attempts":2}"#).unwrap();
-		assert_eq!((old.role, old.wrong.len(), old.confirm, old.ask), (Role::Admin, 0, false, None));
+		let bare: Pairing = serde_json::from_str(r#"{"code":"123456","expires":1,"attempts":2}"#).unwrap();
+		assert_eq!((bare.role, bare.wrong.len(), bare.confirm, bare.ask), (Role::Admin, 0, false, None));
 	}
 
 	#[test]
@@ -1124,9 +1047,9 @@ mod tests {
 	}
 
 	#[test]
-	fn phones_paired_before_roles_are_admins() {
+	fn a_phone_with_no_role_is_admin() {
 		let dir = scratch();
-		fs::write(dir.join("clients.json"), r#"[{"id":"a","name":"Old","token_hash":"h","created":1}]"#).unwrap();
+		fs::write(dir.join("clients.json"), r#"[{"id":"a","name":"Phone","token_hash":"h","created":1}]"#).unwrap();
 		let mut list = load_clients_in(&dir).unwrap();
 		assert_eq!(list[0].role, Role::Admin);
 		list[0].role = Role::Glance;

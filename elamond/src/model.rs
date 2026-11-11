@@ -1,5 +1,5 @@
 //! What the service sends to the app. Field names are part of the protocol
-//! (see docs/protocol.md): add fields freely, never rename or repurpose one.
+//! (see docs/protocol.md): add fields freely; a field keeps its name and its meaning.
 
 use serde::Serialize;
 
@@ -9,8 +9,6 @@ pub struct Info {
 	pub id: String,
 	pub name: String,
 	/// The version of elamond.
-	pub service_version: &'static str,
-	/// The same, under its name before 0.5, for apps 0.4; dropped only with a new API.
 	pub service_version: &'static str,
 	pub api: u32,
 	/// The oldest app version that understands this service.
@@ -62,8 +60,6 @@ pub struct Sample {
 	pub displays: Vec<Display>,
 	/// Links to the web pages this computer hosts, while an app is connected.
 	pub links: Vec<crate::links::LinkStatus>,
-	/// The same as `links`, under its name before 0.5, for apps 0.4; dropped only with a new API.
-	pub services: Vec<crate::links::LinkStatus>,
 }
 
 impl Sample {
@@ -71,7 +67,6 @@ impl Sample {
 	pub fn into_basic(mut self) -> Sample {
 		self.displays.clear();
 		self.links.clear();
-		self.services.clear();
 		self
 	}
 }

@@ -23,8 +23,7 @@ with subtest("a phone pairs"):
 	auth = f"-H 'Authorization: Bearer {token}'"
 	info = json.loads(machine.succeed(f"curl -sk {auth} https://localhost:47823/api/v1/info"))
 	assert info["interval_ms"] > 0 and info["history_seconds"] > 0, info
-	# service_version is the old name, kept for apps 0.4.
-	assert info["service_version"] == info["service_version"] == hello["version"], info
+	assert info["service_version"] == hello["version"], info
 
 # alice's user manager was started by hand, so logind stops it, and the service with it, ten
 # seconds after her last session ends; each `su - alice` below ends one.
@@ -77,17 +76,11 @@ with subtest("a link from the app opens only a web page, and carries only a unit
 		machine.succeed(f"curl -sk -X DELETE {auth} https://localhost:47823/api/v1/links/{link['id']}")
 	machine.succeed("su - alice -c 'rm ~/.config/elamon/elamond.d/units.toml'")
 
-with subtest("an elamond.toml from before 0.5, with [[services]], still works"):
-	machine.succeed("""printf '%s\\n' '[[services]]' 'name = "Old style"' 'url = "http://{host}:8080"' > /home/alice/.config/elamon/elamond.toml""")
-	machine.succeed("chown alice: /home/alice/.config/elamon/elamond.toml")
-	# Its old routes and the old name in samples stay for apps 0.4.
-	for path in ["links", "services"]:
-		machine.wait_until_succeeds(f"""curl -sk {auth} https://localhost:47823/api/v1/{path} | jq -e '.[0].name == "Old style"'""", timeout=30)
-	sample = json.loads(machine.succeed(f"curl -sk {auth} https://localhost:47823/api/v1/snapshot"))
-	assert sample["links"][0]["name"] == "Old style" and sample["links"] == sample["services"], sample
-	# The drop-in beside it still applies, and the old name is pointed out once.
-	machine.succeed(f"curl -sk {auth} https://localhost:47823/api/v1/control | jq -e .enabled")
-	machine.succeed("journalctl _UID=1000 -o cat | grep -c 'elamond.toml is read for now' | grep -qx 1")
+with subtest("a link in the settings shows in the list and in samples"):
+	machine.succeed("""printf '%s\\n' '[[links]]' 'name = "Web"' 'url = "http://{host}:8080"' > /home/alice/.config/elamon/elamond.d/links.toml""")
+	machine.succeed("chown alice: /home/alice/.config/elamon/elamond.d/links.toml")
+	machine.wait_until_succeeds(f"""curl -sk {auth} https://localhost:47823/api/v1/links | jq -e '.[0].name == "Web"'""", timeout=30)
+	machine.wait_until_succeeds(f"""curl -sk {auth} https://localhost:47823/api/v1/snapshot | jq -e '[.links[].name] == ["Web"]'""", timeout=30)
 
 def call(method, path, auth="", body=None):
 	"""The status and the JSON body of a request to the service."""
@@ -149,7 +142,7 @@ with subtest("a phone paired as glance sees the basics and may do nothing"):
 	glance, glance_id = f"-H 'Authorization: Bearer {paired['token']}'", paired["client_id"]
 	_, sample = call("GET", "/api/v1/snapshot?procs=5&media=1", glance)
 	assert not {"processes", "process_count", "media"} & sample.keys(), sample.keys()
-	assert sample["displays"] == sample["links"] == sample["services"] == [], sample
+	assert sample["displays"] == sample["links"] == [], sample
 	assert sample["cpu"]["cores"] and sample["memory"]["total"] > 0, sample
 	# The admin phone, asking the same, gets it all; processes take a reading or two to come.
 	machine.wait_until_succeeds(f"curl -sk {auth} 'https://localhost:47823/api/v1/snapshot?procs=5&media=1' | jq -e '(.links | length) > 0 and .process_count > 0 and has(\"media\")'", timeout=30)

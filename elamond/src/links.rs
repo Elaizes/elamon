@@ -1,8 +1,7 @@
 //! Links to the web pages this computer hosts: what the app opens, whether they answer, their units.
 //!
 //! Links come from elamond.toml (fixed) and from the app (links.json in the data directory,
-//! editable from any paired phone). Before 0.5 they were called services, and the file
-//! services.json, which is still read while links.json doesn't exist.
+//! editable from any paired phone).
 
 use std::collections::HashMap;
 use std::fs;
@@ -54,19 +53,12 @@ pub struct Listener {
 
 /// The links added from the app, in the data directory.
 pub const FILE: &str = "links.json";
-/// Its name before 0.5.
-pub const OLD_FILE: &str = "services.json";
 
 /// The links added from the app, kept in the data directory `dir`; none when there are none
 /// yet. A file that doesn't parse is an error, and stays on disk until the next save sets it
-/// aside. links.json, or services.json while there is no links.json yet: the first save
-/// writes links.json and leaves the old file as it was.
+/// aside.
 pub fn load_in(dir: &Path) -> io::Result<Vec<LinkDef>> {
-	let list = match store::read_json(&dir.join(FILE))? {
-		Some(list) => Some(list),
-		None => store::read_json(&dir.join(OLD_FILE))?,
-	};
-	Ok(list.unwrap_or_default())
+	Ok(store::read_json(&dir.join(FILE))?.unwrap_or_default())
 }
 
 pub fn save_in(dir: &Path, list: &[LinkDef]) -> io::Result<()> {
@@ -439,20 +431,15 @@ mod tests {
 	}
 
 	#[test]
-	fn links_from_before_0_5_are_read_until_saved_anew() {
+	fn links_saved_read_back() {
 		let dir = std::env::temp_dir().join(format!("elamond-links-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
 		fs::create_dir_all(&dir).unwrap();
 		let def = |id: &str| LinkDef { id: id.into(), name: id.into(), url: "http://{host}:81".into(), unit: None, scope: None };
 		let ids = |list: Vec<LinkDef>| list.into_iter().map(|l| l.id).collect::<Vec<_>>();
 		assert!(load_in(&dir).unwrap().is_empty());
 
-		fs::write(dir.join(OLD_FILE), serde_json::to_vec(&[def("old")]).unwrap()).unwrap();
-		assert_eq!(ids(load_in(&dir).unwrap()), ["old"]);
-
-		save_in(&dir, &[def("old"), def("new")]).unwrap();
-		assert_eq!(ids(load_in(&dir).unwrap()), ["old", "new"]);
-		// The old file is left for an older elamond, and no longer read.
-		assert!(dir.join(OLD_FILE).exists());
+		save_in(&dir, &[def("a"), def("b")]).unwrap();
+		assert_eq!(ids(load_in(&dir).unwrap()), ["a", "b"]);
 		save_in(&dir, &[]).unwrap();
 		assert!(load_in(&dir).unwrap().is_empty());
 		fs::remove_dir_all(dir).unwrap();

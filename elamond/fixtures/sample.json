@@ -21,9 +21,9 @@
       3100
     ],
     "load": [
+      0.75,
       0.5,
-      0.4,
-      0.3
+      0.25
     ],
     "temp": 55.5,
     "usage": 12.5
@@ -193,20 +193,6 @@
       "status": "Sleeping",
       "user": "alice",
       "write": 20.5
-    }
-  ],
-  "services": [
-    {
-      "editable": false,
-      "id": "config-0123456789ab",
-      "local_only": false,
-      "name": "Some link",
-      "port": 8080,
-      "scope": "system",
-      "unit": "some.service",
-      "unit_state": "active",
-      "up": true,
-      "url": "http://{host}:8080"
     }
   ],
   "t": 1700000000123,
