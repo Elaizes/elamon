@@ -585,7 +585,7 @@
 	</plurals>
 	<string name="transfer_imported_title">Pairings imported</string>
 	<string name="transfer_imported">New computers: %1$d. Already here and replaced: %2$d.</string>
-	<string name="transfer_imported_note">Each computer sees this phone as the phone the file came from: the same key and role, one entry in elamond clients. Moving for good? Help, under Troubleshooting, says how to cut the old phone off.</string>
+	<string name="transfer_imported_note">Each computer gives this phone a key of its own, with the same role, the next time the app reaches it. From then on elamond clients lists both phones, and the old one can be revoked on its own. A computer whose service is older than 0.5 can\'t, and keeps seeing the two as one. Help, under Troubleshooting, says more.</string>
 	<string name="transfer_nothing_to_export">This phone can no longer open any of its pairings, so there is nothing to export.</string>
 	<string name="transfer_write_failed">The file couldn\'t be written. Nothing was exported.</string>
 	<string name="transfer_read_failed">The file couldn\'t be read.</string>
@@ -671,7 +671,8 @@
 	<string name="faq_unpair_a">In the app: the computer\'s menu, Forget computer. To also drop the phone\'s access on the computer, list the paired phones and revoke one by its ID:</string>
 	<string name="faq_new_phone_q">How do I move to a new phone?</string>
 	<string name="faq_new_phone_a">On the old phone: Settings → Export pairings, a passphrase, and where to save the file. Copy the file to the new phone, install Elamon there and choose Settings → Import pairings. The file is encrypted with the passphrase and can\'t be opened without it.</string>
-	<string name="faq_new_phone_a2">Each computer sees the new phone as the old one: the same key and role, one entry in elamond clients, so revoking that entry cuts off both. Moving for good, forget the computers on the old phone or reset it. To be sure the old phone can\'t come back, pair the new phone again with each computer, then revoke the old entry by its ID:</string>
+	<string name="faq_new_phone_a2">Each computer gives the new phone a key of its own, with the same role, the next time the app reaches it: elamond clients then lists it beside the old phone, as added with the key of the old phone\'s ID. Moving for good, forget the computers on the old phone or reset it, and revoke that ID; the new phone keeps working:</string>
+	<string name="faq_new_phone_a3">A computer whose service is older than 0.5 can\'t give it one: there both phones stay one entry, and revoking it cuts off both. Update the service, or pair the new phone again with elamond pair (the app replaces the computer), then revoke the old entry.</string>
 	<string name="faq_new_computer_q">How do I move to a new computer, or reinstall this one?</string>
 	<string name="faq_new_computer_a">Back up the service before; it asks for a passphrase:</string>
 	<string name="faq_new_computer_a2">On the new or reinstalled system, install the service, then stop it, restore the backup and start it again. The phones connect as before, without pairing again:</string>

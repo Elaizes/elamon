@@ -261,7 +261,7 @@ private val FAQ = listOf(
 	Faq(R.string.faq_unpair_q, listOf(t(R.string.faq_unpair_a), c("elamond clients\nelamond revoke ID"))),
 	Faq(
 		R.string.faq_new_phone_q,
-		listOf(t(R.string.faq_new_phone_a), t(R.string.faq_new_phone_a2), c("elamond pair\nelamond clients\nelamond revoke OLD_ID")),
+		listOf(t(R.string.faq_new_phone_a), t(R.string.faq_new_phone_a2), c("elamond clients\nelamond revoke OLD_ID"), t(R.string.faq_new_phone_a3)),
 	),
 	Faq(
 		R.string.faq_new_computer_q,

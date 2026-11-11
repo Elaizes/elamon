@@ -1,6 +1,7 @@
 package io.github.elaizes.elamon
 
 import android.app.Application
+import android.content.Context
 import android.os.Build
 import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
@@ -132,8 +133,8 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 	}
 }
 
-/** What the computer's list of paired phones will call this one. */
-private fun deviceName(app: Application): String =
-	runCatching { android.provider.Settings.Global.getString(app.contentResolver, "device_name") }.getOrNull()
+/** What the computer's list of paired phones will call this one, when it pairs or asks for a key of its own. */
+fun deviceName(context: Context): String =
+	runCatching { android.provider.Settings.Global.getString(context.contentResolver, "device_name") }.getOrNull()
 		?.takeIf { it.isNotBlank() }
 		?: listOf(Build.MANUFACTURER.replaceFirstChar { it.uppercase() }, Build.MODEL).distinct().joinToString(" ")

@@ -38,6 +38,12 @@ data class Machine(
 	val clientId: String? = null,
 	/** This phone's role there as last heard, from pairing or the control panel; null without roles. */
 	val role: String? = null,
+	/**
+	 * The token came with Import pairings and is still the exporting phone's too: to the computer
+	 * the two phones are one entry. At the next connection that works the app asks for a key of this
+	 * phone's own ([OwnKeys]) and clears this; a computer whose service is too old for that keeps it.
+	 */
+	val tokenShared: Boolean = false,
 ) {
 	/**
 	 * The address or name that worked last time first, so reconnecting is quick, then the others in
@@ -144,6 +150,19 @@ class MachineStore(private val file: MachineFile, private val cipher: TokenCiphe
 	}
 
 	/**
+	 * The computer [was]'s token replaced by [token], a key of this phone's own where it shared one
+	 * ([Machine.tokenShared] cleared), with this phone's [clientId] and [role] there; only while the
+	 * entry still holds the token it held as [was], so one paired again meanwhile is left as it is.
+	 * Returns whether it was kept; throws [KeystoreException], saving nothing, when it can't be sealed.
+	 */
+	fun ownToken(was: Machine, token: String, clientId: String?, role: String?): Boolean {
+		val m = get(was.id)?.takeIf { it.tokenShared && it.token == was.token && it.tokenSealed == was.tokenSealed } ?: return false
+		val own = sealed(m.copy(tokenShared = false, clientId = clientId ?: m.clientId, role = role ?: m.role), token)
+		save(_machines.value.map { if (it.id == own.id) own else it })
+		return true
+	}
+
+	/**
 	 * Every computer with its token opened into [Machine.token], for an export, and how many were
 	 * left out because this phone can no longer open their tokens. Nothing of it is kept.
 	 */
@@ -156,10 +175,11 @@ class MachineStore(private val file: MachineFile, private val cipher: TokenCiphe
 	/**
 	 * Adds imported computers, each with its token in [Machine.token]: one with an id already here
 	 * takes that entry's place, the others go at the end. Every token is sealed with this phone's
-	 * key before anything is saved, so a key store that fails changes nothing ([KeystoreException]).
+	 * key before anything is saved, so a key store that fails changes nothing ([KeystoreException]),
+	 * and marked as shared with the phone it came from, until the computer gives this one its own.
 	 */
 	fun addImported(imported: List<Machine>): Merged {
-		val sealed = imported.map { sealed(it.copy(token = "", tokenSealed = null, tokenIv = null), it.token) }
+		val sealed = imported.map { sealed(it.copy(token = "", tokenSealed = null, tokenIv = null, tokenShared = true), it.token) }
 		val merged = mergeImported(_machines.value, sealed)
 		save(merged.list)
 		return merged

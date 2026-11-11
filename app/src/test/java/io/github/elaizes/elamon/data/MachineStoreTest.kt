@@ -20,7 +20,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /** The list in memory, with every write kept; [dies] makes the next write never happen, as when the app is stopped. */
-private class MemoryFile(var json: String? = null) : MachineFile {
+internal class MemoryFile(var json: String? = null) : MachineFile {
 	val writes = mutableListOf<String>()
 	var dies = false
 
@@ -37,7 +37,7 @@ private class MemoryFile(var json: String? = null) : MachineFile {
 }
 
 /** A key in memory, as the key store keeps one; setting [key] to null is a key store that lost it. */
-private class MemoryKeys : KeySource {
+internal class MemoryKeys : KeySource {
 	var key: SecretKey? = null
 	var created = 0
 
@@ -54,7 +54,7 @@ private class MemoryKeys : KeySource {
 }
 
 /** The real cipher with a key in memory, which can be told to fail as a broken key store would. */
-private class FakeCipher(val keys: MemoryKeys = MemoryKeys()) : TokenCipher {
+internal class FakeCipher(val keys: MemoryKeys = MemoryKeys()) : TokenCipher {
 	private val inner = GcmTokenCipher(keys)
 	var sealing = true
 	var opening = true

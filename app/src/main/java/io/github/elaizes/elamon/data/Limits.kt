@@ -56,6 +56,12 @@ object Limits {
 	/** The least time between two such readings because a sample held what the phone wasn't known to see. */
 	const val ROLE_HINT_MIN_MS = 5_000L
 
+	/**
+	 * After asking a computer for a key of this phone's own failed, how long before a connection asks
+	 * again: the home screen connects every few seconds, and each request is in the computer's log.
+	 */
+	const val OWN_KEY_RETRY_MS = 30_000L
+
 	// ---- processes --------------------------------------------------------------------------------
 
 	/** A detail page's list of the heaviest. */

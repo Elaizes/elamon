@@ -267,6 +267,13 @@ class ElamondClient(
 		ProtocolJson.decodeFromString<PairResponse>(c.inputStream.bufferedReader().readText())
 	}
 
+	/**
+	 * A key of this phone's own, for one whose token came with Import pairings: a new entry named
+	 * [device] in the computer's list of phones, with the role of the token sent, which stays good.
+	 * elamond before 0.5 doesn't know the path: 404 not_found ([ElamondException.unknownPath]).
+	 */
+	suspend fun rekey(device: String): PairResponse = post<RekeyRequest, PairResponse>(REKEY_PATH, RekeyRequest(device))
+
 	/** Info, then optionally history, then a sample every [intervalMs] until cancelled. */
 	fun stream(intervalMs: Int, procs: Int, sort: String, history: Boolean, media: Boolean = false): Flow<StreamMessage> = flow {
 		val query = "interval=$intervalMs&procs=$procs&sort=$sort&history=${if (history) 1 else 0}&media=${if (media) 1 else 0}"
@@ -343,6 +350,9 @@ class ElamondClient(
 			}
 	}
 }
+
+/** Where a phone asks for a key of its own. */
+const val REKEY_PATH = "/api/v1/rekey"
 
 /** Where links are added, changed and started. */
 const val LINKS_PATH = "/api/v1/links"

@@ -64,6 +64,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import io.github.elaizes.elamon.R
+import io.github.elaizes.elamon.deviceName
 import io.github.elaizes.elamon.pollEach
 import io.github.elaizes.elamon.data.ElamondClient
 import io.github.elaizes.elamon.data.ElamondException
@@ -74,6 +75,7 @@ import io.github.elaizes.elamon.data.PairTarget
 import io.github.elaizes.elamon.data.Sample
 import io.github.elaizes.elamon.data.Machine
 import io.github.elaizes.elamon.data.MachineStore
+import io.github.elaizes.elamon.data.OwnKeys
 import io.github.elaizes.elamon.data.discoverElamond
 import io.github.elaizes.elamon.data.reachPaired
 import io.github.elaizes.elamon.data.parseAddress
@@ -91,6 +93,8 @@ private sealed interface Live {
 fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: () -> Unit, onSettings: () -> Unit) {
 	val ctx = LocalContext.current
 	val store = MachineStore.get(ctx)
+	val ownKeys = OwnKeys.get(ctx)
+	val device = remember { deviceName(ctx) }
 	val machines by store.machines.collectAsStateWithLifecycle()
 	val discovery = remember { discoverElamond(ctx) }
 	val found by discovery.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -104,7 +108,7 @@ fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: 
 	val lifecycle = LocalLifecycleOwner.current.lifecycle
 	LaunchedEffect(machines, lifecycle) {
 		lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-			pollEach(machines, Limits.HOME_POLL_MS, probe = { reading(it, store) }, report = { s, l -> live[s.id] = l })
+			pollEach(machines, Limits.HOME_POLL_MS, probe = { reading(it, store, ownKeys, device) }, report = { s, l -> live[s.id] = l })
 		}
 	}
 
@@ -180,8 +184,11 @@ fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: 
 	}
 }
 
-/** One reading of [s], on whichever of its addresses answers. */
-private suspend fun reading(s: Machine, store: MachineStore): Live {
+/**
+ * One reading of [s], on whichever of its addresses answers; a computer whose token came with
+ * Import pairings is asked for a key of this phone's own, named [device], first.
+ */
+private suspend fun reading(s: Machine, store: MachineStore, ownKeys: OwnKeys, device: String): Live {
 	// Opened by the key store off the main thread, the first time.
 	val token = withContext(Dispatchers.Default) { store.token(s) } ?: return Live.Unpaired
 	return try {
@@ -191,7 +198,9 @@ private suspend fun reading(s: Machine, store: MachineStore): Live {
 			pin = fp
 			store.update(s.id) { it.copy(fingerprint = fp) }
 		} ?: return Live.Offline
-		Live.Online(ElamondClient(reached.first.host, s.port, pin, token).get<Sample>("/api/v1/snapshot"))
+		val host = reached.first.host
+		val own = ownKeys.renew(s.id, device) { ElamondClient(host, s.port, pin, token).rekey(it) }
+		Live.Online(ElamondClient(host, s.port, pin, own ?: token).get<Sample>("/api/v1/snapshot"))
 	} catch (e: CancellationException) {
 		throw e
 	} catch (e: Exception) {

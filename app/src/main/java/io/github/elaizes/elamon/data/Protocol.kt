@@ -58,6 +58,11 @@ data class Hello(
 	@SerialName("min_app") val minApp: String? = null,
 )
 
+/** `POST /api/v1/rekey`: a key of this phone's own, named [device] in the computer's list of phones. */
+@Serializable
+data class RekeyRequest(val device: String)
+
+/** What pairing answers, and asking for a key of this phone's own (`POST /api/v1/rekey`). */
 @Serializable
 data class PairResponse(
 	val token: String,

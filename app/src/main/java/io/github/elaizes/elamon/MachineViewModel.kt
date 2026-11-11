@@ -44,6 +44,7 @@ import io.github.elaizes.elamon.data.LogEntry
 import io.github.elaizes.elamon.data.Proc
 import io.github.elaizes.elamon.data.Sample
 import io.github.elaizes.elamon.data.MachineStore
+import io.github.elaizes.elamon.data.OwnKeys
 import io.github.elaizes.elamon.data.LinkDef
 import io.github.elaizes.elamon.data.StreamMessage
 import io.github.elaizes.elamon.data.UnitInfo
@@ -137,6 +138,7 @@ private fun decodeArt(bytes: ByteArray, sizePx: Int): Bitmap? {
 
 class MachineViewModel(app: Application, private val machineId: String) : AndroidViewModel(app) {
 	private val store = MachineStore.get(app)
+	private val ownKeys = OwnKeys.get(app)
 	private val settings = Settings.get(app)
 	private val hist = Hist()
 	private val _state = MutableStateFlow(MachineState(hist = hist))
@@ -316,6 +318,11 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 				delay(Limits.backoffMs(attempt++))
 				continue
 			}
+			// Imported from another phone: the computer answers, so it can give this phone a key of its own.
+			val pin = (store.get(machineId) ?: machine).fingerprint
+			val own = ownKeys.renew(machineId, deviceName(getApplication())) { ElamondClient(host, machine.port, pin, token).rekey(it) }
+			// The stream opens with the new key, so revoking the old phone doesn't end it.
+			if (own != null) continue
 
 			val e = streamOn(host, ElamondClient(host, machine.port, machine.fingerprint, token))
 			when {
