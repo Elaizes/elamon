@@ -12,6 +12,7 @@ private val CODE_MESSAGES = mapOf(
 	"protected_process" to R.string.err_protected_process,
 	"wrong_code" to R.string.err_wrong_code,
 	"no_pairing" to R.string.err_no_pairing,
+	"pair_declined" to R.string.err_pair_declined,
 	"not_found" to R.string.err_not_found,
 	"no_such_process" to R.string.err_no_such_process,
 	"no_such_action" to R.string.err_no_such_action,
@@ -44,6 +45,7 @@ fun messageFor(e: Throwable): Message {
 		Kind.CertificateChanged -> Message.Res(R.string.err_certificate_changed)
 		Kind.WrongCode -> Message.Res(R.string.err_wrong_code)
 		Kind.NoPairing -> Message.Res(R.string.err_no_pairing)
+		Kind.PairDeclined -> Message.Res(R.string.err_pair_declined)
 		Kind.NotElamond -> Message.Res(R.string.err_not_elamond)
 		Kind.ControlDisabled -> Message.Res(R.string.err_control_disabled)
 		Kind.NotPermitted -> Message.Res(R.string.err_not_permitted)

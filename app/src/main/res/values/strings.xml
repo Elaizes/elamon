@@ -66,7 +66,22 @@
 	<string name="pair_compare">Check that these digits match the certificate line elamond pair shows on the computer:</string>
 	<string name="pair_code">Code from the computer</string>
 	<string name="pair_code_hint">Six digits shown by elamond pair</string>
-	<string name="pair_from_qr">The QR code identified this computer. Pair this phone with it?</string>
+	<string name="pair_digits_match">These digits match</string>
+	<string name="pair_code_after_digits">First check the digits above</string>
+	<!-- A pairing link: from the QR code elamond pair prints, or from anything else that opened one. -->
+	<string name="pair_from_link">A link asks to pair with %1$s. Pair only if you just ran elamond pair there.</string>
+	<!-- While elamond 0.5 asks at the computer whether to allow the phone. -->
+	<string name="pair_confirm_title">Confirm on the computer</string>
+	<string name="pair_confirm_body">elamond pair asks there whether to allow this phone.</string>
+	<string name="pair_declined">The computer didn\'t allow this phone. Run elamond pair again and answer y.</string>
+	<!-- The computer is already paired here under another certificate. -->
+	<string name="pair_replace_title">Already paired with another certificate</string>
+	<string name="pair_replace_body">%1$s is on this phone already, paired with another certificate. Replacing forgets that pairing: go on only if the computer was reinstalled or its certificate made anew.</string>
+	<string name="pair_replace_old">Paired with</string>
+	<string name="pair_replace_new">Presented now</string>
+	<string name="pair_replace_button">Replace and pair</string>
+	<string name="pair_bad_id">The computer gave an id this app doesn\'t take. Check that it is your computer and that its elamond is up to date.</string>
+	<string name="pair_other_id">The computer answered as another computer than the one it said it was, so nothing was saved.</string>
 	<string name="pair_failed">Can\'t pair</string>
 	<string name="pair_unreachable">The computer doesn\'t answer. Check that the Elamon service is running and that the phone is on the same network or VPN.</string>
 	<string name="pair_cert_mismatch">Something answered at this address, but not with the certificate the computer announced. Pairing was stopped to be safe.</string>
@@ -483,6 +498,7 @@
 	<string name="err_certificate_changed">The computer\'s certificate changed. Pair again if you reset it.</string>
 	<string name="err_wrong_code">Wrong code</string>
 	<string name="err_no_pairing">The computer isn\'t waiting for a phone</string>
+	<string name="err_pair_declined">The computer didn\'t allow this phone</string>
 	<string name="err_not_elamond">That isn\'t an Elamon service</string>
 	<string name="err_refused">The computer refused</string>
 	<string name="err_protocol">The computer answered in a way this app doesn\'t understand</string>

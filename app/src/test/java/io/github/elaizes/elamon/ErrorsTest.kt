@@ -26,6 +26,8 @@ class ErrorsTest {
 		assertEquals(Kind.NotPermitted, answer(403, "protected_process").kind)
 		assertEquals(Kind.WrongCode, answer(403, "wrong_code").kind)
 		assertEquals(Kind.NoPairing, answer(403, "no_pairing").kind)
+		// elamond 0.5 asks at the computer, which said no or nothing.
+		assertEquals(Kind.PairDeclined, answer(403, "pair_declined").kind)
 		assertEquals(Kind.Forbidden, answer(403, "something_new").kind)
 		assertEquals(Kind.NotAllowed, answer(403, "not_allowed").kind)
 		assertTrue(answer(403, "not_allowed").notAllowed)
@@ -63,6 +65,7 @@ class ErrorsTest {
 			(403 to "protected_process") to R.string.err_protected_process,
 			(403 to "wrong_code") to R.string.err_wrong_code,
 			(403 to "no_pairing") to R.string.err_no_pairing,
+			(403 to "pair_declined") to R.string.err_pair_declined,
 			(404 to "not_found") to R.string.err_not_found,
 			(404 to "no_such_process") to R.string.err_no_such_process,
 			(404 to "no_such_action") to R.string.err_no_such_action,

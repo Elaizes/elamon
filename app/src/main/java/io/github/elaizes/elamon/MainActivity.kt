@@ -213,6 +213,8 @@ class MainActivity : FragmentActivity() {
 
 	override fun onNewIntent(intent: Intent) {
 		super.onNewIntent(intent)
+		// Whatever handed it over may have been under a finger: taps that land on pairing wait a moment.
+		Arrival.now()
 		handle(intent)
 	}
 
@@ -226,6 +228,12 @@ class MainActivity : FragmentActivity() {
 	override fun onStart() {
 		super.onStart()
 		ContextCompat.registerReceiver(this, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
+	}
+
+	override fun onResume() {
+		super.onResume()
+		// Brought to the front, maybe by another app over what was being tapped there.
+		Arrival.now()
 	}
 
 	override fun onStop() {

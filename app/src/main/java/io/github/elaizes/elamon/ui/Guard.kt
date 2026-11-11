@@ -31,6 +31,7 @@ import io.github.elaizes.elamon.Settings
 import io.github.elaizes.elamon.UnlockMemory
 import io.github.elaizes.elamon.authenticators
 import io.github.elaizes.elamon.data.Limits
+import io.github.elaizes.elamon.data.withoutControls
 import io.github.elaizes.elamon.gate
 
 /** What an action shows before it runs: in the unlock prompt, or in the confirmation instead. */
@@ -118,7 +119,10 @@ class Guard(private val activity: FragmentActivity, val state: GuardState) {
 	 * Runs [action] once [ask] is answered: at once, after the confirmation, or after unlocking the
 	 * phone. Cancelled, it doesn't run. [afterAsking] follows it where something was asked.
 	 */
-	fun run(ask: Ask, afterAsking: () -> Unit = {}, action: () -> Unit) {
+	fun run(asked: Ask, afterAsking: () -> Unit = {}, action: () -> Unit) {
+		// The names in it (a process's, a computer's) come from afar, and the unlock prompt is the system's:
+		// nothing in them may turn the words around.
+		val ask = asked.copy(prompt = asked.prompt.withoutControls(), question = asked.question.withoutControls(), body = asked.body?.withoutControls(keepLineBreaks = true))
 		val g = gate(ask.kind, ask.confirmable, Settings.get(activity).current, hasScreenLock(activity), SystemClock.elapsedRealtime(), Unlocked.memory)
 		val p = Pending(ask, action, afterAsking, g.noLockScreen)
 		when (g.before) {

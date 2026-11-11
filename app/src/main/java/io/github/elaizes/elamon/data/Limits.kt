@@ -9,7 +9,14 @@ object Limits {
 
 	/** Reading an answer: hello, a pairing request, a cover, anything else. */
 	const val HELLO_TIMEOUT_MS = 4_000
-	const val PAIR_TIMEOUT_MS = 8_000
+	/**
+	 * A pairing request: the service holds it open while `elamond pair` asks at the computer whether
+	 * to allow the phone, for up to 90 s, and answers then.
+	 */
+	const val PAIR_TIMEOUT_MS = 100_000
+
+	/** How long a pairing request goes unanswered before the screen says to confirm it on the computer. */
+	const val PAIR_APPROVAL_HINT_MS = 2_000L
 	const val BYTES_TIMEOUT_MS = 10_000
 	const val REQUEST_TIMEOUT_MS = 15_000
 
@@ -95,6 +102,15 @@ object Limits {
 	const val PAIR_LINK_MAX_HOSTS = 8
 	const val PAIR_LINK_MAX_NAME = 64
 
+	/** Characters in a computer's or a phone's name, as the service caps them. */
+	const val NAME_MAX = 64
+
+	/**
+	 * How long after the pairing screen is ready, or the app is brought to the front, a tap on what
+	 * pairs is ignored: one meant for whatever was in front before may land on it.
+	 */
+	const val TAP_QUIET_MS = 1_000L
+
 	/** Digits a pairing link's version may have; anything longer is broken, not new. */
 	const val PAIR_LINK_VERSION_DIGITS = 9
 
@@ -112,6 +128,10 @@ object Limits {
 
 	/** The port mDNS answers on, the same everywhere: what finds computers on the network. */
 	const val MDNS_PORT = 5353
+
+	/** Computers found on the network that are listed, and announcements waiting to be resolved: a network can't flood the list. */
+	const val MDNS_FOUND_MAX = 32
+	const val MDNS_PENDING_MAX = 64
 
 	// ---- links, as the service checks them --------------------------------------------------------
 
@@ -159,3 +179,31 @@ fun String.takeUtf8Bytes(max: Int): String {
 	}
 	return this
 }
+
+/**
+ * This text without what can make it read as something else: control characters, format ones
+ * (the bidi overrides and isolates, zero-width joiners and the like), line and paragraph
+ * separators, and halves of a surrogate pair standing alone. [keepLineBreaks] keeps '\n'.
+ */
+fun String.withoutControls(keepLineBreaks: Boolean = false): String {
+	val out = StringBuilder(length)
+	var i = 0
+	while (i < length) {
+		val cp = codePointAt(i)
+		val shown = when (Character.getType(cp).toByte()) {
+			Character.CONTROL -> keepLineBreaks && cp == '\n'.code
+			Character.FORMAT, Character.LINE_SEPARATOR, Character.PARAGRAPH_SEPARATOR, Character.SURROGATE -> false
+			else -> true
+		}
+		if (shown) out.appendCodePoint(cp)
+		i += Character.charCount(cp)
+	}
+	return out.toString()
+}
+
+/**
+ * A name the service sent (a computer's, a phone's), as the app shows and keeps it: on one line,
+ * [withoutControls], trimmed, and at most [max] characters, so it can't pass for another or push
+ * what follows it out of sight.
+ */
+fun cleanName(name: String, max: Int = Limits.NAME_MAX): String = name.withoutControls().trim().takeCodePoints(max).trim()

@@ -129,6 +129,8 @@ class PairLinkTest {
 		assertNull(assertIs<PairLink.Target>(changed("name" to "  ")).target.name)
 		assertEquals("ab", assertIs<PairLink.Target>(changed("name" to "a\nb\u0007")).target.name)
 		assertEquals(64, assertIs<PairLink.Target>(changed("name" to "x".repeat(200))).target.name?.length)
+		// Any web page can open a link: its name can't turn the words around it.
+		assertEquals("My PCgnp.exe", assertIs<PairLink.Target>(changed("name" to "My PC\u202Egnp.exe")).target.name)
 	}
 
 	private fun machine(id: String) = Machine(id = id, name = id, hosts = listOf("h"), port = 1, fingerprint = "f", token = "t")

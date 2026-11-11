@@ -80,7 +80,8 @@ class MachineStore(private val file: MachineFile, private val cipher: TokenCiphe
 	 */
 	private fun load(): List<Machine> {
 		val kept = runCatching { ProtocolJson.decodeFromString<List<Machine>>(file.read() ?: "[]") }.getOrDefault(emptyList())
-		val sealed = kept.map(::sealedIfPlain)
+		// A name kept before names were cleaned as they came is cleaned now.
+		val sealed = kept.map { sealedIfPlain(it.copy(name = cleanName(it.name))) }
 		if (sealed != kept) file.write(ProtocolJson.encodeToString(sealed))
 		return sealed
 	}
@@ -285,7 +286,7 @@ data class PairTarget(
 				null -> DEFAULT_PORT
 				else -> parsePort(p) ?: return PairLink.Invalid
 			}
-			val name = param("name")?.filterNot { it.isISOControl() }?.trim()?.take(Limits.PAIR_LINK_MAX_NAME)?.ifEmpty { null }
+			val name = param("name")?.let { cleanName(it, Limits.PAIR_LINK_MAX_NAME) }?.ifEmpty { null }
 			return PairLink.Target(PairTarget(hosts = hosts.distinct(), port = port, name = name, id = id, fingerprint = fp, code = code))
 		}
 	}

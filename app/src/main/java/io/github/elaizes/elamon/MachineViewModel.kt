@@ -49,6 +49,8 @@ import io.github.elaizes.elamon.data.LinkDef
 import io.github.elaizes.elamon.data.StreamMessage
 import io.github.elaizes.elamon.data.UnitInfo
 import io.github.elaizes.elamon.data.reachPaired
+import io.github.elaizes.elamon.data.cleanName
+import io.github.elaizes.elamon.data.withoutControls
 
 enum class Conn { Connecting, Live, Reconnecting, Offline, Unauthorized, CertificateChanged, Refused }
 
@@ -371,7 +373,9 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		ElamondException(ElamondException.Kind.Protocol, e.message, e)
 	}
 
-	private fun handle(msg: StreamMessage, host: String) {
+	private fun handle(received: StreamMessage, host: String) {
+		// The computer's name is shown and kept: one that can't pass for another, or reorder what follows it.
+		val msg = if (received is Info) received.copy(name = cleanName(received.name)) else received
 		when (msg) {
 			is Info -> {
 				hist.windowMs = msg.historySeconds * 1000L
@@ -568,7 +572,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		viewModelScope.launch {
 			try {
 				val c = client() ?: throw ElamondException(ElamondException.Kind.Unreachable)
-				val entries = c.get<List<LogEntry>>("/api/v1/control/log?limit=${Limits.ACTIVITY_SHOWN}")
+				val entries = c.get<List<LogEntry>>("/api/v1/control/log?limit=${Limits.ACTIVITY_SHOWN}").map { it.cleaned() }
 				_activity.update { it.copy(entries = entries, error = null) }
 			} catch (e: CancellationException) {
 				throw e
@@ -647,3 +651,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		override fun <T : ViewModel> create(modelClass: Class<T>): T = MachineViewModel(app, id) as T
 	}
 }
+
+/** An entry of the activity log as shown: the phone's name is whatever that phone called itself, so cleaned as any name from afar. */
+private fun LogEntry.cleaned(): LogEntry =
+	copy(phone = cleanName(phone), what = what.withoutControls(), message = message?.withoutControls(keepLineBreaks = true))

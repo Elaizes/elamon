@@ -16,9 +16,18 @@ appId: io.github.elaizes.elamon.debug
     timeout: 10000
 - tapOn: "Next"
 - extendedWaitUntil:
-    visible: "Code from the computer"
+    visible: "These digits match"
     timeout: 20000
 - takeScreenshot: 01-pair-code
+# The code opens once the certificate's digits are said to match. A tap in the first second the
+# screen is ready is ignored (one meant for something else may land there), so it is tapped again.
+- repeat:
+    times: 10
+    while:
+      visible: "These digits match"
+    commands:
+      - tapOn: "These digits match"
+      - waitForAnimationToEnd
 - tapOn: "Code from the computer"
 - inputText: ${CODE}
 - hideKeyboard

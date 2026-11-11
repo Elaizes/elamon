@@ -89,7 +89,8 @@ adb uninstall "$APP_ID" > /dev/null 2>&1 || true
 adb install -r "${APK:-app/build/outputs/apk/debug/app-debug.apk}" > /dev/null
 adb shell settings put system font_scale "$FONT_SCALE"
 
-run_elamond pair > "$work/pair.log" 2>&1 &
+# --yes: the throwaway service allows the phone without asking at the computer (elamond 0.5).
+run_elamond pair --yes > "$work/pair.log" 2>&1 &
 pairing=$!
 sleep 3
 code=$(grep -a -E '^\s+[0-9]{3} [0-9]{3}\s*$' "$work/pair.log" | tr -d ' ')

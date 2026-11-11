@@ -49,6 +49,9 @@ class ElamondException(
 	enum class Kind {
 		Unreachable, Unauthorized, WrongCode, NoPairing, CertificateChanged, NotElamond, Protocol, ControlDisabled, NotPermitted,
 		NotAllowed, TooManyRequests, Conflict, Forbidden, NotFound, BadRequest, Failed,
+
+		/** The computer was asked whether to allow the phone, and said no or didn't answer. */
+		PairDeclined,
 	}
 
 	companion object {
@@ -61,6 +64,7 @@ class ElamondException(
 				status == 401 || error == "unauthorized" -> Kind.Unauthorized
 				error == "wrong_code" -> Kind.WrongCode
 				error == "no_pairing" -> Kind.NoPairing
+				error == "pair_declined" -> Kind.PairDeclined
 				error == "control_disabled" -> Kind.ControlDisabled
 				error == "not_permitted" || error == "protected_process" -> Kind.NotPermitted
 				error == "not_allowed" -> Kind.NotAllowed
@@ -253,7 +257,8 @@ class ElamondClient(
 		checkStatus(c)
 		val h = ProtocolJson.decodeFromString<Hello>(c.inputStream.bufferedReader().readText())
 		if (h.app != "elamon") throw ElamondException(ElamondException.Kind.NotElamond)
-		h
+		// Shown on the pairing screen: a name that can't pass for another, or reorder what follows it.
+		h.copy(name = cleanName(h.name))
 	}
 
 	suspend fun pair(code: String, device: String): PairResponse = exchange("/api/v1/pair", Limits.PAIR_TIMEOUT_MS) { c ->

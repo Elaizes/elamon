@@ -78,9 +78,11 @@ fun discoverElamond(context: Context): Flow<List<Found>> = callbackFlow {
 					val attrs = info.attributes
 					fun attr(k: String) = attrs[k]?.let { String(it, Charsets.UTF_8) }
 					val host = hostOf(info)
-					val id = attr("id")
-					if (host != null && id != null) {
-						found[info.serviceName] = Found(id, info.serviceName, host, info.port, attr("fp"))
+					// Only an id elamond could have made; a name shown as no other; no more than so many listed.
+					val id = attr("id")?.takeIf(::isServiceId)
+					val room = info.serviceName in found || found.size < Limits.MDNS_FOUND_MAX
+					if (host != null && id != null && room) {
+						found[info.serviceName] = Found(id, cleanName(info.serviceName), host, info.port, fingerprintPrefix(attr("fp")))
 						publish()
 					}
 					resolveNext()
@@ -105,7 +107,7 @@ fun discoverElamond(context: Context): Flow<List<Found>> = callbackFlow {
 
 		override fun onServiceFound(info: NsdServiceInfo) {
 			queue.post {
-				pending.addLast(info)
+				if (pending.size < Limits.MDNS_PENDING_MAX) pending.addLast(info)
 				resolveNext()
 			}
 		}
