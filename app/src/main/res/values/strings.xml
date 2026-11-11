@@ -603,11 +603,11 @@
 	<string name="help_fw_why">TCP %1$s is the Elamon service itself. UDP %2$s is mDNS, which lets the app find the computer by itself; without it, add the computer by its address. Over a VPN such as Tailscale or WireGuard only %1$s matters, and a trusted VPN interface needs nothing.</string>
 	<string name="help_pair">3. Pair the phone</string>
 	<string name="help_pair_run">On the computer run:</string>
-	<string name="help_pair_scan">It shows a QR code and a six-digit code, good for five minutes. Point the phone\'s camera at the QR code and open the link: that pairs in one tap.</string>
-	<string name="help_pair_code">Or in this app tap the computer under Found on this network, or Add computer and its address, and enter the code. The app first shows the computer\'s certificate digits: they must match the Certificate line on the computer.</string>
+	<string name="help_pair_scan">It shows a QR code and a six-digit code, good for five minutes. Point the phone\'s camera at the QR code and open the link: that pairs in one tap. The link carries the computer\'s addresses and, after them, names that stay when addresses change: its Tailscale name, and any set as names in elamond.toml.</string>
+	<string name="help_pair_code">Or in this app tap the computer under Found on this network, or Add computer and its address or host name, and enter the code. The app first shows the computer\'s certificate digits: they must match the Certificate line on the computer.</string>
 	<string name="help_troubleshooting">Troubleshooting</string>
 	<string name="faq_not_found_q">The computer isn\'t under Found on this network</string>
-	<string name="faq_not_found_a">The phone and the computer have to be on the same network, with UDP %1$s open on the computer. VPNs and many guest Wi-Fi networks block this kind of discovery. Add the computer by address instead: elamond pair shows its addresses.</string>
+	<string name="faq_not_found_a">The phone and the computer have to be on the same network, with UDP %1$s open on the computer. VPNs and many guest Wi-Fi networks block this kind of discovery. Add the computer by address or name instead: elamond pair shows them.</string>
 	<string name="faq_no_connect_q">The app can\'t connect</string>
 	<string name="faq_no_connect_a">Check that the service runs, and read its log:</string>
 	<string name="faq_no_connect_a2">Then check that TCP %1$s is open in the firewall and that the phone can reach the computer\'s address.</string>

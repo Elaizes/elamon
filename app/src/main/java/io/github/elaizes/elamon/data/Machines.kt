@@ -39,7 +39,10 @@ data class Machine(
 	/** This phone's role there as last heard, from pairing or the control panel; null without roles. */
 	val role: String? = null,
 ) {
-	/** The address that worked last time first, so reconnecting is quick. */
+	/**
+	 * The address or name that worked last time first, so reconnecting is quick, then the others in
+	 * the order the pairing link gave them: addresses, then names.
+	 */
 	fun hostsToTry(): List<String> = (listOfNotNull(lastHost) + hosts).distinct()
 }
 
@@ -205,6 +208,9 @@ data class PairTarget(
 	/** The paired computer this pairing takes the place of, whatever id the computer has now. */
 	val replaces: String? = null,
 ) {
+	/** What a computer paired through this keeps: every address and name in their order, [reached] among them. */
+	fun hostsToKeep(reached: String): List<String> = (hosts + reached).distinct()
+
 	companion object {
 		/** The pairing links this app reads; a newer elamond may write others. */
 		const val LINK_VERSION = 1

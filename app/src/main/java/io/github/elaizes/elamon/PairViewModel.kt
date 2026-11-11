@@ -101,7 +101,7 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 				val machine = Machine(
 					id = resp.id.ifEmpty { ready.hello.id },
 					name = resp.name.ifEmpty { ready.hello.name },
-					hosts = (listOf(ready.host) + target.hosts).distinct(),
+					hosts = target.hostsToKeep(ready.host),
 					port = target.port,
 					fingerprint = ready.fingerprint,
 					lastHost = ready.host,
