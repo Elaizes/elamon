@@ -101,6 +101,12 @@ The token goes in every other request as `Authorization: Bearer <token>`. Withou
 the service answers 401 `{ "error": "unauthorized" }`. A phone removed with `elamond revoke` gets
 401 from then on, and any stream it has open ends.
 
+The token is all the service knows a phone by. Since 0.5 the app can carry it to another phone
+(Export pairings, sealed with a passphrase); the service sees that phone as the one it was given to,
+and `elamond revoke` of that entry cuts off both. `elamond backup` and `elamond restore` carry the
+service's side: its id, certificate and key, and the hashes of the tokens, so a restored service
+accepts the tokens it gave out before.
+
 ### `GET /api/v1/hello` (no token)
 
 `{ "app": "elamon", "api": 1, "id": "…", "name": "…", "version": "0.4.0", "min_app": "0.3.0" }`

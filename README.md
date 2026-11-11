@@ -37,6 +37,10 @@ Each phone has a role, set on the computer: glancing at the basics, watching eve
 control, or all of it. Every request to act is kept in an activity log, and `elamond control off`
 stops every phone at once.
 
+Moving is kept simple: `elamond backup` saves the computer's identity and its paired phones in one
+encrypted file, which `elamond restore` puts back on a reinstalled or new computer without pairing
+the phones again, and the app exports its pairings, encrypted with a passphrase, for a new phone.
+
 The app: Material You with frosted glass on Android 12 and newer, light, dark or pure black.
 
 ## Quick start

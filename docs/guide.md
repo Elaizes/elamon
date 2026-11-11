@@ -21,7 +21,7 @@ The phone talks to the computer directly: on the same network, or over a VPN bot
 - [5. The control panel](#5-the-control-panel)
 - [6. Roles: who may do what](#6-roles-who-may-do-what)
 - [7. Settings reference](#7-settings-reference)
-- [8. Updating and removing](#8-updating-and-removing)
+- [8. Updating, moving and removing](#8-updating-moving-and-removing)
 - [9. Troubleshooting](#9-troubleshooting)
 - [10. Security](#10-security)
 
@@ -202,6 +202,8 @@ background.
 | Keep screen on | while a computer is open, to use the phone as a dashboard |
 | Confirm actions | ask before power, kill, restart and commands |
 | Haptic feedback | a tick on long presses |
+| Export pairings | save every paired computer to a file encrypted with a passphrase, for a new phone ([section 8](#a-new-phone)) |
+| Import pairings | add the computers in such a file |
 
 ### How do I…
 
@@ -230,6 +232,10 @@ background.
   `elamond control on` lets them again.
 - **…stop a phone from seeing a computer?** On the computer `elamond clients`, then
   `elamond revoke ID`; on the phone, ⋮ → *Forget computer*.
+- **…move to a new phone?** Settings → *Export pairings* on the old one, *Import pairings* on the
+  new one ([section 8](#a-new-phone)).
+- **…reinstall the computer without pairing the phones again?** `elamond backup` before,
+  `elamond restore` after ([section 8](#a-new-computer-or-reinstalling)).
 
 ## 5. The control panel
 
@@ -460,7 +466,7 @@ Its state lives in `~/.local/share/elamon`: its id and certificate, the certific
 with their signatures (`rotations.json`, [section 10](#a-new-certificate)), the paired phones
 (only hashes of their keys, and their roles), links added in the app, a pending pairing code, the
 activity log and `elamond control off`'s mark. Deleting that folder unpairs every phone and gives
-the service a new certificate.
+the service a new certificate, unless a backup of it is restored ([section 8](#backing-up-the-service)).
 
 Where these live follows `XDG_CONFIG_HOME` and `XDG_DATA_HOME`. `ELAMON_CONFIG_DIR` and
 `ELAMON_DATA_DIR` name the two folders outright, `ELAMON_CONFIG` the settings file alone, and
@@ -513,7 +519,7 @@ and the certificate it paired with. A drop-in's `names` replaces the one before.
 | `services.elamond.package` | the service's package |
 | `services.elamond.settings` | written to `~/.config/elamon/elamond.toml`; a change restarts the service. Drop-ins in `elamond.d` still add to it |
 
-## 8. Updating and removing
+## 8. Updating, moving and removing
 
 Update the app and the service together; this is a test version and they change in step.
 
@@ -524,6 +530,81 @@ Update the app and the service together; this is a test version and they change 
   install the binary again and restart the service.
 
 Pairings and links added in the app survive updates.
+
+### Backing up the service
+
+What makes the service the same computer to its phones is in `~/.local/share/elamon`: its id, its
+certificate and key with the rotations behind them, the paired phones (hashes of their keys, and
+their roles), the links added in the app, the activity log and `elamond control off`'s mark. Lose
+it, and every phone has to pair again. Keep a copy:
+
+```sh
+elamond backup ~/elamond.backup
+```
+
+It asks for a passphrase twice, at least 8 characters (a few words are best), and writes one file
+only you can read, encrypted with it: Argon2id makes the key from the passphrase (64 MiB of memory,
+3 passes, 4 lanes), XChaCha20-Poly1305 seals the rest and authenticates the header. Keep the file
+and the passphrase apart: without the passphrase the backup can't be opened, and whoever has both
+can pose as this computer to its phones. The backup also carries the settings, `elamond.toml` and
+the drop-ins in `elamond.d`, which a restore puts back only when asked.
+
+For a script or a timer, give the passphrase in a file only you can read:
+`elamond backup ~/elamond.backup --passphrase-file ~/.config/elamon/backup-passphrase`.
+`--plain` writes the backup unencrypted, with a warning: only for a copy that stays in a private
+folder, never one that goes to cloud storage or another computer.
+
+### A new computer, or reinstalling
+
+Back up first. On the new or reinstalled system install the service ([section 1](#1-install-the-service)),
+and then:
+
+```sh
+systemctl --user stop elamond
+elamond restore ~/elamond.backup
+systemctl --user start elamond
+```
+
+The phones connect as before, without pairing again: the service has its old id and certificate
+and knows their keys. They look for it at the addresses and names they already know, so give the
+new computer the old one's address (a DHCP reservation does it) or keep a name they know: its
+Tailscale name, or one in `names` ([section 7](#names-in-the-pairing-link)). A phone that can't
+reach it any other way has to pair again.
+
+`elamond restore` checks everything in the backup before it writes anything, and refuses a wrong
+passphrase, a file that was changed or damaged, a backup from a newer elamond (update the service
+first) and, unless told `--force`, a running service. Each file it replaces or takes away it keeps
+beside as `NAME.before-restore-TIME`, and it prints what it restored: the computer's id and
+certificate, the phones and the links. `--with-settings` also puts back `elamond.toml` and the
+drop-ins in `elamond.d`, though never over a file NixOS or Home Manager make: set those in
+`services.elamond.settings`.
+
+`elamond restore --force` writes under a running service. That service presents the restored
+certificate within a few seconds and knows the restored phones at once, but keeps the id, links
+and activity log it started with until it restarts: restart it right after,
+`systemctl --user restart elamond`.
+
+### A new phone
+
+On the old phone, *Settings → Export pairings*: a passphrase twice, at least 8 characters, then
+where to save the file (`elamon-pairings-DATE.elamon`). The file holds every paired computer with
+the phone's key to it, encrypted with the passphrase: PBKDF2-HMAC-SHA256 with 600,000 iterations
+makes the key, AES-256-GCM seals the list and authenticates the header. The keys are taken out of
+Android's key store for this alone and never written anywhere unencrypted. Copy the file to the new
+phone, install Elamon there and choose *Settings → Import pairings*, the file and its passphrase. A
+computer the new phone has already is replaced, the others are added, and the app says how many.
+
+Each computer sees the new phone as the old one: the same key and role, one entry in
+`elamond clients`, so revoking that entry cuts off both phones. Moving for good, forget the
+computers on the old phone, or reset it. To be sure the old phone can't come back, pair the new
+phone again with each computer (scan the QR code of `elamond pair`; the app replaces its entry), then
+revoke the old entry, the one with the old phone's name and the earlier date:
+
+```sh
+elamond pair
+elamond clients
+elamond revoke OLD_ID
+```
 
 To remove the service: `systemctl --user disable --now elamond`, delete the binary and the unit
 file, and `~/.config/elamon` and `~/.local/share/elamon`. In the app, *Forget computer* in the
@@ -536,7 +617,7 @@ computer's menu.
 | The computer isn't under *Found on this network* | Same network, UDP 5353 open on the computer; VPNs and many guest Wi-Fi networks block discovery, and the service only announces itself on wired and wireless interfaces it listens on (`mdns: announced on …` in the journal). Add it by address or name: `elamond pair` prints them. |
 | The app can't connect | `systemctl --user status elamond`, `journalctl --user -u elamond -e`; TCP 47823 open; the address reachable from the phone, and one the service listens on (`listen: on …` in the journal). |
 | It works only while you're logged in | `loginctl enable-linger` |
-| *The computer's certificate changed* | The service's data was deleted or the system reinstalled; forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` the app 0.5 follows by itself; an older app says this, and pairs again ([section 10](#a-new-certificate)). |
+| *The computer's certificate changed* | The service's data was deleted or the system reinstalled; restore a backup of it ([section 8](#a-new-computer-or-reinstalling)), or forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` the app 0.5 follows by itself; an older app says this, and pairs again ([section 10](#a-new-certificate)). |
 | *Control is off* | `control = true` in `elamond.toml` or a drop-in in `elamond.d`; the service takes it up within a few seconds. If it is set, `elamond control status` tells whether `elamond control off` holds it off. |
 | *Not allowed* | The phone's role doesn't allow that: `elamond clients` shows it, `elamond clients role ID ROLE` changes it ([section 6](#6-roles-who-may-do-what)). |
 | *Too many requests* | The phone asked for more than 10 things in a row; wait a few seconds. When pairing: five wrong codes came from this address; run `elamond pair` again for a new code. |
@@ -571,6 +652,10 @@ To see what the service finds, without the app: `elamond snapshot`.
 - Every request to act is in the activity log, carried out or refused, and what was carried out
   in the journal with the name of the phone that asked: `journalctl --user -u elamond`.
 - `elamond revoke` cuts a phone off at once, open streams included.
+- A backup (`elamond backup`) and its passphrase together are the computer's identity; it is
+  encrypted unless made with `--plain`, and written for your eyes only. Exported pairings are
+  encrypted with their own passphrase; a phone that imports them is, to each computer, the phone
+  that exported them ([section 8](#a-new-phone)).
 
 ### A new certificate
 
