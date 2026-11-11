@@ -59,7 +59,8 @@ The app: Material You with frosted glass on Android 12 and newer, light, dark or
    rest: [section 1 of the guide](docs/guide.md#1-install-the-service).
 
 2. Run `elamond pair` on the computer and point the phone's camera at the QR code it prints, or
-   enter its six-digit code in the app ([details](docs/guide.md#3-pair-the-phone)).
+   enter its six-digit code in the app, then let the phone in where `elamond pair` asks
+   ([details](docs/guide.md#3-pair-the-phone)).
 
 3. For the control panel, add `control = true` to the service's settings
    ([details](docs/guide.md#5-the-control-panel)).
@@ -68,10 +69,11 @@ The phone and the computer talk directly, over the local network or a VPN they s
 and UDP 5353 for finding the computer by itself. The service can listen on chosen interfaces only
 (`listen = ["tailscale0"]`), and announces itself only on the local network. Its pairing QR code
 carries the computer's Tailscale name and names you give (`names = [...]`) after its addresses, so
-the phone still finds it when they change. Everything is encrypted, each phone has its own key that
-the computer can revoke, the computer's certificate can be renewed without pairing again
-(`elamond rotate-cert`), and the service only acts on the computer when told it may
-([security](docs/guide.md#10-security)).
+the phone still finds it when they change. Everything is encrypted, a phone is paired only when
+you let it in at the computer, each phone has its own key that the computer can revoke, the
+computer's certificate can be renewed without pairing again (`elamond rotate-cert`), and the
+service only acts on the computer when told it may, starting and stopping only the units its
+settings name ([security](docs/guide.md#10-security)).
 
 ## Technical notes
 
@@ -108,7 +110,7 @@ Tests:
 nix develop -c bash -c 'cd elamond && cargo test' # the service, and the protocol fixtures in elamond/fixtures
 nix develop -c ./gradlew :app:testDebugUnitTest    # app, against the same fixtures
 nix flake check                                   # the NixOS module in a VM
-maestro/run.sh                                    # the app on an emulator against a throwaway service
+maestro/run.sh                                    # the app on an emulator only (a real phone: --yes-real-phone), against a throwaway service
 ```
 
 The protocol between the app and the service: [docs/protocol.md](docs/protocol.md).
