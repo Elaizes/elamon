@@ -70,7 +70,7 @@
 	<string name="pair_code_after_digits">First check the digits above</string>
 	<!-- A pairing link: from the QR code elamond pair prints, or from anything else that opened one. -->
 	<string name="pair_from_link">A link asks to pair with %1$s. Pair only if you just ran elamond pair there.</string>
-	<!-- While elamond 0.5 asks at the computer whether to allow the phone. -->
+	<!-- While elamond asks at the computer whether to allow the phone. -->
 	<string name="pair_confirm_title">Confirm on the computer</string>
 	<string name="pair_confirm_body">elamond pair asks there whether to allow this phone.</string>
 	<string name="pair_declined">The computer didn\'t allow this phone. Run elamond pair again and answer y.</string>
@@ -635,7 +635,7 @@
 	<string name="transfer_conflict_file">In the file</string>
 	<string name="transfer_conflict_replace">Replace</string>
 	<string name="transfer_conflict_keep">Keep this phone\'s</string>
-	<string name="transfer_imported_note">Each computer gives this phone a key of its own, with the same role, the next time the app reaches it. From then on elamond clients lists both phones, and the old one can be revoked on its own. A computer whose service is older than 0.5 can\'t, and keeps seeing the two as one. Help, under Troubleshooting, says more.</string>
+	<string name="transfer_imported_note">Each computer gives this phone a key of its own, with the same role, the next time the app reaches it. From then on elamond clients lists both phones, and the old one can be revoked on its own. A computer that takes no more phones can\'t, and keeps seeing the two as one. Help, under Troubleshooting, says more.</string>
 	<string name="transfer_nothing_to_export">This phone can no longer open any of its pairings, so there is nothing to export.</string>
 	<string name="transfer_write_failed">The file couldn\'t be written. Nothing was exported.</string>
 	<string name="transfer_read_failed">The file couldn\'t be read.</string>
@@ -723,7 +723,7 @@
 	<string name="faq_new_phone_q">How do I move to a new phone?</string>
 	<string name="faq_new_phone_a">On the old phone: Settings → Export pairings, a passphrase, and where to save the file. Copy the file to the new phone, install Elamon there and choose Settings → Import pairings. The file is encrypted with the passphrase and can\'t be opened without it.</string>
 	<string name="faq_new_phone_a2">Each computer gives the new phone a key of its own, with the same role, the next time the app reaches it: elamond clients then lists it beside the old phone, as added with the key of the old phone\'s ID. Moving for good, forget the computers on the old phone or reset it, and revoke that ID; the new phone keeps working:</string>
-	<string name="faq_new_phone_a3">A computer whose service is older than 0.5 can\'t give it one: there both phones stay one entry, and revoking it cuts off both. Update the service, or pair the new phone again with elamond pair (the app replaces the computer), then revoke the old entry.</string>
+	<string name="faq_new_phone_a3">A computer that takes no more phones, or whose old phone\'s key gave its one key of its own to another phone already, can\'t give it one: there both phones stay one entry, and revoking it cuts off both. Then pair the new phone again with elamond pair (the app replaces the computer), and revoke the old entry.</string>
 	<string name="faq_new_computer_q">How do I move to a new computer, or reinstall this one?</string>
 	<string name="faq_new_computer_a">Back up the service before; it asks for a passphrase:</string>
 	<string name="faq_new_computer_a2">On the new or reinstalled system, install the service, then stop it, restore the backup and start it again. The phones connect as before, without pairing again:</string>

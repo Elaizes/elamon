@@ -46,7 +46,7 @@ enum class Can(val key: String, val role: PhoneRole, val needsControl: Boolean) 
  * rather than offer it and be refused.
  */
 data class Permissions(
-	/** The role as the service names it; null from elamond before 0.5, which has no roles. */
+	/** The role as the service names it; null when it doesn't say. */
 	val role: String?,
 	val allowed: Set<Can>,
 ) {
@@ -69,10 +69,9 @@ data class Permissions(
 
 	/**
 	 * Whether the role allows [can], control or not: when it does but [can] isn't allowed, control
-	 * is off. Without roles (elamond before 0.5) every phone may everything; a role this app doesn't
-	 * know, nothing it isn't told.
+	 * is off. A role this app doesn't know, or none, allows nothing it isn't told.
 	 */
-	fun roleAllows(can: Can): Boolean = role == null || known?.let { it >= can.role } == true
+	fun roleAllows(can: Can): Boolean = known?.let { it >= can.role } == true
 
 	/** Whether the role lets this phone act on the computer at all: only then is control being off worth telling. */
 	val mayAct: Boolean get() = Can.entries.any { it.needsControl && roleAllows(it) }
@@ -91,29 +90,26 @@ data class Permissions(
 		/** What needs no control: everything a role allows while control is off. */
 		private val WITHOUT_CONTROL = Can.entries.filter { !it.needsControl }.toSet()
 
+		/**
+		 * What a phone is shown where the service doesn't say what it may do: what the samples carry,
+		 * nothing to act on. Such a service is older than this app works with, and the app asks for
+		 * it to be updated.
+		 */
+		private val READ_ONLY = setOf(Can.Processes, Can.Displays, Can.Links)
+
 		/** What [control] says this phone may do. */
 		fun of(control: ControlInfo): Permissions {
-			val allowed = control.allowed ?: return old(control.enabled)
+			val allowed = control.allowed ?: return Permissions(control.role, READ_ONLY)
 			return Permissions(control.role, allowed.mapNotNull(Can::of).toSet())
-		}
-
-		/**
-		 * elamond before 0.5 says nothing of roles: a phone could do everything there, acting only
-		 * with control on, which also covered media and their covers. It keeps no activity log.
-		 */
-		private fun old(enabled: Boolean): Permissions {
-			val allowed = if (enabled) Can.entries.toSet() else WITHOUT_CONTROL - Can.MediaRead
-			return Permissions(null, allowed - Can.Log)
 		}
 
 		/**
 		 * Before the control panel is read: what a phone with [role], as last heard, may see. Acting
 		 * waits for the panel, which says whether control is on; a role this app doesn't know shows
-		 * the basics only until then. Without a role, as an older pairing or service, it is what an
-		 * older service lets every phone see.
+		 * the basics only until then, and no role known yet what the samples carry.
 		 */
 		fun before(role: String?): Permissions {
-			if (role == null) return old(enabled = false)
+			if (role == null) return Permissions(null, READ_ONLY)
 			val known = PhoneRole.of(role) ?: return Permissions(role, emptySet())
 			return Permissions(role, WITHOUT_CONTROL.filter { known >= it.role }.toSet())
 		}

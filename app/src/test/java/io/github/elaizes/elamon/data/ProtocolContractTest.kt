@@ -22,8 +22,7 @@ import kotlinx.serialization.json.jsonObject
 /**
  * The app against elamond/fixtures, which the service's own tests write: every shape it sends, with
  * every optional field filled. A field the service sends that the app doesn't model fails here, and
- * so does a field the app models that the service never sends (a typo in a @SerialName). A field
- * sent under its new name and its old one (links and services) is read by either.
+ * so does a field the app models that the service never sends (a typo in a @SerialName).
  */
 class ProtocolContractTest {
 	private val dir = File(System.getProperty("elamon.fixtures") ?: error("elamon.fixtures isn't set; run the tests through Gradle"))
@@ -167,10 +166,10 @@ class ProtocolContractTest {
 		val control = ProtocolJson.decodeFromJsonElement(ControlInfo.serializer(), fixture("control"))
 		assertEquals("admin", control.role)
 		assertEquals("processes", control.allowed?.first())
-		// What elamond before 0.5 sends: no role, nothing allowed by name.
-		val old = ProtocolJson.decodeFromJsonElement(ControlInfo.serializer(), without("control", "role", "allowed"))
-		assertNull(old.role)
-		assertNull(old.allowed)
+		// No role, nothing allowed by name: read as not said (see PermissionsTest).
+		val unsaid = ProtocolJson.decodeFromJsonElement(ControlInfo.serializer(), without("control", "role", "allowed"))
+		assertNull(unsaid.role)
+		assertNull(unsaid.allowed)
 		assertNull(ProtocolJson.decodeFromJsonElement(PairResponse.serializer(), without("pair", "role")).role)
 		val log = ProtocolJson.decodeFromJsonElement(ListSerializer(LogEntry.serializer()), fixture("log"))
 		assertEquals(listOf("ok", "not_allowed"), log.map { it.result })
@@ -223,9 +222,9 @@ class ProtocolContractTest {
 	@Test
 	fun identityAndTimeAreRequired() {
 		val required = mapOf(
-			"sample" to listOf("t", "uptime", "gpus[].id", "temps[].value", "temps[].kind", "net[].kind", "net[].name", "disks[].mount", "displays[].connector", "processes[].pid", "links[].id", "services[].id", "media.players[].id"),
+			"sample" to listOf("t", "uptime", "gpus[].id", "temps[].value", "temps[].kind", "net[].kind", "net[].name", "disks[].mount", "displays[].connector", "processes[].pid", "links[].id", "media.players[].id"),
 			"history" to listOf("t", "gpus[].id"),
-			"info" to listOf("id", "api", "cpu_logical_cores", "memory_total", "boot_time", "gpus[].id"),
+			"info" to listOf("id", "service_version", "api", "cpu_logical_cores", "memory_total", "boot_time", "gpus[].id"),
 			"hello" to listOf("app", "api", "id", "version"),
 			"control" to listOf("enabled", "actions[].id"),
 		)
@@ -240,35 +239,18 @@ class ProtocolContractTest {
 	}
 
 	@Test
-	fun olderServicesGetFallbacks() {
-		// What 0.2 and 0.3 sent: no min_app, interval_ms or history_seconds.
+	fun optionalFieldsTakeTheirDefaults() {
+		// Not said: no oldest app, the default tick and history, no links.
 		val info = dropping("info", "min_app").jsonObject - "interval_ms" - "history_seconds"
 		val decoded = ProtocolJson.decodeFromJsonElement(Info.serializer(), JsonObject(info))
 		assertNull(decoded.minApp)
 		assertEquals(DEFAULT_INTERVAL_MS, decoded.intervalMs)
 		assertEquals(DEFAULT_HISTORY_SECONDS, decoded.historySeconds)
-		val hello = ProtocolJson.decodeFromJsonElement(Hello.serializer(), dropping("hello", "min_app"))
-		assertNull(hello.minApp)
+		assertNull(ProtocolJson.decodeFromJsonElement(Hello.serializer(), dropping("hello", "min_app")).minApp)
+		assertEquals(emptyList(), ProtocolJson.decodeFromJsonElement(Sample.serializer(), without("sample", "links")).links)
 	}
 
 	private fun without(name: String, vararg keys: String) = JsonObject(fixture(name).jsonObject - keys.toSet())
-
-	@Test
-	fun renamedFieldsAreReadByEitherName() {
-		val info = { e: JsonElement -> ProtocolJson.decodeFromJsonElement(Info.serializer(), e) }
-		val sample = { e: JsonElement -> ProtocolJson.decodeFromJsonElement(Sample.serializer(), e) }
-		// elamond 0.5 sends both names; 0.4 only the old ones, and a later API only the new.
-		assertEquals("9.9.9", info(fixture("info")).elamondVersion)
-		assertEquals("9.9.9", info(without("info", "service_version")).elamondVersion)
-		assertEquals("9.9.9", info(without("info", "service_version")).elamondVersion)
-		assertFailsWith<SerializationException>("info without a version should fail") {
-			info(without("info", "service_version", "service_version"))
-		}
-		for (kept in listOf(fixture("sample"), without("sample", "links"), without("sample", "services"))) {
-			assertEquals(listOf("Some link"), sample(kept).links.map { it.name })
-		}
-		assertEquals(emptyList(), sample(without("sample", "links", "services")).links)
-	}
 
 	private fun line(type: String, name: String): String =
 		JsonObject(mapOf("type" to JsonPrimitive(type)) + fixture(name).jsonObject).toString()

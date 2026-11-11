@@ -6,14 +6,12 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonNames
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * What elamond sends; mirrors elamond/src/model.rs. Unknown fields are ignored so newer versions
- * still work. Ids and times have no default: a message without them is broken, not zero. A field
- * renamed in 0.5 is read by its new name or its old one (JsonNames): elamond 0.4 sends only the old.
+ * still work. Ids and times have no default: a message without them is broken, not zero.
  */
 val ProtocolJson = Json {
 	ignoreUnknownKeys = true
@@ -25,7 +23,7 @@ val ProtocolJson = Json {
 /** The API this app speaks; a higher one from the service means the app is out of date. */
 const val APP_API = 1
 
-/** What elamond before 0.4 runs at without saying so. */
+/** What the app takes the service's tick and history to be while it doesn't say. */
 const val DEFAULT_INTERVAL_MS = 1000
 const val DEFAULT_HISTORY_SECONDS = 600
 
@@ -54,7 +52,7 @@ data class Hello(
 	val id: String,
 	val name: String,
 	val version: String,
-	/** The oldest app version the service works with; elamond before 0.4 doesn't say. */
+	/** The oldest app version the service works with. */
 	@SerialName("min_app") val minApp: String? = null,
 )
 
@@ -69,7 +67,7 @@ data class PairResponse(
 	@SerialName("client_id") val clientId: String = "",
 	val id: String = "",
 	val name: String = "",
-	/** What the phone may do there, "glance" to "admin"; elamond before 0.5 has no roles and doesn't say. */
+	/** What the phone may do there, "glance" to "admin"; null when the service doesn't say. */
 	val role: String? = null,
 )
 
@@ -78,8 +76,7 @@ data class PairResponse(
 data class Info(
 	val id: String,
 	val name: String = "",
-	/** "service_version" before 0.5, and still sent beside it for apps 0.4. */
-	@SerialName("service_version") @JsonNames("service_version") val elamondVersion: String,
+	@SerialName("service_version") val elamondVersion: String,
 	val api: Int,
 	@SerialName("min_app") val minApp: String? = null,
 	/** The service's own tick: no stream comes faster. */
@@ -124,8 +121,7 @@ data class Sample(
 	@SerialName("disk_io") val diskIo: List<DiskIo> = emptyList(),
 	val net: List<Net> = emptyList(),
 	val displays: List<Display> = emptyList(),
-	/** "services" before 0.5, and still sent beside it for apps 0.4. */
-	@JsonNames("services") val links: List<LinkStatus> = emptyList(),
+	val links: List<LinkStatus> = emptyList(),
 	val media: Media? = null,
 	@SerialName("process_count") val processCount: Int? = null,
 	val processes: List<Proc>? = null,
@@ -342,13 +338,13 @@ data class ControlInfo(
 	val profiles: Profiles? = null,
 	val actions: List<ActionInfo> = emptyList(),
 	val volume: Boolean = false,
-	/** This phone's role; null from elamond before 0.5, which has none. */
+	/** This phone's role; null when the service doesn't say (see Permissions). */
 	val role: String? = null,
-	/** What this phone may do now, by name, in the service's order; null before 0.5 (see Permissions). */
+	/** What this phone may do now, by name, in the service's order; null when the service doesn't say (see Permissions). */
 	val allowed: List<String>? = null,
 	/**
 	 * Why control is off: "settings" (off in them), "held_off" (`elamond control off`) or
-	 * "settings_unreadable" (they stopped parsing); null while it is on, and from elamond before 0.5.
+	 * "settings_unreadable" (they stopped parsing); null while it is on.
 	 */
 	@SerialName("off_reason") val offReason: String? = null,
 )
@@ -369,7 +365,7 @@ data class LogEntry(
 	val message: String? = null,
 	/**
 	 * The phone whose key the asking one came by (Import pairings, then a key of its own), when it isn't
-	 * that phone itself: one family, with one rate of acting and one share of the log (elamond 0.5).
+	 * that phone itself: one family, with one rate of acting and one share of the log.
 	 */
 	val family: String? = null,
 )

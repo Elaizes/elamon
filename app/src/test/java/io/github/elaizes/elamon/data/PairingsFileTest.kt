@@ -152,7 +152,7 @@ class PairingsFileTest {
 	@Test
 	fun imports_replace_by_id_in_place_and_add_the_rest_at_the_end() {
 		val current = listOf(machine("a"), machine("b"), machine("c"))
-		val b2 = machine("b", token = "new-b", name = "Renamed")
+		val b2 = machine("b", token = "new-b", name = "Another name")
 		val merged = mergeImported(current, listOf(machine("d"), b2, machine("e")))
 		assertEquals(listOf("a", "b", "c", "d", "e"), merged.list.map { it.id })
 		assertEquals(b2, merged.list[1])
@@ -185,7 +185,7 @@ class PairingsFileImportTest {
 	@Test
 	fun whatAFileMayHold() {
 		assertTrue(PairingsFile.usable(machine("a")))
-		// Names in any script, emoji too, up to 64 characters; no os, role, client id or last address, as before 0.5.
+		// Names in any script, emoji too, up to 64 characters; no os, role, client id or last address.
 		assertTrue(PairingsFile.usable(machine("a").copy(name = "Робочий 😀 电脑", os = null, role = null, clientId = null, lastHost = null)))
 		assertTrue(PairingsFile.usable(machine("a").copy(name = "😀".repeat(64))))
 		for (role in listOf("glance", "monitor", "operate", "admin")) assertTrue(PairingsFile.usable(machine("a").copy(role = role)), role)

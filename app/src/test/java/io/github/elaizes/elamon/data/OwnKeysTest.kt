@@ -19,8 +19,6 @@ class OwnKeysTest {
 	private fun own(token: String, clientId: String = "c-$token", role: String? = "monitor") =
 		PairResponse(token = token, clientId = clientId, id = "b", name = "b", role = role)
 
-	private val tooOld = ElamondException(ElamondException.Kind.NotFound, "not_found", code = "not_found", status = 404)
-
 	/** A phone that paired with "a" itself and imported "b" (the old phone's client id and role with it). */
 	private class Phone {
 		val cipher = FakeCipher()
@@ -43,7 +41,7 @@ class OwnKeysTest {
 		assertTrue(p.store.get("b")!!.tokenShared)
 		assertFalse(p.keys.due(p.store.get("a")!!))
 		assertTrue(p.keys.due(p.store.get("b")!!))
-		// Kept across a restart of the app, and an older app reading the list ignores it.
+		// Kept across a restart of the app.
 		val again = MachineStore(MemoryFile(ProtocolJson.encodeToString(kotlinx.serialization.builtins.ListSerializer(Machine.serializer()), p.store.machines.value)), p.cipher)
 		assertTrue(again.get("b")!!.tokenShared)
 		// Paired again with a code, the computer gave this phone its own.
@@ -71,37 +69,25 @@ class OwnKeysTest {
 	}
 
 	@Test
-	fun anOlderServiceKeepsTheSharedTokenAndIsAskedOnceARun() = runTest {
-		val p = Phone()
-		var asked = 0
-		assertNull(p.keys.renew("b", "New phone") { asked++; throw tooOld })
-		assertTrue(p.store.get("b")!!.tokenShared)
-		assertEquals("secret-old", p.token("b"))
-		// Not again this run, however many connections and however long.
-		p.clock += 24 * 3_600_000L
-		assertNull(p.keys.renew("b", "New phone") { asked++; throw tooOld })
-		assertFalse(p.keys.due(p.store.get("b")!!))
-		assertEquals(1, asked)
-		// The app run again asks again: the service may have been updated meanwhile.
-		val nextRun = OwnKeys(p.store) { p.clock }
-		assertEquals("secret-own", nextRun.renew("b", "New phone") { asked++; own("secret-own") })
-		assertEquals(2, asked)
-		assertFalse(p.store.get("b")!!.tokenShared)
-	}
-
-	@Test
-	fun aServiceThatTakesNoMorePhonesOrGivesNoOtherKeyIsAskedOnceARun() = runTest {
+	fun aComputerThatTakesNoMorePhonesOrGivesNoOtherKeyIsAskedOnceARun() = runTest {
 		for (code in listOf("too_many_phones", "rekey_refused")) {
 			val p = Phone()
 			var asked = 0
 			val refused = ElamondException(ElamondException.Kind.Forbidden, code, code = code, status = 403)
 			assertNull(p.keys.renew("b", "New phone") { asked++; throw refused })
+			// Not again this run, however many connections and however long.
 			p.clock += 24 * 3_600_000L
 			assertNull(p.keys.renew("b", "New phone") { asked++; throw refused })
+			assertFalse(p.keys.due(p.store.get("b")!!))
 			assertEquals(1, asked, code)
 			// The shared token keeps working meanwhile.
 			assertTrue(p.store.get("b")!!.tokenShared)
 			assertEquals("secret-old", p.token("b"))
+			// The app run again asks again: a phone may have been revoked there meanwhile.
+			val nextRun = OwnKeys(p.store) { p.clock }
+			assertEquals("secret-own", nextRun.renew("b", "New phone") { asked++; own("secret-own") })
+			assertEquals(2, asked, code)
+			assertFalse(p.store.get("b")!!.tokenShared)
 		}
 	}
 
@@ -113,8 +99,8 @@ class OwnKeysTest {
 			ElamondException(ElamondException.Kind.Unreachable, "timeout"),
 			ElamondException(ElamondException.Kind.TooManyRequests, "too_many_requests", code = "too_many_requests", status = 429),
 			ElamondException(ElamondException.Kind.Failed, "storage", code = "storage", status = 500),
-			// A 404 that isn't the service missing the path at all.
 			ElamondException(ElamondException.Kind.NotFound, "HTTP 404", status = 404),
+			ElamondException(ElamondException.Kind.NotFound, "not_found", code = "not_found", status = 404),
 		)
 		for (e in failures) {
 			assertNull(p.keys.renew("b", "New phone") { asked++; throw e })

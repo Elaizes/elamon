@@ -7,44 +7,44 @@ import kotlin.test.assertTrue
 class CompatTest {
 	@Test
 	fun compareVersions() {
-		assertEquals(0, Versions.compare("0.4.0", "0.4.0"))
-		assertEquals(0, Versions.compare("0.4", "0.4.0"))
-		assertEquals(0, Versions.compare("v0.4.0", "0.4.0"))
-		assertEquals(0, Versions.compare("0.4.0-rc1", "0.4.0"))
-		assertEquals(0, Versions.compare("0.4.0+git.abc", "0.4"))
-		assertTrue(Versions.compare("0.4.1", "0.4.0") > 0)
+		assertEquals(0, Versions.compare("1.2.0", "1.2.0"))
+		assertEquals(0, Versions.compare("1.2", "1.2.0"))
+		assertEquals(0, Versions.compare("v1.2.0", "1.2.0"))
+		assertEquals(0, Versions.compare("1.2.0-rc1", "1.2.0"))
+		assertEquals(0, Versions.compare("1.2.0+git.abc", "1.2"))
+		assertTrue(Versions.compare("1.2.1", "1.2.0") > 0)
 		assertTrue(Versions.compare("0.10.0", "0.9.9") > 0)
 		assertTrue(Versions.compare("1.0", "0.99.99") > 0)
-		assertTrue(Versions.compare("0.3.0", "0.4") < 0)
-		assertTrue(Versions.compare("0.3.9-beta", "0.4.0") < 0)
+		assertTrue(Versions.compare("1.1.0", "1.2") < 0)
+		assertTrue(Versions.compare("1.1.9-beta", "1.2.0") < 0)
 	}
 
 	@Test
 	fun compareOddVersions() {
 		assertEquals(0, Versions.compare("", "0.0.0"))
 		assertTrue(Versions.compare("unknown", "0.1") < 0)
-		assertTrue(Versions.compare(" 0.4.0 ", "0.3") > 0)
+		assertTrue(Versions.compare(" 1.2.0 ", "1.1") > 0)
 	}
 
 	@Test
 	fun appTooOld() {
-		assertEquals(Compat.UpdateApp, compatibility("0.4.0", elamondApi = 2, elamondVersion = "1.0.0", minApp = null))
-		assertEquals(Compat.UpdateApp, compatibility("0.4.0", elamondApi = 1, elamondVersion = "0.5.0", minApp = "0.5.0"))
+		assertEquals(Compat.UpdateApp, compatibility("0.5.0", elamondApi = 2, elamondVersion = "1.0.0", minApp = null))
+		assertEquals(Compat.UpdateApp, compatibility("0.5.0", elamondApi = 1, elamondVersion = "0.6.0", minApp = "0.6.0"))
 		// Both out of date: the app comes first, it's the one that can't read everything.
 		assertEquals(Compat.UpdateApp, compatibility("0.2.0", elamondApi = 1, elamondVersion = "0.3.0", minApp = "0.3.0"))
 	}
 
 	@Test
 	fun elamondTooOld() {
-		assertEquals(Compat.UpdateElamond, compatibility("0.4.0", elamondApi = 1, elamondVersion = "0.3.0", minApp = null))
-		assertEquals(Compat.UpdateElamond, compatibility("0.4.0", elamondApi = 1, elamondVersion = "0.2.1", minApp = null))
-		// 0.4 works through fallbacks, but roles, renewed certificates and keys of its own need 0.5.
-		assertEquals(Compat.UpdateElamond, compatibility("0.5.0", elamondApi = 1, elamondVersion = "0.4.0", minApp = "0.3.0"))
+		assertEquals(Compat.UpdateElamond, compatibility("0.5.0", elamondApi = 1, elamondVersion = "0.3.0", minApp = null))
+		assertEquals(Compat.UpdateElamond, compatibility("0.5.0", elamondApi = 1, elamondVersion = "0.2.1", minApp = null))
+		// Roles, renewed certificates and keys of its own need MIN_ELAMOND.
+		assertEquals(Compat.UpdateElamond, compatibility("0.5.0", elamondApi = 1, elamondVersion = "0.3.9", minApp = "0.3.0"))
 	}
 
 	@Test
 	fun inStep() {
-		assertEquals(Compat.Ok, compatibility("0.5.0", elamondApi = 1, elamondVersion = "0.5.0", minApp = "0.4.0"))
-		assertEquals(Compat.Ok, compatibility("0.5.0", elamondApi = 1, elamondVersion = "0.5.2", minApp = "0.4"))
+		assertEquals(Compat.Ok, compatibility("0.5.0", elamondApi = 1, elamondVersion = MIN_ELAMOND, minApp = "0.5.0"))
+		assertEquals(Compat.Ok, compatibility("0.5.0", elamondApi = 1, elamondVersion = "0.5.2", minApp = "0.5"))
 	}
 }

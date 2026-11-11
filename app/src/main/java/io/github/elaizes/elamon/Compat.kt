@@ -9,16 +9,16 @@ enum class Compat {
 	/** The service speaks a newer API or asks for a newer app. */
 	UpdateApp,
 
-	/** The service is older than this app expects: some things are missing until it's updated. */
+	/** The service is older than this app works with: it needs updating. */
 	UpdateElamond,
 }
 
-/** The elamond version whose fields this app reads; older ones work with fallbacks. */
+/** The oldest elamond this app works with. */
 const val MIN_ELAMOND = "0.5.0"
 
 object Versions {
 	/**
-	 * Compares "0.4.0"-style versions by their numbers: "0.4" equals "0.4.0", a leading "v" and
+	 * Compares "1.2.0"-style versions by their numbers: "1.2" equals "1.2.0", a leading "v" and
 	 * anything after the numbers ("-rc1", "+git") are ignored, and a version without numbers
 	 * counts as 0.
 	 */

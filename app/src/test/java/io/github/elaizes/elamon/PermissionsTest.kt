@@ -19,7 +19,7 @@ import io.github.elaizes.elamon.data.ProtocolJson
 import io.github.elaizes.elamon.data.Sample
 
 class PermissionsTest {
-	/** What elamond 0.5 lists for [role] with control [on]: its own rule, every name the role reaches, control-bound ones only with control. */
+	/** What elamond lists for [role] with control [on]: its own rule, every name the role reaches, control-bound ones only with control. */
 	private fun served(role: PhoneRole, on: Boolean): List<String> =
 		Can.entries.filter { role >= it.role && (on || !it.needsControl) }.map { it.key }
 
@@ -98,15 +98,14 @@ class PermissionsTest {
 	}
 
 	@Test
-	fun olderServicesAreAdminsWithoutALog() {
-		// elamond 0.4 sends neither role nor allowed.
-		val on = Permissions.of(control(null, null, enabled = true))
-		assertNull(on.role)
-		assertEquals(Can.entries.toSet() - Can.Log, on.allowed)
-		val off = Permissions.of(control(null, null, enabled = false))
-		// Its media and covers needed control.
-		assertEquals(setOf("processes", "displays", "links", "links.edit"), keys(off))
-		assertTrue(off.mayAct && off.roleAllows(Can.Signal))
+	fun aServiceThatDoesntSayShowsWhatTheSamplesCarry() {
+		// No role and nothing allowed by name: a service older than this app works with.
+		for (on in listOf(true, false)) {
+			val p = Permissions.of(control(null, null, enabled = on))
+			assertNull(p.role)
+			assertEquals(setOf("processes", "displays", "links"), keys(p))
+			assertFalse(p.mayAct || p.roleAllows(Can.Signal) || p.roleAllows(Can.Processes))
+		}
 	}
 
 	@Test
@@ -116,7 +115,7 @@ class PermissionsTest {
 		assertEquals(setOf("processes", "displays", "links", "media.read", "log"), keys(Permissions.before("monitor")))
 		assertEquals(setOf("processes", "displays", "links", "media.read", "log", "links.edit"), keys(Permissions.before("operate")))
 		assertEquals(keys(Permissions.before("operate")), keys(Permissions.before("admin")))
-		// No role yet: an older pairing or service, which shows processes as it always did.
+		// No role known yet: what the samples carry, as from a service that doesn't say.
 		assertEquals(keys(Permissions.of(control(null, null, enabled = false))), keys(Permissions.before(null)))
 		assertTrue(Permissions.before("owner").allowed.isEmpty())
 		assertEquals("monitor", Permissions.before("monitor").role)

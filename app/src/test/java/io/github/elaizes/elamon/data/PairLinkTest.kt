@@ -92,7 +92,7 @@ class PairLinkTest {
 
 	@Test
 	fun namesComeAfterTheAddresses() {
-		// What elamond 0.5 writes with a name from its settings and its Tailscale name.
+		// What elamond writes with a name from its settings and its Tailscale name.
 		val h = "192.168.200.101,100.64.0.1,pc.example.net,deskpc.tail1234.ts.net"
 		val t = assertIs<PairLink.Target>(changed("h" to h)).target
 		assertEquals(listOf("192.168.200.101", "100.64.0.1", "pc.example.net", "deskpc.tail1234.ts.net"), t.hosts)

@@ -14,7 +14,6 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -74,25 +73,22 @@ internal class FakeCipher(val keys: MemoryKeys = MemoryKeys()) : TokenCipher {
 	override fun open(sealed: Sealed, aad: ByteArray?): ByteArray = if (opening) inner.open(sealed, aad) else throw GeneralSecurityException("can't open")
 }
 
-/** How 0.4 kept a computer: the token required, other fields left alone. */
-@Serializable
-private data class OldServer(val id: String, val name: String, val hosts: List<String>, val port: Int, val fingerprint: String, val token: String)
-
-/** How 0.4 read the list: fields it doesn't know are left alone. */
-private val OldJson = Json { ignoreUnknownKeys = true }
-
 class MachineStoreTest {
 	private val aad = tokenAad("a")
-
-	/** Two computers as an app before 0.5 left them: plain tokens, no client id or role. */
-	private val before = """
-		[{"id":"a","name":"Test computer","hosts":["192.168.200.101","laptop.lan"],"port":47823,"fingerprint":"aa","token":"secret-a","lastHost":"192.168.200.101","os":"NixOS","addedAt":5},
-		 {"id":"b","name":"Server","hosts":["10.0.0.2"],"port":47823,"fingerprint":"bb","token":"secret-b"}]
-	""".trimIndent()
 
 	private val secrets = listOf("secret-a", "secret-b", "secret-c", "secret-new")
 
 	private fun machine(id: String) = Machine(id = id, name = id, hosts = listOf("h-$id"), port = DEFAULT_PORT, fingerprint = "f-$id")
+
+	/** A phone paired with two computers, "a" and "b", kept in [file]. */
+	private fun paired(file: MemoryFile = MemoryFile(), cipher: FakeCipher = FakeCipher()) = MachineStore(file, cipher).apply {
+		val a = Machine(
+			id = "a", name = "Test computer", hosts = listOf("192.168.200.101", "laptop.lan"), port = DEFAULT_PORT, fingerprint = "aa",
+			lastHost = "192.168.200.101", os = "NixOS", addedAt = 5,
+		)
+		put(a, "secret-a")
+		put(Machine(id = "b", name = "Server", hosts = listOf("192.168.200.2"), port = DEFAULT_PORT, fingerprint = "bb"), "secret-b")
+	}
 
 	/** Each machine as written: its token field, and whether a sealed one and its IV are there. */
 	private fun written(json: String) = Json.parseToJsonElement(json).jsonArray.map { it.jsonObject }
@@ -100,70 +96,43 @@ class MachineStoreTest {
 	private fun assertNothingPlain(json: String) {
 		for (s in secrets) assertFalse(s in json, "$s written in plain text: $json")
 		for (m in written(json)) {
-			assertEquals("", m.getValue("token").jsonPrimitive.content)
+			assertFalse("token" in m, "a token field written: $json")
 			assertNotNull(m["tokenSealed"])
 			assertNotNull(m["tokenIv"])
 		}
 	}
 
 	@Test
-	fun plainTokensAreSealedOnLoadInOneWrite() {
-		val file = MemoryFile(before)
-		val store = MachineStore(file, FakeCipher())
-		assertEquals(1, file.writes.size)
-		assertNothingPlain(file.writes.single())
-		assertEquals(listOf("a", "b"), written(file.writes.single()).map { it.getValue("id").jsonPrimitive.content })
-
-		val a = store.get("a")!!
+	fun aSealedListLoadsWithoutWriting() {
+		val file = MemoryFile()
+		val cipher = FakeCipher()
+		paired(file, cipher)
+		assertEquals(2, file.writes.size)
+		file.writes.forEach(::assertNothingPlain)
+		// Another run: the key store opens what it sealed, and there is nothing to write.
+		val again = MachineStore(file, FakeCipher(cipher.keys))
+		assertEquals(2, file.writes.size)
+		val a = again.get("a")!!
 		assertEquals("Test computer", a.name)
 		assertEquals(listOf("192.168.200.101", "laptop.lan"), a.hosts)
 		assertEquals("192.168.200.101", a.lastHost)
 		assertEquals("NixOS", a.os)
 		assertEquals(5, a.addedAt)
-		assertEquals("secret-a", store.token(a))
-		assertEquals("secret-b", store.token(store.get("b")!!))
-	}
-
-	@Test
-	fun sealedListLoadsWithoutWritingAgain() {
-		val file = MemoryFile(before)
-		val cipher = FakeCipher()
-		MachineStore(file, cipher)
-		// Another run: the key store opens what it sealed, and there is nothing to write.
-		val again = MachineStore(file, FakeCipher(cipher.keys))
-		assertEquals(1, file.writes.size)
-		assertEquals("secret-a", again.token(again.get("a")!!))
+		assertEquals("secret-a", again.token(a))
 		assertEquals("secret-b", again.token(again.get("b")!!))
 	}
 
 	@Test
-	fun stoppedBeforeTheWriteLeavesTheOldListToSealNextTime() {
-		val file = MemoryFile(before)
-		file.dies = true
-		assertFailsWith<IllegalStateException> { MachineStore(file, FakeCipher()) }
-		assertEquals(before, file.json)
-
+	fun aTokenInPlainTextInTheFileIsNeitherSentNorKept() {
+		val file = MemoryFile("""[{"id":"a","name":"Test computer","hosts":["192.168.200.101"],"port":47823,"fingerprint":"aa","token":"secret-a"}]""")
 		val store = MachineStore(file, FakeCipher())
-		assertNothingPlain(file.json!!)
-		assertEquals("secret-a", store.token(store.get("a")!!))
-		assertEquals("secret-b", store.token(store.get("b")!!))
-	}
-
-	@Test
-	fun aKeyStoreThatCantSealKeepsTheOldTokensWorking() {
-		val file = MemoryFile(before)
-		val cipher = FakeCipher().apply { sealing = false }
-		val store = MachineStore(file, cipher)
-		// Nothing to write: the tokens stay as they were, and work.
-		assertTrue(file.writes.isEmpty())
-		assertEquals("secret-a", store.token(store.get("a")!!))
-
-		// Once it works, the next save seals them.
-		cipher.sealing = true
-		store.update("a") { it.copy(lastHost = "laptop.lan") }
-		assertNothingPlain(file.json!!)
-		assertEquals("secret-a", store.token(store.get("a")!!))
-		assertEquals("secret-b", store.token(store.get("b")!!))
+		val a = store.get("a")!!
+		assertEquals("Test computer", a.name)
+		// Listed, but as good as unpaired: there is no sealed token to send.
+		assertEquals("", a.token)
+		assertNull(store.token(a))
+		assertEquals(1, file.writes.size)
+		assertFalse("secret-a" in file.json!!)
 	}
 
 	@Test
@@ -222,18 +191,19 @@ class MachineStoreTest {
 	}
 
 	@Test
-	fun plainTokensAreNeverWrittenAgain() {
-		val file = MemoryFile(before)
-		val store = MachineStore(file, FakeCipher())
+	fun tokensAreNeverWrittenInPlainText() {
+		val file = MemoryFile()
+		val store = paired(file)
 		store.put(machine("c"), "secret-c")
 		store.update("a") { it.copy(lastHost = "laptop.lan") }
-		// Even a plain token put back in by mistake goes out sealed.
+		// Not even one put in by mistake: it is dropped, and the sealed one stays.
 		store.update("b") { it.copy(token = "secret-new") }
 		store.put(machine("d"), "secret-new", replacing = "c")
 		store.remove("a")
-		assertEquals(6, file.writes.size)
+		assertEquals(7, file.writes.size)
 		file.writes.forEach(::assertNothingPlain)
-		assertEquals("secret-new", store.token(store.get("b")!!))
+		assertEquals("", store.get("b")!!.token)
+		assertEquals("secret-b", store.token(store.get("b")!!))
 		assertEquals("secret-new", store.token(store.get("d")!!))
 		assertEquals(listOf("b", "d"), store.machines.value.map { it.id })
 	}
@@ -248,16 +218,6 @@ class MachineStoreTest {
 		assertFailsWith<KeystoreException> { store.put(machine("b"), "secret-new") }
 		assertEquals(1, file.writes.size)
 		assertEquals(listOf("a"), store.machines.value.map { it.id })
-	}
-
-	@Test
-	fun anOlderAppStillReadsTheList() {
-		val file = MemoryFile(before)
-		MachineStore(file, FakeCipher())
-		val old = OldJson.decodeFromString<List<OldServer>>(file.json!!)
-		assertEquals(listOf("a", "b"), old.map { it.id })
-		// It finds no token, so the computer turns it away and it can pair again.
-		assertTrue(old.all { it.token.isEmpty() })
 	}
 
 	@Test
@@ -296,7 +256,7 @@ class MachineStoreTest {
 	@Test
 	fun anExportOpensEveryTokenItCanAndCountsTheRest() {
 		val keys = MemoryKeys()
-		val store = MachineStore(MemoryFile(before), FakeCipher(keys))
+		val store = paired(cipher = FakeCipher(keys))
 		store.put(machine("c"), "secret-c")
 		val (all, leftOut) = store.withTokens()
 		assertEquals(listOf("secret-a", "secret-b", "secret-c"), all.map { it.token })
@@ -309,8 +269,8 @@ class MachineStoreTest {
 
 	@Test
 	fun anImportSealsEveryTokenHereAndReplacesByIdInPlace() {
-		val file = MemoryFile(before)
-		val store = MachineStore(file, FakeCipher())
+		val file = MemoryFile()
+		val store = paired(file)
 		val fromOldPhone = listOf(machine("b").copy(token = "secret-new", tokenSealed = "theirs", tokenIv = "theirs"), machine("c").copy(token = "secret-c"))
 		val merged = store.addImported(fromOldPhone)
 		assertEquals(1 to 1, merged.added to merged.replaced)
@@ -325,9 +285,9 @@ class MachineStoreTest {
 
 	@Test
 	fun anImportTheKeyStoreCantSealChangesNothing() {
-		val file = MemoryFile(before)
+		val file = MemoryFile()
 		val cipher = FakeCipher()
-		val store = MachineStore(file, cipher)
+		val store = paired(file, cipher)
 		val writes = file.writes.size
 		val list = store.machines.value
 		cipher.sealing = false
@@ -396,7 +356,7 @@ class MachineStoreTest {
 	@Test
 	fun tokensSealedUnboundAreBoundOnLoadInOneWrite() {
 		val cipher = FakeCipher()
-		// As a build of 0.5 in the making left them: sealed, but not bound to their computer.
+		// Sealed, but not bound to their computer.
 		fun unbound(id: String, token: String): Machine {
 			val s = cipher.seal(token.toByteArray(), null)
 			val b64 = java.util.Base64.getEncoder()
@@ -404,6 +364,10 @@ class MachineStoreTest {
 		}
 		val list = listOf(unbound("a", "secret-a"), unbound("b", "secret-b"))
 		val file = MemoryFile(ProtocolJson.encodeToString(list))
+		// The app stopped before the write: the list is as it was, to bind next time.
+		file.dies = true
+		assertFailsWith<IllegalStateException> { MachineStore(file, FakeCipher(cipher.keys)) }
+		assertEquals(ProtocolJson.encodeToString(list), file.json)
 		val store = MachineStore(file, FakeCipher(cipher.keys))
 		assertEquals(1, file.writes.size)
 		assertTrue(store.machines.value.all { it.tokenBound })
@@ -414,7 +378,7 @@ class MachineStoreTest {
 		assertEquals(1, file.writes.size)
 		assertEquals("secret-a", again.token(again.get("a")!!))
 		assertEquals("secret-b", again.token(again.get("b")!!))
-		// Before the key store worked again, the token was still read unbound, and kept as it was.
+		// While the key store can't seal, the token is read unbound, and kept as it was.
 		val broken = FakeCipher(cipher.keys).apply { sealing = false }
 		val waiting = MachineStore(MemoryFile(ProtocolJson.encodeToString(list)), broken)
 		assertFalse(waiting.get("a")!!.tokenBound)
@@ -436,19 +400,19 @@ class MachineStoreTest {
 
 	@Test
 	fun newTokensAreOnDiskBeforeGoingOn() {
-		val file = MemoryFile(before)
-		val store = MachineStore(file, FakeCipher())
-		assertTrue(file.durable.isEmpty())
-		store.put(machine("c"), "secret-c")
-		assertEquals(1, file.durable.size)
-		store.addImported(listOf(machine("d").copy(token = "secret-new")))
+		val file = MemoryFile()
+		val store = paired(file)
 		assertEquals(2, file.durable.size)
-		assertTrue(store.ownToken(store.get("d")!!, "secret-own", "0123abcd", "admin"))
+		store.put(machine("c"), "secret-c")
 		assertEquals(3, file.durable.size)
+		store.addImported(listOf(machine("d").copy(token = "secret-new")))
+		assertEquals(4, file.durable.size)
+		assertTrue(store.ownToken(store.get("d")!!, "secret-own", "0123abcd", "admin"))
+		assertEquals(5, file.durable.size)
 		// What can be written again if lost needn't wait.
 		store.update("a") { it.copy(lastHost = "laptop.lan") }
 		store.remove("b")
-		assertEquals(3, file.durable.size)
+		assertEquals(5, file.durable.size)
 		assertEquals(file.writes.last(), file.json)
 	}
 }

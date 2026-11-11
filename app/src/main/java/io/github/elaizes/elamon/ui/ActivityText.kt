@@ -33,7 +33,7 @@ private val REFUSED = mapOf(
 	"too_many_requests" to R.string.log_too_often,
 	"not_permitted" to R.string.log_system_refused,
 	"protected_process" to R.string.log_system_refused,
-	// A key of its own asked for (elamond 0.5): past the phones the computer takes, or the token gave one already.
+	// A key of its own asked for: past the phones the computer takes, or the token gave one already.
 	"too_many_phones" to R.string.log_too_many_phones,
 	"rekey_refused" to R.string.log_key_refused,
 )
@@ -46,7 +46,6 @@ private val FAILED = mapOf(
 	"no_such_process" to R.string.log_gone,
 	"no_such_action" to R.string.log_gone,
 	"no_such_link" to R.string.log_gone,
-	"no_such_service" to R.string.log_gone,
 	"no_art" to R.string.log_gone,
 	"unknown_signal" to R.string.log_invalid,
 	"empty_command" to R.string.log_invalid,

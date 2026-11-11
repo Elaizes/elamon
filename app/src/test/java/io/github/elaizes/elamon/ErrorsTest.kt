@@ -26,7 +26,7 @@ class ErrorsTest {
 		assertEquals(Kind.NotPermitted, answer(403, "protected_process").kind)
 		assertEquals(Kind.WrongCode, answer(403, "wrong_code").kind)
 		assertEquals(Kind.NoPairing, answer(403, "no_pairing").kind)
-		// elamond 0.5 asks at the computer, which said no or nothing.
+		// elamond asks at the computer, which said no or nothing.
 		assertEquals(Kind.PairDeclined, answer(403, "pair_declined").kind)
 		assertEquals(Kind.Forbidden, answer(403, "something_new").kind)
 		assertEquals(Kind.NotAllowed, answer(403, "not_allowed").kind)
@@ -35,7 +35,7 @@ class ErrorsTest {
 		assertEquals(Kind.TooManyRequests, answer(429, "too_many_requests").kind)
 		assertEquals(Kind.TooManyRequests, ElamondException.fromResponse(429, "").kind)
 		assertEquals(Kind.Conflict, answer(409, "process_changed").kind)
-		for (code in listOf("not_found", "no_such_process", "no_such_action", "no_such_link", "no_such_service", "no_art")) {
+		for (code in listOf("not_found", "no_such_process", "no_such_action", "no_such_link", "no_art")) {
 			assertEquals(Kind.NotFound, answer(404, code).kind, code)
 		}
 		for (code in listOf("unknown_signal", "empty_command", "no_unit", "bad_name", "bad_url", "bad_unit", "bad_scope")) {
@@ -89,8 +89,6 @@ class ErrorsTest {
 			assertEquals(Message.Res(id), messageFor(answer(sent.first, sent.second)), sent.second)
 		}
 		assertEquals(expected.values.size, expected.values.toSet().size, "two codes share their words")
-		// The old name of no_such_link, which elamond before 0.5 answers with.
-		assertEquals(Message.Res(R.string.err_no_such_link), messageFor(answer(404, "no_such_service")))
 	}
 
 	@Test
@@ -131,7 +129,7 @@ class ErrorsTest {
 		assertEquals(Message.Res(R.string.err_code, listOf("rate_limited")), messageFor(answer(403, "rate_limited")))
 		assertEquals(Message.Res(R.string.err_code, listOf("too_long")), messageFor(answer(400, "too_long")))
 		assertEquals(Message.Res(R.string.err_refused), messageFor(ElamondException.fromResponse(403, "")))
-		// Statuses 0.5 brought in, from a service that gives no code or a newer one.
+		// Statuses with no code, or a code from a newer service.
 		assertEquals(Message.Res(R.string.err_too_many_requests), messageFor(ElamondException.fromResponse(429, "")))
 		assertEquals(Message.Res(R.string.err_code, listOf("pid_reused")), messageFor(answer(409, "pid_reused")))
 	}

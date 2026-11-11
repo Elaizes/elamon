@@ -64,7 +64,7 @@ class NamesReachTest {
 								val path = reader.readLine()?.split(' ')?.getOrNull(1).orEmpty()
 								while (!reader.readLine().isNullOrEmpty()) { /* the headers */ }
 								val body = when (path) {
-									"/api/v1/hello" -> """{"app":"elamon","api":1,"id":"$id","name":"Computer $id","version":"0.5.0","min_app":"0.3.0"}"""
+									"/api/v1/hello" -> """{"app":"elamon","api":1,"id":"$id","name":"Computer $id","version":"0.5.0","min_app":"0.5.0"}"""
 									Rotations.PATH -> "[]"
 									else -> """{"error":"not_found"}"""
 								}

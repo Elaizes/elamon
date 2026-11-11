@@ -46,6 +46,7 @@ import io.github.elaizes.elamon.data.Sample
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.OwnKeys
 import io.github.elaizes.elamon.data.LinkDef
+import io.github.elaizes.elamon.data.LINKS_PATH
 import io.github.elaizes.elamon.data.StreamMessage
 import io.github.elaizes.elamon.data.UnitInfo
 import io.github.elaizes.elamon.data.reachPaired
@@ -414,7 +415,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		}
 	}
 
-	/** This phone's id in the computer's list of paired phones, for the commands that change its role; unknown for older pairings. */
+	/** This phone's id in the computer's list of paired phones, for the commands that change its role; null while it isn't known. */
 	val clientId: String? get() = store.get(machineId)?.clientId
 
 	fun dismissCompat() {
@@ -607,8 +608,8 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		} catch (e: CancellationException) {
 			throw e
 		} catch (e: ElamondException) {
-			// Covers needed control before 0.5, and need the role since: either changed since the panel was read.
-			if (e.code == "control_disabled" || e.notAllowed) refreshControl()
+			// Covers need the role: refused, it changed since the panel was read.
+			if (e.notAllowed) refreshControl()
 			return null
 		} catch (e: Exception) {
 			return null
@@ -617,10 +618,10 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	}
 
 	fun saveLink(def: LinkDef) = act(done = R.string.done_saved) {
-		it.onLinks { path -> post<LinkDef, LinkDef>(path, def) }
+		it.post<LinkDef, LinkDef>(LINKS_PATH, def)
 	}
 
-	fun deleteLink(id: String) = act(done = R.string.done_removed) { it.onLinks("/$id") { path -> delete(path) } }
+	fun deleteLink(id: String) = act(done = R.string.done_removed) { it.delete("$LINKS_PATH/$id") }
 
 	fun unit(linkId: String, op: String) = act(
 		done = when (op) {
@@ -628,9 +629,9 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 			"stop" -> R.string.done_stopped
 			else -> R.string.done_restarted
 		},
-	) { it.onLinks("/$linkId/unit") { path -> post<UnitReq, Ok>(path, UnitReq(op)) } }
+	) { it.post<UnitReq, Ok>("$LINKS_PATH/$linkId/unit", UnitReq(op)) }
 
-	suspend fun detected(): List<Listener> = quietly { it.onLinks("/detected") { path -> get<List<Listener>>(path) } }.orEmpty()
+	suspend fun detected(): List<Listener> = quietly { it.get<List<Listener>>("$LINKS_PATH/detected") }.orEmpty()
 
 	suspend fun units(scope: String): List<UnitInfo> = quietly { it.get<List<UnitInfo>>("/api/v1/units?scope=$scope") }.orEmpty()
 

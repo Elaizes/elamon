@@ -17,14 +17,13 @@ import kotlinx.coroutines.withContext
  * token sealed with this phone's key and clears the mark; the old phone keeps working until it is
  * revoked on its own.
  *
- * A service that doesn't know the request (elamond before 0.5) answers 404 `not_found`: the token
- * stays shared, and the mark with it, and that computer isn't asked again until the app runs again;
- * so too when it takes no more phones (403 `too_many_phones`) or this token gave its one key of its
- * own already (403 `rekey_refused`). Any other failure is asked again at a later connection,
+ * When the computer takes no more phones (403 `too_many_phones`) or this token gave its one key of its
+ * own already (403 `rekey_refused`), the token stays shared, and the mark with it, and that computer
+ * isn't asked again until the app runs again. Any other failure is asked again at a later connection,
  * [Limits.OWN_KEY_RETRY_MS] after it at the soonest. [now] is the clock for that, in milliseconds.
  */
 class OwnKeys(private val store: MachineStore, private val now: () -> Long = System::currentTimeMillis) {
-	/** Computers not asked again this run: their service is too old, or this phone couldn't keep the key it got. */
+	/** Computers not asked again this run: they refused for good, or this phone couldn't keep the key it got. */
 	private val notThisRun: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
 	/** When asking each computer last failed otherwise. */
@@ -58,9 +57,9 @@ class OwnKeys(private val store: MachineStore, private val now: () -> Long = Sys
 		} catch (e: CancellationException) {
 			throw e
 		} catch (e: Exception) {
-			// Not asked again this run where asking again gets the same answer: a service that doesn't know the
-			// request, or one that takes no more phones or gives this token no other key (elamond 0.5).
-			val final = (e as? ElamondException)?.let { it.unknownPath || it.code in FINAL_REFUSALS } == true
+			// Not asked again this run where asking again gets the same answer: a computer that takes no more
+			// phones, or gives this token no other key.
+			val final = (e as? ElamondException)?.code in FINAL_REFUSALS
 			if (final) notThisRun += machine.id else failedAt[machine.id] = now()
 			return null
 		}

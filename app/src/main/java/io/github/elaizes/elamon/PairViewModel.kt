@@ -46,7 +46,7 @@ data class PairState(
 	val step: PairStep = PairStep.Connecting,
 	/** The request for a token is out. */
 	val busy: Boolean = false,
-	/** It has been out a while: the computer is asking whether to allow this phone (elamond 0.5 and later). */
+	/** It has been out a while: the computer is asking whether to allow this phone. */
 	val confirmOnComputer: Boolean = false,
 	@StringRes val codeError: Int? = null,
 	/** Pairing would forget this computer, paired here with another certificate: asked first, with both. */
@@ -135,7 +135,7 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 		_state.update { it.copy(busy = true, confirmOnComputer = false, codeError = null, replacing = null) }
 		val device = deviceName(app)
 		pairingScope.launch {
-			// elamond 0.5 holds the answer until the computer allows the phone: said after a moment.
+			// elamond holds the answer until the computer allows the phone: said after a moment.
 			val slow = launch {
 				delay(Limits.PAIR_APPROVAL_HINT_MS)
 				_state.update { if (it.busy) it.copy(confirmOnComputer = true) else it }

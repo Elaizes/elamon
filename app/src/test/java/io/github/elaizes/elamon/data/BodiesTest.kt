@@ -115,7 +115,7 @@ class BodiesTest {
 		assertEquals("application/json", h["Accept"])
 		assertFalse("Authorization" in h)
 		assertEquals("Bearer t0ken", requestHeaders("t0ken").toMap()["Authorization"])
-		// Nothing of the phone: Android's own service names its model and build.
+		// Nothing of the phone: Android's own User-Agent names its model and build.
 		for (word in listOf("Android", "Dalvik", "Linux", "Build")) assertFalse(word in USER_AGENT, word)
 	}
 }

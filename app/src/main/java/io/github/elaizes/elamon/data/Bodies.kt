@@ -5,7 +5,7 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 
 /**
- * What the app says it is to the service, and nothing more: Android's own user agent names the
+ * What the app says it is to the service, and nothing more: Android's own User-Agent names the
  * phone's model and build.
  */
 val USER_AGENT = "Elamon/${BuildConfig.VERSION_NAME}"
