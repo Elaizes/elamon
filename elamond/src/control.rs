@@ -629,16 +629,24 @@ fn run(argv: &[&str]) -> Option<String> {
 /// the command has ended, so it has to fit in a pipe (64 KiB on Linux).
 pub fn run_within(argv: &[&str], limit: Duration) -> Option<String> {
 	use std::os::unix::process::CommandExt;
-	let mut child = std::process::Command::new(argv[0])
-		.args(&argv[1..])
-		// pactl translates its answers.
-		.env("LC_ALL", "C")
-		.stdin(Stdio::null())
-		.stdout(Stdio::piped())
-		.stderr(Stdio::null())
-		.process_group(0)
-		.spawn()
-		.ok()?;
+	let spawn = |program: &std::path::Path| {
+		std::process::Command::new(program)
+			.args(&argv[1..])
+			// pactl translates its answers.
+			.env("LC_ALL", "C")
+			.stdin(Stdio::null())
+			.stdout(Stdio::piped())
+			.stderr(Stdio::null())
+			.process_group(0)
+			.spawn()
+	};
+	let mut child = match spawn(std::path::Path::new(argv[0])) {
+		Ok(c) => c,
+		// Not on the service's PATH, which a unit may keep short (NixOS's user units): where
+		// programs live anyway.
+		Err(e) if e.kind() == std::io::ErrorKind::NotFound && !argv[0].contains('/') => spawn(&locate(argv[0], &program_dirs())?).ok()?,
+		Err(_) => return None,
+	};
 	let deadline = Instant::now() + limit;
 	let status = loop {
 		match child.try_wait() {
@@ -654,6 +662,25 @@ pub fn run_within(argv: &[&str], limit: Duration) -> Option<String> {
 	let mut out = String::new();
 	child.stdout.take()?.read_to_string(&mut out).ok()?;
 	status.success().then_some(out)
+}
+
+/// Where programs live whether or not the service's PATH says so: the setuid wrappers and the
+/// profiles of NixOS (the user's, the system's, Nix's), then the usual places.
+fn program_dirs() -> Vec<std::path::PathBuf> {
+	let mut dirs = vec![std::path::PathBuf::from("/run/wrappers/bin")];
+	if let Some(home) = std::env::var_os("HOME") {
+		dirs.push(std::path::Path::new(&home).join(".nix-profile/bin"));
+	}
+	if let Some(user) = std::env::var_os("USER").or_else(|| std::env::var_os("LOGNAME")) {
+		dirs.push(std::path::Path::new("/etc/profiles/per-user").join(user).join("bin"));
+	}
+	dirs.extend(["/nix/var/nix/profiles/default/bin", "/run/current-system/sw/bin", "/usr/local/bin", "/usr/bin", "/bin"].map(Into::into));
+	dirs
+}
+
+/// The program `name` in the first of `dirs` that has it.
+fn locate(name: &str, dirs: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
+	dirs.iter().map(|d| d.join(name)).find(|p| p.is_file())
 }
 
 // ---- links -----------------------------------------------------------------------------
@@ -890,6 +917,23 @@ mod tests {
 		short.push("a ✓".as_bytes());
 		short.push(b"\nb");
 		assert_eq!(short.text(), "a ✓\nb");
+	}
+
+	#[test]
+	fn programs_off_the_path_are_found_where_they_live() {
+		let dir = std::env::temp_dir().join(format!("elamond-bin-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
+		std::fs::create_dir_all(dir.join("b")).unwrap();
+		std::fs::write(dir.join("b/wpctl"), "").unwrap();
+		std::fs::create_dir_all(dir.join("a/wpctl")).unwrap();
+		let dirs = [dir.join("missing"), dir.join("a"), dir.join("b")];
+		// The first that has it as a file, not a folder of that name.
+		assert_eq!(locate("wpctl", &dirs), Some(dir.join("b/wpctl")));
+		assert_eq!(locate("pactl", &dirs), None);
+		assert!(program_dirs().contains(&"/run/wrappers/bin".into()) && program_dirs().contains(&"/run/current-system/sw/bin".into()));
+		// What is on the PATH runs as it is; a path that isn't there isn't looked for elsewhere.
+		assert_eq!(run_within(&["echo", "hi"], Duration::from_secs(5)).as_deref(), Some("hi\n"));
+		assert_eq!(run_within(&["/nonexistent/echo", "hi"], Duration::from_secs(5)), None);
+		std::fs::remove_dir_all(dir).unwrap();
 	}
 
 	#[test]
