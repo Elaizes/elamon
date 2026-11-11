@@ -2,10 +2,8 @@ package io.github.elaizes.elamon.ui
 
 import android.app.KeyguardManager
 import android.content.Context
+import android.os.Build
 import android.os.SystemClock
-import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
-import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
-import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -31,6 +29,7 @@ import io.github.elaizes.elamon.Guarded
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.Settings
 import io.github.elaizes.elamon.UnlockMemory
+import io.github.elaizes.elamon.authenticators
 import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.gate
 
@@ -70,11 +69,12 @@ private object Unlocked {
 }
 
 /**
- * Any fingerprint or face the phone trusts, or its PIN, pattern or password. The one combination
- * with the screen lock that AndroidX Biometric takes on every version: the screen lock alone needs
- * Android 11, and only strong biometrics with it doesn't work on 9 and 10.
+ * The screen went off, or the app to the background: whatever the last unlock covered, the next
+ * action asks again. A phone left unlocked in a pocket or handed over doesn't carry a grace along.
  */
-private const val AUTHENTICATORS = BIOMETRIC_STRONG or BIOMETRIC_WEAK or DEVICE_CREDENTIAL
+fun forgetUnlock() {
+	Unlocked.memory = Unlocked.memory.forgotten()
+}
 
 /** Whether the phone has a screen lock, without which it can't be unlocked for anything. */
 fun hasScreenLock(context: Context): Boolean = context.getSystemService(KeyguardManager::class.java)?.isDeviceSecure == true
@@ -89,8 +89,10 @@ class Guard(private val activity: FragmentActivity, val state: GuardState) {
 		ContextCompat.getMainExecutor(activity),
 		object : BiometricPrompt.AuthenticationCallback() {
 			override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-				Unlocked.memory = Unlocked.memory.copy(unlockedAt = SystemClock.elapsedRealtime())
-				take()?.run()
+				val p = take() ?: return
+				// The grace that follows covers this kind and those below it.
+				Unlocked.memory = Unlocked.memory.unlocked(p.ask.kind, SystemClock.elapsedRealtime())
+				p.run()
 			}
 
 			// A finger or face not recognised: the prompt stays, for another try.
@@ -147,7 +149,7 @@ class Guard(private val activity: FragmentActivity, val state: GuardState) {
 		val info = BiometricPrompt.PromptInfo.Builder()
 			.setTitle(p.ask.prompt)
 			.setDescription(p.ask.body)
-			.setAllowedAuthenticators(AUTHENTICATORS)
+			.setAllowedAuthenticators(authenticators(Build.VERSION.SDK_INT))
 			.build()
 		try {
 			prompt.authenticate(info)

@@ -1,6 +1,9 @@
 package io.github.elaizes.elamon
 
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -23,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toDrawable
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
@@ -45,6 +49,7 @@ import io.github.elaizes.elamon.ui.Motion
 import io.github.elaizes.elamon.ui.PairScreen
 import io.github.elaizes.elamon.ui.SettingsScreen
 import io.github.elaizes.elamon.ui.appColorScheme
+import io.github.elaizes.elamon.ui.forgetUnlock
 import io.github.elaizes.elamon.ui.isDark
 
 sealed interface Screen {
@@ -209,6 +214,25 @@ class MainActivity : FragmentActivity() {
 	override fun onNewIntent(intent: Intent) {
 		super.onNewIntent(intent)
 		handle(intent)
+	}
+
+	/** The screen going off ends any grace an unlock left, even while the app stays in front. */
+	private val screenOff = object : BroadcastReceiver() {
+		override fun onReceive(context: Context, intent: Intent) {
+			if (intent.action == Intent.ACTION_SCREEN_OFF) forgetUnlock()
+		}
+	}
+
+	override fun onStart() {
+		super.onStart()
+		ContextCompat.registerReceiver(this, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
+	}
+
+	override fun onStop() {
+		super.onStop()
+		unregisterReceiver(screenOff)
+		// To the background (or the screen off): the next action asks again. A rotation isn't leaving.
+		if (!isChangingConfigurations) forgetUnlock()
 	}
 
 	/**

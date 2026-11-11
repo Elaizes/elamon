@@ -49,6 +49,7 @@ import dev.chrisbanes.haze.hazeSource
 import io.github.elaizes.elamon.BuildConfig
 import io.github.elaizes.elamon.Guarded
 import io.github.elaizes.elamon.Intervals
+import io.github.elaizes.elamon.Prefs
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.Settings
 import io.github.elaizes.elamon.TransferViewModel
@@ -56,6 +57,7 @@ import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.ThemeMode
 import io.github.elaizes.elamon.UnlockGrace
+import io.github.elaizes.elamon.asksLess
 
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
@@ -70,6 +72,16 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 	val machines by MachineStore.get(ctx).machines.collectAsStateWithLifecycle()
 	val transfer: TransferViewModel = viewModel()
 	var askExport by remember { mutableStateOf(false) }
+	val guard = LocalGuard.current
+	val res = resources()
+	/**
+	 * Asking less (a kind no longer asked for, a longer grace) outlasts any grace, so it asks to
+	 * unlock every time, as exporting does; asking more is free.
+	 */
+	fun change(prompt: String, question: String, button: String, edit: (Prefs) -> Prefs) {
+		if (!asksLess(settings.current, edit(settings.current))) return settings.update(edit)
+		guard.run(Ask(Guarded.Transfer, prompt, question, button, icon = ElIcons.Lock)) { settings.update(edit) }
+	}
 	// Here, not in the list's rows: a row scrolled away would take the picker's answer with it.
 	val saveFile = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(PAIRINGS_MIME)) { transfer.exportTo(it) }
 	val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { transfer.importFrom(it) }
@@ -161,16 +173,29 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 					ListGroup {
 						Guarded.entries.forEachIndexed { i, kind ->
 							if (i > 0) GroupDivider()
-							SwitchRow(stringResource(kind.title()), stringResource(kind.summary()), kind in p.unlockFor) { v ->
-								settings.update { it.copy(unlockFor = if (v) it.unlockFor + kind else it.unlockFor - kind) }
+							// A fixed kind shows as on, and can't be switched off.
+							SwitchRow(stringResource(kind.title()), stringResource(kind.summary()), kind.fixed || kind in p.unlockFor, enabled = !kind.fixed) { v ->
+								val title = res.getString(kind.title())
+								change(
+									res.getString(R.string.unlock_stop_asking, title),
+									res.getString(R.string.settings_stop_asking_title, title),
+									res.getString(R.string.settings_stop_asking),
+								) { it.copy(unlockFor = if (v) it.unlockFor + kind else it.unlockFor - kind) }
 							}
 						}
 						GroupDivider()
+						val graceLabel = { g: UnlockGrace -> if (g == UnlockGrace.EveryTime) res.getString(R.string.settings_unlock_every_time) else res.getString(R.string.duration_minutes, g.minutes) }
 						Choice(
 							stringResource(R.string.settings_unlock_grace),
-							UnlockGrace.entries.map { it to if (it == UnlockGrace.EveryTime) stringResource(R.string.settings_unlock_every_time) else stringResource(R.string.duration_minutes, it.minutes) },
+							UnlockGrace.entries.map { it to graceLabel(it) },
 							p.unlockGrace,
-						) { v -> settings.update { it.copy(unlockGrace = v) } }
+						) { v ->
+							change(
+								res.getString(R.string.unlock_grace, graceLabel(v)),
+								res.getString(R.string.settings_grace_title, graceLabel(v)),
+								res.getString(R.string.settings_grace_change),
+							) { it.copy(unlockGrace = v) }
+						}
 					}
 				}
 
@@ -181,12 +206,20 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 							stringResource(R.string.settings_export),
 							stringResource(if (machines.isEmpty()) R.string.settings_export_none else R.string.settings_export_summary),
 							enabled = machines.isNotEmpty(),
-							onClick = { askExport = true },
+							onClick = {
+								// Every computer's key leaves the phone: unlocking it first, every time.
+								val ask = Ask(Guarded.Transfer, res.getString(R.string.settings_export), res.getString(R.string.transfer_export_question), res.getString(R.string.control_continue))
+								guard.run(ask) { askExport = true }
+							},
 						)
 						GroupDivider()
 						ListRow(stringResource(R.string.settings_import), stringResource(R.string.settings_import_summary), onClick = {
-							// Any type: a file copied over may have lost its own on the way.
-							runCatching { openFile.launch(arrayOf("*/*")) }.onFailure { transfer.failed(R.string.transfer_no_picker, export = false) }
+							// Computers from a file may take the place of those here: as for exporting.
+							val ask = Ask(Guarded.Transfer, res.getString(R.string.settings_import), res.getString(R.string.transfer_import_question), res.getString(R.string.control_continue))
+							guard.run(ask) {
+								// Any type: a file copied over may have lost its own on the way.
+								runCatching { openFile.launch(arrayOf("*/*")) }.onFailure { transfer.failed(R.string.transfer_no_picker, export = false) }
+							}
 						})
 					}
 				}
@@ -325,10 +358,12 @@ private fun Guarded.title(): Int = when (this) {
 	Guarded.Units -> R.string.settings_unlock_units
 	Guarded.Profile -> R.string.settings_unlock_profile
 	Guarded.Media -> R.string.settings_unlock_media
+	Guarded.Transfer -> R.string.settings_unlock_transfer
 }
 
 @StringRes
 private fun Guarded.summary(): Int = when (this) {
+	Guarded.Transfer -> R.string.settings_unlock_transfer_summary
 	Guarded.Power -> R.string.settings_unlock_power_summary
 	Guarded.Processes -> R.string.settings_unlock_processes_summary
 	Guarded.Actions -> R.string.settings_unlock_actions_summary

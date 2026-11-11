@@ -538,6 +538,16 @@
 	<string name="settings_unlock_profile_summary">Switching to another profile</string>
 	<string name="settings_unlock_media">Media and volume</string>
 	<string name="settings_unlock_media_summary">Playing, skipping, seeking and the volume</string>
+	<string name="settings_unlock_transfer">Pairings and these settings</string>
+	<string name="settings_unlock_transfer_summary">Export, import, and asking less here: always, every time</string>
+	<!-- Asking less is asked for itself: the unlock prompt's title, then the confirmation's. -->
+	<string name="unlock_stop_asking">Stop asking to unlock for “%1$s”</string>
+	<string name="settings_stop_asking_title">Stop asking to unlock for “%1$s”?</string>
+	<string name="settings_stop_asking">Stop asking</string>
+	<!-- "5 min" -->
+	<string name="unlock_grace">Ask again only after %1$s</string>
+	<string name="settings_grace_title">Ask again only after %1$s?</string>
+	<string name="settings_grace_change">Change</string>
 	<string name="settings_unlock_grace">Ask again after</string>
 	<string name="settings_unlock_every_time">Every time</string>
 	<string name="settings_unlock_no_lock">This phone has no screen lock, so these actions are confirmed instead. Set one in the phone\'s settings to be asked to unlock.</string>
@@ -558,6 +568,8 @@
 	<string name="settings_export_none">No computers are paired yet</string>
 	<string name="settings_import">Import pairings</string>
 	<string name="settings_import_summary">Add the computers from a file another phone exported</string>
+	<string name="transfer_export_question">Export every pairing to a file?</string>
+	<string name="transfer_import_question">Import pairings from a file?</string>
 	<string name="transfer_passphrase">Passphrase</string>
 	<string name="transfer_passphrase_again">The same again</string>
 	<!-- The eye beside a passphrase field, a toggle: on shows what is typed. -->

@@ -103,7 +103,7 @@ class Settings private constructor(context: Context) {
 			fahrenheit = prefs.getBoolean("fahrenheit", d.fahrenheit),
 			networkBits = prefs.getBoolean("network_bits", d.networkBits),
 			confirmActions = prefs.getBoolean("confirm_actions", d.confirmActions),
-			unlockFor = Guarded.entries.filter { prefs.getBoolean(UNLOCK + it.key, it.byDefault) }.toSet(),
+			unlockFor = Guarded.entries.filter { it.fixed || prefs.getBoolean(UNLOCK + it.key, it.byDefault) }.toSet(),
 			unlockGrace = runCatching { UnlockGrace.valueOf(prefs.getString(UNLOCK_GRACE, d.unlockGrace.name)!!) }.getOrDefault(d.unlockGrace),
 			haptics = prefs.getBoolean("haptics", d.haptics),
 		)
