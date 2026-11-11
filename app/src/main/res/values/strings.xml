@@ -596,6 +596,9 @@
 		<item quantity="other">At least %1$d characters; a few words are best</item>
 	</plurals>
 	<string name="transfer_differ">The two differ</string>
+	<string name="transfer_weak">Too easy to guess: not one character or a few over and over, a run like 123456 or qwerty, or a common password. Generate makes one of six random words.</string>
+	<string name="transfer_generate">Generate</string>
+	<string name="transfer_generated_note">Write these words down: the new phone asks for them, and nothing can recover them.</string>
 	<string name="transfer_export_text">The file holds every paired computer with this phone\'s key to it, encrypted with the passphrase you choose here. The new phone needs it to import the file; nothing can recover it if it is lost.</string>
 	<string name="transfer_export_again">The app was closed while the file was chosen. Enter the passphrase again to write it.</string>
 	<string name="transfer_choose_file">Choose where to save</string>
@@ -616,6 +619,16 @@
 	</plurals>
 	<string name="transfer_imported_title">Pairings imported</string>
 	<string name="transfer_imported">New computers: %1$d. Already here and replaced: %2$d.</string>
+	<string name="transfer_imported_kept">Kept as they were on this phone: %1$d.</string>
+	<!-- A computer in the file differs from the one here with its id. -->
+	<string name="transfer_conflict_title">Replace %1$s?</string>
+	<string name="transfer_conflict_count">%1$d of %2$d</string>
+	<string name="transfer_conflict_certificate">The file has this computer with another certificate. Replacing it forgets this phone\'s pairing with it: keep this phone\'s unless the computer was reinstalled since.</string>
+	<string name="transfer_conflict_hosts">The file has this computer at other addresses. Replacing it reaches it there instead.</string>
+	<string name="transfer_conflict_here">On this phone</string>
+	<string name="transfer_conflict_file">In the file</string>
+	<string name="transfer_conflict_replace">Replace</string>
+	<string name="transfer_conflict_keep">Keep this phone\'s</string>
 	<string name="transfer_imported_note">Each computer gives this phone a key of its own, with the same role, the next time the app reaches it. From then on elamond clients lists both phones, and the old one can be revoked on its own. A computer whose service is older than 0.5 can\'t, and keeps seeing the two as one. Help, under Troubleshooting, says more.</string>
 	<string name="transfer_nothing_to_export">This phone can no longer open any of its pairings, so there is nothing to export.</string>
 	<string name="transfer_write_failed">The file couldn\'t be written. Nothing was exported.</string>

@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
+import androidx.compose.ui.window.SecureFlagPolicy
 import dev.chrisbanes.haze.HazeProgressive
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -375,6 +376,8 @@ fun GlassDialog(
 	icon: ImageVector? = null,
 	confirm: @Composable () -> Unit,
 	dismiss: (@Composable () -> Unit)? = null,
+	/** Kept out of screenshots, screen recordings and the recent apps (FLAG_SECURE), for what is typed in it. */
+	secure: Boolean = false,
 ) {
 	AlertDialog(
 		onDismissRequest = onDismiss,
@@ -390,6 +393,6 @@ fun GlassDialog(
 		shape = DialogShape,
 		// Laid out within the window's insets, so the keyboard shrinks the dialog instead of covering its buttons.
 		modifier = Modifier.imePadding(),
-		properties = DialogProperties(decorFitsSystemWindows = false),
+		properties = DialogProperties(decorFitsSystemWindows = false, securePolicy = if (secure) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit),
 	)
 }

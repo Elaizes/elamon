@@ -6,17 +6,25 @@ import android.provider.DocumentsContract
 import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.elaizes.elamon.data.ImportConflict
 import io.github.elaizes.elamon.data.KeystoreException
+import io.github.elaizes.elamon.data.Machine
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.PairingsFile
+import io.github.elaizes.elamon.data.importConflicts
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.time.LocalDate
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -30,12 +38,19 @@ sealed interface Transfer {
 	/** A file of pairings was read; its passphrase is next. [wrong] after one that didn't open it. */
 	data class ImportNeedsPassphrase(val wrong: Boolean = false) : Transfer
 
-	/** Making the key and sealing or opening: a second or two. */
-	data class Working(val export: Boolean) : Transfer
+	/** Making the key and sealing or opening (a second or two, which [cancellable] lets the person give up on), or saving. */
+	data class Working(val export: Boolean, val cancellable: Boolean = true) : Transfer
+
+	/**
+	 * The file would put [conflict]'s computer in place of the one here, which differs from it:
+	 * replace it, or keep this phone's? The [index]th such of [count], from 0.
+	 */
+	data class ImportConflictAsked(val conflict: ImportConflict, val index: Int, val count: Int) : Transfer
 
 	data class Exported(val count: Int, val leftOut: Int) : Transfer
 
-	data class Imported(val added: Int, val replaced: Int) : Transfer
+	/** [kept]: computers the file had that were left as they are here, as the person chose. */
+	data class Imported(val added: Int, val replaced: Int, val kept: Int = 0) : Transfer
 
 	/** [export] or an import failed: [message] says why. */
 	data class Failed(@StringRes val message: Int, val export: Boolean) : Transfer
@@ -59,6 +74,16 @@ class TransferViewModel(app: Application) : AndroidViewModel(app) {
 	/** The file being imported, read whole and still sealed, while its passphrase is asked. */
 	private var importBytes: ByteArray? = null
 
+	/** The file's computers, opened, with their tokens, while the person is asked about those that differ from the ones here. */
+	private var opened: List<Machine>? = null
+	private var conflicts: List<ImportConflict> = emptyList()
+
+	/** Of [conflicts], the ids of the computers left as they are here. */
+	private val kept = mutableSetOf<String>()
+
+	/** Making the key, which the person can give up on. */
+	private var work: Job? = null
+
 	/** Keeps [passphrase] for the export about to have its file picked. */
 	fun exportPassphrase(passphrase: CharArray) {
 		exportPassphrase?.fill('\u0000')
@@ -79,25 +104,32 @@ class TransferViewModel(app: Application) : AndroidViewModel(app) {
 	/** The passphrase asked again for [uri], after the app was closed while it was picked. */
 	fun export(uri: Uri, passphrase: CharArray) {
 		_state.value = Transfer.Working(export = true)
-		viewModelScope.launch {
-			_state.value = try {
-				withContext(Dispatchers.Default) {
+		work = viewModelScope.launch {
+			try {
+				_state.value = withContext(Dispatchers.Default) {
 					val (machines, leftOut) = store.withTokens()
 					if (machines.isEmpty()) {
 						forget(uri)
 						return@withContext Transfer.Failed(R.string.transfer_nothing_to_export, export = true)
 					}
-					val bytes = PairingsFile.seal(machines, passphrase, System.currentTimeMillis(), BuildConfig.VERSION_NAME)
+					val job = coroutineContext.job
+					val bytes = PairingsFile.seal(machines, passphrase, System.currentTimeMillis(), BuildConfig.VERSION_NAME) { job.ensureActive() }
 					try {
 						withContext(Dispatchers.IO) {
 							(resolver.openOutputStream(uri, "wt") ?: throw IOException("no stream")).use { it.write(bytes) }
 						}
+					} catch (e: CancellationException) {
+						throw e
 					} catch (e: Exception) {
 						forget(uri)
 						return@withContext Transfer.Failed(R.string.transfer_write_failed, export = true)
 					}
 					Transfer.Exported(machines.size, leftOut)
 				}
+			} catch (e: CancellationException) {
+				// Given up on: the empty file the picker made goes too.
+				withContext(NonCancellable + Dispatchers.IO) { forget(uri) }
+				throw e
 			} finally {
 				passphrase.fill('\u0000')
 			}
@@ -117,7 +149,7 @@ class TransferViewModel(app: Application) : AndroidViewModel(app) {
 	/** The file picked to import, or null when picking was cancelled: read, and looked at before its passphrase is asked. */
 	fun importFrom(uri: Uri?) {
 		if (uri == null) return
-		_state.value = Transfer.Working(export = false)
+		_state.value = Transfer.Working(export = false, cancellable = false)
 		viewModelScope.launch {
 			val bytes = withContext(Dispatchers.IO) {
 				runCatching { resolver.openInputStream(uri)?.use { readAtMost(it, PairingsFile.FILE_MAX + 1) } }.getOrNull()
@@ -136,7 +168,11 @@ class TransferViewModel(app: Application) : AndroidViewModel(app) {
 		}
 	}
 
-	/** Opens the file read with [passphrase] and adds what it holds. */
+	/**
+	 * Opens the file read with [passphrase]. Computers it would put in place of ones here that
+	 * differ from them are asked about one by one ([Transfer.ImportConflictAsked]) before anything
+	 * is added; with none, it is added at once.
+	 */
 	fun importWith(passphrase: CharArray) {
 		val bytes = importBytes ?: run {
 			passphrase.fill('\u0000')
@@ -144,26 +180,61 @@ class TransferViewModel(app: Application) : AndroidViewModel(app) {
 			return
 		}
 		_state.value = Transfer.Working(export = false)
-		viewModelScope.launch {
-			_state.value = try {
+		work = viewModelScope.launch {
+			val result = try {
 				withContext(Dispatchers.Default) {
-					when (val opened = PairingsFile.open(bytes, passphrase)) {
-						is PairingsFile.Opened.Pairings -> try {
-							// On disk before it says so.
-							val merged = withContext(Dispatchers.IO) { store.addImported(opened.machines) }
-							importBytes = null
-							Transfer.Imported(merged.added, merged.replaced)
-						} catch (e: KeystoreException) {
-							Transfer.Failed(R.string.transfer_keystore, export = false)
-						} catch (e: IOException) {
-							Transfer.Failed(R.string.transfer_not_saved, export = false)
-						}
-						PairingsFile.Opened.WrongPassphrase -> Transfer.ImportNeedsPassphrase(wrong = true)
-						else -> failure(opened)
-					}
+					val job = coroutineContext.job
+					PairingsFile.open(bytes, passphrase) { job.ensureActive() }
 				}
 			} finally {
 				passphrase.fill('\u0000')
+			}
+			when (result) {
+				is PairingsFile.Opened.Pairings -> {
+					importBytes = null
+					opened = result.machines
+					conflicts = importConflicts(store.machines.value, result.machines)
+					kept.clear()
+					ask(0)
+				}
+				PairingsFile.Opened.WrongPassphrase -> _state.value = Transfer.ImportNeedsPassphrase(wrong = true)
+				else -> _state.value = failure(result)
+			}
+		}
+	}
+
+	/** The [index]th computer that differs asked about, or, past the last, the rest added. */
+	private fun ask(index: Int) {
+		if (index < conflicts.size) _state.value = Transfer.ImportConflictAsked(conflicts[index], index, conflicts.size)
+		else add()
+	}
+
+	/** The computer asked about replaced ([replace]) or kept as it is here; then the next. */
+	fun answer(replace: Boolean) {
+		val asked = _state.value as? Transfer.ImportConflictAsked ?: return
+		if (!replace) kept += asked.conflict.here.id
+		ask(asked.index + 1)
+	}
+
+	/** Adds what the file holds, but for the computers kept as they are here. Not given up on midway: it is quick. */
+	private fun add() {
+		val machines = opened?.filter { it.id !in kept } ?: return
+		opened = null
+		val keptCount = kept.size
+		if (machines.isEmpty()) {
+			_state.value = Transfer.Imported(0, 0, keptCount)
+			return
+		}
+		_state.value = Transfer.Working(export = false, cancellable = false)
+		viewModelScope.launch {
+			_state.value = try {
+				// On disk before it says so.
+				val merged = withContext(Dispatchers.IO) { store.addImported(machines) }
+				Transfer.Imported(merged.added, merged.replaced, keptCount)
+			} catch (e: KeystoreException) {
+				Transfer.Failed(R.string.transfer_keystore, export = false)
+			} catch (e: IOException) {
+				Transfer.Failed(R.string.transfer_not_saved, export = false)
 			}
 		}
 	}
@@ -183,11 +254,25 @@ class TransferViewModel(app: Application) : AndroidViewModel(app) {
 		_state.value = Transfer.Failed(message, export)
 	}
 
+	/** Making the key given up on: an export's file goes, an import's passphrase is asked again. */
+	fun cancelWork() {
+		val s = _state.value as? Transfer.Working ?: return
+		if (!s.cancellable) return
+		work?.cancel()
+		work = null
+		_state.value = if (!s.export && importBytes != null) Transfer.ImportNeedsPassphrase() else Transfer.Idle
+	}
+
 	/** Back to nothing, whatever was under way; what was held for it goes. */
 	fun dismiss() {
+		work?.cancel()
+		work = null
 		exportPassphrase?.fill('\u0000')
 		exportPassphrase = null
 		importBytes = null
+		opened = null
+		conflicts = emptyList()
+		kept.clear()
 		_state.value = Transfer.Idle
 	}
 
