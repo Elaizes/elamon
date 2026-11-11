@@ -14,7 +14,7 @@ enum class Compat {
 }
 
 /** The elamond version whose fields this app reads; older ones work with fallbacks. */
-const val MIN_ELAMOND = "0.4.0"
+const val MIN_ELAMOND = "0.5.0"
 
 object Versions {
 	/**

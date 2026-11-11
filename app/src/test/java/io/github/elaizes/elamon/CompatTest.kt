@@ -38,11 +38,13 @@ class CompatTest {
 	fun elamondTooOld() {
 		assertEquals(Compat.UpdateElamond, compatibility("0.4.0", elamondApi = 1, elamondVersion = "0.3.0", minApp = null))
 		assertEquals(Compat.UpdateElamond, compatibility("0.4.0", elamondApi = 1, elamondVersion = "0.2.1", minApp = null))
+		// 0.4 works through fallbacks, but roles, renewed certificates and keys of its own need 0.5.
+		assertEquals(Compat.UpdateElamond, compatibility("0.5.0", elamondApi = 1, elamondVersion = "0.4.0", minApp = "0.3.0"))
 	}
 
 	@Test
 	fun inStep() {
-		assertEquals(Compat.Ok, compatibility("0.4.0", elamondApi = 1, elamondVersion = "0.4.0", minApp = "0.3.0"))
-		assertEquals(Compat.Ok, compatibility("0.4.0", elamondApi = 1, elamondVersion = "0.4.2", minApp = "0.4"))
+		assertEquals(Compat.Ok, compatibility("0.5.0", elamondApi = 1, elamondVersion = "0.5.0", minApp = "0.4.0"))
+		assertEquals(Compat.Ok, compatibility("0.5.0", elamondApi = 1, elamondVersion = "0.5.2", minApp = "0.4"))
 	}
 }
