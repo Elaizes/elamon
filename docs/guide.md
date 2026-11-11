@@ -602,7 +602,8 @@ Update the app and the service together; this is a test version and they change 
 - **From source:** `git pull`, `cargo build --release` in `elamond/`, install the binary again
   and restart the service.
 
-Pairings and links added in the app survive updates.
+Pairings and links added in the app survive updates, except from 0.4 to 0.5: there each phone
+pairs again (then `elamond revoke` its old entry), and links added in the app are added again.
 
 ### Backing up the service
 
