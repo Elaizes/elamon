@@ -1,0 +1,127 @@
+{
+  "battery": {
+    "cycles": 120,
+    "energy_design": 52.5,
+    "energy_full": 50.0,
+    "energy_now": 40.0,
+    "model": "Some battery",
+    "name": "BAT0",
+    "percent": 80.0,
+    "power": 12.3,
+    "status": "discharging",
+    "time_left": 7200
+  },
+  "cpu": {
+    "cores": [
+      10.0,
+      15.0
+    ],
+    "freq": [
+      2400,
+      3100
+    ],
+    "load": [
+      0.5,
+      0.4,
+      0.3
+    ],
+    "temp": 55.5,
+    "usage": 12.5
+  },
+  "disk_io": [
+    {
+      "model": "Some SSD",
+      "name": "nvme0n1",
+      "read": 1024.5,
+      "write": 2048.5
+    }
+  ],
+  "disks": [
+    {
+      "available": 100000000000,
+      "device": "/dev/nvme0n1p2",
+      "fs": "btrfs",
+      "mount": "/",
+      "removable": false,
+      "total": 500000000000
+    }
+  ],
+  "displays": [],
+  "fans": [
+    {
+      "chip": "hp",
+      "label": "CPU",
+      "rpm": 2500
+    }
+  ],
+  "gpus": [
+    {
+      "fan": 40,
+      "freq": 1500,
+      "freq_max": 2100,
+      "id": "0000:01:00.0",
+      "mem_freq": 6000,
+      "mem_total": 4000000000,
+      "mem_used": 1000000000,
+      "power": 25.5,
+      "state": "active",
+      "temp": 61.0,
+      "usage": 33.0
+    }
+  ],
+  "links": [],
+  "memory": {
+    "available": 7000000000,
+    "swap_total": 4000000000,
+    "swap_used": 1000000,
+    "total": 16000000000,
+    "used": 8000000000
+  },
+  "net": [
+    {
+      "addrs": [
+        "192.0.2.10",
+        "2001:db8::10"
+      ],
+      "kind": "wired",
+      "name": "eno1",
+      "rx": 1500.5,
+      "rx_total": 9000000,
+      "speed": 1000,
+      "tx": 300.5,
+      "tx_total": 1000000,
+      "up": true
+    }
+  ],
+  "power": {
+    "epp": "balance_performance",
+    "governor": "powersave",
+    "on_ac": false,
+    "ppd_profile": "balanced",
+    "ppd_profiles": [
+      "power-saver",
+      "balanced",
+      "performance"
+    ],
+    "profile": "balanced",
+    "profiles": [
+      "quiet",
+      "balanced",
+      "performance"
+    ]
+  },
+  "services": [],
+  "t": 1700000000123,
+  "temps": [
+    {
+      "chip": "nvme",
+      "crit": 85.0,
+      "device": "Some SSD",
+      "high": 80.0,
+      "kind": "storage",
+      "label": "Composite",
+      "value": 41.5
+    }
+  ],
+  "uptime": 3600
+}

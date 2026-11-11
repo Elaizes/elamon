@@ -66,6 +66,16 @@ pub struct Sample {
 	pub services: Vec<crate::links::LinkStatus>,
 }
 
+impl Sample {
+	/// What a phone that only glances sees: no monitors and no links.
+	pub fn into_basic(mut self) -> Sample {
+		self.displays.clear();
+		self.links.clear();
+		self.services.clear();
+		self
+	}
+}
+
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct Cpu {
 	/// Whole CPU, 0–100.

@@ -74,5 +74,17 @@
   {
     "error": "no_unit",
     "status": 400
+  },
+  {
+    "error": "not_allowed",
+    "status": 403
+  },
+  {
+    "error": "too_many_requests",
+    "status": 429
+  },
+  {
+    "error": "process_changed",
+    "status": 409
   }
 ]

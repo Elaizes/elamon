@@ -2,10 +2,13 @@
 //!
 //! Settings:  $XDG_CONFIG_HOME/elamon/elamond.toml (optional), then elamond.d/*.toml beside it
 //!            (elamond.toml and elamond.d/ before 0.5, still read; see `settings_files`)
-//! State:     $XDG_DATA_HOME/elamon/{id, cert.der, key.der, clients.json, pairing.json}
+//! State:     $XDG_DATA_HOME/elamon/{id, cert.der, key.der, clients.json, pairing.json,
+//!            control-off.json, activity.jsonl, links.json}
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
+use std::net::IpAddr;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,6 +18,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::access::Role;
 use crate::consts::{limit, protocol, timeout};
 
 #[derive(Deserialize, Debug, Clone)]
@@ -32,6 +36,8 @@ pub struct Config {
 	/// Let paired phones act on this computer: power, profiles, units, processes,
 	/// media and the actions below. Off unless turned on here.
 	pub control: bool,
+	/// The role a phone pairs with when `elamond pair` isn't given one.
+	pub default_role: Role,
 	/// Links to web pages this computer hosts, shown in the app beside those added from the
 	/// app itself.
 	pub links: Vec<LinkConfig>,
@@ -108,6 +114,7 @@ impl Default for Config {
 			interval_ms: 1000,
 			history_minutes: 10,
 			control: false,
+			default_role: Role::Admin,
 			links: Vec::new(),
 			old_links: Vec::new(),
 			actions: Vec::new(),
@@ -409,37 +416,49 @@ pub struct Client {
 	/// SHA-256 of the client's token; the token itself is only ever on the phone.
 	pub token_hash: String,
 	pub created: u64,
+	/// What the phone may do. Phones paired before 0.5 have none in the file and are admins,
+	/// as they were.
+	#[serde(default)]
+	pub role: Role,
 }
 
-fn clients_path() -> PathBuf {
-	data_dir().join("clients.json")
-}
+const CLIENTS_FILE: &str = "clients.json";
 
 /// The paired phones; none when the file doesn't exist yet. A file that can't be read or
 /// doesn't parse is an error, never an empty list: that would unpair every phone.
 pub fn load_clients() -> io::Result<Vec<Client>> {
-	Ok(read_json(&clients_path())?.unwrap_or_default())
+	load_clients_in(&data_dir())
+}
+
+pub fn load_clients_in(dir: &Path) -> io::Result<Vec<Client>> {
+	Ok(read_json(&dir.join(CLIENTS_FILE))?.unwrap_or_default())
 }
 
 pub fn save_clients(clients: &[Client]) -> io::Result<()> {
-	write_json::<Vec<Client>>(&clients_path(), clients)
+	save_clients_in(&data_dir(), clients)
 }
 
-/// What clients.json looks like on disk, to notice that `pair` or `revoke` changed it. Every
-/// write is a new file, so its inode changes even when the clock doesn't.
-pub fn clients_stamp() -> Option<(SystemTime, u64, u64)> {
-	let m = fs::metadata(clients_path()).ok()?;
+pub fn save_clients_in(dir: &Path, clients: &[Client]) -> io::Result<()> {
+	write_json::<Vec<Client>>(&dir.join(CLIENTS_FILE), clients)
+}
+
+/// What clients.json in `dir` looks like on disk, to notice that `pair`, `revoke` or
+/// `clients role` changed it. Every write is a new file, so its inode changes even when the
+/// clock doesn't.
+pub fn clients_stamp_in(dir: &Path) -> Option<(SystemTime, u64, u64)> {
+	let m = fs::metadata(dir.join(CLIENTS_FILE)).ok()?;
 	Some((m.modified().ok()?, m.ino(), m.len()))
 }
 
-/// Adds a phone and returns its token.
-pub fn add_client(name: &str) -> io::Result<(Client, String)> {
+/// Adds a phone with `role` and returns its token.
+pub fn add_client(name: &str, role: Role) -> io::Result<(Client, String)> {
 	let token = data_encoding::BASE64URL_NOPAD.encode(&random_bytes::<{ protocol::TOKEN_BYTES }>());
 	let client = Client {
 		id: data_encoding::HEXLOWER.encode(&random_bytes::<{ protocol::CLIENT_ID_BYTES }>()),
 		name: sanitize_name(name),
 		token_hash: sha256_hex(token.as_bytes()),
 		created: now(),
+		role,
 	};
 	let mut clients = match load_clients() {
 		Ok(c) => c,
@@ -459,11 +478,28 @@ pub fn sanitize_name(name: &str) -> String {
 	if clean.is_empty() { "Phone".into() } else { clean.to_string() }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Pairing {
 	pub code: String,
 	pub expires: u64,
+	/// Wrong codes tried, from anywhere.
 	pub attempts: u32,
+	/// The role the phone that pairs with this code gets. A code from `elamond pair` before
+	/// 0.5 has none and pairs an admin, as it did.
+	#[serde(default)]
+	pub role: Role,
+	/// Wrong codes tried per address (see `address_key`).
+	#[serde(default)]
+	pub wrong: BTreeMap<String, u32>,
+}
+
+/// How one attempt at the pending code went.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Attempt {
+	Right,
+	Wrong,
+	/// The address has tried too many wrong codes; it isn't let near this one again.
+	Blocked,
 }
 
 fn pairing_path() -> PathBuf {
@@ -474,6 +510,33 @@ impl Pairing {
 	/// Still good at Unix time `now`; the service and `elamond pair` both ask this.
 	pub fn usable(&self, now: u64) -> bool {
 		now < self.expires && self.attempts < limit::PAIRING_ATTEMPTS
+	}
+
+	/// Judges an attempt with `code` from the address `from`, counting it when it's wrong. An
+	/// address that has used up its wrong attempts is refused whatever it sends, so it can't
+	/// keep guessing; the others can still pair until the code runs out altogether.
+	pub fn attempt(&mut self, from: &str, code: &str) -> Attempt {
+		if self.wrong.get(from).is_some_and(|n| *n >= limit::PAIRING_ATTEMPTS_PER_ADDRESS) {
+			return Attempt::Blocked;
+		}
+		if same(code.as_bytes(), self.code.as_bytes()) {
+			return Attempt::Right;
+		}
+		self.attempts += 1;
+		*self.wrong.entry(from.to_string()).or_default() += 1;
+		Attempt::Wrong
+	}
+}
+
+/// Who an attempt counts against: an IPv4 address, or the network an IPv6 one is in.
+pub fn address_key(ip: IpAddr) -> String {
+	match ip.to_canonical() {
+		IpAddr::V4(a) => a.to_string(),
+		IpAddr::V6(a) => {
+			let bits = limit::PAIRING_V6_PREFIX;
+			let net = u128::from(a) & (u128::MAX << (128 - bits));
+			format!("{}/{bits}", std::net::Ipv6Addr::from(net))
+		}
 	}
 }
 
@@ -502,8 +565,8 @@ pub fn clear_pairing_code(code: &str) {
 	}
 }
 
-/// A new code, uniformly random.
-pub fn new_pairing() -> io::Result<Pairing> {
+/// A new code, uniformly random, for a phone with `role`.
+pub fn new_pairing(role: Role) -> io::Result<Pairing> {
 	let span = 10u32.pow(protocol::PAIRING_DIGITS);
 	let code = loop {
 		let n = u32::from_le_bytes(random_bytes::<4>());
@@ -512,9 +575,50 @@ pub fn new_pairing() -> io::Result<Pairing> {
 			break format!("{:0width$}", n % span, width = protocol::PAIRING_DIGITS as usize);
 		}
 	};
-	let p = Pairing { code, expires: now() + timeout::PAIRING_TTL_SECS, attempts: 0 };
+	let p = Pairing { code, expires: now() + timeout::PAIRING_TTL_SECS, attempts: 0, role, wrong: BTreeMap::new() };
 	save_pairing(&p)?;
 	Ok(p)
+}
+
+/// `elamond control off`'s file in the data directory: while it exists, nobody acts on the
+/// computer, whatever the settings say.
+const CONTROL_OFF_FILE: &str = "control-off.json";
+
+#[derive(Serialize, Deserialize)]
+struct ControlOff {
+	/// Unix time it was turned off.
+	since: u64,
+}
+
+pub fn control_off_path(dir: &Path) -> PathBuf {
+	dir.join(CONTROL_OFF_FILE)
+}
+
+/// Whether `elamond control off` holds control off. A file that can't be read or parsed holds
+/// it off too: it is there, and was put there for that.
+pub fn control_held_off(dir: &Path) -> bool {
+	fs::symlink_metadata(control_off_path(dir)).is_ok()
+}
+
+/// Since when control has been held off, if it is; 0 when the file doesn't say.
+pub fn control_off_since(dir: &Path) -> Option<u64> {
+	control_held_off(dir).then(|| read_json::<ControlOff>(&control_off_path(dir)).ok().flatten().map_or(0, |c| c.since))
+}
+
+/// Holds control off, or lets the settings decide again.
+pub fn set_control_off(dir: &Path, off: bool) -> io::Result<()> {
+	let path = control_off_path(dir);
+	if off {
+		if control_held_off(dir) {
+			return Ok(());
+		}
+		write_private(&path, &serde_json::to_vec(&ControlOff { since: now() }).map_err(io::Error::other)?)
+	} else {
+		match fs::remove_file(&path) {
+			Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+			_ => Ok(()),
+		}
+	}
 }
 
 /// Equal-time comparison, so response timing doesn't reveal how much of a secret matched.
@@ -647,10 +751,80 @@ mod tests {
 
 	#[test]
 	fn pairing_codes_expire_and_run_out() {
-		let p = Pairing { code: "123456".into(), expires: 100, attempts: 0 };
+		let p = Pairing { code: "123456".into(), expires: 100, attempts: 0, role: Role::Glance, wrong: BTreeMap::new() };
 		assert!(p.usable(99));
 		assert!(!p.usable(100));
 		assert!(!Pairing { attempts: limit::PAIRING_ATTEMPTS, ..p }.usable(0));
+	}
+
+	#[test]
+	fn wrong_codes_are_counted_per_address_and_in_all() {
+		let mut p = Pairing { code: "123456".into(), expires: u64::MAX, attempts: 0, role: Role::Admin, wrong: BTreeMap::new() };
+		for _ in 0..limit::PAIRING_ATTEMPTS_PER_ADDRESS {
+			assert_eq!(p.attempt("192.0.2.1", "000000"), Attempt::Wrong);
+		}
+		// That address is done with this code, even with the right one; the code isn't.
+		assert_eq!(p.attempt("192.0.2.1", "000000"), Attempt::Blocked);
+		assert_eq!(p.attempt("192.0.2.1", "123456"), Attempt::Blocked);
+		assert!(p.usable(0));
+		assert_eq!(p.attempt("192.0.2.2", "123456"), Attempt::Right);
+		// Blocked attempts and the right one aren't counted.
+		assert_eq!(p.attempts, limit::PAIRING_ATTEMPTS_PER_ADDRESS);
+		// From many addresses the code runs out after the total.
+		let mut from = 0;
+		while p.usable(0) {
+			assert_ne!(p.attempt(&format!("198.51.100.{}", from / 4), "000000"), Attempt::Blocked);
+			from += 1;
+		}
+		assert_eq!(p.attempts, limit::PAIRING_ATTEMPTS);
+		// What it saves reads back, and a code from before 0.5 pairs an admin.
+		let back: Pairing = serde_json::from_slice(&serde_json::to_vec(&p).unwrap()).unwrap();
+		assert_eq!(back, p);
+		let old: Pairing = serde_json::from_str(r#"{"code":"123456","expires":1,"attempts":2}"#).unwrap();
+		assert_eq!((old.role, old.wrong.len()), (Role::Admin, 0));
+	}
+
+	#[test]
+	fn addresses_and_their_networks() {
+		let key = |s: &str| address_key(s.parse().unwrap());
+		assert_eq!(key("192.0.2.7"), "192.0.2.7");
+		// IPv4 through an IPv6 socket is still the IPv4 address.
+		assert_eq!(key("::ffff:192.0.2.7"), "192.0.2.7");
+		assert_eq!(key("2001:db8:1:2:3:4:5:6"), "2001:db8:1:2::/64");
+		assert_eq!(key("2001:db8:1:2:ffff::1"), key("2001:db8:1:2::9"));
+		assert_ne!(key("2001:db8:1:2::1"), key("2001:db8:1:3::1"));
+	}
+
+	#[test]
+	fn phones_paired_before_roles_are_admins() {
+		let dir = scratch();
+		fs::write(dir.join("clients.json"), r#"[{"id":"a","name":"Old","token_hash":"h","created":1}]"#).unwrap();
+		let mut list = load_clients_in(&dir).unwrap();
+		assert_eq!(list[0].role, Role::Admin);
+		list[0].role = Role::Glance;
+		save_clients_in(&dir, &list).unwrap();
+		assert_eq!(load_clients_in(&dir).unwrap()[0].role, Role::Glance);
+		fs::remove_dir_all(dir).unwrap();
+	}
+
+	#[test]
+	fn control_held_off_by_its_file() {
+		let dir = scratch();
+		assert!(!control_held_off(&dir));
+		assert_eq!(control_off_since(&dir), None);
+		set_control_off(&dir, true).unwrap();
+		let since = control_off_since(&dir).unwrap();
+		assert!(since > 0);
+		// Again: the time it was first held off stays.
+		set_control_off(&dir, true).unwrap();
+		assert_eq!(control_off_since(&dir), Some(since));
+		set_control_off(&dir, false).unwrap();
+		set_control_off(&dir, false).unwrap();
+		assert!(!control_held_off(&dir));
+		// A file it can't read still holds control off.
+		fs::write(control_off_path(&dir), "?").unwrap();
+		assert_eq!(control_off_since(&dir), Some(0));
+		fs::remove_dir_all(dir).unwrap();
 	}
 
 	fn scratch() -> PathBuf {
@@ -667,7 +841,7 @@ mod tests {
 
 		fs::write(&path, b"[{\"id\": broken").unwrap();
 		assert_eq!(read_json::<Vec<Client>>(&path).unwrap_err().kind(), io::ErrorKind::InvalidData);
-		let client = Client { id: "a".into(), name: "b".into(), token_hash: "c".into(), created: 1 };
+		let client = Client { id: "a".into(), name: "b".into(), token_hash: "c".into(), created: 1, role: Role::Admin };
 		write_json::<Vec<Client>>(&path, &[client]).unwrap();
 
 		let names: Vec<String> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();

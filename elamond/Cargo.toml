@@ -31,3 +31,7 @@ sysinfo = "0.40.1"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal", "fs", "process", "io-util"] }
 toml = "1.2.1"
 zbus = { version = "5.19.0", default-features = false, features = ["tokio"] }
+
+[dev-dependencies]
+# Already among axum's; calls the router in tests as a phone would.
+tower = { version = "0.5.3", default-features = false, features = ["util"] }

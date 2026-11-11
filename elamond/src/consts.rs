@@ -44,10 +44,13 @@ pub mod cadence {
 	pub const VOLUME: Duration = Duration::from_secs(2);
 	/// `info` is rebuilt: GPU names improve once NVML has been read.
 	pub const INFO: Duration = Duration::from_secs(10);
-	/// The settings files are looked at for edits; SIGHUP rereads them at once.
+	/// The settings files, and `elamond control off`'s file, are looked at for edits; SIGHUP
+	/// rereads them at once. Acting requests look at `control off`'s file themselves.
 	pub const SETTINGS_POLL: Duration = Duration::from_secs(5);
 	/// `elamond pair` looks for the new phone.
 	pub const PAIR_POLL: Duration = Duration::from_millis(500);
+	/// A phone that used up `limit::ACTS_BURST` may make one more acting request per this.
+	pub const ACT_REFILL: Duration = Duration::from_secs(1);
 	/// A short command (wpctl, pactl) is checked for having finished.
 	pub const COMMAND_POLL: Duration = Duration::from_millis(10);
 	/// The service's own interval is kept within these, whatever the settings say.
@@ -139,8 +142,20 @@ pub mod limit {
 	pub const URL_MAX: usize = 512;
 	/// Bytes in a systemd unit's name.
 	pub const UNIT_MAX: usize = 256;
-	/// Wrong guesses before a pairing code is thrown away.
-	pub const PAIRING_ATTEMPTS: u32 = 5;
+	/// Wrong guesses, from anywhere, before a pairing code is thrown away.
+	pub const PAIRING_ATTEMPTS: u32 = 20;
+	/// Wrong guesses from one address before it gets 429 for the rest of the code's life. An
+	/// IPv6 address counts by its first `PAIRING_V6_PREFIX` bits: one network hands out many.
+	pub const PAIRING_ATTEMPTS_PER_ADDRESS: u32 = 5;
+	pub const PAIRING_V6_PREFIX: u32 = 64;
+	/// Acting requests one phone may make in a row; then one more for each `cadence::ACT_REFILL`.
+	pub const ACTS_BURST: u32 = 10;
+	/// Entries kept in the activity log, in memory and in its file.
+	pub const ACTIVITY_MAX: usize = 500;
+	/// Lines the activity log's file grows to before it is rewritten with the last `ACTIVITY_MAX`.
+	pub const ACTIVITY_FILE_LINES: usize = 2 * ACTIVITY_MAX;
+	/// Characters in what an activity log entry says was asked, and in its message.
+	pub const WHAT_MAX: usize = 200;
 	/// Processes shown by `elamond snapshot`.
 	pub const SNAPSHOT_TOP: usize = 10;
 }

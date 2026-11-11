@@ -57,19 +57,11 @@ const FILE: &str = "links.json";
 /// Its name before 0.5.
 const OLD_FILE: &str = "services.json";
 
-/// The links added from the app; none when there are none yet. A file that doesn't parse
-/// is an error, and stays on disk until the next save sets it aside.
-pub fn load() -> io::Result<Vec<LinkDef>> {
-	load_in(&store::data_dir())
-}
-
-pub fn save(list: &[LinkDef]) -> io::Result<()> {
-	save_in(&store::data_dir(), list)
-}
-
-/// links.json, or services.json while there is no links.json yet: the first save writes
-/// links.json and leaves the old file as it was.
-fn load_in(dir: &Path) -> io::Result<Vec<LinkDef>> {
+/// The links added from the app, kept in the data directory `dir`; none when there are none
+/// yet. A file that doesn't parse is an error, and stays on disk until the next save sets it
+/// aside. links.json, or services.json while there is no links.json yet: the first save
+/// writes links.json and leaves the old file as it was.
+pub fn load_in(dir: &Path) -> io::Result<Vec<LinkDef>> {
 	let list = match store::read_json(&dir.join(FILE))? {
 		Some(list) => Some(list),
 		None => store::read_json(&dir.join(OLD_FILE))?,
@@ -77,7 +69,7 @@ fn load_in(dir: &Path) -> io::Result<Vec<LinkDef>> {
 	Ok(list.unwrap_or_default())
 }
 
-fn save_in(dir: &Path, list: &[LinkDef]) -> io::Result<()> {
+pub fn save_in(dir: &Path, list: &[LinkDef]) -> io::Result<()> {
 	store::write_json::<Vec<LinkDef>>(&dir.join(FILE), list)
 }
 

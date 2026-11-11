@@ -1,5 +1,7 @@
 //! elamond: serves this computer's metrics to the Elamon phone app.
 
+mod access;
+mod activity;
 mod bus;
 mod collect;
 mod consts;
@@ -24,18 +26,27 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio::sync::watch;
 
 use consts::cadence::{self, Ticks};
+use access::Role;
 use consts::{limit, protocol, timeout};
 
 const HELP: &str = "\
 elamond — serves this computer's metrics to the Elamon app
 
 Usage:
-  elamond serve          run the service (what the systemd unit does)
-  elamond pair           show a code and QR to pair a phone
-  elamond clients        list paired phones
-  elamond revoke <id|all> unpair a phone
-  elamond snapshot       print one reading as JSON
+  elamond serve                        run the service (what the systemd unit does)
+  elamond pair [--role ROLE]           show a code and QR to pair a phone
+  elamond clients                      list paired phones and their roles
+  elamond clients role <id|all> ROLE   change what a phone may do
+  elamond revoke <id|all>              unpair a phone
+  elamond control [off|on|status]      hold control off for every phone, or let go
+  elamond snapshot                     print one reading as JSON
   elamond --version
+
+Roles, each allowing what the one before does and more:
+  glance   the basics: CPU, memory, temperatures, disks, network and battery
+  monitor  everything there is to see: processes, monitors, links, media, the log
+  operate  links and their units, media, the power profile and actions
+  admin    power and ending processes
 
 Settings: ~/.config/elamon/elamond.toml   State: ~/.local/share/elamon/
 ";
@@ -44,8 +55,9 @@ fn main() {
 	let args: Vec<String> = std::env::args().skip(1).collect();
 	let result = match args.first().map(String::as_str).unwrap_or("serve") {
 		"serve" => serve(),
-		"pair" => pair(),
-		"clients" => clients(),
+		"pair" => pair(&args[1..]),
+		"clients" => clients(&args[1..]),
+		"control" => control(args.get(1).map(String::as_str)),
 		"revoke" => revoke(args.get(1).map(String::as_str)),
 		"snapshot" => snapshot(),
 		"-V" | "--version" | "version" => {
@@ -142,8 +154,11 @@ fn serve() -> Result<(), String> {
 		config.port,
 		store::pretty_fingerprint(&identity.fingerprint)
 	);
-	if config.control {
-		eprintln!("control is on: paired phones may act on this computer");
+	let held_off = store::control_held_off(&store::data_dir());
+	if config.control && held_off {
+		eprintln!("control is held off by `elamond control off`; `elamond control on` lets phones act again");
+	} else if config.control {
+		eprintln!("control is on: paired phones may act on this computer, as far as their roles allow");
 	}
 
 	let every = Ticks::new(interval);
@@ -152,8 +167,9 @@ fn serve() -> Result<(), String> {
 	// minimum interval, which would leave the first published usage at zero, so wait that out.
 	collector.read(false, false);
 	std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
-	let info = Arc::new(serde_json::to_string(&collector.info(&identity.id, &name, config.control, interval, history_len)).unwrap_or_default());
-	let first = Arc::new(server::Frame { sample: "{}".into(), media: None, processes: None, info, watched: false });
+	let info = serde_json::to_string(&collector.info(&identity.id, &name, config.control && !held_off, interval, history_len));
+	let info = Arc::new(info.unwrap_or_default());
+	let first = Arc::new(server::Frame { sample: "{}".into(), basic: "{}".into(), media: None, processes: None, info, watched: false });
 	let (tx, rx) = watch::channel(first);
 	let hub = Arc::new(server::Hub::new(
 		identity.id.clone(),
@@ -162,6 +178,7 @@ fn serve() -> Result<(), String> {
 		collect::HistoryRing::new(history_len),
 		interval,
 		Arc::new(config.clone()),
+		store::data_dir(),
 	));
 
 	let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -203,7 +220,8 @@ fn serve() -> Result<(), String> {
 }
 
 /// Rereads the settings on SIGHUP, or when elamond.toml or a drop-in changes. Files that
-/// don't parse leave the running settings as they were.
+/// don't parse leave the running settings as they were. Looks at `elamond control off`'s file
+/// as often.
 async fn watch_settings(hub: Arc<server::Hub>) {
 	use tokio::signal::unix::{signal, SignalKind};
 	let Ok(mut hangup) = signal(SignalKind::hangup()) else {
@@ -215,6 +233,7 @@ async fn watch_settings(hub: Arc<server::Hub>) {
 			_ = hangup.recv() => true,
 			_ = tokio::time::sleep(cadence::SETTINGS_POLL) => false,
 		};
+		hub.sync_control_off();
 		let now = store::config_stamp();
 		if !asked && now == stamp {
 			continue;
@@ -277,14 +296,17 @@ fn collect_loop(
 		}
 		// GPU names improve once NVML has been read, so info is rebuilt now and then.
 		if tick % every.info == 1 % every.info {
-			let fresh = serde_json::to_string(&collector.info(&id, &name, hub.config().control, hub.interval, hub.history_len)).unwrap_or_default();
+			let fresh = serde_json::to_string(&collector.info(&id, &name, hub.control_on(), hub.interval, hub.history_len)).unwrap_or_default();
 			if fresh != *info {
 				info = Arc::new(fresh);
 			}
 		}
 		tick = tick.wrapping_add(1);
+		let sample = serde_json::to_string(&reading.sample).unwrap_or_else(|_| "{}".into());
+		let basic = serde_json::to_string(&reading.sample.into_basic()).unwrap_or_else(|_| "{}".into());
 		let frame = server::Frame {
-			sample: serde_json::to_string(&reading.sample).unwrap_or_else(|_| "{}".into()),
+			sample,
+			basic,
 			media: media.and_then(|m| serde_json::to_string(&m).ok()),
 			processes: reading.processes.map(Arc::new),
 			info: info.clone(),
@@ -320,8 +342,14 @@ extern "C" fn on_stop(_: libc::c_int) {
 	STOP.store(true, Ordering::SeqCst);
 }
 
-fn pair() -> Result<(), String> {
+fn pair(args: &[String]) -> Result<(), String> {
 	let config = store::load_config()?;
+	let role = match args {
+		[] => config.default_role,
+		[flag, r] if flag == "--role" => role_arg(r)?,
+		[flag] if flag.starts_with("--role=") => role_arg(&flag["--role=".len()..])?,
+		_ => return Err(format!("usage: elamond pair [--role {}]", Role::choices())),
+	};
 	let identity = store::Identity::load_or_create()?;
 	let name = machine_name(&config);
 	let before: Vec<String> = match store::load_clients() {
@@ -331,7 +359,7 @@ fn pair() -> Result<(), String> {
 			Vec::new()
 		}
 	};
-	let pairing = store::new_pairing().map_err(|e| format!("can't save the pairing code: {e}"))?;
+	let pairing = store::new_pairing(role).map_err(|e| format!("can't save the pairing code: {e}"))?;
 	// From here on, stopping withdraws the code instead of leaving it to be guessed at.
 	for sig in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
 		// SAFETY: the handler only stores to an atomic, which is async-signal-safe.
@@ -378,6 +406,12 @@ fn pair() -> Result<(), String> {
 	println!("  Addresses:    {}  port {}", if hosts.is_empty() { "none found".into() } else { hosts.join(", ") }, config.port);
 	println!("  Certificate:  {}", store::pretty_fingerprint(&identity.fingerprint));
 	println!("  The app shows the same certificate digits when you pair by code; they must match.");
+	println!();
+	println!("  Role:         {} — {}", role.as_str(), role.describe());
+	if args.is_empty() {
+		println!("                another: elamond pair --role {}", Role::choices());
+	}
+	println!("                later: elamond clients role ID ROLE");
 	println!();
 	if !service_running(config.port) {
 		println!("  ! The Elamon service isn't answering on port {}. Start it: systemctl --user start elamond", config.port);
@@ -441,13 +475,83 @@ fn paired() -> Result<Vec<store::Client>, String> {
 	})
 }
 
-fn clients() -> Result<(), String> {
+fn role_arg(s: &str) -> Result<Role, String> {
+	Role::parse(s).ok_or_else(|| format!("no role \"{s}\"; the roles are {}", Role::choices()))
+}
+
+fn clients(args: &[String]) -> Result<(), String> {
+	match args {
+		[] => {}
+		[cmd, which, role] if cmd == "role" => return set_role(which, role_arg(role)?),
+		_ => return Err(format!("usage: elamond clients, or elamond clients role <id|all> <{}>", Role::choices())),
+	}
 	let clients = paired()?;
 	if clients.is_empty() {
 		println!("No phones are paired. Pair one with `elamond pair`.");
+		return Ok(());
 	}
-	for c in clients {
-		println!("{}  {}  (paired {})", c.id, c.name, format_date(c.created));
+	let width = clients.iter().map(|c| c.name.chars().count()).max().unwrap_or(0);
+	for c in &clients {
+		let pad = width - c.name.chars().count();
+		println!("{}  {:<7}  {}{}  (paired {})", c.id, c.role.as_str(), c.name, " ".repeat(pad), format_date(c.created));
+	}
+	println!();
+	println!("Change what a phone may do: elamond clients role <id|all> <{}>", Role::choices());
+	Ok(())
+}
+
+fn set_role(which: &str, role: Role) -> Result<(), String> {
+	let mut clients = paired()?;
+	let mut changed = Vec::new();
+	let mut matched = 0;
+	for c in clients.iter_mut().filter(|c| which == "all" || c.id == which) {
+		matched += 1;
+		if c.role != role {
+			c.role = role;
+			changed.push(c.name.clone());
+		}
+	}
+	if matched == 0 {
+		return Err(if which == "all" { "no phones are paired".into() } else { format!("no paired phone has the id \"{which}\"") });
+	}
+	if !changed.is_empty() {
+		store::save_clients(&clients).map_err(|e| e.to_string())?;
+	}
+	match changed.len() {
+		0 if matched == 1 => println!("That phone already is {}.", role.as_str()),
+		0 => println!("They already are {}.", role.as_str()),
+		_ => println!("Now {}: {}. The service applies it at once, open streams included.", role.as_str(), changed.join(", ")),
+	}
+	println!("  {}: {}", role.as_str(), role.describe());
+	Ok(())
+}
+
+/// `elamond control off` holds control off for every phone, whatever the settings say, until
+/// `elamond control on`; the service notices within seconds, its acting requests at once.
+fn control(what: Option<&str>) -> Result<(), String> {
+	let dir = store::data_dir();
+	match what.unwrap_or("status") {
+		"off" => {
+			store::set_control_off(&dir, true).map_err(|e| format!("can't write to {}: {e}", dir.display()))?;
+			println!("Control is held off: no phone acts on this computer until `elamond control on`.");
+		}
+		"on" => {
+			store::set_control_off(&dir, false).map_err(|e| format!("can't change {}: {e}", dir.display()))?;
+		}
+		"status" => {}
+		other => return Err(format!("unknown \"{other}\"; elamond control off, on or status")),
+	}
+	let config = store::load_config()?;
+	match (store::control_off_since(&dir), config.control) {
+		(Some(since), _) => {
+			let when = if since > 0 { format!(" since {}", format_date(since)) } else { String::new() };
+			println!("Control: off, held off{when} by `elamond control off`; `elamond control on` lets go.");
+			if !config.control {
+				println!("  The settings have it off too (control = false).");
+			}
+		}
+		(None, true) => println!("Control: on. Phones act as far as their roles allow; `elamond control off` stops them all."),
+		(None, false) => println!("Control: off by the settings (control = false in elamond.toml)."),
 	}
 	Ok(())
 }

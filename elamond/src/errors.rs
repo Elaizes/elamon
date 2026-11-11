@@ -36,12 +36,18 @@ pub enum ErrorCode {
 	NoSuchLink,
 	/// The link has no unit to start or stop.
 	NoUnit,
+	/// The phone's role doesn't allow it; see `access::Role`.
+	NotAllowed,
+	/// Too many acting requests from this phone, or too many wrong pairing codes from this address.
+	TooManyRequests,
+	/// A signal named the process's start time, and the process with that pid started at another.
+	ProcessChanged,
 }
 
 impl ErrorCode {
 	/// Every code, for elamond/fixtures/errors.json.
 	#[cfg(test)]
-	pub const ALL: [ErrorCode; 19] = [
+	pub const ALL: [ErrorCode; 22] = [
 		ErrorCode::NotFound,
 		ErrorCode::Unauthorized,
 		ErrorCode::NoPairing,
@@ -61,6 +67,9 @@ impl ErrorCode {
 		ErrorCode::BadScope,
 		ErrorCode::NoSuchLink,
 		ErrorCode::NoUnit,
+		ErrorCode::NotAllowed,
+		ErrorCode::TooManyRequests,
+		ErrorCode::ProcessChanged,
 	];
 
 	fn parts(self) -> (&'static str, StatusCode) {
@@ -84,6 +93,9 @@ impl ErrorCode {
 			ErrorCode::BadScope => ("bad_scope", StatusCode::BAD_REQUEST),
 			ErrorCode::NoSuchLink => ("no_such_link", StatusCode::NOT_FOUND),
 			ErrorCode::NoUnit => ("no_unit", StatusCode::BAD_REQUEST),
+			ErrorCode::NotAllowed => ("not_allowed", StatusCode::FORBIDDEN),
+			ErrorCode::TooManyRequests => ("too_many_requests", StatusCode::TOO_MANY_REQUESTS),
+			ErrorCode::ProcessChanged => ("process_changed", StatusCode::CONFLICT),
 		}
 	}
 

@@ -1,11 +1,14 @@
 //! Acting on the computer from the app: power, profiles, processes, actions, media, links.
 //!
-//! Everything that changes the computer needs `control = true` in elamond.toml; the list of
-//! links is the exception, it only changes what the app shows. Every action is
-//! logged with the name of the phone that asked, once the request has been checked.
+//! Every acting request goes through `Hub::act`: the phone's rate, its role, then control
+//! (`control = true` in elamond.toml and no `elamond control off`) for all but the list of
+//! links, which only changes what the app shows. Each is recorded in the activity log, let
+//! through or not; those let through are also logged to the journal with the phone's name.
 
 use std::collections::VecDeque;
+use std::future::Future;
 use std::io::Read;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -19,34 +22,125 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
+use crate::access::{self, Can, Caller, Rate, Role};
+use crate::activity::{self, Entry};
 use crate::bus::{self, Bus, Player, PowerCaps, Profiles, Scope, UnitInfo};
 use crate::consts::cadence::{self, Ticks};
 use crate::consts::{limit, timeout};
 use crate::errors::{reason, ErrorCode};
 use crate::model::Sample;
-use crate::server::{error, failed, ClientName, Hub};
+use crate::server::{error, failed, Hub};
 use crate::links::{self, LinkDef, LinkStatus};
 use crate::store;
 
-fn denied(hub: &Hub) -> Option<Response> {
-	(!hub.config().control).then(|| error(ErrorCode::ControlDisabled))
+/// What an acting request answered, and a word on how it went for the activity log.
+pub struct Acted {
+	response: Response,
+	note: Option<String>,
 }
 
-fn done(result: Result<(), String>) -> Response {
+impl Acted {
+	fn ok() -> Acted {
+		Json(json!({ "ok": true })).into_response().into()
+	}
+}
+
+impl From<Response> for Acted {
+	fn from(response: Response) -> Acted {
+		Acted { response, note: None }
+	}
+}
+
+/// An acting request turned down or failed: the code it is answered and logged with, and for
+/// `failed` what went wrong.
+#[derive(Debug, PartialEq)]
+pub struct Refusal {
+	code: ErrorCode,
+	message: Option<String>,
+}
+
+impl Refusal {
+	fn failed(message: impl Into<String>) -> Refusal {
+		Refusal { code: ErrorCode::Failed, message: Some(message.into()) }
+	}
+}
+
+impl From<ErrorCode> for Refusal {
+	fn from(code: ErrorCode) -> Refusal {
+		Refusal { code, message: None }
+	}
+}
+
+impl IntoResponse for Refusal {
+	fn into_response(self) -> Response {
+		match self.message {
+			Some(m) if self.code == ErrorCode::Failed => failed(m),
+			_ => error(self.code),
+		}
+	}
+}
+
+fn done(result: Result<(), String>) -> Result<Acted, Refusal> {
 	match result {
-		Ok(()) => Json(json!({ "ok": true })).into_response(),
-		Err(e) if e == ErrorCode::NotPermitted.as_str() => error(ErrorCode::NotPermitted),
-		Err(e) => failed(e),
+		Ok(()) => Ok(Acted::ok()),
+		Err(e) if e == ErrorCode::NotPermitted.as_str() => Err(ErrorCode::NotPermitted.into()),
+		Err(e) => Err(Refusal::failed(e)),
+	}
+}
+
+impl Hub {
+	/// 403 `not_allowed` unless the phone's role lets it see `can`.
+	pub fn refuse_read(&self, who: &Caller, can: Can) -> Option<Response> {
+		(!who.role.may(can)).then(|| error(ErrorCode::NotAllowed))
+	}
+
+	/// Whether phones may act right now: the settings, and `elamond control off`'s file looked
+	/// at afresh, so holding control off takes effect from the next request.
+	pub fn control_now(&self) -> bool {
+		!self.sync_control_off() && self.config().control
+	}
+
+	/// An acting request from `who`, described for the log as `what`: refused when the phone
+	/// acts too often (429 `too_many_requests`), when its role doesn't allow `can` (403
+	/// `not_allowed`) or when `can` needs control and it is off (403 `control_disabled`), in
+	/// that order; otherwise `work` runs. Either way it goes in the activity log, except the
+	/// refusals for acting too often after the first in a row, which would only crowd it.
+	pub async fn act(&self, who: &Caller, can: Can, what: String, work: impl Future<Output = Result<Acted, Refusal>>) -> Response {
+		let rate = self.rate.lock().map(|mut r| r.take(&who.id, Instant::now())).unwrap_or(Rate::Allowed);
+		let outcome = match rate {
+			Rate::Refused { first: false } => return error(ErrorCode::TooManyRequests),
+			Rate::Refused { first: true } => Err(ErrorCode::TooManyRequests.into()),
+			Rate::Allowed if !who.role.may(can) => Err(ErrorCode::NotAllowed.into()),
+			Rate::Allowed if can.needs_control() && !self.control_now() => Err(ErrorCode::ControlDisabled.into()),
+			Rate::Allowed => work.await,
+		};
+		let (result, message, response) = match outcome {
+			Ok(a) => ("ok".to_string(), a.note, a.response),
+			Err(r) => (r.code.as_str().to_string(), r.message.clone(), r.into_response()),
+		};
+		self.activity.record(Entry {
+			t: activity::now_ms(),
+			phone: who.name.clone(),
+			client_id: who.id.clone(),
+			what: activity::clean(&what),
+			result,
+			message: message.map(|m| activity::clean(&m)),
+		});
+		response
 	}
 }
 
 #[derive(Serialize)]
 pub(crate) struct ControlInfo {
+	/// Control is on: `control = true` and no `elamond control off`.
 	pub(crate) enabled: bool,
 	pub(crate) power: PowerCaps,
 	pub(crate) profiles: Option<Profiles>,
 	pub(crate) actions: Vec<ActionInfo>,
 	pub(crate) volume: bool,
+	/// The asking phone's role, and what it may do now (`access::Can` by name).
+	pub(crate) role: Role,
+	pub(crate) allowed: Vec<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -56,17 +150,35 @@ pub(crate) struct ActionInfo {
 	pub(crate) confirm: bool,
 }
 
-/// What the app may offer on this computer right now.
-pub async fn info(State(hub): State<Arc<Hub>>) -> Response {
-	let enabled = hub.config().control;
-	let (power, profiles) = if enabled { (hub.bus.power_caps().await, hub.bus.profiles().await) } else { Default::default() };
-	let actions = if enabled {
+/// What the app may offer on this computer right now, to this phone: power, profiles, actions
+/// and the volume only as far as its role allows them, so even an app from before roles shows
+/// no more than the phone may use.
+pub async fn info(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>) -> Response {
+	let enabled = hub.control_now();
+	let may = |c: Can| enabled && who.role.may(c);
+	let power = if may(Can::Power) { hub.bus.power_caps().await } else { PowerCaps::default() };
+	let profiles = if may(Can::Profile) { hub.bus.profiles().await } else { None };
+	let actions = if may(Can::Actions) {
 		hub.config().actions.iter().map(|a| ActionInfo { id: a.id(), name: a.name.clone(), confirm: a.confirm }).collect()
 	} else {
 		Vec::new()
 	};
-	let volume = enabled && tokio::task::spawn_blocking(volume_get).await.ok().flatten().is_some();
-	Json(ControlInfo { enabled, power, profiles, actions, volume }).into_response()
+	let volume = may(Can::Volume) && tokio::task::spawn_blocking(volume_get).await.ok().flatten().is_some();
+	let allowed = access::allowed(who.role, enabled);
+	Json(ControlInfo { enabled, power, profiles, actions, volume, role: who.role, allowed }).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct LogQuery {
+	limit: Option<usize>,
+}
+
+/// The activity log, newest first.
+pub async fn log(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Query(q): Query<LogQuery>) -> Response {
+	if let Some(r) = hub.refuse_read(&who, Can::Log) {
+		return r;
+	}
+	Json(hub.activity.newest(q.limit.unwrap_or(limit::ACTIVITY_MAX))).into_response()
 }
 
 #[derive(Deserialize)]
@@ -74,15 +186,15 @@ pub struct PowerReq {
 	action: String,
 }
 
-pub async fn power(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<PowerReq>) -> Response {
-	if let Some(e) = denied(&hub) {
-		return e;
-	}
-	if Bus::power_method(&r.action).is_none() {
-		return failed(reason::UNKNOWN_ACTION);
-	}
-	eprintln!("control: {} asked to {}", who.0, r.action);
-	done(hub.bus.power(&r.action).await)
+pub async fn power(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Json(r): Json<PowerReq>) -> Response {
+	hub.act(&who, Can::Power, format!("power {}", r.action), async {
+		if Bus::power_method(&r.action).is_none() {
+			return Err(Refusal::failed(reason::UNKNOWN_ACTION));
+		}
+		eprintln!("control: {} asked to {}", who.name, r.action);
+		done(hub.bus.power(&r.action).await)
+	})
+	.await
 }
 
 #[derive(Deserialize)]
@@ -90,20 +202,20 @@ pub struct ProfileReq {
 	profile: String,
 }
 
-pub async fn profile(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<ProfileReq>) -> Response {
-	if let Some(e) = denied(&hub) {
-		return e;
-	}
-	let Some(profiles) = hub.bus.profiles().await else {
-		return failed(reason::NO_POWER_PROFILES);
-	};
-	if !profiles.available.contains(&r.profile) {
-		return failed(reason::UNKNOWN_PROFILE);
-	}
-	eprintln!("control: {} set the power profile to {}", who.0, r.profile);
-	let res = hub.bus.set_profile(&r.profile).await;
-	hub.refresh_soon();
-	done(res)
+pub async fn profile(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Json(r): Json<ProfileReq>) -> Response {
+	hub.act(&who, Can::Profile, format!("profile {}", r.profile), async {
+		let Some(profiles) = hub.bus.profiles().await else {
+			return Err(Refusal::failed(reason::NO_POWER_PROFILES));
+		};
+		if !profiles.available.contains(&r.profile) {
+			return Err(Refusal::failed(reason::UNKNOWN_PROFILE));
+		}
+		eprintln!("control: {} set the power profile to {}", who.name, r.profile);
+		let res = hub.bus.set_profile(&r.profile).await;
+		hub.refresh_soon();
+		done(res)
+	})
+	.await
 }
 
 #[derive(Deserialize)]
@@ -111,31 +223,83 @@ pub struct SignalReq {
 	pid: i32,
 	/// "term" asks the process to quit, "kill" ends it outright.
 	signal: String,
+	/// When the process started (Unix s, as in samples): if the pid now belongs to a process
+	/// that started at another time, nothing is signalled.
+	start: Option<u64>,
 }
 
-pub async fn signal(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<SignalReq>) -> Response {
-	if let Some(e) = denied(&hub) {
-		return e;
-	}
-	let sig = match r.signal.as_str() {
-		"term" => libc::SIGTERM,
-		"kill" => libc::SIGKILL,
-		_ => return error(ErrorCode::UnknownSignal),
+pub async fn signal(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Json(r): Json<SignalReq>) -> Response {
+	let what = match proc_field(r.pid, "comm") {
+		Some(name) if r.pid > 0 => format!("signal {} {} {}", r.signal, r.pid, name.trim()),
+		_ => format!("signal {} {}", r.signal, r.pid),
 	};
-	if protected(r.pid) {
-		return error(ErrorCode::NotPermitted);
+	hub.act(&who, Can::Signal, what, async {
+		let sig = match r.signal.as_str() {
+			"term" => libc::SIGTERM,
+			"kill" => libc::SIGKILL,
+			_ => return Err(ErrorCode::UnknownSignal.into()),
+		};
+		if protected(r.pid) {
+			return Err(ErrorCode::NotPermitted.into());
+		}
+		send_signal(r.pid, sig, r.start, hub.boot_time, || eprintln!("control: {} sent {} to pid {}", who.name, r.signal, r.pid))?;
+		Ok(Acted::ok())
+	})
+	.await
+}
+
+/// Signals `pid`, if it is still the process that started at `start` (when given) by the
+/// clock that counts from `boot_time`. A pidfd holds the process between the look and the
+/// signal, so the pid can't come to mean another one in between; a thread's id, or a kernel
+/// without pidfds, falls back to kill(2). `sending` is called once it is decided to send.
+fn send_signal(pid: i32, sig: i32, start: Option<u64>, boot_time: u64, sending: impl FnOnce()) -> Result<(), Refusal> {
+	let errno = || std::io::Error::last_os_error();
+	let refusal = |e: std::io::Error| -> Refusal {
+		match e.raw_os_error() {
+			Some(libc::EPERM) => ErrorCode::NotPermitted.into(),
+			Some(libc::ESRCH) => ErrorCode::NoSuchProcess.into(),
+			_ => Refusal::failed(e.to_string()),
+		}
+	};
+	// SAFETY: pidfd_open(2) with a plain pid and no flags; a new descriptor is returned or -1.
+	let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+	let pidfd = if fd >= 0 {
+		// SAFETY: the descriptor was just opened and nothing else owns it.
+		Some(unsafe { OwnedFd::from_raw_fd(fd as i32) })
+	} else {
+		match errno() {
+			e if matches!(e.raw_os_error(), Some(libc::ENOSYS | libc::EINVAL)) => None,
+			e => return Err(refusal(e)),
+		}
+	};
+	if let Some(start) = start {
+		match process_start(pid, boot_time) {
+			None => return Err(ErrorCode::NoSuchProcess.into()),
+			Some(s) if s != start => return Err(ErrorCode::ProcessChanged.into()),
+			Some(_) => {}
+		}
 	}
-	eprintln!("control: {} sent {} to pid {}", who.0, r.signal, r.pid);
-	// SAFETY: kill(2) with a plain pid and signal number has no memory effects.
-	let rc = unsafe { libc::kill(r.pid, sig) };
-	if rc == 0 {
-		return Json(json!({ "ok": true })).into_response();
+	sending();
+	let rc = match &pidfd {
+		// SAFETY: pidfd_send_signal(2) on a pidfd we own, with no siginfo and no flags.
+		Some(fd) => unsafe { libc::syscall(libc::SYS_pidfd_send_signal, fd.as_raw_fd(), sig, std::ptr::null::<libc::siginfo_t>(), 0) },
+		// SAFETY: kill(2) with a plain pid and signal number has no memory effects.
+		None => (unsafe { libc::kill(pid, sig) }) as libc::c_long,
+	};
+	if rc == 0 { Ok(()) } else { Err(refusal(errno())) }
+}
+
+/// When a process started, in Unix seconds, as the process list counts it: clock ticks after
+/// boot from /proc/<pid>/stat, whole seconds of them, plus the boot time.
+fn process_start(pid: i32, boot_time: u64) -> Option<u64> {
+	if pid <= 0 {
+		return None;
 	}
-	match std::io::Error::last_os_error().raw_os_error() {
-		Some(libc::EPERM) => error(ErrorCode::NotPermitted),
-		Some(libc::ESRCH) => error(ErrorCode::NoSuchProcess),
-		_ => error(ErrorCode::Failed),
-	}
+	let stat = proc_field(pid, "stat")?;
+	let ticks: u64 = stat.rsplit_once(')')?.1.split_whitespace().nth(19)?.parse().ok()?;
+	// SAFETY: sysconf(3) only reads a value.
+	let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+	(hz > 0).then(|| ticks / hz as u64 + boot_time)
 }
 
 /// Processes a phone may not signal: init, the service itself (any of its threads) and the
@@ -183,25 +347,34 @@ pub(crate) struct ActionResult {
 	pub(crate) output: String,
 }
 
-pub async fn action(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<ActionReq>) -> Response {
-	if let Some(e) = denied(&hub) {
-		return e;
-	}
+pub async fn action(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Json(r): Json<ActionReq>) -> Response {
 	let config = hub.config();
-	let Some(a) = config.actions.iter().find(|a| a.id() == r.id) else {
-		return error(ErrorCode::NoSuchAction);
-	};
-	let Some((program, args)) = a.command.split_first() else {
-		return error(ErrorCode::EmptyCommand);
-	};
-	eprintln!("control: {} ran \"{}\"", who.0, a.name);
-	let limit = Duration::from_secs(a.timeout).clamp(timeout::ACTION_MIN, timeout::ACTION_MAX);
-	let result = run_action(program, args, limit).await;
-	hub.refresh_soon();
-	match result {
-		Ok(r) => Json(r).into_response(),
-		Err(e) => failed(e.to_string()),
-	}
+	let found = config.actions.iter().find(|a| a.id() == r.id);
+	let what = format!("action {}", found.map_or(r.id.as_str(), |a| a.name.as_str()));
+	hub.act(&who, Can::Actions, what, async {
+		let Some(a) = found else {
+			return Err(ErrorCode::NoSuchAction.into());
+		};
+		let Some((program, args)) = a.command.split_first() else {
+			return Err(ErrorCode::EmptyCommand.into());
+		};
+		eprintln!("control: {} ran \"{}\"", who.name, a.name);
+		let limit = Duration::from_secs(a.timeout).clamp(timeout::ACTION_MIN, timeout::ACTION_MAX);
+		let result = run_action(program, args, limit).await;
+		hub.refresh_soon();
+		match result {
+			Ok(r) => {
+				let note = match (r.timed_out, r.exit_code) {
+					(true, _) => "timed out".to_string(),
+					(false, Some(c)) => format!("exit {c}"),
+					(false, None) => "ended by a signal".to_string(),
+				};
+				Ok(Acted { response: Json(r).into_response(), note: Some(note) })
+			}
+			Err(e) => Err(Refusal::failed(e.to_string())),
+		}
+	})
+	.await
 }
 
 /// Runs an action's command in a process group of its own: on a timeout, or when the request
@@ -326,23 +499,27 @@ pub struct MediaReq {
 	value: Option<f64>,
 }
 
-pub async fn media(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<MediaReq>) -> Response {
-	if let Some(e) = denied(&hub) {
-		return e;
-	}
-	if !bus::is_player(&r.player) {
-		return failed(reason::UNKNOWN_PLAYER);
-	}
-	if !Bus::is_player_op(&r.op) {
-		return failed(reason::UNKNOWN_OPERATION);
-	}
-	match r.value {
-		Some(v) => eprintln!("control: {} asked {} to {} {v}", who.0, r.player, r.op),
-		None => eprintln!("control: {} asked {} to {}", who.0, r.player, r.op),
-	}
-	let res = hub.bus.player_op(&r.player, &r.op, r.value).await;
-	hub.refresh_soon();
-	done(res)
+pub async fn media(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Json(r): Json<MediaReq>) -> Response {
+	let what = match r.value {
+		Some(v) => format!("media {} {v}", r.op),
+		None => format!("media {}", r.op),
+	};
+	hub.act(&who, Can::Media, what, async {
+		if !bus::is_player(&r.player) {
+			return Err(Refusal::failed(reason::UNKNOWN_PLAYER));
+		}
+		if !Bus::is_player_op(&r.op) {
+			return Err(Refusal::failed(reason::UNKNOWN_OPERATION));
+		}
+		match r.value {
+			Some(v) => eprintln!("control: {} asked {} to {} {v}", who.name, r.player, r.op),
+			None => eprintln!("control: {} asked {} to {}", who.name, r.player, r.op),
+		}
+		let res = hub.bus.player_op(&r.player, &r.op, r.value).await;
+		hub.refresh_soon();
+		done(res)
+	})
+	.await
 }
 
 #[derive(Deserialize)]
@@ -351,19 +528,26 @@ pub struct VolumeReq {
 	muted: Option<bool>,
 }
 
-pub async fn volume(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<VolumeReq>) -> Response {
-	if let Some(e) = denied(&hub) {
-		return e;
-	}
+pub async fn volume(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Json(r): Json<VolumeReq>) -> Response {
+	let mut what = "volume".to_string();
 	if let Some(l) = r.level {
-		eprintln!("control: {} set the volume to {:.0} %", who.0, l.clamp(0.0, 1.0) * 100.0);
+		what.push_str(&format!(" {:.0} %", l.clamp(0.0, 1.0) * 100.0));
 	}
 	if let Some(m) = r.muted {
-		eprintln!("control: {} {} the sound", who.0, if m { "muted" } else { "unmuted" });
+		what.push_str(if m { " muted" } else { " unmuted" });
 	}
-	let res = tokio::task::spawn_blocking(move || volume_set(r.level, r.muted)).await.unwrap_or_else(|e| Err(e.to_string()));
-	hub.refresh_soon();
-	done(res)
+	hub.act(&who, Can::Volume, what, async {
+		if let Some(l) = r.level {
+			eprintln!("control: {} set the volume to {:.0} %", who.name, l.clamp(0.0, 1.0) * 100.0);
+		}
+		if let Some(m) = r.muted {
+			eprintln!("control: {} {} the sound", who.name, if m { "muted" } else { "unmuted" });
+		}
+		let res = tokio::task::spawn_blocking(move || volume_set(r.level, r.muted)).await.unwrap_or_else(|e| Err(e.to_string()));
+		hub.refresh_soon();
+		done(res)
+	})
+	.await
 }
 
 #[derive(Deserialize)]
@@ -371,10 +555,11 @@ pub struct ArtQuery {
 	player: String,
 }
 
-/// A player's cover. Media needs control, so its art does too.
-pub async fn art(State(hub): State<Arc<Hub>>, Query(q): Query<ArtQuery>) -> Response {
-	if let Some(e) = denied(&hub) {
-		return e;
+/// A player's cover. Seeing it is reading the media, like the players in samples, so it needs
+/// the role for that but not control.
+pub async fn art(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Query(q): Query<ArtQuery>) -> Response {
+	if let Some(r) = hub.refuse_read(&who, Can::MediaRead) {
+		return r;
 	}
 	match hub.bus.player_art(&q.player).await {
 		Some((bytes, kind)) => ([(header::CONTENT_TYPE, kind), (header::CACHE_CONTROL, "no-store")], bytes).into_response(),
@@ -452,7 +637,10 @@ fn run(argv: &[&str]) -> Option<String> {
 
 // ---- links -----------------------------------------------------------------------------
 
-pub async fn links_list(State(hub): State<Arc<Hub>>) -> Response {
+pub async fn links_list(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>) -> Response {
+	if let Some(r) = hub.refuse_read(&who, Can::Links) {
+		return r;
+	}
 	Json(hub.link_statuses().await).into_response()
 }
 
@@ -465,49 +653,56 @@ pub struct LinkReq {
 	scope: Option<String>,
 }
 
-pub async fn link_put(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Json(r): Json<LinkReq>) -> Response {
-	let unit = r.unit.as_deref().map(str::trim).filter(|u| !u.is_empty());
-	if let Err(code) = links::validate(&r.name, &r.url, unit, r.scope.as_deref()) {
-		return error(code);
-	}
-	let mut list = hub.app_links.lock().await;
-	let def = LinkDef {
-		id: r.id.clone().unwrap_or_else(|| data_encoding::HEXLOWER.encode(&store::random_bytes::<{ crate::consts::protocol::LINK_ID_BYTES }>())),
-		name: r.name.trim().to_string(),
-		url: r.url.trim().to_string(),
-		unit: unit.map(str::to_string),
-		scope: r.scope.clone(),
-	};
-	match list.iter_mut().find(|s| s.id == def.id) {
-		Some(s) => *s = def.clone(),
-		None if r.id.is_none() => list.push(def.clone()),
-		None => return error(ErrorCode::NoSuchLink),
-	}
-	if let Err(e) = links::save(&list) {
-		eprintln!("links: can't save: {e}");
-		return error(ErrorCode::Storage);
-	}
-	eprintln!("links: {} saved \"{}\"", who.0, def.name);
-	drop(list);
-	hub.refresh_soon();
-	Json(def).into_response()
+pub async fn link_put(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Json(r): Json<LinkReq>) -> Response {
+	let what = format!("link {} {}", if r.id.is_some() { "change" } else { "add" }, r.name.trim());
+	hub.act(&who, Can::LinksEdit, what, async {
+		let unit = r.unit.as_deref().map(str::trim).filter(|u| !u.is_empty());
+		links::validate(&r.name, &r.url, unit, r.scope.as_deref())?;
+		let mut list = hub.app_links.lock().await;
+		let def = LinkDef {
+			id: r.id.clone().unwrap_or_else(|| data_encoding::HEXLOWER.encode(&store::random_bytes::<{ crate::consts::protocol::LINK_ID_BYTES }>())),
+			name: r.name.trim().to_string(),
+			url: r.url.trim().to_string(),
+			unit: unit.map(str::to_string),
+			scope: r.scope.clone(),
+		};
+		match list.iter_mut().find(|s| s.id == def.id) {
+			Some(s) => *s = def.clone(),
+			None if r.id.is_none() => list.push(def.clone()),
+			None => return Err(ErrorCode::NoSuchLink.into()),
+		}
+		if let Err(e) = links::save_in(&hub.dir, &list) {
+			eprintln!("links: can't save: {e}");
+			return Err(ErrorCode::Storage.into());
+		}
+		eprintln!("links: {} saved \"{}\"", who.name, def.name);
+		drop(list);
+		hub.refresh_soon();
+		Ok(Json(def).into_response().into())
+	})
+	.await
 }
 
-pub async fn link_delete(State(hub): State<Arc<Hub>>, Extension(who): Extension<ClientName>, Path(id): Path<String>) -> Response {
-	let mut list = hub.app_links.lock().await;
-	let before = list.len();
-	list.retain(|s| s.id != id);
-	if list.len() == before {
-		return error(ErrorCode::NoSuchLink);
-	}
-	if let Err(e) = links::save(&list) {
-		eprintln!("links: can't save: {e}");
-		return error(ErrorCode::Storage);
-	}
-	eprintln!("links: {} removed {id}", who.0);
-	drop(list);
-	hub.refresh_soon();
-	Json(json!({ "ok": true })).into_response()
+pub async fn link_delete(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Path(id): Path<String>) -> Response {
+	let name = hub.app_links.lock().await.iter().find(|l| l.id == id).map(|l| l.name.clone());
+	let what = format!("link remove {}", name.as_deref().unwrap_or(&id));
+	hub.act(&who, Can::LinksEdit, what, async {
+		let mut list = hub.app_links.lock().await;
+		let before = list.len();
+		list.retain(|s| s.id != id);
+		if list.len() == before {
+			return Err(ErrorCode::NoSuchLink.into());
+		}
+		if let Err(e) = links::save_in(&hub.dir, &list) {
+			eprintln!("links: can't save: {e}");
+			return Err(ErrorCode::Storage.into());
+		}
+		eprintln!("links: {} removed {id}", who.name);
+		drop(list);
+		hub.refresh_soon();
+		Ok(Acted::ok())
+	})
+	.await
 }
 
 #[derive(Deserialize)]
@@ -517,28 +712,33 @@ pub struct UnitReq {
 
 pub async fn link_unit(
 	State(hub): State<Arc<Hub>>,
-	Extension(who): Extension<ClientName>,
+	Extension(who): Extension<Caller>,
 	Path(id): Path<String>,
 	Json(r): Json<UnitReq>,
 ) -> Response {
-	if let Some(e) = denied(&hub) {
-		return e;
-	}
 	let app = hub.app_links.lock().await.clone();
-	let Some((def, _)) = links::all(&hub.config(), &app).into_iter().find(|(s, _)| s.id == id) else {
-		return error(ErrorCode::NoSuchLink);
-	};
-	let Some(unit) = def.unit else { return error(ErrorCode::NoUnit) };
-	if Bus::unit_method(&r.op).is_none() {
-		return failed(reason::UNKNOWN_OPERATION);
-	}
-	eprintln!("control: {} asked to {} {unit}", who.0, r.op);
-	let res = hub.bus.unit_op(Scope::parse(def.scope.as_deref()), &unit, &r.op).await;
-	hub.refresh_soon();
-	done(res)
+	let found = links::all(&hub.config(), &app).into_iter().find(|(s, _)| s.id == id).map(|(def, _)| def);
+	let what = format!("unit {} {}", r.op, found.as_ref().and_then(|d| d.unit.as_deref()).unwrap_or(&id));
+	hub.act(&who, Can::Units, what, async {
+		let Some(def) = found else {
+			return Err(ErrorCode::NoSuchLink.into());
+		};
+		let Some(unit) = def.unit else { return Err(ErrorCode::NoUnit.into()) };
+		if Bus::unit_method(&r.op).is_none() {
+			return Err(Refusal::failed(reason::UNKNOWN_OPERATION));
+		}
+		eprintln!("control: {} asked to {} {unit}", who.name, r.op);
+		let res = hub.bus.unit_op(Scope::parse(def.scope.as_deref()), &unit, &r.op).await;
+		hub.refresh_soon();
+		done(res)
+	})
+	.await
 }
 
-pub async fn detected(State(_hub): State<Arc<Hub>>) -> Response {
+pub async fn detected(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>) -> Response {
+	if let Some(r) = hub.refuse_read(&who, Can::Links) {
+		return r;
+	}
 	let list = tokio::task::spawn_blocking(links::detect).await.unwrap_or_default();
 	Json(list).into_response()
 }
@@ -548,7 +748,10 @@ pub struct UnitsQuery {
 	scope: Option<String>,
 }
 
-pub async fn units(State(hub): State<Arc<Hub>>, Query(q): Query<UnitsQuery>) -> Response {
+pub async fn units(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Query(q): Query<UnitsQuery>) -> Response {
+	if let Some(r) = hub.refuse_read(&who, Can::Links) {
+		return r;
+	}
 	match hub.bus.units(Scope::parse(q.scope.as_deref())).await {
 		Ok(list) => Json::<Vec<UnitInfo>>(list).into_response(),
 		Err(e) => failed(e),
@@ -586,7 +789,7 @@ impl Extras {
 		let media = if want_media {
 			let players = rt.block_on(hub.bus.players());
 			if urgent || !self.had_media || self.tick.is_multiple_of(self.every.volume) {
-				self.volume = if hub.config().control { volume_get() } else { None };
+				self.volume = if hub.control_on() { volume_get() } else { None };
 			}
 			Some(Media { players, volume: self.volume.clone() })
 		} else {
@@ -704,5 +907,37 @@ mod tests {
 		let r = run_action("sh", &args, Duration::from_secs(5)).await.unwrap();
 		assert_eq!(r.exit_code, Some(0));
 		assert!(r.output.len() <= limit::OUTPUT_MAX + 8);
+	}
+
+	#[test]
+	fn start_times_count_as_the_process_list_does() {
+		let boot = sysinfo::System::boot_time().unwrap();
+		let pid = std::process::id();
+		let mut sys = sysinfo::System::new().unwrap();
+		let p = sysinfo::Pid::from_u32(pid);
+		sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[p]), true);
+		assert_eq!(process_start(pid as i32, boot), Some(sys.process(p).unwrap().start_time()));
+		assert_eq!(process_start(0, boot), None);
+		assert_eq!(process_start(-1, boot), None);
+	}
+
+	#[test]
+	fn a_signal_with_a_start_time_only_reaches_that_process() {
+		use std::os::unix::process::ExitStatusExt;
+		let boot = sysinfo::System::boot_time().unwrap();
+		let mut child = std::process::Command::new("sleep").arg("30").spawn().unwrap();
+		let pid = child.id() as i32;
+		let start = process_start(pid, boot).unwrap();
+		let mut sent = false;
+		// The pid now names a process that started at another time: nothing is sent.
+		assert_eq!(send_signal(pid, libc::SIGKILL, Some(start + 1), boot, || sent = true), Err(ErrorCode::ProcessChanged.into()));
+		assert!(!sent);
+		assert!(child.try_wait().unwrap().is_none());
+		send_signal(pid, libc::SIGKILL, Some(start), boot, || sent = true).unwrap();
+		assert!(sent);
+		assert_eq!(child.wait().unwrap().signal(), Some(libc::SIGKILL));
+		// Gone, with or without a start time; signal 0 only asks, should the pid be reused.
+		assert_eq!(send_signal(pid, 0, Some(start), boot, || ()), Err(ErrorCode::NoSuchProcess.into()));
+		assert_eq!(send_signal(pid, 0, None, boot, || ()), Err(ErrorCode::NoSuchProcess.into()));
 	}
 }

@@ -3,6 +3,7 @@
 use std::collections::VecDeque;
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime};
@@ -18,17 +19,21 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::watch;
 
+use crate::access::{Can, Caller, RateLimiter, Role};
+use crate::activity::Activity;
 use crate::collect::HistoryRing;
 use crate::consts::{cadence, limit, protocol, timeout};
 use crate::control;
 use crate::errors::ErrorCode;
 use crate::model::Process;
-use crate::store;
+use crate::store::{self, Attempt};
 
 /// What the collector publishes every tick.
 pub struct Frame {
 	/// The sample, already serialized: every stream sends the same text.
 	pub sample: String,
+	/// The same without what only some roles see (monitors, links), for phones that glance.
+	pub basic: String,
 	/// Media players and the volume, serialized, while some app asked for them; only the
 	/// samples of those apps carry it.
 	pub media: Option<String>,
@@ -61,11 +66,18 @@ pub struct Hub {
 	pub refresh: AtomicBool,
 	clients: RwLock<ClientCache>,
 	pair_lock: tokio::sync::Mutex<()>,
+	/// The data directory: the paired phones, links added from the app, the activity log and
+	/// `elamond control off`'s file.
+	pub dir: PathBuf,
+	/// `elamond control off` holds control off, as last looked.
+	control_off: AtomicBool,
+	/// How often each phone may act.
+	pub rate: Mutex<RateLimiter>,
+	pub activity: Activity,
+	/// Unix time the computer booted, as read when the service started: process start times
+	/// in samples count from it.
+	pub boot_time: u64,
 }
-
-/// The paired phone a request comes from, for the log.
-#[derive(Clone)]
-pub struct ClientName(pub String);
 
 /// The hash of the token a request came with, so a stream can tell when it is revoked.
 #[derive(Clone)]
@@ -73,11 +85,12 @@ struct TokenHash(String);
 
 struct ClientCache {
 	stamp: Option<(SystemTime, u64, u64)>,
-	/// Token hashes and the phones' names.
-	clients: Vec<(String, String)>,
+	/// Token hashes and the phones they belong to.
+	clients: Vec<(String, Caller)>,
 }
 
 impl Hub {
+	/// The hub for a service whose state is in `dir`.
 	pub fn new(
 		id: String,
 		name: String,
@@ -85,8 +98,9 @@ impl Hub {
 		history: HistoryRing,
 		interval: Duration,
 		config: Arc<store::Config>,
+		dir: PathBuf,
 	) -> Self {
-		let app_links = crate::links::load().unwrap_or_else(|e| {
+		let app_links = crate::links::load_in(&dir).unwrap_or_else(|e| {
 			eprintln!("links: {e}\n  the links added from the app are left out; the file is kept until one is saved");
 			Vec::new()
 		});
@@ -106,18 +120,34 @@ impl Hub {
 			refresh: AtomicBool::new(false),
 			clients: RwLock::new(ClientCache { stamp: None, clients: Vec::new() }),
 			pair_lock: tokio::sync::Mutex::new(()),
+			control_off: AtomicBool::new(store::control_held_off(&dir)),
+			rate: Mutex::new(RateLimiter::default()),
+			activity: Activity::load(&dir),
+			boot_time: sysinfo::System::boot_time().unwrap_or(0),
+			dir,
 		}
 	}
 
-	/// Checks a token's hash against clients.json, rereading it when `pair` or `revoke`
-	/// changed it. Returns the phone's name. A file that stops parsing is reported and the
-	/// phones read before keep working, rather than all being locked out.
-	fn authorized(&self, hash: &str) -> Option<String> {
-		let stamp = store::clients_stamp();
+	/// The phone a token's hash belongs to, rereading clients.json when `pair`, `revoke` or
+	/// `clients role` changed it. A file that stops parsing is reported and the phones read
+	/// before keep working, rather than all being locked out.
+	fn authorized(&self, hash: &str) -> Option<Caller> {
+		let stamp = store::clients_stamp_in(&self.dir);
 		let stale = self.clients.read().map(|c| c.stamp != stamp || stamp.is_none()).unwrap_or(true);
 		if stale && let Ok(mut c) = self.clients.write() {
-			match store::load_clients() {
-				Ok(list) => c.clients = list.into_iter().map(|c| (c.token_hash, c.name)).collect(),
+			match store::load_clients_in(&self.dir) {
+				Ok(list) => {
+					let fresh: Vec<(String, Caller)> =
+						list.into_iter().map(|c| (c.token_hash, Caller { id: c.id, name: c.name, role: c.role })).collect();
+					for (_, now) in &fresh {
+						if let Some((_, before)) = c.clients.iter().find(|(_, b)| b.id == now.id)
+							&& before.role != now.role
+						{
+							eprintln!("clients: \"{}\" ({}) is now {}", now.name, now.id, now.role.as_str());
+						}
+					}
+					c.clients = fresh;
+				}
 				Err(e) if c.stamp != stamp => {
 					eprintln!("{e}\n  keeping the {} paired phone(s) read before; fix the file or pair again", c.clients.len());
 				}
@@ -131,12 +161,34 @@ impl Hub {
 			.clients
 			.iter()
 			.find(|(h, _)| store::same(h.as_bytes(), hash.as_bytes()))
-			.map(|(_, name)| name.clone())
+			.map(|(_, who)| who.clone())
 	}
 
 	/// The settings as last read.
 	pub fn config(&self) -> Arc<store::Config> {
 		self.config.read().map(|c| c.clone()).unwrap_or_else(|p| p.into_inner().clone())
+	}
+
+	/// Whether phones may act, as last looked: `control = true` in the settings and no
+	/// `elamond control off`.
+	pub fn control_on(&self) -> bool {
+		self.config().control && !self.control_off.load(Ordering::SeqCst)
+	}
+
+	/// Looks at `elamond control off`'s file, says in the log when that changed, and returns
+	/// whether control is held off.
+	pub fn sync_control_off(&self) -> bool {
+		let off = store::control_held_off(&self.dir);
+		if self.control_off.swap(off, Ordering::SeqCst) != off {
+			if off {
+				eprintln!("control: held off by `elamond control off`; no phone acts until `elamond control on`");
+			} else {
+				let by = if self.config().control { "on" } else { "off" };
+				eprintln!("control: `elamond control on` let go of it; control is {by} by the settings");
+			}
+			self.refresh_soon();
+		}
+		off
 	}
 
 	/// Takes newly read settings. What only applies at start (address, port, name, mDNS,
@@ -158,7 +210,11 @@ impl Hub {
 			eprintln!("settings: {} take effect after a restart", restart.join(", "));
 		}
 		if old.control != new.control {
-			eprintln!("settings: control is now {}", if new.control { "on" } else { "off" });
+			let held = if new.control && self.control_off.load(Ordering::SeqCst) { ", but `elamond control off` holds it off" } else { "" };
+			eprintln!("settings: control is now {}{held}", if new.control { "on" } else { "off" });
+		}
+		if old.default_role != new.default_role {
+			eprintln!("settings: phones pair as {} from now on", new.default_role.as_str());
 		}
 		if let Ok(mut c) = self.config.write() {
 			*c = Arc::new(new);
@@ -170,6 +226,7 @@ impl Hub {
 	pub fn refresh_soon(&self) {
 		self.refresh.store(true, Ordering::SeqCst);
 	}
+
 }
 
 pub fn router(hub: Arc<Hub>) -> Router {
@@ -179,6 +236,7 @@ pub fn router(hub: Arc<Hub>) -> Router {
 		.route("/api/v1/history", get(history))
 		.route("/api/v1/stream", get(stream))
 		.route("/api/v1/control", get(control::info))
+		.route("/api/v1/control/log", get(control::log))
 		.route("/api/v1/control/power", post(control::power))
 		.route("/api/v1/control/profile", post(control::profile))
 		.route("/api/v1/control/signal", post(control::signal))
@@ -230,8 +288,8 @@ async fn auth(State(hub): State<Arc<Hub>>, mut req: Request, next: Next) -> Resp
 		.and_then(bearer)
 		.map(|t| store::sha256_hex(t.as_bytes()));
 	match hash.and_then(|h| Some((hub.authorized(&h)?, h))) {
-		Some((name, hash)) => {
-			req.extensions_mut().insert(ClientName(name));
+		Some((who, hash)) => {
+			req.extensions_mut().insert(who);
 			req.extensions_mut().insert(TokenHash(hash));
 			next.run(req).await
 		}
@@ -255,8 +313,8 @@ pub(crate) fn hello_body(id: &str, name: &str) -> serde_json::Value {
 	})
 }
 
-pub(crate) fn paired_body(token: &str, client_id: &str, id: &str, name: &str) -> serde_json::Value {
-	json!({ "token": token, "client_id": client_id, "id": id, "name": name })
+pub(crate) fn paired_body(token: &str, client_id: &str, id: &str, name: &str, role: Role) -> serde_json::Value {
+	json!({ "token": token, "client_id": client_id, "id": id, "name": name, "role": role })
 }
 
 #[derive(Deserialize)]
@@ -271,31 +329,43 @@ async fn pair(
 	ConnectInfo(peer): ConnectInfo<SocketAddr>,
 	Json(req): Json<PairRequest>,
 ) -> Response {
-	// One attempt at a time, each wrong one slowed down, a few per code.
+	// One attempt at a time, each wrong one slowed down, a few per address and some more in all.
 	let _guard = hub.pair_lock.lock().await;
 	let Some(mut pending) = store::load_pairing() else {
 		tokio::time::sleep(timeout::NO_PAIRING_DELAY).await;
 		return error(ErrorCode::NoPairing);
 	};
+	let ip = peer.ip().to_canonical();
+	let from = store::address_key(ip);
 	let code: String = req.code.chars().filter(char::is_ascii_digit).collect();
-	if !store::same(code.as_bytes(), pending.code.as_bytes()) {
-		pending.attempts += 1;
-		if pending.attempts >= limit::PAIRING_ATTEMPTS {
-			store::clear_pairing();
-		} else {
-			let _ = store::save_pairing(&pending);
+	match pending.attempt(&from, &code) {
+		// Answered at once: waiting here would hold up everyone else's attempts.
+		Attempt::Blocked => return error(ErrorCode::TooManyRequests),
+		Attempt::Wrong => {
+			if pending.attempts >= limit::PAIRING_ATTEMPTS {
+				store::clear_pairing();
+				eprintln!("pairing: wrong code from {ip}; the code is used up");
+			} else {
+				let _ = store::save_pairing(&pending);
+				let tried = pending.wrong.get(&from).copied().unwrap_or(0);
+				if tried >= limit::PAIRING_ATTEMPTS_PER_ADDRESS {
+					eprintln!("pairing: wrong code from {ip}; {from} may not try this code again");
+				} else {
+					eprintln!("pairing: wrong code from {ip}");
+				}
+			}
+			tokio::time::sleep(timeout::WRONG_CODE_DELAY).await;
+			return error(ErrorCode::WrongCode);
 		}
-		eprintln!("pairing: wrong code from {}", peer.ip());
-		tokio::time::sleep(timeout::WRONG_CODE_DELAY).await;
-		return error(ErrorCode::WrongCode);
+		Attempt::Right => {}
 	}
 	// The phone is added before the code is withdrawn: `elamond pair` takes a code gone with
 	// no new phone for one used up by wrong attempts.
-	match store::add_client(&req.device) {
+	match store::add_client(&req.device, pending.role) {
 		Ok((client, token)) => {
 			store::clear_pairing();
-			eprintln!("pairing: added \"{}\" ({}) from {}", client.name, client.id, peer.ip());
-			Json(paired_body(&token, &client.id, &hub.id, &hub.name)).into_response()
+			eprintln!("pairing: added \"{}\" ({}) as {} from {ip}", client.name, client.id, client.role.as_str());
+			Json(paired_body(&token, &client.id, &hub.id, &hub.name, client.role)).into_response()
 		}
 		Err(e) => {
 			eprintln!("pairing: can't save the client: {e}");
@@ -328,16 +398,34 @@ struct StreamParams {
 	media: Option<u8>,
 }
 
-/// What one app asked to see in its samples.
+/// What one app asked to see in its samples, or as much of it as its role allows.
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Want {
 	pub(crate) procs: usize,
 	pub(crate) sort: Option<String>,
 	pub(crate) media: bool,
+	/// Only the basics: no monitors and no links.
+	pub(crate) basic: bool,
 }
 
 impl Want {
 	fn new(p: &StreamParams) -> Self {
-		Want { procs: p.procs.unwrap_or(0).min(limit::PROCS_MAX), sort: p.sort.clone(), media: p.media.unwrap_or(0) != 0 }
+		Want {
+			procs: p.procs.unwrap_or(0).min(limit::PROCS_MAX),
+			sort: p.sort.clone(),
+			media: p.media.unwrap_or(0) != 0,
+			basic: false,
+		}
+	}
+
+	/// What of it a phone with `role` gets.
+	pub(crate) fn allowed(&self, role: Role) -> Want {
+		Want {
+			procs: if role.may(Can::Processes) { self.procs } else { 0 },
+			sort: self.sort.clone(),
+			media: self.media && role.may(Can::MediaRead),
+			basic: self.basic || !(role.may(Can::Displays) && role.may(Can::Links)),
+		}
 	}
 
 	/// Whether a frame was read with everything this app asked for.
@@ -381,8 +469,8 @@ impl Drop for Watch {
 
 /// One sample. The request counts as watching until a reading made for it arrives (links,
 /// displays, profiles, GPUs, and processes or media when asked for), a few ticks at most.
-async fn snapshot(State(hub): State<Arc<Hub>>, Query(p): Query<StreamParams>) -> Response {
-	let want = Want::new(&p);
+async fn snapshot(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Query(p): Query<StreamParams>) -> Response {
+	let want = Want::new(&p).allowed(who.role);
 	let mut rx = hub.frame.clone();
 	let _watch = Watch::new(&hub, &want);
 	let deadline = tokio::time::Instant::now() + hub.interval * cadence::FIRST_FRAME_TICKS;
@@ -396,8 +484,14 @@ async fn snapshot(State(hub): State<Arc<Hub>>, Query(p): Query<StreamParams>) ->
 	json_response(render_sample(&frame, &want, false))
 }
 
-async fn stream(State(hub): State<Arc<Hub>>, Extension(token): Extension<TokenHash>, Query(p): Query<StreamParams>) -> Response {
-	let want = Want::new(&p);
+async fn stream(
+	State(hub): State<Arc<Hub>>,
+	Extension(who): Extension<Caller>,
+	Extension(token): Extension<TokenHash>,
+	Query(p): Query<StreamParams>,
+) -> Response {
+	let asked = Want::new(&p);
+	let want = asked.allowed(who.role);
 	let interval = Duration::from_millis(p.interval.unwrap_or(0)).clamp(hub.interval, cadence::STREAM_INTERVAL_MAX);
 	let mut rx = hub.frame.clone();
 	let frame = rx.borrow_and_update().clone();
@@ -417,7 +511,10 @@ async fn stream(State(hub): State<Arc<Hub>>, Extension(token): Extension<TokenHa
 		/// Frames passed over while waiting for the first one made for this app.
 		skipped: u32,
 		interval: Duration,
+		/// What the app asked for, and what of it its role allows.
+		asked: Want,
 		want: Want,
+		role: Role,
 		token: TokenHash,
 		watch: Watch,
 	}
@@ -429,7 +526,9 @@ async fn stream(State(hub): State<Arc<Hub>>, Extension(token): Extension<TokenHa
 		skipped: 0,
 		interval,
 		watch: Watch::new(&hub, &want),
+		asked,
 		want,
+		role: who.role,
 		token,
 	};
 
@@ -440,7 +539,14 @@ async fn stream(State(hub): State<Arc<Hub>>, Extension(token): Extension<TokenHa
 			}
 			st.rx.changed().await.ok()?;
 			// Revoking a phone ends its stream within a tick, not when it next reconnects.
-			st.watch.hub.authorized(&st.token.0)?;
+			let hub = st.watch.hub.clone();
+			let who = hub.authorized(&st.token.0)?;
+			// A new role applies from the next sample on, more or less.
+			if who.role != st.role {
+				st.role = who.role;
+				st.want = st.asked.allowed(who.role);
+				st.watch = Watch::new(&hub, &st.want);
+			}
 			let frame = st.rx.borrow_and_update().clone();
 			if !Arc::ptr_eq(&frame.info, &st.info) && frame.info != st.info {
 				st.info = frame.info.clone();
@@ -478,7 +584,8 @@ fn tagged(kind: &str, obj: &str) -> String {
 	format!("{{\"type\":\"{kind}\"{sep}{inner}\n")
 }
 
-/// The shared sample with what this app asked for added: media, and its heaviest processes.
+/// The shared sample, or its basics, with what this app asked for added: media, and its
+/// heaviest processes.
 pub(crate) fn render_sample(frame: &Frame, want: &Want, line: bool) -> String {
 	let mut extra = String::new();
 	if want.media
@@ -505,7 +612,7 @@ pub(crate) fn render_sample(frame: &Frame, want: &Want, line: bool) -> String {
 		let procs_json = serde_json::to_string(&list).unwrap_or_else(|_| "[]".into());
 		extra.push_str(&format!(",\"process_count\":{},\"processes\":{procs_json}", all.len()));
 	}
-	let mut s = frame.sample.clone();
+	let mut s = if want.basic { frame.basic.clone() } else { frame.sample.clone() };
 	if !extra.is_empty() && s.ends_with('}') {
 		s.pop();
 		s.push_str(&extra);
@@ -560,6 +667,7 @@ mod tests {
 	fn frame() -> Frame {
 		Frame {
 			sample: "{\"t\":1}".into(),
+			basic: "{\"t\":1}".into(),
 			media: Some("{\"players\":[],\"volume\":null}".into()),
 			processes: Some(Arc::new(vec![
 				process(1, 0.0, 900, 0.0, None),
@@ -578,7 +686,7 @@ mod tests {
 	}
 
 	fn want(procs: usize, sort: Option<&str>) -> Want {
-		Want { procs, sort: sort.map(str::to_string), media: false }
+		Want { procs, sort: sort.map(str::to_string), media: false, basic: false }
 	}
 
 	#[test]
@@ -594,7 +702,7 @@ mod tests {
 	fn media_and_processes_only_for_those_who_asked() {
 		let f = frame();
 		assert_eq!(render_sample(&f, &want(0, None), false), "{\"t\":1}");
-		let v: serde_json::Value = serde_json::from_str(&render_sample(&f, &Want { procs: 1, sort: None, media: true }, false)).unwrap();
+		let v: serde_json::Value = serde_json::from_str(&render_sample(&f, &Want { procs: 1, sort: None, media: true, basic: false }, false)).unwrap();
 		assert_eq!(v["process_count"], 4);
 		assert_eq!(v["processes"].as_array().unwrap().len(), 1);
 		assert!(v["media"]["players"].is_array());
@@ -639,5 +747,264 @@ mod tests {
 		assert_eq!(get(libc::IPPROTO_TCP, libc::TCP_KEEPINTVL), 10);
 		assert_eq!(get(libc::IPPROTO_TCP, libc::TCP_KEEPCNT), 3);
 		assert_eq!(get(libc::IPPROTO_TCP, libc::TCP_USER_TIMEOUT), 60_000);
+	}
+
+	// ---- roles, through the router as a phone meets it -----------------------------------
+
+	use crate::store::Client;
+	use axum::http::{Method, StatusCode};
+	use futures_util::StreamExt;
+	use tower::ServiceExt;
+
+	/// The phones every test hub has: one for each role, its token "t-<role>", and one paired
+	/// before roles, whose entry in clients.json has none ("t-old").
+	const PHONES: [&str; 5] = ["glance", "monitor", "operate", "admin", "old"];
+
+	fn scratch() -> PathBuf {
+		let dir = std::env::temp_dir().join(format!("elamond-hub-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
+		std::fs::create_dir_all(&dir).unwrap();
+		dir
+	}
+
+	fn client(name: &str, role: Role) -> Client {
+		Client { id: format!("id-{name}"), name: name.into(), token_hash: store::sha256_hex(format!("t-{name}").as_bytes()), created: 1, role }
+	}
+
+	fn full_frame() -> Frame {
+		let s = crate::fixtures::sample();
+		Frame {
+			sample: serde_json::to_string(&s).unwrap(),
+			basic: serde_json::to_string(&s.into_basic()).unwrap(),
+			media: Some(serde_json::to_string(&crate::fixtures::media()).unwrap()),
+			processes: Some(Arc::new(crate::fixtures::processes())),
+			info: Arc::new("{\"id\":\"x\"}".into()),
+			watched: true,
+		}
+	}
+
+	/// A hub with its state in a directory of its own, the phones above paired, and a rate
+	/// limit out of the way.
+	fn hub(control: bool) -> (Arc<Hub>, watch::Sender<Arc<Frame>>) {
+		let dir = scratch();
+		let mut clients: Vec<serde_json::Value> =
+			Role::ALL.iter().map(|r| serde_json::to_value(client(r.as_str(), *r)).unwrap()).collect();
+		let mut old = serde_json::to_value(client("old", Role::Admin)).unwrap();
+		old.as_object_mut().unwrap().remove("role");
+		clients.push(old);
+		std::fs::write(dir.join("clients.json"), serde_json::to_vec(&clients).unwrap()).unwrap();
+		let (tx, rx) = watch::channel(Arc::new(full_frame()));
+		let config = store::Config { control, mdns: false, ..Default::default() };
+		let hub = Hub::new("id".into(), "test".into(), rx, HistoryRing::new(10), Duration::from_millis(250), Arc::new(config), dir);
+		*hub.rate.lock().unwrap() = RateLimiter::new(10_000, Duration::from_secs(1));
+		(Arc::new(hub), tx)
+	}
+
+	fn request(method: &str, path: &str, phone: &str, body: &str) -> Request {
+		axum::http::Request::builder()
+			.method(Method::from_bytes(method.as_bytes()).unwrap())
+			.uri(path)
+			.header(header::AUTHORIZATION, format!("Bearer t-{phone}"))
+			.header(header::CONTENT_TYPE, "application/json")
+			.extension(ConnectInfo(SocketAddr::from(([192, 0, 2, 1], 50000))))
+			.body(Body::from(body.to_string()))
+			.unwrap()
+	}
+
+	async fn call(hub: &Arc<Hub>, method: &str, path: &str, phone: &str, body: &str) -> (StatusCode, serde_json::Value) {
+		let resp = router(hub.clone()).oneshot(request(method, path, phone, body)).await.unwrap();
+		let status = resp.status();
+		if path.starts_with("/api/v1/stream") {
+			return (status, serde_json::Value::Null);
+		}
+		let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+		(status, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
+	}
+
+	/// Every route behind a token and what it needs, with a body that reads but asks for nothing
+	/// that could change the computer: an unknown power action, signal, player or link, an
+	/// empty name. Every route in `router` is here.
+	const ROUTES: &[(&str, &str, &str, Option<Can>)] = &[
+		("GET", "/api/v1/info", "", None),
+		("GET", "/api/v1/snapshot", "", None),
+		("GET", "/api/v1/history", "", None),
+		("GET", "/api/v1/stream", "", None),
+		("GET", "/api/v1/control", "", None),
+		("GET", "/api/v1/control/log", "", Some(Can::Log)),
+		("POST", "/api/v1/control/power", r#"{"action":"nothing"}"#, Some(Can::Power)),
+		("POST", "/api/v1/control/profile", r#"{"profile":"nothing"}"#, Some(Can::Profile)),
+		("POST", "/api/v1/control/signal", r#"{"pid":0,"signal":"nothing"}"#, Some(Can::Signal)),
+		("POST", "/api/v1/control/action", r#"{"id":"nothing"}"#, Some(Can::Actions)),
+		("POST", "/api/v1/media", r#"{"player":"nothing","op":"play_pause"}"#, Some(Can::Media)),
+		("POST", "/api/v1/media/volume", "{}", Some(Can::Volume)),
+		("GET", "/api/v1/media/art?player=nothing", "", Some(Can::MediaRead)),
+		("GET", "/api/v1/links", "", Some(Can::Links)),
+		("POST", "/api/v1/links", r#"{"name":"","url":""}"#, Some(Can::LinksEdit)),
+		("GET", "/api/v1/links/detected", "", Some(Can::Links)),
+		("DELETE", "/api/v1/links/nothing", "", Some(Can::LinksEdit)),
+		("POST", "/api/v1/links/nothing/unit", r#"{"op":"restart"}"#, Some(Can::Units)),
+		("GET", "/api/v1/services", "", Some(Can::Links)),
+		("POST", "/api/v1/services", r#"{"name":"","url":""}"#, Some(Can::LinksEdit)),
+		("GET", "/api/v1/services/detected", "", Some(Can::Links)),
+		("DELETE", "/api/v1/services/nothing", "", Some(Can::LinksEdit)),
+		("POST", "/api/v1/services/nothing/unit", r#"{"op":"restart"}"#, Some(Can::Units)),
+		("GET", "/api/v1/units", "", Some(Can::Links)),
+	];
+
+	fn role_of(phone: &str) -> Role {
+		Role::parse(phone).unwrap_or(Role::Admin)
+	}
+
+	#[tokio::test]
+	async fn every_route_for_every_role() {
+		for control in [true, false] {
+			let (hub, _tx) = hub(control);
+			for phone in PHONES {
+				for (method, path, body, can) in ROUTES {
+					let (status, v) = call(&hub, method, path, phone, body).await;
+					let error = v.get("error").and_then(|e| e.as_str()).unwrap_or("");
+					assert!(
+						!matches!(status.as_u16(), 401 | 405 | 422 | 429) && error != "not_found",
+						"{method} {path} as {phone}: {status} {v}"
+					);
+					let got = match error {
+						"not_allowed" | "control_disabled" => error,
+						_ => "let through",
+					};
+					let expected = match can {
+						Some(c) if !role_of(phone).may(*c) => "not_allowed",
+						Some(c) if c.needs_control() && !control => "control_disabled",
+						_ => "let through",
+					};
+					assert_eq!(got, expected, "{method} {path} as {phone} with control {control}: {status} {v}");
+					if got != "let through" {
+						assert_eq!(status, StatusCode::FORBIDDEN);
+					}
+				}
+			}
+			// Every acting request is in the log, refused or not, newest first.
+			let log = hub.activity.newest(usize::MAX);
+			let acting = ROUTES.iter().filter(|(m, ..)| *m != "GET").count();
+			assert_eq!(log.len(), acting * PHONES.len());
+			let power = |phone: &str| log.iter().find(|e| e.phone == phone && e.what == "power nothing").unwrap().clone();
+			assert_eq!((power("glance").result.as_str(), power("glance").client_id.as_str()), ("not_allowed", "id-glance"));
+			if control {
+				assert_eq!((power("old").result.as_str(), power("old").message.as_deref()), ("failed", Some("unknown_action")));
+			} else {
+				assert_eq!(power("admin").result, "control_disabled");
+			}
+			assert!(log.windows(2).all(|w| w[0].t >= w[1].t));
+			std::fs::remove_dir_all(&hub.dir).unwrap();
+		}
+	}
+
+	#[tokio::test]
+	async fn control_tells_each_phone_its_role_and_what_it_may_do() {
+		let (hub, _tx) = hub(true);
+		for phone in PHONES {
+			let (_, v) = call(&hub, "GET", "/api/v1/control", phone, "").await;
+			let role = role_of(phone);
+			assert_eq!(v["role"], role.as_str(), "{phone}");
+			assert_eq!(v["allowed"], serde_json::json!(crate::access::allowed(role, true)), "{phone}");
+			assert_eq!(v["enabled"], true);
+			if role < Role::Admin {
+				assert_eq!(v["power"]["reboot"], "na", "{phone}");
+			}
+			if role < Role::Operate {
+				assert!(v["profiles"].is_null() && v["actions"] == serde_json::json!([]) && v["volume"] == false, "{phone}: {v}");
+			}
+		}
+		// Held off: still on in the settings, off for everyone.
+		store::set_control_off(&hub.dir, true).unwrap();
+		let (_, v) = call(&hub, "GET", "/api/v1/control", "admin", "").await;
+		assert_eq!((v["enabled"].clone(), v["allowed"].clone()), (serde_json::json!(false), serde_json::json!(crate::access::allowed(Role::Admin, false))));
+		let (status, v) = call(&hub, "POST", "/api/v1/control/power", "admin", r#"{"action":"nothing"}"#).await;
+		assert_eq!((status, v["error"].as_str()), (StatusCode::FORBIDDEN, Some("control_disabled")));
+		assert!(!hub.control_on());
+		store::set_control_off(&hub.dir, false).unwrap();
+		let (status, _) = call(&hub, "POST", "/api/v1/control/power", "admin", r#"{"action":"nothing"}"#).await;
+		assert_eq!(status, StatusCode::BAD_GATEWAY);
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
+	async fn a_phone_that_acts_too_often_is_slowed_down() {
+		let (hub, _tx) = hub(true);
+		*hub.rate.lock().unwrap() = RateLimiter::default();
+		let mut statuses = Vec::new();
+		for _ in 0..limit::ACTS_BURST + 3 {
+			statuses.push(call(&hub, "POST", "/api/v1/control/power", "admin", r#"{"action":"nothing"}"#).await.0);
+		}
+		assert!(statuses[..limit::ACTS_BURST as usize].iter().all(|s| *s == StatusCode::BAD_GATEWAY), "{statuses:?}");
+		assert!(statuses[limit::ACTS_BURST as usize..].iter().all(|s| *s == StatusCode::TOO_MANY_REQUESTS), "{statuses:?}");
+		// Another phone isn't held up, and reading isn't counted.
+		assert_eq!(call(&hub, "POST", "/api/v1/control/power", "old", r#"{"action":"nothing"}"#).await.0, StatusCode::BAD_GATEWAY);
+		assert_eq!(call(&hub, "GET", "/api/v1/control", "admin", "").await.0, StatusCode::OK);
+		// Only the first refusal of the run is logged.
+		let log = hub.activity.newest(usize::MAX);
+		assert_eq!(log.iter().filter(|e| e.result == "too_many_requests").count(), 1);
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
+	async fn snapshots_carry_what_the_role_allows() {
+		let (hub, _tx) = hub(true);
+		for phone in PHONES {
+			let (_, v) = call(&hub, "GET", "/api/v1/snapshot?procs=5&media=1", phone, "").await;
+			let all = role_of(phone) >= Role::Monitor;
+			assert_eq!(v.get("processes").is_some(), all, "{phone}");
+			assert_eq!(v.get("process_count").is_some(), all, "{phone}");
+			assert_eq!(v.get("media").is_some(), all, "{phone}");
+			assert_eq!(v["displays"].as_array().unwrap().is_empty(), !all, "{phone}");
+			assert_eq!(v["links"].as_array().unwrap().is_empty(), !all, "{phone}");
+			assert_eq!(v["services"].as_array().unwrap().is_empty(), !all, "{phone}");
+			assert!(v["cpu"]["usage"].is_number() && v["net"].is_array() && v["battery"].is_object(), "{phone}");
+		}
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
+	async fn an_open_stream_follows_its_phones_role() {
+		let (hub, tx) = hub(true);
+		let resp = router(hub.clone()).oneshot(request("GET", "/api/v1/stream?procs=5&media=1", "monitor", "")).await.unwrap();
+		let mut body = resp.into_body().into_data_stream();
+		let mut next = async || -> Option<serde_json::Value> {
+			let chunk = tokio::time::timeout(Duration::from_secs(5), body.next()).await.expect("a line in time")?.unwrap();
+			Some(serde_json::from_slice(&chunk).unwrap())
+		};
+		assert_eq!(next().await.unwrap()["type"], "info");
+		let mut sample = async |tx: &watch::Sender<Arc<Frame>>| {
+			// Samples come an interval apart at the most often.
+			tokio::time::sleep(Duration::from_millis(300)).await;
+			tx.send_replace(Arc::new(full_frame()));
+			next().await
+		};
+		let full = sample(&tx).await.unwrap();
+		assert!(full["processes"].is_array() && full["media"].is_object() && !full["displays"].as_array().unwrap().is_empty());
+		assert_eq!((hub.watchers.load(Ordering::SeqCst), hub.proc_watchers.load(Ordering::SeqCst)), (1, 1));
+
+		let set_role = |role: Option<Role>| {
+			let mut list = store::load_clients_in(&hub.dir).unwrap();
+			match role {
+				Some(r) => list.iter_mut().find(|c| c.name == "monitor").unwrap().role = r,
+				None => list.retain(|c| c.name != "monitor"),
+			}
+			store::save_clients_in(&hub.dir, &list).unwrap();
+		};
+		set_role(Some(Role::Glance));
+		let basic = sample(&tx).await.unwrap();
+		assert!(basic.get("processes").is_none() && basic.get("media").is_none(), "{basic}");
+		assert_eq!((basic["displays"].clone(), basic["links"].clone()), (serde_json::json!([]), serde_json::json!([])));
+		assert_eq!((hub.watchers.load(Ordering::SeqCst), hub.proc_watchers.load(Ordering::SeqCst)), (1, 0));
+		assert_eq!(hub.media_watchers.load(Ordering::SeqCst), 0);
+
+		set_role(Some(Role::Monitor));
+		let again = sample(&tx).await.unwrap();
+		assert!(again["processes"].is_array() && again["media"].is_object(), "{again}");
+
+		// Unpaired: the stream ends, and stops counting as watching.
+		set_role(None);
+		assert!(sample(&tx).await.is_none());
+		assert_eq!(hub.watchers.load(Ordering::SeqCst), 0);
+		std::fs::remove_dir_all(&hub.dir).unwrap();
 	}
 }

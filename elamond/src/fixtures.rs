@@ -10,6 +10,8 @@ use std::sync::Arc;
 
 use serde::Serialize;
 
+use crate::access::{allowed, Role};
+use crate::activity::Entry;
 use crate::bus::{Player, PowerCaps, Profiles, UnitInfo};
 use crate::control::{ActionInfo, ActionResult, ControlInfo, Media, Volume};
 use crate::errors::ErrorCode;
@@ -232,7 +234,7 @@ fn hello() {
 
 #[test]
 fn paired() {
-	check("pair", &paired_body("token", "0123abcd", "0123456789abcdef0123456789abcdef", "fixture"));
+	check("pair", &paired_body("token", "0123abcd", "0123456789abcdef0123456789abcdef", "fixture", Role::Admin));
 }
 
 #[test]
@@ -241,18 +243,37 @@ fn info_and_history() {
 	check("history", &history());
 }
 
-#[test]
-fn sample_with_processes() {
-	let frame = Frame {
+fn frame() -> Frame {
+	Frame {
 		sample: serde_json::to_string(&sample()).unwrap(),
+		basic: serde_json::to_string(&sample().into_basic()).unwrap(),
 		media: Some(serde_json::to_string(&media()).unwrap()),
 		processes: Some(Arc::new(processes())),
 		info: Arc::new(String::new()),
 		watched: true,
-	};
-	let want = Want { procs: 10, sort: None, media: true };
-	let line: serde_json::Value = serde_json::from_str(&render_sample(&frame, &want, false)).unwrap();
+	}
+}
+
+#[test]
+fn sample_with_processes() {
+	let want = Want { procs: 10, sort: None, media: true, basic: false };
+	let line: serde_json::Value = serde_json::from_str(&render_sample(&frame(), &want, false)).unwrap();
 	check("sample", &line);
+}
+
+/// What a phone that only glances gets when it asks for the same: no processes, monitors,
+/// links or media.
+#[test]
+fn sample_for_a_glance() {
+	let want = Want { procs: 10, sort: None, media: true, basic: false }.allowed(Role::Glance);
+	let line: serde_json::Value = serde_json::from_str(&render_sample(&frame(), &want, false)).unwrap();
+	for gone in ["processes", "process_count", "media"] {
+		assert!(line.get(gone).is_none(), "{gone}");
+	}
+	for empty in ["displays", "links", "services"] {
+		assert_eq!(line[empty], serde_json::json!([]), "{empty}");
+	}
+	check("sample-glance", &line);
 }
 
 #[test]
@@ -272,9 +293,36 @@ fn control() {
 			profiles: Some(Profiles { active: "balanced".into(), available: vec!["power-saver".into(), "balanced".into()] }),
 			actions: vec![ActionInfo { id: "0123456789ab".into(), name: "Some action".into(), confirm: true }],
 			volume: true,
+			role: Role::Admin,
+			allowed: allowed(Role::Admin, true),
 		},
 	);
 	check("action-result", &ActionResult { exit_code: Some(0), timed_out: false, output: "done\n".into() });
 	check("detected", &vec![Listener { port: 8080, local_only: true, process: some("some") }]);
 	check("units", &vec![UnitInfo { name: "some.service".into(), description: "Some service".into(), active: "active".into() }]);
+}
+
+#[test]
+fn activity_log() {
+	check(
+		"log",
+		&vec![
+			Entry {
+				t: 1_700_000_060_000,
+				phone: "Some phone".into(),
+				client_id: "0123abcd".into(),
+				what: "action Some action".into(),
+				result: "ok".into(),
+				message: some("exit 0"),
+			},
+			Entry {
+				t: 1_700_000_000_000,
+				phone: "Other phone".into(),
+				client_id: "4567cdef".into(),
+				what: "power reboot".into(),
+				result: "not_allowed".into(),
+				message: None,
+			},
+		],
+	);
 }

@@ -20,5 +20,21 @@
       "confirm": true
     }
   ],
-  "volume": true
+  "volume": true,
+  "role": "admin",
+  "allowed": [
+    "processes",
+    "displays",
+    "links",
+    "media.read",
+    "log",
+    "links.edit",
+    "units",
+    "media",
+    "volume",
+    "profile",
+    "actions",
+    "power",
+    "signal"
+  ]
 }
