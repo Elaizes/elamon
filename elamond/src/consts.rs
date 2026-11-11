@@ -119,6 +119,10 @@ pub mod timeout {
 	pub const TAILSCALE: Duration = Duration::from_millis(1500);
 	/// Open connections get this long to finish when the service stops.
 	pub const SHUTDOWN: Duration = Duration::from_secs(2);
+	/// The service waits this long for the data directory while `elamond restore` writes to it,
+	/// looking every `DATA_DIR_LOCK_POLL`, and then gives up: another service holds it.
+	pub const DATA_DIR_LOCK: Duration = Duration::from_secs(10);
+	pub const DATA_DIR_LOCK_POLL: Duration = Duration::from_millis(100);
 	/// A pairing attempt without a pending code is answered after this, a wrong code after the next.
 	pub const NO_PAIRING_DELAY: Duration = Duration::from_millis(500);
 	pub const WRONG_CODE_DELAY: Duration = Duration::from_secs(1);
@@ -175,6 +179,32 @@ pub mod limit {
 	pub const ROTATIONS_KEPT: usize = 5;
 	/// Addresses `elamond pair` tries, to tell whether the service runs.
 	pub const SERVICE_CHECK_ADDRS: usize = 3;
+}
+
+/// `elamond backup`: how a passphrase becomes the key a backup is sealed with, and how much a
+/// backup may ask of the computer that opens it.
+pub mod backup {
+	/// Argon2id's cost: memory in KiB, passes and lanes. RFC 9106's second recommended setting,
+	/// for when 2 GiB of memory is too much: 64 MiB, 3 passes, 4 lanes.
+	pub const ARGON2_M_KIB: u32 = 64 * 1024;
+	pub const ARGON2_T: u32 = 3;
+	pub const ARGON2_P: u32 = 4;
+	/// Argon2's version, 1.3.
+	pub const ARGON2_VERSION: u32 = 0x13;
+	/// Random bytes of salt for the key, and of nonce for XChaCha20-Poly1305.
+	pub const SALT_BYTES: usize = 16;
+	pub const NONCE_BYTES: usize = 24;
+	/// The most a backup may ask for to be opened, so a file can't make a restore take all the
+	/// memory or run for ever: 1 GiB, 64 passes, 64 lanes.
+	pub const ARGON2_M_KIB_MAX: u32 = 1024 * 1024;
+	pub const ARGON2_T_MAX: u32 = 64;
+	pub const ARGON2_P_MAX: u32 = 64;
+	/// The shortest passphrase a backup is made with, in characters.
+	pub const PASSPHRASE_MIN: usize = 8;
+	/// Tries at typing a passphrase twice alike before giving up.
+	pub const PASSPHRASE_TRIES: usize = 3;
+	/// The largest file `elamond restore` reads: far more than the state ever takes.
+	pub const FILE_MAX: u64 = 64 * 1024 * 1024;
 }
 
 #[cfg(test)]

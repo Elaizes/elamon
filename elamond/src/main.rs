@@ -2,6 +2,7 @@
 
 mod access;
 mod activity;
+mod backup;
 mod bus;
 mod collect;
 mod consts;
@@ -44,6 +45,10 @@ Usage:
   elamond revoke <id|all>              unpair a phone
   elamond control [off|on|status]      hold control off for every phone, or let go
   elamond rotate-cert                  a new certificate, which paired phones follow
+  elamond backup FILE                  save the identity, the paired phones and the rest to FILE,
+                                       encrypted with a passphrase (--plain: not encrypted)
+  elamond restore FILE                 put a backup back, the service stopped (--force: running);
+                                       --with-settings puts elamond.toml and elamond.d back too
   elamond snapshot                     print one reading as JSON
   elamond --version
 
@@ -64,6 +69,8 @@ fn main() {
 		"clients" => clients(&args[1..]),
 		"control" => control(args.get(1).map(String::as_str)),
 		"rotate-cert" => rotate_cert(&args[1..]),
+		"backup" => backup::backup(&args[1..]),
+		"restore" => backup::restore(&args[1..]),
 		"revoke" => revoke(args.get(1).map(String::as_str)),
 		"snapshot" => snapshot(),
 		"-V" | "--version" | "version" => {
@@ -118,6 +125,9 @@ fn timing(config: &store::Config) -> (Duration, usize, Vec<String>) {
 fn serve() -> Result<(), String> {
 	let config = store::load_config()?;
 	let dir = store::data_dir();
+	// Held until the service stops: `elamond restore` sees it, and the identity isn't read while
+	// a restore writes it.
+	let _held = hold_data_dir(&dir)?;
 	let identity = identity::Identity::load_or_create(&dir)?;
 	let name = machine_name(&config);
 	let (interval, history_len, notes) = timing(&config);
@@ -217,22 +227,45 @@ fn serve() -> Result<(), String> {
 	})
 }
 
+/// The data directory's lock, waited for while `elamond restore` writes there; refused when
+/// another service holds it. Where locks don't work, the service goes on without, and says so.
+fn hold_data_dir(dir: &std::path::Path) -> Result<Option<std::fs::File>, String> {
+	let started = std::time::Instant::now();
+	loop {
+		match store::lock_data_dir(dir) {
+			Ok(Some(lock)) => return Ok(Some(lock)),
+			Ok(None) if started.elapsed() < timeout::DATA_DIR_LOCK => std::thread::sleep(timeout::DATA_DIR_LOCK_POLL),
+			Ok(None) => return Err(format!("another elamond serve uses {}; stop that one first", dir.display())),
+			Err(e) => {
+				eprintln!("can't lock {} ({e}); elamond restore won't see that the service runs", dir.display());
+				return Ok(None);
+			}
+		}
+	}
+}
+
 /// TLS with the certificate and key of `identity`, from the data directory `dir`.
 fn tls_config(identity: &identity::Identity, dir: &std::path::Path) -> Result<rustls::ServerConfig, String> {
+	tls_with(&identity.cert_der, &identity.key_der).map_err(|e| {
+		format!(
+			"the TLS identity in {} doesn't load ({e}); remove cert.der and key.der to make a new one, then pair the phones again",
+			dir.display()
+		)
+	})
+}
+
+/// TLS presenting the certificate `cert` with its key `key`, both DER: refused when the key isn't
+/// the certificate's.
+fn tls_with(cert: &[u8], key: &[u8]) -> Result<rustls::ServerConfig, String> {
 	let provider = Arc::new(rustls::crypto::ring::default_provider());
-	let cert = CertificateDer::from(identity.cert_der.clone());
-	let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(identity.key_der.clone()));
+	let cert = CertificateDer::from(cert.to_vec());
+	let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key.to_vec()));
 	let mut tls = rustls::ServerConfig::builder_with_provider(provider)
 		.with_safe_default_protocol_versions()
 		.map_err(|e| e.to_string())?
 		.with_no_client_auth()
 		.with_single_cert(vec![cert], key)
-		.map_err(|e| {
-			format!(
-				"the TLS identity in {} doesn't load ({e}); remove cert.der and key.der to make a new one, then pair the phones again",
-				dir.display()
-			)
-		})?;
+		.map_err(|e| e.to_string())?;
 	tls.alpn_protocols = vec![b"http/1.1".to_vec()];
 	Ok(tls)
 }

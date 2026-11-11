@@ -20,13 +20,13 @@ use serde::{Deserialize, Serialize};
 use crate::consts::{limit, protocol};
 use crate::store::{now, random_bytes, read_json, sha256_hex, write_json, write_private};
 
-const ID_FILE: &str = "id";
-const CERT_FILE: &str = "cert.der";
-const KEY_FILE: &str = "key.der";
-const ROTATIONS_FILE: &str = "rotations.json";
+pub const ID_FILE: &str = "id";
+pub const CERT_FILE: &str = "cert.der";
+pub const KEY_FILE: &str = "key.der";
+pub const ROTATIONS_FILE: &str = "rotations.json";
 /// The new certificate and key while a rotation is written: from here they are taken up once the
 /// statement for them is saved, or dropped if it never was.
-const NEXT_FILE: &str = "next-identity.json";
+pub const NEXT_FILE: &str = "next-identity.json";
 
 const B64: data_encoding::Encoding = data_encoding::BASE64;
 
@@ -162,6 +162,11 @@ pub fn chain_to<'a>(rotations: &'a [Rotation], fp: &str) -> &'a [Rotation] {
 struct Next {
 	cert: String,
 	key: String,
+}
+
+/// Whether `bytes` read as next-identity.json, for `elamond restore` to check before it writes one.
+pub fn next_reads(bytes: &[u8]) -> bool {
+	serde_json::from_slice::<Next>(bytes).is_ok_and(|n| B64.decode(n.cert.as_bytes()).is_ok() && B64.decode(n.key.as_bytes()).is_ok())
 }
 
 /// Completes a rotation that stopped midway: takes up its certificate if its statement was saved,

@@ -53,9 +53,9 @@ pub struct Listener {
 }
 
 /// The links added from the app, in the data directory.
-const FILE: &str = "links.json";
+pub const FILE: &str = "links.json";
 /// Its name before 0.5.
-const OLD_FILE: &str = "services.json";
+pub const OLD_FILE: &str = "services.json";
 
 /// The links added from the app, kept in the data directory `dir`; none when there are none
 /// yet. A file that doesn't parse is an error, and stays on disk until the next save sets it
