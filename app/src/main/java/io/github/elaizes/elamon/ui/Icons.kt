@@ -442,6 +442,29 @@ object ElIcons {
 		fill { circle(12f, 17f, 1.25f) }
 	}
 
+	/** Shows what a passphrase field hides: an open eye. */
+	val Reveal = icon("Reveal") {
+		stroke {
+			moveTo(2f, 12f)
+			quadTo(12f, 2f, 22f, 12f)
+			quadTo(12f, 22f, 2f, 12f)
+			close()
+			circle(12f, 12f, 3f)
+		}
+	}
+
+	/** Hides it again: the eye struck through. */
+	val Conceal = icon("Conceal") {
+		stroke {
+			moveTo(2f, 12f)
+			quadTo(12f, 2f, 22f, 12f)
+			quadTo(12f, 22f, 2f, 12f)
+			close()
+			circle(12f, 12f, 3f)
+			line(4f, 4f, 20f, 20f)
+		}
+	}
+
 	val Qr = icon("Qr") {
 		stroke {
 			rect(3.5f, 3.5f, 9.5f, 9.5f, 1f)

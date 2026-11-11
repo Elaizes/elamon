@@ -259,6 +259,21 @@ private val FAQ = listOf(
 	Faq(R.string.faq_gpu_q, listOf(t(R.string.faq_gpu_a))),
 	Faq(R.string.faq_displays_q, listOf(t(R.string.faq_displays_a))),
 	Faq(R.string.faq_unpair_q, listOf(t(R.string.faq_unpair_a), c("elamond clients\nelamond revoke ID"))),
+	Faq(
+		R.string.faq_new_phone_q,
+		listOf(t(R.string.faq_new_phone_a), t(R.string.faq_new_phone_a2), c("elamond pair\nelamond clients\nelamond revoke OLD_ID")),
+	),
+	Faq(
+		R.string.faq_new_computer_q,
+		listOf(
+			t(R.string.faq_new_computer_a),
+			c("elamond backup ~/elamond.backup"),
+			t(R.string.faq_new_computer_a2),
+			c("systemctl --user stop elamond\nelamond restore ~/elamond.backup\nsystemctl --user start elamond"),
+			t(R.string.faq_new_computer_a3),
+			c("elamond restore ~/elamond.backup --with-settings"),
+		),
+	),
 )
 
 private val COMMANDS = listOf(
@@ -269,6 +284,8 @@ private val COMMANDS = listOf(
 	"elamond revoke all" to R.string.cmd_revoke_all,
 	"elamond control off" to R.string.cmd_control_off,
 	"elamond rotate-cert" to R.string.cmd_rotate_cert,
+	"elamond backup FILE" to R.string.cmd_backup,
+	"elamond restore FILE" to R.string.cmd_restore,
 	"elamond snapshot" to R.string.cmd_snapshot,
 	"elamond --version" to R.string.cmd_version,
 )

@@ -13,6 +13,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -275,6 +276,49 @@ class MachineStoreTest {
 		val new = c.seal("secret-new".toByteArray())
 		assertEquals(2, keys.created)
 		assertEquals("secret-new", String(c.open(new)))
+	}
+
+	@Test
+	fun anExportOpensEveryTokenItCanAndCountsTheRest() {
+		val keys = MemoryKeys()
+		val store = MachineStore(MemoryFile(before), FakeCipher(keys))
+		store.put(machine("c"), "secret-c")
+		val (all, leftOut) = store.withTokens()
+		assertEquals(listOf("secret-a", "secret-b", "secret-c"), all.map { it.token })
+		assertTrue(all.all { it.tokenSealed == null && it.tokenIv == null })
+		assertEquals(0, leftOut)
+		// A key store that lost its key: nothing to open, all left out.
+		val reset = MachineStore(MemoryFile(ProtocolJson.encodeToString(store.machines.value)), FakeCipher(MemoryKeys()))
+		assertEquals(emptyList<Machine>() to 3, reset.withTokens())
+	}
+
+	@Test
+	fun anImportSealsEveryTokenHereAndReplacesByIdInPlace() {
+		val file = MemoryFile(before)
+		val store = MachineStore(file, FakeCipher())
+		val fromOldPhone = listOf(machine("b").copy(token = "secret-new", tokenSealed = "theirs", tokenIv = "theirs"), machine("c").copy(token = "secret-c"))
+		val merged = store.addImported(fromOldPhone)
+		assertEquals(1 to 1, merged.added to merged.replaced)
+		assertEquals(listOf("a", "b", "c"), store.machines.value.map { it.id })
+		assertNothingPlain(file.writes.last())
+		assertEquals("secret-a", store.token(store.get("a")!!))
+		assertEquals("secret-new", store.token(store.get("b")!!))
+		assertEquals("secret-c", store.token(store.get("c")!!))
+		// Sealed with this phone's key, not carried over from the other phone.
+		assertNotEquals("theirs", store.get("b")!!.tokenSealed)
+	}
+
+	@Test
+	fun anImportTheKeyStoreCantSealChangesNothing() {
+		val file = MemoryFile(before)
+		val cipher = FakeCipher()
+		val store = MachineStore(file, cipher)
+		val writes = file.writes.size
+		val list = store.machines.value
+		cipher.sealing = false
+		assertFailsWith<KeystoreException> { store.addImported(listOf(machine("c").copy(token = "secret-c"))) }
+		assertEquals(writes, file.writes.size)
+		assertEquals(list, store.machines.value)
 	}
 
 	@Test

@@ -143,6 +143,28 @@ class MachineStore(private val file: MachineFile, private val cipher: TokenCiphe
 		save(_machines.value.filter { it.id != id })
 	}
 
+	/**
+	 * Every computer with its token opened into [Machine.token], for an export, and how many were
+	 * left out because this phone can no longer open their tokens. Nothing of it is kept.
+	 */
+	fun withTokens(): Pair<List<Machine>, Int> {
+		val list = _machines.value
+		val opened = list.mapNotNull { m -> token(m)?.let { m.copy(token = it, tokenSealed = null, tokenIv = null) } }
+		return opened to list.size - opened.size
+	}
+
+	/**
+	 * Adds imported computers, each with its token in [Machine.token]: one with an id already here
+	 * takes that entry's place, the others go at the end. Every token is sealed with this phone's
+	 * key before anything is saved, so a key store that fails changes nothing ([KeystoreException]).
+	 */
+	fun addImported(imported: List<Machine>): Merged {
+		val sealed = imported.map { sealed(it.copy(token = "", tokenSealed = null, tokenIv = null), it.token) }
+		val merged = mergeImported(_machines.value, sealed)
+		save(merged.list)
+		return merged
+	}
+
 	companion object {
 		private val B64 = Base64.getEncoder()
 		private val B64D = Base64.getDecoder()
