@@ -634,7 +634,11 @@ fn clients(args: &[String]) -> Result<(), String> {
 	let width = clients.iter().map(|c| c.name.chars().count()).max().unwrap_or(0);
 	for c in &clients {
 		let pad = width - c.name.chars().count();
-		println!("{}  {:<7}  {}{}  (paired {})", c.id, c.role.as_str(), c.name, " ".repeat(pad), format_date(c.created));
+		let when = match &c.from {
+			Some(from) => format!("added {} with the key of {from}", format_date(c.created)),
+			None => format!("paired {}", format_date(c.created)),
+		};
+		println!("{}  {:<7}  {}{}  ({when})", c.id, c.role.as_str(), c.name, " ".repeat(pad));
 	}
 	println!();
 	println!("Change what a phone may do: elamond clients role <id|all> <{}>", Role::choices());
@@ -727,6 +731,15 @@ fn revoke(which: Option<&str>) -> Result<(), String> {
 	}
 	store::save_clients(&keep).map_err(|e| e.to_string())?;
 	println!("Unpaired {} phone(s).", clients.len() - keep.len());
+	// A phone that came by this one's key and asked for its own (Import pairings) stays paired.
+	let added: Vec<_> = keep.iter().filter(|c| c.from.as_deref() == Some(which)).collect();
+	if !added.is_empty() {
+		println!("Still paired, added with its key:");
+		for c in added {
+			println!("  {}  {}", c.id, c.name);
+		}
+		println!("That is the new phone after Import pairings; if it isn't yours, revoke it too.");
+	}
 	Ok(())
 }
 

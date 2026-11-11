@@ -23,7 +23,7 @@ use crate::access::{Can, Caller, RateLimiter, Role};
 use crate::activity::Activity;
 use crate::collect::HistoryRing;
 use crate::consts::{cadence, limit, protocol, timeout};
-use crate::control;
+use crate::control::{self, Acted};
 use crate::errors::ErrorCode;
 use crate::model::Process;
 use crate::store::{self, Attempt};
@@ -338,6 +338,7 @@ pub fn router(hub: Arc<Hub>) -> Router {
 		.route("/api/v1/services/{id}", delete(control::link_delete))
 		.route("/api/v1/services/{id}/unit", post(control::link_unit))
 		.route("/api/v1/units", get(control::units))
+		.route("/api/v1/rekey", post(rekey))
 		.route_layer(middleware::from_fn_with_state(hub.clone(), auth));
 	Router::new()
 		.route("/api/v1/hello", get(hello))
@@ -457,6 +458,50 @@ async fn pair(
 			error(ErrorCode::Storage)
 		}
 	}
+}
+
+#[derive(Deserialize)]
+struct RekeyRequest {
+	#[serde(default)]
+	device: String,
+}
+
+/// A key of its own for a phone that holds another's token, as one does after Import pairings:
+/// a new entry named `device`, with the role of the entry whose token asked and a new token, the
+/// same answer as pairing's. That token stays good, so the phone it was copied from keeps working
+/// until it is revoked on its own. Any role may ask, and none is raised by it; it counts as acting
+/// (the rate and the activity log), but needs no control.
+async fn rekey(
+	State(hub): State<Arc<Hub>>,
+	Extension(who): Extension<Caller>,
+	ConnectInfo(peer): ConnectInfo<SocketAddr>,
+	Json(req): Json<RekeyRequest>,
+) -> Response {
+	let name = store::sanitize_name(&req.device);
+	let ip = peer.ip().to_canonical();
+	hub.act_as(&who, None, format!("phone added: {name}"), async {
+		// One write to the phones at a time, pairing's included.
+		let _guard = hub.pair_lock.lock().await;
+		match store::add_client_from(&hub.dir, &who.id, &name, who.role) {
+			Ok((client, token)) => {
+				eprintln!(
+					"pairing: added \"{}\" ({}) as {} from {ip}, asked with the key of \"{}\" ({}), which stays paired",
+					client.name,
+					client.id,
+					client.role.as_str(),
+					who.name,
+					who.id
+				);
+				let response = Json(paired_body(&token, &client.id, &hub.id, &hub.name, client.role)).into_response();
+				Ok(Acted { response, note: Some(format!("id {}, {}", client.id, client.role.as_str())) })
+			}
+			Err(e) => {
+				eprintln!("pairing: can't save the phone \"{}\" ({}) asked to add: {e}", who.name, who.id);
+				Err(ErrorCode::Storage.into())
+			}
+		}
+	})
+	.await
 }
 
 /// How the certificate presented came to replace those before it; see `identity`. Public: it only
@@ -898,7 +943,7 @@ mod tests {
 	}
 
 	fn client(name: &str, role: Role) -> Client {
-		Client { id: format!("id-{name}"), name: name.into(), token_hash: store::sha256_hex(format!("t-{name}").as_bytes()), created: 1, role }
+		Client { id: format!("id-{name}"), name: name.into(), token_hash: store::sha256_hex(format!("t-{name}").as_bytes()), created: 1, role, from: None }
 	}
 
 	fn full_frame() -> Frame {
@@ -931,10 +976,14 @@ mod tests {
 	}
 
 	fn request(method: &str, path: &str, phone: &str, body: &str) -> Request {
+		request_as(method, path, &format!("t-{phone}"), body)
+	}
+
+	fn request_as(method: &str, path: &str, token: &str, body: &str) -> Request {
 		axum::http::Request::builder()
 			.method(Method::from_bytes(method.as_bytes()).unwrap())
 			.uri(path)
-			.header(header::AUTHORIZATION, format!("Bearer t-{phone}"))
+			.header(header::AUTHORIZATION, format!("Bearer {token}"))
 			.header(header::CONTENT_TYPE, "application/json")
 			.extension(ConnectInfo(SocketAddr::from(([192, 0, 2, 1], 50000))))
 			.body(Body::from(body.to_string()))
@@ -942,7 +991,12 @@ mod tests {
 	}
 
 	async fn call(hub: &Arc<Hub>, method: &str, path: &str, phone: &str, body: &str) -> (StatusCode, serde_json::Value) {
-		let resp = router(hub.clone()).oneshot(request(method, path, phone, body)).await.unwrap();
+		call_as(hub, method, path, &format!("t-{phone}"), body).await
+	}
+
+	/// `call` with a token of its own rather than one of the test phones'.
+	async fn call_as(hub: &Arc<Hub>, method: &str, path: &str, token: &str, body: &str) -> (StatusCode, serde_json::Value) {
+		let resp = router(hub.clone()).oneshot(request_as(method, path, token, body)).await.unwrap();
 		let status = resp.status();
 		if path.starts_with("/api/v1/stream") {
 			return (status, serde_json::Value::Null);
@@ -979,6 +1033,7 @@ mod tests {
 		("DELETE", "/api/v1/services/nothing", "", Some(Can::LinksEdit)),
 		("POST", "/api/v1/services/nothing/unit", r#"{"op":"restart"}"#, Some(Can::Units)),
 		("GET", "/api/v1/units", "", Some(Can::Links)),
+		("POST", "/api/v1/rekey", r#"{"device":"Route phone"}"#, None),
 	];
 
 	fn role_of(phone: &str) -> Role {
@@ -1073,6 +1128,80 @@ mod tests {
 		// Only the first refusal of the run is logged.
 		let log = hub.activity.newest(usize::MAX);
 		assert_eq!(log.iter().filter(|e| e.result == "too_many_requests").count(), 1);
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
+	async fn a_phone_gets_a_key_of_its_own_beside_the_one_it_came_with() {
+		// Control off: a key of its own needs none, whatever the role.
+		let (hub, _tx) = hub(false);
+		for phone in PHONES {
+			let role = role_of(phone);
+			let before = store::load_clients_in(&hub.dir).unwrap();
+			// A role asked for in the body is no more than a word in it.
+			let (status, v) = call(&hub, "POST", "/api/v1/rekey", phone, r#"{"device":" New\u0007 phone ","role":"admin"}"#).await;
+			assert_eq!(status, StatusCode::OK, "{phone}: {v}");
+			assert_eq!((v["role"].as_str(), v["id"].as_str(), v["name"].as_str()), (Some(role.as_str()), Some("id"), Some("test")), "{phone}");
+			let (token, new_id) = (v["token"].as_str().unwrap().to_string(), v["client_id"].as_str().unwrap().to_string());
+			assert_ne!(token, format!("t-{phone}"));
+
+			// A new entry beside the one that asked, which stays as it was.
+			let list = store::load_clients_in(&hub.dir).unwrap();
+			assert_eq!(list.len(), before.len() + 1, "{phone}");
+			let added = list.iter().find(|c| c.id == new_id).unwrap();
+			let from = format!("id-{phone}");
+			assert_eq!((added.name.as_str(), added.role, added.from.as_deref()), ("New phone", role, Some(from.as_str())), "{phone}");
+			assert_eq!(added.token_hash, store::sha256_hex(token.as_bytes()));
+			assert!(list.iter().any(|c| c.id == from && c.token_hash == store::sha256_hex(format!("t-{phone}").as_bytes())));
+
+			// Both tokens work, each as its own phone with the same role.
+			for t in [format!("t-{phone}"), token.clone()] {
+				let (status, v) = call_as(&hub, "GET", "/api/v1/control", &t, "").await;
+				assert_eq!((status, v["role"].as_str()), (StatusCode::OK, Some(role.as_str())), "{phone}");
+			}
+			let (_, v) = call_as(&hub, "GET", "/api/v1/snapshot?procs=5", &token, "").await;
+			assert_eq!(v.get("processes").is_some(), role >= Role::Monitor, "{phone}");
+
+			// The old phone revoked, the new one carries on.
+			let mut list = store::load_clients_in(&hub.dir).unwrap();
+			list.retain(|c| c.id != from);
+			store::save_clients_in(&hub.dir, &list).unwrap();
+			assert_eq!(call(&hub, "GET", "/api/v1/info", phone, "").await.0, StatusCode::UNAUTHORIZED);
+			assert_eq!(call_as(&hub, "GET", "/api/v1/info", &token, "").await.0, StatusCode::OK);
+			let (_, v) = call_as(&hub, "GET", "/api/v1/control", &token, "").await;
+			assert_eq!(v["role"].as_str(), Some(role.as_str()), "{phone}");
+		}
+
+		// In the activity log under the phone that asked, with the new entry's id.
+		let log = hub.activity.newest(usize::MAX);
+		assert_eq!(log.len(), PHONES.len());
+		let e = log.iter().find(|e| e.client_id == "id-glance").unwrap();
+		assert_eq!((e.phone.as_str(), e.what.as_str(), e.result.as_str()), ("glance", "phone added: New phone", "ok"));
+		assert!(e.message.as_deref().is_some_and(|m| m.starts_with("id ") && m.ends_with(", glance")), "{e:?}");
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
+	async fn keys_of_their_own_are_rate_limited_and_never_written_over_a_damaged_file() {
+		let (hub, _tx) = hub(true);
+		*hub.rate.lock().unwrap() = RateLimiter::default();
+		let mut statuses = Vec::new();
+		for _ in 0..limit::ACTS_BURST + 2 {
+			statuses.push(call(&hub, "POST", "/api/v1/rekey", "monitor", r#"{"device":"Again"}"#).await.0);
+		}
+		assert!(statuses[..limit::ACTS_BURST as usize].iter().all(|s| *s == StatusCode::OK), "{statuses:?}");
+		assert!(statuses[limit::ACTS_BURST as usize..].iter().all(|s| *s == StatusCode::TOO_MANY_REQUESTS), "{statuses:?}");
+		let log = hub.activity.newest(usize::MAX);
+		assert_eq!(log.iter().filter(|e| e.result == "too_many_requests").count(), 1);
+		assert_eq!(store::load_clients_in(&hub.dir).unwrap().len(), PHONES.len() + limit::ACTS_BURST as usize);
+
+		// A file of phones that no longer parses is left alone: the phones read before keep working,
+		// and no new one is added over them.
+		std::fs::write(hub.dir.join(store::CLIENTS_FILE), "[{broken").unwrap();
+		let (status, v) = call(&hub, "POST", "/api/v1/rekey", "admin", r#"{"device":"Over"}"#).await;
+		assert_eq!((status, v["error"].as_str()), (StatusCode::INTERNAL_SERVER_ERROR, Some("storage")));
+		assert_eq!(std::fs::read_to_string(hub.dir.join(store::CLIENTS_FILE)).unwrap(), "[{broken");
+		assert_eq!(call(&hub, "GET", "/api/v1/info", "glance", "").await.0, StatusCode::OK);
 		std::fs::remove_dir_all(&hub.dir).unwrap();
 	}
 

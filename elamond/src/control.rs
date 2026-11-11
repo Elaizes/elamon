@@ -35,8 +35,8 @@ use crate::store;
 
 /// What an acting request answered, and a word on how it went for the activity log.
 pub struct Acted {
-	response: Response,
-	note: Option<String>,
+	pub(crate) response: Response,
+	pub(crate) note: Option<String>,
 }
 
 impl Acted {
@@ -106,13 +106,19 @@ impl Hub {
 	/// that order; otherwise `work` runs. Either way it goes in the activity log, except the
 	/// refusals for acting too often after the first in a row, which would only crowd it.
 	pub async fn act(&self, who: &Caller, can: Can, what: String, work: impl Future<Output = Result<Acted, Refusal>>) -> Response {
+		self.act_as(who, Some(can), what, work).await
+	}
+
+	/// `act` for a request that may need no role at all (`None`), and so no control either: only
+	/// the rate and the log apply.
+	pub async fn act_as(&self, who: &Caller, can: Option<Can>, what: String, work: impl Future<Output = Result<Acted, Refusal>>) -> Response {
 		let rate = self.rate.lock().map(|mut r| r.take(&who.id, Instant::now())).unwrap_or(Rate::Allowed);
-		let outcome = match rate {
-			Rate::Refused { first: false } => return error(ErrorCode::TooManyRequests),
-			Rate::Refused { first: true } => Err(ErrorCode::TooManyRequests.into()),
-			Rate::Allowed if !who.role.may(can) => Err(ErrorCode::NotAllowed.into()),
-			Rate::Allowed if can.needs_control() && !self.control_now() => Err(ErrorCode::ControlDisabled.into()),
-			Rate::Allowed => work.await,
+		let outcome = match (rate, can) {
+			(Rate::Refused { first: false }, _) => return error(ErrorCode::TooManyRequests),
+			(Rate::Refused { first: true }, _) => Err(ErrorCode::TooManyRequests.into()),
+			(Rate::Allowed, Some(can)) if !who.role.may(can) => Err(ErrorCode::NotAllowed.into()),
+			(Rate::Allowed, Some(can)) if can.needs_control() && !self.control_now() => Err(ErrorCode::ControlDisabled.into()),
+			(Rate::Allowed, _) => work.await,
 		};
 		let (result, message, response) = match outcome {
 			Ok(a) => ("ok".to_string(), a.note, a.response),

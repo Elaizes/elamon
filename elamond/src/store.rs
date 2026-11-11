@@ -378,6 +378,10 @@ pub struct Client {
 	/// as they were.
 	#[serde(default)]
 	pub role: Role,
+	/// The entry whose token asked for this one (`POST /api/v1/rekey`): a phone that came by
+	/// another's token and got a key of its own. None for a phone paired with a code.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub from: Option<String>,
 }
 
 pub const CLIENTS_FILE: &str = "clients.json";
@@ -410,6 +414,23 @@ pub fn clients_stamp_in(dir: &Path) -> Option<(SystemTime, u64, u64)> {
 
 /// Adds a phone with `role` and returns its token.
 pub fn add_client(name: &str, role: Role) -> io::Result<(Client, String)> {
+	let clients = match load_clients() {
+		Ok(c) => c,
+		// The damaged file is set aside by the write below; the phones in it pair again.
+		Err(e) if e.kind() == io::ErrorKind::InvalidData => Vec::new(),
+		Err(e) => return Err(e),
+	};
+	push_client(&data_dir(), clients, name, role, None)
+}
+
+/// Adds a phone with `role` beside those paired in `dir`, asked for with the token of the entry
+/// `from` (a key of its own for a phone that came by that token); returns its token. A file that
+/// doesn't parse is an error here, never a fresh start: that would unpair every other phone.
+pub fn add_client_from(dir: &Path, from: &str, name: &str, role: Role) -> io::Result<(Client, String)> {
+	push_client(dir, load_clients_in(dir)?, name, role, Some(from))
+}
+
+fn push_client(dir: &Path, mut clients: Vec<Client>, name: &str, role: Role, from: Option<&str>) -> io::Result<(Client, String)> {
 	let token = data_encoding::BASE64URL_NOPAD.encode(&random_bytes::<{ protocol::TOKEN_BYTES }>());
 	let client = Client {
 		id: data_encoding::HEXLOWER.encode(&random_bytes::<{ protocol::CLIENT_ID_BYTES }>()),
@@ -417,15 +438,10 @@ pub fn add_client(name: &str, role: Role) -> io::Result<(Client, String)> {
 		token_hash: sha256_hex(token.as_bytes()),
 		created: now(),
 		role,
-	};
-	let mut clients = match load_clients() {
-		Ok(c) => c,
-		// The damaged file is set aside by the write below; the phones in it pair again.
-		Err(e) if e.kind() == io::ErrorKind::InvalidData => Vec::new(),
-		Err(e) => return Err(e),
+		from: from.map(str::to_string),
 	};
 	clients.push(client.clone());
-	save_clients(&clients)?;
+	save_clients_in(dir, &clients)?;
 	Ok((client, token))
 }
 
@@ -842,7 +858,7 @@ mod tests {
 
 		fs::write(&path, b"[{\"id\": broken").unwrap();
 		assert_eq!(read_json::<Vec<Client>>(&path).unwrap_err().kind(), io::ErrorKind::InvalidData);
-		let client = Client { id: "a".into(), name: "b".into(), token_hash: "c".into(), created: 1, role: Role::Admin };
+		let client = Client { id: "a".into(), name: "b".into(), token_hash: "c".into(), created: 1, role: Role::Admin, from: None };
 		write_json::<Vec<Client>>(&path, &[client]).unwrap();
 
 		let names: Vec<String> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
