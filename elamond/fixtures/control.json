@@ -1,5 +1,6 @@
 {
   "enabled": true,
+  "off_reason": null,
   "power": {
     "poweroff": "yes",
     "reboot": "yes",

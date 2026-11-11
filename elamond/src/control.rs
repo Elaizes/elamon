@@ -97,7 +97,8 @@ impl Hub {
 	/// Whether phones may act right now: the settings, and `elamond control off`'s file looked
 	/// at afresh, so holding control off takes effect from the next request.
 	pub fn control_now(&self) -> bool {
-		!self.sync_control_off() && self.config().control
+		self.sync_control_off();
+		self.control_on()
 	}
 
 	/// An acting request from `who`, described for the log as `what`: refused when the phone
@@ -140,8 +141,11 @@ impl Hub {
 
 #[derive(Serialize)]
 pub(crate) struct ControlInfo {
-	/// Control is on: `control = true` and no `elamond control off`.
+	/// Control is on: `control = true` in settings that parse, and no `elamond control off`.
 	pub(crate) enabled: bool,
+	/// Why it is off, when it is: `settings` (`control = false`), `held_off` (`elamond control off`)
+	/// or `settings_unreadable` (the settings files stopped parsing; off until they parse again).
+	pub(crate) off_reason: Option<&'static str>,
 	pub(crate) power: PowerCaps,
 	pub(crate) profiles: Option<Profiles>,
 	pub(crate) actions: Vec<ActionInfo>,
@@ -162,7 +166,9 @@ pub(crate) struct ActionInfo {
 /// and the volume only as far as its role allows them, so even an app from before roles shows
 /// no more than the phone may use.
 pub async fn info(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>) -> Response {
-	let enabled = hub.control_now();
+	hub.sync_control_off();
+	let off_reason = hub.off_reason();
+	let enabled = off_reason.is_none();
 	let may = |c: Can| enabled && who.role.may(c);
 	let power = if may(Can::Power) { hub.bus.power_caps().await } else { PowerCaps::default() };
 	let profiles = if may(Can::Profile) { hub.bus.profiles().await } else { None };
@@ -173,7 +179,7 @@ pub async fn info(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>
 	};
 	let volume = may(Can::Volume) && tokio::task::spawn_blocking(volume_get).await.ok().flatten().is_some();
 	let allowed = access::allowed(who.role, enabled);
-	Json(ControlInfo { enabled, power, profiles, actions, volume, role: who.role, allowed }).into_response()
+	Json(ControlInfo { enabled, off_reason, power, profiles, actions, volume, role: who.role, allowed }).into_response()
 }
 
 #[derive(Deserialize)]

@@ -289,12 +289,27 @@ fn control() {
 		"control",
 		&ControlInfo {
 			enabled: true,
+			off_reason: None,
 			power: PowerCaps { poweroff: "yes".into(), reboot: "yes".into(), suspend: "challenge".into(), lock: true },
 			profiles: Some(Profiles { active: "balanced".into(), available: vec!["power-saver".into(), "balanced".into()] }),
 			actions: vec![ActionInfo { id: "0123456789ab".into(), name: "Some action".into(), confirm: true }],
 			volume: true,
 			role: Role::Admin,
 			allowed: allowed(Role::Admin, true),
+		},
+	);
+	// Off because the settings stopped parsing: what any role sees then.
+	check(
+		"control-off",
+		&ControlInfo {
+			enabled: false,
+			off_reason: Some("settings_unreadable"),
+			power: PowerCaps::default(),
+			profiles: None,
+			actions: Vec::new(),
+			volume: false,
+			role: Role::Operate,
+			allowed: allowed(Role::Operate, false),
 		},
 	);
 	check("action-result", &ActionResult { exit_code: Some(0), timed_out: false, output: "done\n".into() });

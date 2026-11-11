@@ -351,8 +351,8 @@ impl Upkeep {
 }
 
 /// Rereads the settings on SIGHUP, or when elamond.toml or a drop-in changes. Files that
-/// don't parse leave the running settings as they were. Looks at `elamond control off`'s file
-/// as often.
+/// don't parse leave the running settings as they were, but control off until they parse again.
+/// Looks at `elamond control off`'s file as often.
 async fn watch_settings(hub: Arc<server::Hub>) {
 	use tokio::signal::unix::{signal, SignalKind};
 	let Ok(mut hangup) = signal(SignalKind::hangup()) else {
@@ -375,7 +375,7 @@ async fn watch_settings(hub: Arc<server::Hub>) {
 				eprintln!("settings: reread");
 				hub.set_config(c);
 			}
-			Err(e) => eprintln!("settings: kept the running ones; {e}"),
+			Err(e) => hub.settings_failed(e),
 		}
 	}
 }
@@ -904,7 +904,19 @@ fn control(what: Option<&str>) -> Result<(), String> {
 		"status" => {}
 		other => return Err(format!("unknown \"{other}\"; elamond control off, on or status")),
 	}
-	let config = store::load_config()?;
+	let config = match store::load_config() {
+		Ok(c) => c,
+		Err(e) => {
+			println!("Control: off. The settings don't parse:");
+			println!("  {e}");
+			println!("A running service keeps the settings it read before, but holds control off until they");
+			println!("parse again; a service that starts now won't start at all.");
+			if store::control_held_off(&dir) {
+				println!("It is held off by `elamond control off` too.");
+			}
+			return Ok(());
+		}
+	};
 	match (store::control_off_since(&dir), config.control) {
 		(Some(since), _) => {
 			let when = if since > 0 { format!(" since {}", format_date(since)) } else { String::new() };

@@ -71,6 +71,8 @@ pub struct Hub {
 	pub dir: PathBuf,
 	/// `elamond control off` holds control off, as last looked.
 	control_off: AtomicBool,
+	/// Why the settings files don't parse, while they don't: control is off meanwhile.
+	settings_broken: Mutex<Option<String>>,
 	/// How often each phone may act.
 	pub rate: Mutex<RateLimiter>,
 	pub activity: Activity,
@@ -125,6 +127,7 @@ impl Hub {
 			clients: RwLock::new(ClientCache { stamp: None, clients: Vec::new() }),
 			pair_lock: tokio::sync::Mutex::new(()),
 			control_off: AtomicBool::new(store::control_held_off(&dir)),
+			settings_broken: Mutex::new(None),
 			rate: Mutex::new(RateLimiter::default()),
 			activity: Activity::load(&dir),
 			boot_time: sysinfo::System::boot_time().unwrap_or(0),
@@ -180,10 +183,36 @@ impl Hub {
 		self.config.read().map(|c| c.clone()).unwrap_or_else(|p| p.into_inner().clone())
 	}
 
-	/// Whether phones may act, as last looked: `control = true` in the settings and no
-	/// `elamond control off`.
+	/// Whether phones may act, as last looked: `control = true` in the settings, settings that
+	/// parse, and no `elamond control off`.
 	pub fn control_on(&self) -> bool {
-		self.config().control && !self.control_off.load(Ordering::SeqCst)
+		self.off_reason().is_none()
+	}
+
+	/// Why control is off, as last looked, if it is: the settings stopped parsing
+	/// (`settings_unreadable`), `elamond control off` (`held_off`), or `control = false` (`settings`).
+	pub fn off_reason(&self) -> Option<&'static str> {
+		if self.settings_broken.lock().map(|b| b.is_some()).unwrap_or(true) {
+			Some("settings_unreadable")
+		} else if self.control_off.load(Ordering::SeqCst) {
+			Some("held_off")
+		} else if !self.config().control {
+			Some("settings")
+		} else {
+			None
+		}
+	}
+
+	/// The settings files no longer parse (`why`): the settings read before stay, but control is
+	/// off until they parse again, so a half-written file can't leave it on.
+	pub fn settings_failed(&self, why: String) {
+		let mut broken = self.settings_broken.lock().unwrap_or_else(|p| p.into_inner());
+		if broken.as_deref() != Some(why.as_str()) {
+			let was = if self.config().control { "; control is off until they parse again" } else { "" };
+			eprintln!("settings: they don't parse, so the ones read before stay{was}:\n  {why}");
+			*broken = Some(why);
+			self.refresh_soon();
+		}
 	}
 
 	/// Looks at `elamond control off`'s file, says in the log when that changed, and returns
@@ -230,8 +259,12 @@ impl Hub {
 		for n in crate::links::settings_notes(&new) {
 			eprintln!("settings: {n}");
 		}
+		let control = new.control;
 		if let Ok(mut c) = self.config.write() {
 			*c = Arc::new(new);
+		}
+		if self.settings_broken.lock().unwrap_or_else(|p| p.into_inner()).take().is_some() {
+			eprintln!("settings: they parse again; control is {} by them", if control { "on" } else { "off" });
 		}
 		self.refresh_soon();
 	}
@@ -1234,6 +1267,29 @@ mod tests {
 		store::set_control_off(&hub.dir, false).unwrap();
 		let (status, _) = call(&hub, "POST", "/api/v1/control/power", "admin", r#"{"action":"nothing"}"#).await;
 		assert_eq!(status, StatusCode::BAD_GATEWAY);
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
+	async fn settings_that_stop_parsing_hold_control_off_until_they_parse_again() {
+		let (hub, _tx) = hub(true);
+		let control = async || call(&hub, "GET", "/api/v1/control", "admin", "").await.1;
+		let v = control().await;
+		assert_eq!((v["enabled"].as_bool(), v["off_reason"].clone()), (Some(true), serde_json::Value::Null));
+		hub.settings_failed("elamond.d/half.toml: expected `=`".into());
+		let v = control().await;
+		assert_eq!((v["enabled"].as_bool(), v["off_reason"].as_str()), (Some(false), Some("settings_unreadable")));
+		let (status, v) = call(&hub, "POST", "/api/v1/control/power", "admin", r#"{"action":"nothing"}"#).await;
+		assert_eq!((status, v["error"].as_str()), (StatusCode::FORBIDDEN, Some("control_disabled")));
+		// The settings read before stay for the rest.
+		assert!(hub.config().control);
+		// Parsing again, they decide again.
+		hub.set_config(store::Config { control: true, mdns: false, ..Default::default() });
+		assert_eq!(control().await["enabled"].as_bool(), Some(true));
+		hub.set_config(store::Config { control: false, mdns: false, ..Default::default() });
+		assert_eq!(control().await["off_reason"].as_str(), Some("settings"));
+		store::set_control_off(&hub.dir, true).unwrap();
+		assert_eq!(control().await["off_reason"].as_str(), Some("held_off"));
 		std::fs::remove_dir_all(&hub.dir).unwrap();
 	}
 
