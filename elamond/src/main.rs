@@ -131,7 +131,7 @@ fn serve() -> Result<(), String> {
 	let identity = identity::Identity::load_or_create(&dir)?;
 	let name = machine_name(&config);
 	let (interval, history_len, notes) = timing(&config);
-	for n in notes {
+	for n in notes.into_iter().chain(links::settings_notes(&config)) {
 		eprintln!("settings: {n}");
 	}
 	let tls = tls_config(&identity, &dir)?;

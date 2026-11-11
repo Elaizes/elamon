@@ -224,8 +224,22 @@ fn socket_owners() -> HashMap<u64, String> {
 	map
 }
 
+/// What to tell about `[[links]]` in the settings that won't work as written.
+pub fn settings_notes(config: &store::Config) -> Vec<String> {
+	config
+		.links
+		.iter()
+		.filter_map(|l| {
+			let unit = l.unit.as_deref()?;
+			let why = unit_shape(unit).err()?;
+			Some(format!("[[links]] \"{}\": its unit {unit} {why}; the app can't start or stop it", l.name))
+		})
+		.collect()
+}
+
 /// A link as the app sends it, checked before it's stored. Control characters are refused
-/// everywhere: these end up in the log and on other phones.
+/// everywhere: these end up in the log and on other phones. Whether the settings allow its unit
+/// is `unit_refusal`'s to say.
 pub fn validate(name: &str, url: &str, unit: Option<&str>, scope: Option<&str>) -> Result<(), ErrorCode> {
 	if name.trim().is_empty() || name.chars().count() > limit::NAME_MAX || name.chars().any(char::is_control) {
 		return Err(ErrorCode::BadName);
@@ -233,15 +247,65 @@ pub fn validate(name: &str, url: &str, unit: Option<&str>, scope: Option<&str>) 
 	if url.trim().is_empty() || url.len() > limit::URL_MAX || url.chars().any(char::is_control) {
 		return Err(ErrorCode::BadUrl);
 	}
-	if let Some(u) = unit
-		&& (u.is_empty() || u.len() > limit::UNIT_MAX || !u.chars().all(|c| c.is_ascii_alphanumeric() || "@._-:\\".contains(c)))
-	{
+	if unit.is_some_and(|u| unit_shape(u).is_err()) {
 		return Err(ErrorCode::BadUnit);
 	}
 	if !matches!(scope, None | Some("user") | Some("system")) {
 		return Err(ErrorCode::BadScope);
 	}
 	Ok(())
+}
+
+/// Whether `name` is a unit a phone could ever be let start, stop and restart: a service, its name
+/// as systemd writes one, never one the service itself runs in. A template's instance (`@`) or an
+/// escaped name (`\`) passes only as itself: `unit_refusal` wants the exact name in the settings.
+pub fn unit_shape(name: &str) -> Result<(), &'static str> {
+	let chars_ok = name.chars().all(|c| c.is_ascii_alphanumeric() || "@._-:\\".contains(c));
+	if name.is_empty() || name.len() > limit::UNIT_MAX || !chars_ok {
+		return Err("isn't a unit name");
+	}
+	if !name.ends_with(".service") || name == ".service" {
+		return Err("isn't a service unit (NAME.service)");
+	}
+	if name.starts_with('-') {
+		return Err("starts with \"-\"");
+	}
+	if own_units().iter().any(|u| u == name) {
+		return Err("is the Elamon service's own unit");
+	}
+	Ok(())
+}
+
+/// The units the service runs as: elamond.service, and the unit its cgroup says it is in, should
+/// it be started under another name.
+fn own_units() -> &'static [String] {
+	static OWN: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+	OWN.get_or_init(|| {
+		let mut own = vec!["elamond.service".to_string()];
+		let cgroup = fs::read_to_string("/proc/self/cgroup").unwrap_or_default();
+		for line in cgroup.lines() {
+			if let Some(unit) = line.rsplit('/').next().filter(|u| u.ends_with(".service"))
+				&& !own.iter().any(|o| o == unit)
+			{
+				own.push(unit.to_string());
+			}
+		}
+		own
+	})
+}
+
+/// Why the unit `unit` in `scope` ("user" when none) may not be started, stopped or restarted from
+/// the app, if it may not: only a service unit the settings name, on a `[[links]]` entry or in
+/// `units`, in that scope, ever may. A link added from the app names any unit it likes; this is
+/// asked when it is added and again whenever its unit is to be used.
+pub fn unit_refusal(config: &store::Config, unit: &str, scope: Option<&str>) -> Option<String> {
+	if let Err(why) = unit_shape(unit) {
+		return Some(format!("{unit} {why}"));
+	}
+	let scope = scope.unwrap_or("user");
+	let on_a_link = config.links.iter().any(|l| l.unit.as_deref() == Some(unit) && l.scope.as_deref().unwrap_or("user") == scope);
+	let listed = config.units.iter().any(|u| u.name == unit && u.scope == scope);
+	(!on_a_link && !listed).then(|| format!("the settings don't name {unit} ({scope}) on a [[links]] entry or in units"))
 }
 
 #[cfg(test)]
@@ -270,6 +334,9 @@ mod tests {
 	fn what_the_app_may_store() {
 		assert_eq!(validate("Syncthing", "http://{host}:8384", Some("syncthing.service"), Some("user")), Ok(()));
 		assert_eq!(validate("Grafana", "https://{host}/", Some("getty@tty1.service"), None), Ok(()));
+		for unit in ["-.slice", "-.service", "user.slice", "x.socket", ".service", "elamond.service"] {
+			assert_eq!(validate("a", "http://x", Some(unit), None), Err(ErrorCode::BadUnit), "{unit}");
+		}
 		assert_eq!(validate(" ", "http://x", None, None), Err(ErrorCode::BadName));
 		assert_eq!(validate(&"n".repeat(65), "http://x", None, None), Err(ErrorCode::BadName));
 		assert_eq!(validate("a\u{1b}[31m", "http://x", None, None), Err(ErrorCode::BadName));
@@ -279,6 +346,39 @@ mod tests {
 		assert_eq!(validate("a", "http://x", Some("a\tb"), None), Err(ErrorCode::BadUnit));
 		assert_eq!(validate("a", "http://x", Some(""), None), Err(ErrorCode::BadUnit));
 		assert_eq!(validate("a", "http://x", None, Some("global")), Err(ErrorCode::BadScope));
+	}
+
+	#[test]
+	fn only_units_the_settings_name_may_be_used() {
+		let link = |unit: &str, scope: Option<&str>| store::LinkConfig {
+			name: "x".into(),
+			url: "http://{host}".into(),
+			unit: Some(unit.into()),
+			scope: scope.map(str::to_string),
+		};
+		let config: store::Config = toml::from_str(
+			"units = [\"syncthing.service\", { name = \"jellyfin.service\", scope = \"system\" }, \"podman-kube@a.service\"]",
+		)
+		.unwrap();
+		let config = store::Config { links: vec![link("nginx.service", Some("system")), link("mine.service", None)], ..config };
+		let allowed = |unit: &str, scope: Option<&str>| unit_refusal(&config, unit, scope).is_none();
+		assert!(allowed("syncthing.service", None) && allowed("syncthing.service", Some("user")));
+		assert!(allowed("jellyfin.service", Some("system")) && allowed("nginx.service", Some("system")) && allowed("mine.service", None));
+		// Each in its own scope only.
+		assert!(!allowed("jellyfin.service", None) && !allowed("syncthing.service", Some("system")) && !allowed("nginx.service", None));
+		// A template's instance only as the settings name it; never anything else, whatever it is.
+		assert!(allowed("podman-kube@a.service", None));
+		for unit in ["podman-kube@https:--evil.service", "-.slice", "user@1000.service", "getty@tty1.service", "x.service"] {
+			assert!(!allowed(unit, None) && !allowed(unit, Some("system")), "{unit}");
+		}
+		assert!(unit_refusal(&config, "-.slice", None).unwrap().contains("isn't a service unit"));
+		// The service's own unit is refused even when named.
+		let own = store::Config { links: vec![link("elamond.service", None)], ..Default::default() };
+		assert!(unit_refusal(&own, "elamond.service", None).unwrap().contains("own unit"));
+		// Settings that list what could never be allowed don't load.
+		for bad in ["units = [\"-.slice\"]", "units = [\"x.socket\"]", "units = [{ name = \"a.service\", scope = \"global\" }]", "units = [\"elamond.service\"]", "units = [{ name = \"a.service\", other = 1 }]"] {
+			assert!(toml::from_str::<store::Config>(bad).is_err(), "{bad}");
+		}
 	}
 
 	#[test]

@@ -671,6 +671,11 @@ pub async fn link_put(State(hub): State<Arc<Hub>>, Extension(who): Extension<Cal
 	hub.act(&who, Can::LinksEdit, what, async {
 		let unit = r.unit.as_deref().map(str::trim).filter(|u| !u.is_empty());
 		links::validate(&r.name, &r.url, unit, r.scope.as_deref())?;
+		// A link may carry a unit only if the settings let phones use it.
+		if let Some(why) = unit.and_then(|u| links::unit_refusal(&hub.config(), u, r.scope.as_deref())) {
+			eprintln!("links: {} may not add a link with a unit: {why}", who.name);
+			return Err(ErrorCode::NotAllowed.into());
+		}
 		let mut list = hub.app_links.lock().await;
 		let def = LinkDef {
 			id: r.id.clone().unwrap_or_else(|| data_encoding::HEXLOWER.encode(&store::random_bytes::<{ crate::consts::protocol::LINK_ID_BYTES }>())),
@@ -740,6 +745,12 @@ pub async fn link_unit(
 		if Bus::unit_method(&r.op).is_none() {
 			return Err(Refusal::failed(reason::UNKNOWN_OPERATION));
 		}
+		// Asked again here: links.json may hold a unit from before the settings had a say, or one
+		// they no longer name.
+		if let Some(why) = links::unit_refusal(&hub.config(), &unit, def.scope.as_deref()) {
+			eprintln!("control: {} asked to {} {unit}, refused: {why}", who.name, r.op);
+			return Err(ErrorCode::NotAllowed.into());
+		}
 		eprintln!("control: {} asked to {} {unit}", who.name, r.op);
 		let res = hub.bus.unit_op(Scope::parse(def.scope.as_deref()), &unit, &r.op).await;
 		hub.refresh_soon();
@@ -765,8 +776,14 @@ pub async fn units(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller
 	if let Some(r) = hub.refuse_read(&who, Can::Links) {
 		return r;
 	}
+	// Only those a link may be given: the units the settings name in this scope.
+	let scope = if Scope::parse(q.scope.as_deref()) == Scope::System { "system" } else { "user" };
+	let config = hub.config();
 	match hub.bus.units(Scope::parse(q.scope.as_deref())).await {
-		Ok(list) => Json::<Vec<UnitInfo>>(list).into_response(),
+		Ok(mut list) => {
+			list.retain(|u| links::unit_refusal(&config, &u.name, Some(scope)).is_none());
+			Json::<Vec<UnitInfo>>(list).into_response()
+		}
 		Err(e) => failed(e),
 	}
 }
@@ -824,13 +841,17 @@ impl Extras {
 }
 
 impl Hub {
-	/// Link statuses with their units' states.
+	/// Link statuses with their units' states: only of the units the settings allow, so systemd
+	/// isn't asked to load whatever a link added from the app names.
 	pub async fn link_statuses(&self) -> Vec<LinkStatus> {
 		let app = self.app_links.lock().await.clone();
 		let config = self.config();
-		let mut list = tokio::task::spawn_blocking(move || links::statuses(&config, &app)).await.unwrap_or_default();
+		let given = config.clone();
+		let mut list = tokio::task::spawn_blocking(move || links::statuses(&given, &app)).await.unwrap_or_default();
 		for s in &mut list {
-			if let Some(u) = &s.unit {
+			if let Some(u) = &s.unit
+				&& links::unit_refusal(&config, u, Some(&s.scope)).is_none()
+			{
 				s.unit_state = self.bus.unit_state(Scope::parse(Some(&s.scope)), u).await;
 			}
 		}

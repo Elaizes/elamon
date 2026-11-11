@@ -222,6 +222,9 @@ impl Hub {
 		if old.default_role != new.default_role {
 			eprintln!("settings: phones pair as {} from now on", new.default_role.as_str());
 		}
+		for n in crate::links::settings_notes(&new) {
+			eprintln!("settings: {n}");
+		}
 		if let Ok(mut c) = self.config.write() {
 			*c = Arc::new(new);
 		}
@@ -1202,6 +1205,43 @@ mod tests {
 		assert_eq!((status, v["error"].as_str()), (StatusCode::INTERNAL_SERVER_ERROR, Some("storage")));
 		assert_eq!(std::fs::read_to_string(hub.dir.join(store::CLIENTS_FILE)).unwrap(), "[{broken");
 		assert_eq!(call(&hub, "GET", "/api/v1/info", "glance", "").await.0, StatusCode::OK);
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
+	async fn a_link_carries_only_a_unit_the_settings_name() {
+		let (hub, _tx) = hub(true);
+		let rule = |name: &str, scope: &str| store::UnitRule { name: name.into(), scope: scope.into() };
+		hub.set_config(store::Config { control: true, mdns: false, units: vec![rule("allowed.service", "user")], ..Default::default() });
+		let add = |unit: &str, scope: &str| format!("{{\"name\":\"Web\",\"url\":\"http://{{host}}:81\",\"unit\":\"{unit}\",\"scope\":\"{scope}\"}}");
+		for (unit, scope) in [("podman-kube@https:--evil.service", "user"), ("allowed.service", "system"), ("other.service", "user")] {
+			let (status, v) = call(&hub, "POST", "/api/v1/links", "operate", &add(unit, scope)).await;
+			assert_eq!((status, v["error"].as_str()), (StatusCode::FORBIDDEN, Some("not_allowed")), "{unit}");
+		}
+		let (status, v) = call(&hub, "POST", "/api/v1/links", "operate", &add("-.slice", "user")).await;
+		assert_eq!((status, v["error"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_unit")));
+		let (status, v) = call(&hub, "POST", "/api/v1/links", "operate", &add("allowed.service", "user")).await;
+		assert_eq!((status, v["unit"].as_str()), (StatusCode::OK, Some("allowed.service")), "{v}");
+		assert_eq!(hub.app_links.lock().await.len(), 1);
+
+		// A unit links.json holds from before, or one the settings no longer name: refused when it
+		// is to be used, and systemd is never asked about it.
+		hub.app_links.lock().await.push(crate::links::LinkDef {
+			id: "old".into(),
+			name: "Old".into(),
+			url: "http://{host}:82".into(),
+			unit: Some("user@1000.service".into()),
+			scope: Some("system".into()),
+		});
+		for op in ["start", "stop", "restart"] {
+			let (status, v) = call(&hub, "POST", "/api/v1/links/old/unit", "admin", &format!("{{\"op\":\"{op}\"}}")).await;
+			assert_eq!((status, v["error"].as_str()), (StatusCode::FORBIDDEN, Some("not_allowed")), "{op}");
+		}
+		let statuses = hub.link_statuses().await;
+		let old = statuses.iter().find(|s| s.id == "old").unwrap();
+		assert_eq!((old.unit.as_deref(), old.unit_state.as_deref()), (Some("user@1000.service"), None));
+		let log = hub.activity.newest(usize::MAX);
+		assert!(log.iter().any(|e| e.what == "unit stop user@1000.service" && e.result == "not_allowed"), "{log:?}");
 		std::fs::remove_dir_all(&hub.dir).unwrap();
 	}
 

@@ -53,6 +53,52 @@ pub struct Config {
 	pub old_links: Vec<LinkConfig>,
 	/// Commands the app can run, defined only here: a phone can't add its own.
 	pub actions: Vec<ActionConfig>,
+	/// Units a link added from the app may start, stop and restart, beside those of `[[links]]`:
+	/// a phone can only name a unit the settings name.
+	#[serde(deserialize_with = "deserialize_units")]
+	pub units: Vec<UnitRule>,
+}
+
+/// A unit the settings let phones start, stop and restart, in its scope: "user" or "system".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnitRule {
+	pub name: String,
+	pub scope: String,
+}
+
+/// `units` as the settings give it: a name is a user unit, `{ name = "…", scope = "system" }` a
+/// system one. Only service units that could ever be allowed are taken.
+fn deserialize_units<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<UnitRule>, D::Error> {
+	#[derive(Deserialize)]
+	#[serde(deny_unknown_fields)]
+	struct Table {
+		name: String,
+		scope: Option<String>,
+	}
+	#[derive(Deserialize)]
+	#[serde(untagged)]
+	enum Entry {
+		Name(String),
+		Table(Table),
+	}
+	let entries = Vec::<Entry>::deserialize(d)?;
+	entries
+		.into_iter()
+		.map(|e| {
+			let (name, scope) = match e {
+				Entry::Name(n) => (n, None),
+				Entry::Table(t) => (t.name, t.scope),
+			};
+			let name = name.trim().to_string();
+			let scope = scope.unwrap_or_else(|| "user".into());
+			if scope != "user" && scope != "system" {
+				return Err(format!("units: scope \"{scope}\" of {name} is neither \"user\" nor \"system\""));
+			}
+			crate::links::unit_shape(&name).map_err(|why| format!("units: \"{name}\" {why}"))?;
+			Ok(UnitRule { name, scope })
+		})
+		.collect::<Result<_, _>>()
+		.map_err(serde::de::Error::custom)
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -125,6 +171,7 @@ impl Default for Config {
 			links: Vec::new(),
 			old_links: Vec::new(),
 			actions: Vec::new(),
+			units: Vec::new(),
 		}
 	}
 }
@@ -205,7 +252,7 @@ fn old_name_notes(dir: &Path, files: &[PathBuf]) -> Vec<String> {
 static OLD_NAMES_TOLD: AtomicBool = AtomicBool::new(false);
 
 /// Settings from elamond.toml and the drop-ins. A later file adds to the lists (links,
-/// actions) and replaces anything else it sets.
+/// actions, units) and replaces anything else it sets.
 pub fn load_config() -> Result<Config, String> {
 	let files = config_files();
 	let notes = old_name_notes(&config_dir(), &files);
@@ -248,7 +295,7 @@ fn old_links_to_links(table: &mut toml::Table) {
 }
 
 /// The settings a later file adds to rather than replaces.
-const ADDED_UP: [&str; 3] = ["links", "services", "actions"];
+const ADDED_UP: [&str; 4] = ["links", "services", "actions", "units"];
 
 fn merge_toml(into: &mut toml::Table, from: toml::Table) {
 	for (key, value) in from {
