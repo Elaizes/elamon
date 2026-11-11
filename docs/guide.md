@@ -276,7 +276,7 @@ user's service). Anything you want to add by hand goes in a drop-in beside it,
 `~/.config/elamon/elamond.d/*.toml` ([section 7](#7-settings-reference)).
 
 With control on, each phone does as much as its role allows: a phone paired as `admin` (the
-default, and every phone paired before 0.5) everything below, others less
+default) everything below, others less
 ([section 6](#6-roles-who-may-do-what)). `elamond control off` stops them all at once, whatever the
 settings say.
 
@@ -316,8 +316,6 @@ scope = "system"              # or "user" (the default)
 - Links from `elamond.toml` are fixed in the app; change them in the file. Links added in the app
   are stored on the computer (`~/.local/share/elamon/links.json`), so every paired phone with the
   `monitor` role or above sees them, and those with `operate` or `admin` can change or remove them.
-- Before 0.5 links were called services: `[[services]]` in the settings still works and means
-  `[[links]]`, and `services.json` is read until the first change writes `links.json`.
 
 A link added in the app can carry a unit only if the settings name it, so a phone can never start
 or stop what you didn't choose: either on a `[[links]]` entry, as above, or in `units`:
@@ -332,8 +330,7 @@ units = [
 Only service units (`NAME.service`), each in its own scope; a template's instance
 (`podman-kube@….service`) only exactly as written there. The service never starts or stops its own
 unit. A unit the settings don't name is refused when the link is added (*Not allowed*), and again
-when it is to be used, which also covers links added before 0.5: name their units in `units`.
-The app's list of units to pick from shows those the settings name. System
+when it is to be used. The app's list of units to pick from shows those the settings name. System
 units also need polkit's leave (below).
 
 ### Commands
@@ -416,7 +413,7 @@ Every paired phone has a role. Each allows what the one before it does, and more
 | `operate` | everything | links and the units the settings name, media and the volume, the power profile, the commands from `[[actions]]` |
 | `admin` | everything | all that, and shutting down, restarting, sleeping, locking, quitting and killing processes |
 
-Phones paired before 0.5 are `admin`: they keep doing what they did.
+A phone with no role in the list of paired phones is `admin`.
 
 ### Choosing a role
 
@@ -465,7 +462,7 @@ now*…) and the result. Up to 500 are kept in `~/.local/share/elamon/activity.j
 object per line; only your user can read it) and survive restarts; of them, a phone keeps 100 at
 most (with the keys of their own its token gave), so one that keeps asking pushes out only its own.
 Phones with the `monitor` role or above can read it in the app. What was carried out is also in
-the journal, as before: `journalctl --user -u elamond`.
+the journal: `journalctl --user -u elamond`.
 
 A phone may ask the computer to do 10 things in a row, then one a second; more are refused for a
 moment (*Too many requests*). A phone and the keys of their own its token gave share that rate.
@@ -492,7 +489,7 @@ All keys are optional.
 | `history_minutes` | `10` | history a phone gets when it connects (at most 7 200 readings) |
 | `control` | `false` | allow the control panel |
 | `default_role` | `"admin"` | the role `elamond pair` gives a phone when not told: `glance`, `monitor`, `operate` or `admin` ([section 6](#6-roles-who-may-do-what)) |
-| `[[links]]` | | `name`, `url`, `unit`, `scope` — see above; `[[services]]` before 0.5 |
+| `[[links]]` | | `name`, `url`, `unit`, `scope` — see above |
 | `units` | `[]` | units a link added in the app may start, stop and restart: `"NAME.service"` for a user unit, `{ name = "NAME.service", scope = "system" }` for a system one ([Links](#links)) |
 | `[[actions]]` | | `name`, `command`, `confirm`, `timeout` (seconds, at most 3 600) — see above |
 
@@ -540,10 +537,6 @@ the service a new certificate, unless a backup of it is restored ([section 8](#b
 Where these live follows `XDG_CONFIG_HOME` and `XDG_DATA_HOME`. `ELAMON_CONFIG_DIR` and
 `ELAMON_DATA_DIR` name the two folders outright, `ELAMON_CONFIG` the settings file alone, and
 `ELAMON_PCI_IDS` the PCI database the service takes graphics card names from.
-
-Before 0.5 the settings were `elamond.toml` and `elamond.d/`. They are still read: `elamond.toml` while
-there is no `elamond.toml`, and `elamond.d/*.toml` before `elamond.d/*.toml`. The log says once what
-to rename.
 
 ### Names in the pairing link
 
@@ -606,8 +599,8 @@ Update the app and the service together; this is a test version and they change 
 - **NixOS / Home Manager:** `nix flake update elamon`, then rebuild.
 - **Nix profile:** `nix profile upgrade --all`, then `systemctl --user daemon-reload` and
   `systemctl --user restart elamond`.
-- **From source:** `git pull`, `cargo build --release` in `elamond/` (`elamond/` before 0.5),
-  install the binary again and restart the service.
+- **From source:** `git pull`, `cargo build --release` in `elamond/`, install the binary again
+  and restart the service.
 
 Pairings and links added in the app survive updates.
 
@@ -706,10 +699,10 @@ it revoked: a phone you don't know there got its key from that one. The two are 
 computer, which shares one rate of acting and one share of the activity log between them.
 `elamond revoke OLD_ID --with-added` unpairs the whole family, by the old ID even after it is gone:
 the way to cut off a phone that was lost or stolen, and whatever got a key with its token. A
-computer whose service is older than 0.5 can't give a key of its own; it sees the new phone as the
-old one, one entry for both, and revoking it cuts off both. Update the service there, or pair the
-new phone again (scan the QR code of `elamond pair`; the app replaces its entry) before revoking
-the old one.
+computer that takes no more phones (64), or where another phone the same file was imported on got
+the old phone's one key of its own already, can't give a key of its own; it sees the new phone as
+the old one, one entry for both, and revoking it cuts off both. Pair the new phone again there
+(scan the QR code of `elamond pair`; the app replaces its entry) before revoking the old one.
 
 To remove the service: `systemctl --user disable --now elamond`, delete the binary and the unit
 file, and `~/.config/elamon` and `~/.local/share/elamon`. In the app, *Forget computer* in the
@@ -722,7 +715,7 @@ computer's menu.
 | The computer isn't under *Found on this network* | Same network, UDP 5353 open on the computer; VPNs and many guest Wi-Fi networks block discovery, and the service only announces itself on wired and wireless interfaces it listens on (`mdns: announced on …` in the journal). Add it by address or name: `elamond pair` prints them. |
 | The app can't connect | `systemctl --user status elamond`, `journalctl --user -u elamond -e`; TCP 47823 open; the address reachable from the phone, and one the service listens on (`listen: on …` in the journal). |
 | It works only while you're logged in | `loginctl enable-linger` |
-| *The computer's certificate changed* | The service's data was deleted or the system reinstalled; restore a backup of it ([section 8](#a-new-computer-or-reinstalling)), or forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` the app 0.5 follows by itself; an older app says this, and pairs again, as every phone does after `elamond rotate-cert --no-statement` ([section 10](#a-new-certificate)). |
+| *The computer's certificate changed* | The service's data was deleted or the system reinstalled; restore a backup of it ([section 8](#a-new-computer-or-reinstalling)), or forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` the app follows by itself; after `elamond rotate-cert --no-statement` every phone says this, and pairs again ([section 10](#a-new-certificate)). |
 | *Control is off* | `control = true` in `elamond.toml` or a drop-in in `elamond.d`; the service takes it up within a few seconds. If it is set, `elamond control status` tells whether `elamond control off` holds it off, or whether the settings stopped parsing, which holds it off until they parse again. |
 | Pairing ends with the phone turned away | `elamond pair` asks before it lets a phone in: answer `y` there within 90 seconds, and keep it running until the phone is paired ([section 3](#3-pair-the-phone)). |
 | *Not allowed* | The phone's role doesn't allow that: `elamond clients` shows it, `elamond clients role ID ROLE` changes it ([section 6](#6-roles-who-may-do-what)). For a link's unit: the settings don't name it; add it to `units` ([section 5](#links)). |
@@ -788,14 +781,14 @@ elamond rotate-cert
 
 gives the service a new certificate and key, from time to time. Before the old key is deleted it
 signs the new certificate's fingerprint, and the service shows that signature to any phone that
-asks. A phone with the app 0.5 or newer that meets the new certificate checks the signature against
+asks. A phone that meets the new certificate checks the signature against
 the certificate it pinned and moves to the new one by itself, saying *The computer's certificate
 was renewed*; nothing needs pairing again. The running service presents the new certificate within
 a few seconds (at once with `systemctl --user reload elamond`); connections already open keep the
 old one until they end.
 
 The last five rotations are kept, so a phone that was away for one or two still follows. One that
-missed more, and the app before 0.5, says *The computer's certificate changed*: pair it again.
+missed more says *The computer's certificate changed*: pair it again.
 Deleting `~/.local/share/elamon` is not a rotation: it unpairs every phone.
 
 That is routine renewal, and only that. If the key may have been copied off the computer, a phone

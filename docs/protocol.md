@@ -7,8 +7,8 @@ name. A certificate the service renews, it signs over with the one before
 
 All bodies are JSON. Numbers in bytes are integers; rates are bytes per second; temperatures are
 °C; frequencies MHz; power W. Clients must ignore fields they don't know: new fields are added
-without changing the API number. A field is never renamed or given a new meaning: a better name
-comes as a new field beside the old one ([names before 0.5](#names-before-05)).
+without changing the API number. A field keeps its name and its meaning for as long as the API
+number stays the same.
 
 Every shape below, with each optional field filled in, is in
 [`elamond/fixtures`](../elamond/fixtures): the service's tests write those files and the app's
@@ -20,25 +20,7 @@ tests read them, so the two can't drift apart.
   sees a higher `api` than it knows should ask to be updated.
 - `min_app` (in `hello` and `info`) is the oldest app version that understands this service.
 - `version` / `service_version` is the service's own version; a client may expect a minimum one
-  for newer features and fall back without them.
-
-### Names before 0.5
-
-What elamond 0.5 calls *links* were *services* before, and the service itself was the *service*:
-
-| since 0.5 | before |
-|---|---|
-| `service_version` in `info` | `service_version` |
-| `links` in samples | `services` |
-| `"links"` in `capabilities` | `"services"` |
-| `/api/v1/links`, `/api/v1/links/…` | `/api/v1/services`, `/api/v1/services/…` |
-| error `no_such_link` | `no_such_service` |
-
-For apps 0.4, elamond still sends the old fields beside the new ones, with the same values, and
-answers the old routes as the new ones; they go only with a new `api`. Only the error code is
-answered by its new name alone. A client reads the new name and falls back to the old one, and
-knows both error codes. elamond 0.4 answers a path it doesn't have, like `/api/v1/links`, with 404
-`not_found`: then the client asks for the same under `/api/v1/services`.
+  and ask for the service to be updated below it.
 
 ## Discovery
 
@@ -50,7 +32,7 @@ The service announces `_elamon._tcp` over mDNS with TXT records:
 | `api` | API version |
 | `fp` | first 16 hex characters of the certificate's SHA-256 |
 
-Since 0.5 only on the local network: on wired and wireless interfaces (and bridges, bonds and VLANs
+Only on the local network: on wired and wireless interfaces (and bridges, bonds and VLANs
 over them) that the service listens on, with the addresses it listens on there; never on a VPN
 or on a bridge for containers or virtual machines. Where none of its interfaces is one of those,
 it announces nothing. After a [certificate rotation](#certificate-rotation), `fp` is the new
@@ -65,14 +47,13 @@ certificate's.
 `h` lists the addresses the service listens on (`listen` in its settings), local network first,
 then VPNs: of each interface its IPv4 addresses, or its IPv6 ones when it has no IPv4 address the
 service listens on; never loopback or link-local ones. Listening on every address (`"::"`, the
-default), bridges for containers and virtual machines are left out. Since 0.5, host names follow
-the addresses: those in `names` in the settings, in their order, then the computer's Tailscale
+default), bridges for containers and virtual machines are left out. Host names follow the
+addresses: those in `names` in the settings, in their order, then the computer's Tailscale
 name (MagicDNS, `Self.DNSName` of `tailscale status`, without its final dot) when Tailscale runs
 with MagicDNS on and the service listens on one of the computer's Tailscale addresses. Each is
 there once; the computer's mDNS name (`host.local`) only when `names` has it. `h` holds at most 8:
 addresses first, so names never crowd them out, and `elamond pair` says what it left out. Without
-anything in `h` the link would be refused, so `elamond pair` then prints only the code. Before
-0.5, `h` was every IPv4 address of the computer's wired, wireless and VPN interfaces.
+anything in `h` the link would be refused, so `elamond pair` then prints only the code.
 
 A client takes each entry of `h` as an IPv4 address, an IPv6 address (with or without brackets) or
 a DNS name, and refuses the link whole for anything else or for more than 8. It reaches the
@@ -87,15 +68,14 @@ pair until 20 wrong codes in all use the code up. Attempts are judged one at a t
 one is answered after a second; neither that second nor a phone waiting to be let in (below) holds
 up anyone else's attempt.
 
-Since 0.5 the person at the computer lets the phone in. A phone that gives the right code is shown
+The person at the computer lets the phone in. A phone that gives the right code is shown
 at the running `elamond pair` (`Phone "<device>" from <address> asks to pair as <role>. Allow?
 [y/N]`), and the service keeps its request open until the answer comes, 90 seconds at most. A yes
 gives the usual answer; a no, no answer in time, an `elamond pair` that was stopped or is gone, or a
 phone that hangs up is answered 403 `pair_declined`, and the code no longer works. While a phone
 waits, its code is spoken for: any other attempt with it gets `no_pairing`. A client waits for the
-answer for longer than those 90 seconds (the app 0.5 waits 100), and says meanwhile to confirm on
-the computer. `elamond pair --yes`, for scripts, pairs whichever phone gives the code at once, as
-before 0.5; a service before 0.5 never asks.
+answer for longer than those 90 seconds (the app waits 100), and says meanwhile to confirm on
+the computer. `elamond pair --yes`, for scripts, pairs whichever phone gives the code at once.
 
 At most 64 phones are paired at once, keys of their own ([`rekey`](#post-apiv1rekey)) included.
 
@@ -105,8 +85,8 @@ At most 64 phones are paired at once, keys of their own ([`rekey`](#post-apiv1re
 { "code": "123456", "device": "Phone name" }
 ```
 
-200: `{ "token": "…", "client_id": "…", "id": "<service id>", "name": "<computer name>", "role": "<role>" }`
-(`role` since 0.5), after up to 90 seconds while the person at `elamond pair` decides.
+200: `{ "token": "…", "client_id": "…", "id": "<service id>", "name": "<computer name>", "role": "<role>" }`,
+after up to 90 seconds while the person at `elamond pair` decides.
 403: `{ "error": "wrong_code" }`, `{ "error": "no_pairing" }` when no code is pending (or a phone
 that gave it waits to be let in), `{ "error": "pair_declined" }` when the phone wasn't let in,
 `{ "error": "too_many_phones" }` when 64 are paired already; 429 `{ "error": "too_many_requests" }`
@@ -120,7 +100,7 @@ the service answers 401 `{ "error": "unauthorized" }`. A phone removed with `ela
 
 The token is all the service knows a phone by: whatever the app asks before using it (unlocking
 the phone, say) only the app enforces, so a token copied off a phone works without it. That is
-what `elamond revoke` is for. Since 0.5 the app can carry the token to another phone (Export
+what `elamond revoke` is for. The app can carry the token to another phone (Export
 pairings, sealed with a passphrase). Until that phone asks for a key of its own
 ([`rekey`](#post-apiv1rekey)), which the app does at its first connection after the import, the
 service sees it as the phone the token was given to; afterwards each is an entry of its own, the
@@ -133,8 +113,7 @@ the hashes of the tokens, so a restored service accepts the tokens it gave out b
 
 ### `POST /api/v1/rekey`
 
-Since 0.5: a key of its own for a phone that holds another's token, as one does after Import
-pairings.
+A key of its own for a phone that holds another's token, as one does after Import pairings.
 
 ```json
 { "device": "Phone name" }
@@ -154,20 +133,19 @@ others pair). 403 `too_many_phones` when 64 phones are paired. It needs no contr
 acting: it is limited as acting is, the family's one rate ([how often](#how-often)), and recorded
 in the [activity log](#activity-log) as `phone added: <device>` under the phone that asked, with the
 new entry's id and role in `message`. 500 `storage` when the list of phones can't be written, or no
-longer parses (it is never written over); 413 for a body over 4 KiB. A service before 0.5 answers
-404 `not_found`: there the two phones stay one entry, and revoking it cuts off both. The app asks
-each computer it imported at the first connection to it that works; after a 404 it keeps the shared
-token and doesn't ask again until the app is restarted, after any other failure it asks again at a
-later connection. A client takes `rekey_refused` and `too_many_phones` as it takes that 404: asking
-again won't change them.
+longer parses (it is never written over); 413 for a body over 4 KiB. The app asks each computer
+it imported at the first connection to it that works. After `rekey_refused` or `too_many_phones`
+it keeps the shared token, so there the two phones stay one entry and revoking it cuts off both,
+and doesn't ask again until the app is restarted: asking again won't change them. After any other
+failure it asks again at a later connection.
 
 ### `GET /api/v1/hello` (no token)
 
-`{ "app": "elamon", "api": 1, "id": "…", "name": "…", "version": "0.4.0", "min_app": "0.3.0" }`
+`{ "app": "elamon", "api": 1, "id": "…", "name": "…", "version": "0.5.0", "min_app": "0.5.0" }`
 
 ## Certificate rotation
 
-`elamond rotate-cert` (since 0.5) gives the service a new key and certificate. Before the old key
+`elamond rotate-cert` gives the service a new key and certificate. Before the old key
 is deleted, it signs a statement that the new certificate follows the old one. The service keeps
 the last 5 statements and presents the new certificate within seconds (from the next connection;
 those open keep theirs). Its id stays the same.
@@ -223,28 +201,25 @@ with, before it reports the certificate changed:
    and goes on. Anything else, a broken step or a chain that never reaches `C`, means the
    certificate changed.
 
-A phone that missed rotations follows as long as the one it pinned is among the last 5. Apps before
-0.5 don't follow: after a rotation they say the certificate changed, and pair again. A service
-before 0.5 answers the route 404 `not_found`.
+A phone that missed rotations follows as long as the one it pinned is among the last 5.
 
 ## Roles
 
-Since 0.5 each paired phone has a role. They are ordered, each allowing what the one before does
-and more:
+Each paired phone has a role. They are ordered, each allowing what the one before does and more:
 
 | role | |
 |---|---|
-| `glance` | `info`, `history`, `stream` and `snapshot` with the basics: CPU, memory, GPUs, temperatures, fans, disks, disk I/O, network, battery and power. `procs` and `media` are ignored (no `processes`, `process_count` or `media`), and `displays`, `links` and `services` are `[]`. And `GET /api/v1/control`, to learn its role |
+| `glance` | `info`, `history`, `stream` and `snapshot` with the basics: CPU, memory, GPUs, temperatures, fans, disks, disk I/O, network, battery and power. `procs` and `media` are ignored (no `processes`, `process_count` or `media`), and `displays` and `links` are `[]`. And `GET /api/v1/control`, to learn its role |
 | `monitor` | everything there is to read: processes with their commands and users, monitors, links with the ports in use and the units to pick from, media with their covers, the activity log |
 | `operate` | adding, changing and removing links; starting, stopping and restarting their units, those the settings name; media and the volume; the power profile; the actions in the settings |
 | `admin` | power (shut down, restart, sleep, lock) and signals to processes |
 
 Any role may ask for a key of its own ([`rekey`](#post-apiv1rekey)), which keeps that role.
 
-Phones paired before 0.5 have no role and are `admin`, which is what they could do then. The
-person at the computer chooses: `elamond pair --role <role>`, otherwise `default_role` from the
-settings (`admin` unless set); `elamond clients role` changes a paired phone's role, which applies
-from its next request, and in a stream it has open from the next sample.
+The person at the computer chooses: `elamond pair --role <role>`, otherwise `default_role` from
+the settings (`admin` unless set); a phone with no role in the list of paired phones is `admin`.
+`elamond clients role` changes a paired phone's role, which applies from its next request, and in
+a stream it has open from the next sample.
 
 Acting on the computer also needs control, whatever the role: `control = true` in settings that
 parse, and no `elamond control off`. A request the role doesn't allow is answered 403
@@ -314,15 +289,15 @@ The `info` and `history` objects alone.
 
 A field marked `?` is `null` when the computer doesn't report it. Only `media`, `process_count`
 and `processes` are left out of a sample, when they weren't asked for or the phone's role doesn't
-allow them; a `glance` phone's samples also have `displays`, `links` and `services` empty
+allow them; a `glance` phone's samples also have `displays` and `links` empty
 ([`sample-glance.json`](../elamond/fixtures/sample-glance.json)).
 
 `info`:
 
 ```
-id, name, service_version, service_version (its old name), api, min_app, interval_ms (the service's
-tick), history_seconds (how far history reaches), os, kernel, arch, cpu_model, cpu_physical_cores?,
-cpu_logical_cores, memory_total, boot_time,
+id, name, service_version, api, min_app, interval_ms (the service's tick), history_seconds (how
+far history reaches), os, kernel, arch, cpu_model, cpu_physical_cores?, cpu_logical_cores,
+memory_total, boot_time,
 gpus: [{ id (PCI slot), vendor (nvidia|amd|intel|other), name, driver, boot_display }],
 capabilities: ["processes", "displays", "history", "sensors", "links", …]
 ```
@@ -351,7 +326,6 @@ displays: [{ connector, gpu, connected, active, dpms? (On|Standby|Suspend|Off), 
   mode: { width, height, refresh },
 links: [{ id, name, url, unit?, scope (user|system), editable, port?, up?, local_only,
           unit_state? }],
-services (links under their old name),
 process_count?, processes?: [{ pid, ppid?, name, cmd, user?, cpu (% of the whole CPU), mem,
                                status, start (Unix s), read, write, gpu?, gpu_mem? }],
 media?: { players: [{ id, name, status (Playing|Paused|Stopped), title?, artist?, album?,
@@ -379,10 +353,10 @@ Missing values are `null`.
 
 Everything below needs a token, and the [role](#roles) for it. Requests that change the computer
 also need control: `control = true` in the service's settings and no `elamond control off` on the
-computer, or the service answers 403 `control_disabled`. Since 0.5, settings that stop parsing
-hold control off too until they parse again (the service keeps the settings it read before for the
-rest). Adding, changing and removing links only changes the list the app shows: it needs the
-`operate` role, not control. The routes under `/api/v1/links` answer under `/api/v1/services` too.
+computer, or the service answers 403 `control_disabled`. Settings that stop parsing hold control
+off too until they parse again (the service keeps the settings it read before for the rest).
+Adding, changing and removing links only changes the list the app shows: it needs the `operate`
+role, not control.
 
 | request | body | |
 |---|---|---|
@@ -394,7 +368,7 @@ rest). Adding, changing and removing links only changes the list the app shows: 
 | `POST /api/v1/control/action` | `{ id }` | `{ exit_code?, timed_out, output }` |
 | `POST /api/v1/media` | `{ player, op: "play_pause"\|"next"\|"previous"\|"seek"\|"volume", value? }` | MPRIS; seek in seconds |
 | `POST /api/v1/media/volume` | `{ level?, muted? }` | the default output, level 0–1 |
-| `GET /api/v1/media/art?player=` | | the cover (PNG, JPEG or WebP, 4 MiB at most), when the player has it in a local file; reading, so no control needed (before 0.5 it was) |
+| `GET /api/v1/media/art?player=` | | the cover (PNG, JPEG or WebP, 4 MiB at most), when the player has it in a local file; reading, so no control needed |
 | `GET /api/v1/links` | | the links with their state, as in samples |
 | `POST /api/v1/links` | `{ id?, name, url, unit?, scope? }` | add, or change one added from the app; answers the saved `{ id, name, url, unit, scope }` |
 | `DELETE /api/v1/links/{id}` | | links from the settings files can't be changed or removed here |
@@ -403,25 +377,25 @@ rest). Adding, changing and removing links only changes the list the app shows: 
 | `GET /api/v1/units?scope=user\|system` | | `[{ name, description, active }]`: the loaded units of that scope a link may be given, those the settings name |
 
 In `GET /api/v1/control`, `enabled` says whether control is on now, `elamond control off`
-included; `role` and `allowed` are the asking phone's ([roles](#roles)), new in 0.5. `off_reason`
-(since 0.5) says why control is off, and is `null` while it's on: `settings` (`control = false`),
+included; `role` and `allowed` are the asking phone's ([roles](#roles)). `off_reason` says why
+control is off, and is `null` while it's on: `settings` (`control = false`),
 `held_off` (`elamond control off`) or `settings_unreadable` (the settings files stopped parsing;
 [`control-off.json`](../elamond/fixtures/control-off.json)). `power`, `profiles`, `actions` and
 `volume` go only as far as the role: beyond it they read as on a computer without them (`"na"`
-and `false`, `null`, `[]`, `false`), so an app from before roles offers no more than the phone may
-do.
+and `false`, `null`, `[]`, `false`), so a client that doesn't read `allowed` offers no more than
+the phone may do.
 
 A link opens a web page: its `url` is an `http://` or `https://` one, or a bare host and port
-(`{host}:8096`), which a client opens as `http://`. Since 0.5 another scheme (`javascript:`,
-`intent:`, `file:`, …) is refused with 400 `bad_url`, and a link that has one anyway (in the
-settings, or in `links.json` from before) is left out of what phones get.
+(`{host}:8096`), which a client opens as `http://`. Another scheme (`javascript:`, `intent:`,
+`file:`, …) is refused with 400 `bad_url`, and a link that has one anyway (in the settings, or
+written into `links.json` by hand) is left out of what phones get.
 
-Since 0.5 a link's unit is only ever one the computer's settings name: on a `[[links]]` entry, or
+A link's unit is only ever one the computer's settings name: on a `[[links]]` entry, or
 in `units`, in the same scope. Only service units (`NAME.service`), never one whose name starts
 with `-` or the Elamon service's own, and a template's instance (`name@instance.service`) only as
 the settings name it. `POST /api/v1/links` with any other unit is answered 403 `not_allowed` (a
-malformed name 400 `bad_unit`); `POST /api/v1/links/{id}/unit` asks again, so a unit stored before
-or no longer named is refused there with 403 `not_allowed` and its state isn't read
+malformed name 400 `bad_unit`); `POST /api/v1/links/{id}/unit` asks again, so a link's unit the
+settings don't name (any more) is refused there with 403 `not_allowed` and its state isn't read
 (`unit_state` is `null`). System units also need polkit's leave
 ([the guide](guide.md#power-the-profile-and-system-units-polkit)).
 
@@ -432,8 +406,7 @@ longer exists answers 404 `no_such_action`. An action's output keeps its first 4
 
 A signal's `start` is the process's start time as samples give it (Unix s). With it, the service
 signals only the process that started then: if the pid now belongs to another, it answers 409
-`process_changed` and signals nothing. Without it, whatever has the pid gets the signal, as
-before 0.5.
+`process_changed` and signals nothing. Without it, whatever has the pid gets the signal.
 
 Successful actions answer `{ "ok": true }`.
 
@@ -441,8 +414,8 @@ Successful actions answer `{ "ok": true }`.
 
 A phone may make 10 acting requests (every one in the table but the `GET`s, and
 [`rekey`](#post-apiv1rekey)) in a row, then one more each second; beyond that it gets 429
-`too_many_requests`. Reading isn't counted. Since 0.5 the rate is a family's: a phone and the keys
-of their own its token gave share it.
+`too_many_requests`. Reading isn't counted. The rate is a family's: a phone and the keys of their
+own its token gave share it.
 
 ### Connections
 
@@ -457,7 +430,7 @@ bound by these.
 
 Every acting request is recorded, let through or refused, with how it ended. The service keeps up
 to 500, in a private file in its data directory (`activity.jsonl`), so they survive restarts.
-Since 0.5 a family (a phone and the keys of their own its token gave) keeps 100 of them at most:
+A family (a phone and the keys of their own its token gave) keeps 100 of them at most:
 its newest push out its own oldest, never another phone's. Each entry:
 
 ```
@@ -471,7 +444,7 @@ its newest push out its own oldest, never another phone's. Each entry:
 `link add Jellyfin`, `link remove Jellyfin`, `phone added: Pixel 9` (a key of its own, the
 `message` `id <client_id>, <role>`). Of a run of 429 refusals only the first is
 recorded. A request whose body the service can't read at all isn't. Requests that were let through
-are also in the journal (`journalctl --user -u elamond`), as before.
+are also in the journal (`journalctl --user -u elamond`).
 
 ## Errors
 
@@ -483,15 +456,12 @@ Errors are `{ "error": "<code>" }` with these statuses (the same list is in
 | 400 | `unknown_signal`, `empty_command`, `no_unit`, `bad_name`, `bad_url`, `bad_unit`, `bad_scope` |
 | 401 | `unauthorized` |
 | 403 | `no_pairing`, `wrong_code`, `pair_declined` (the person at `elamond pair` didn't let the phone in), `too_many_phones` (64 are paired), `rekey_refused` (this token gave its key of its own already, or came of one), `control_disabled`, `not_permitted` (polkit refused, or a protected process), `not_allowed` (the phone's role doesn't allow it, or the settings don't name the unit) |
-| 404 | `not_found`, `no_such_process`, `no_such_action`, `no_such_link` (`no_such_service` before 0.5), `no_art` |
+| 404 | `not_found`, `no_such_process`, `no_such_action`, `no_such_link`, `no_art` |
 | 409 | `process_changed` (a signal's `start` names another process than the pid's) |
 | 429 | `too_many_requests` (acting too often, or too many wrong pairing codes from one address) |
 | 500 | `storage` |
 | 502 | `failed`, with `"message"` |
 
-`not_allowed`, `process_changed`, `too_many_requests`, `pair_declined`, `too_many_phones` and
-`rekey_refused` are new in 0.5; an app from before them takes them as an error it has no words
-for.
 
 `failed` carries a `message`: either one of `unknown_action`, `unknown_operation`,
 `unknown_player`, `unknown_profile`, `no_value`, `no_track`, `no_session`, `no_system_bus`,
