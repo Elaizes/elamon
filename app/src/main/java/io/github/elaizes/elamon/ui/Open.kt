@@ -1,11 +1,12 @@
 package io.github.elaizes.elamon.ui
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.widget.Toast
+import androidx.core.net.toUri
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.data.isWebLink
 
@@ -15,7 +16,7 @@ import io.github.elaizes.elamon.data.isWebLink
  * else is refused with a word.
  */
 fun openWebLink(ctx: Context, url: String) {
-	val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)
+	val intent = Intent(Intent.ACTION_VIEW, url.toUri()).addCategory(Intent.CATEGORY_BROWSABLE)
 	if (!isWebLink(url) || opensHere(ctx, intent)) {
 		Toast.makeText(ctx, R.string.link_refused, Toast.LENGTH_SHORT).show()
 		return
@@ -24,6 +25,8 @@ fun openWebLink(ctx: Context, url: String) {
 }
 
 /** Whether this app is among those that would take [intent]: its own package is always seen, whatever else is. */
+// Only this app's own activities matter here, and a package always sees its own: no <queries> needed.
+@SuppressLint("QueryPermissionsNeeded")
 private fun opensHere(ctx: Context, intent: Intent): Boolean {
 	val pm = ctx.packageManager
 	val found = if (Build.VERSION.SDK_INT >= 33) {
