@@ -1,0 +1,29 @@
+# The phone made a glance one by run.sh (elamond clients role all glance): the basics only, no
+# Processes tab, and on the Control tab a word on why instead of links and monitors.
+appId: io.github.elaizes.elamon
+---
+- launchApp
+- extendedWaitUntil:
+    visible: ${NAME}
+    timeout: 20000
+- tapOn: ${NAME}
+- extendedWaitUntil:
+    visible: "Overview"
+    timeout: 20000
+# The app opens with the role it last heard of (admin, from pairing) and reads the new one with
+# the control panel, right after the first sample.
+- extendedWaitUntil:
+    visible: "This phone's role: Glance.*"
+    timeout: 20000
+- assertNotVisible: "Processes"
+- takeScreenshot: 12-glance-overview
+- tapOn: "Control"
+- waitForAnimationToEnd
+- assertVisible: "This phone can only watch the basics.*"
+- takeScreenshot: 13-glance-control
+# Anything below the notice would come into view; there's nothing.
+- swipe:
+    direction: UP
+- assertNotVisible: "Links"
+# The Displays section is read as its title and summary.
+- assertNotVisible: "Displays.*"

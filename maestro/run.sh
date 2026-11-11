@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end run on an emulator or phone that adb sees: builds nothing, starts a throwaway elamond
 # from elamond/target/release on 127.0.0.1 (the emulator reaches it as 10.0.2.2), installs the
-# debug APK, pairs, walks every screen and leaves the screenshots in $OUT.
+# debug APK, pairs, walks every screen, makes the phone a glance one and an admin again with
+# elamond clients role, and leaves the screenshots in $OUT.
 #   cargo build --release (in elamond/) and ./gradlew :app:assembleDebug first.
 #   FONT_SCALE=2.0 maestro/run.sh   repeats the screens with a large font.
 set -euo pipefail
@@ -50,4 +51,10 @@ sleep 3
 code=$(grep -a -E '^\s+[0-9]{3} [0-9]{3}\s*$' "$work/pair.log" | tr -d ' ')
 maestro test --test-output-dir "$OUT" -e ADDRESS="10.0.2.2:$PORT" -e CODE="$code" maestro/pair.yaml
 maestro test --test-output-dir "$OUT" -e NAME="$NAME" maestro/screens.yaml
+# In a subshell: run_elamond execs. A glance phone sees the basics only.
+(run_elamond clients role all glance)
+maestro test --test-output-dir "$OUT" -e NAME="$NAME" maestro/glance.yaml
+# Admin again while the computer's screen stays open: the app notices without being reopened.
+(run_elamond clients role all admin)
+maestro test --test-output-dir "$OUT" maestro/admin-again.yaml
 echo "screenshots: $OUT"
