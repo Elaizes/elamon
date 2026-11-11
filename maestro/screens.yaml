@@ -27,6 +27,14 @@ appId: io.github.elaizes.elamon
     timeout: 30000
 - takeScreenshot: 08-control-actions
 - tapOn: "Say hello"
+# Actions ask to unlock the phone first, which a flow can't; an emulator without a screen lock
+# confirms instead.
+- runFlow:
+    when:
+      visible: "Run Say hello\\?"
+    commands:
+      - takeScreenshot: 08b-action-no-screen-lock
+      - tapOn: "Run"
 - extendedWaitUntil:
     visible: ".*hello from the test service.*"
     timeout: 15000
