@@ -10,6 +10,8 @@ mod control;
 mod errors;
 #[cfg(test)]
 mod fixtures;
+#[allow(dead_code)] // the server uses it from API 2 on
+mod format;
 mod identity;
 mod links;
 mod listen;
