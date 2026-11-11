@@ -2,7 +2,8 @@
 
 elamond, the Elamon service, serves HTTPS on port 47823. Its certificate is self-signed; clients
 identify the service by the SHA-256 of that certificate (lowercase hex, 64 characters), not by a
-name.
+name. A certificate the service renews, it signs over with the one before
+([certificate rotation](#certificate-rotation)).
 
 All bodies are JSON. Numbers in bytes are integers; rates are bytes per second; temperatures are
 °C; frequencies MHz; power W. Clients must ignore fields they don't know: new fields are added
@@ -49,14 +50,25 @@ The service announces `_elamon._tcp` over mDNS with TXT records:
 | `api` | API version |
 | `fp` | first 16 hex characters of the certificate's SHA-256 |
 
+Since 0.5 only on the local network: on wired and wireless interfaces (and bridges, bonds and VLANs
+over them) that the service listens on, with the addresses it listens on there; never on a VPN
+or on a bridge for containers or virtual machines. Where none of its interfaces is one of those,
+it announces nothing. After a [certificate rotation](#certificate-rotation), `fp` is the new
+certificate's.
+
 ## Pairing
 
 `elamond pair` makes a six-digit code, valid for 5 minutes, and prints it with a QR code holding
 
     elamon://pair?v=1&id=<id>&name=<name>&port=<port>&fp=<sha256>&code=<code>&h=<addr>,<addr>…
 
-`h` lists the computer's IPv4 addresses, local network first, then VPNs. Stopping `elamond pair`
-withdraws its code. The phone that pairs with it gets the role `elamond pair --role` named, or
+`h` lists the addresses the service listens on (`listen` in its settings), local network first,
+then VPNs: of each interface its IPv4 addresses, or its IPv6 ones when it has no IPv4 address the
+service listens on; never loopback or link-local ones, and at most 8. Listening on every address
+(`"::"`, the default), bridges for containers and virtual machines are left out. Without any
+address in it the link would be refused, so `elamond pair` then prints only the code. Before 0.5,
+`h` was every IPv4 address of the computer's wired, wireless and VPN interfaces. Stopping
+`elamond pair` withdraws its code. The phone that pairs with it gets the role `elamond pair --role` named, or
 `default_role` from the settings ([roles](#roles)).
 
 An address may try 5 wrong codes; after that it is answered 429 `too_many_requests`, whatever it
@@ -82,6 +94,62 @@ the service answers 401 `{ "error": "unauthorized" }`. A phone removed with `ela
 ### `GET /api/v1/hello` (no token)
 
 `{ "app": "elamon", "api": 1, "id": "…", "name": "…", "version": "0.4.0", "min_app": "0.3.0" }`
+
+## Certificate rotation
+
+`elamond rotate-cert` (since 0.5) gives the service a new key and certificate. Before the old key
+is deleted, it signs a statement that the new certificate follows the old one. The service keeps
+the last 5 statements and presents the new certificate within seconds (from the next connection;
+those open keep theirs). Its id stays the same.
+
+### `GET /api/v1/identity/rotations` (no token)
+
+The statements that lead to the certificate the service presents, oldest first; `[]` when it was
+never rotated:
+
+```json
+[{ "format": "elamon-rotate-v1", "old_fp": "<sha256>", "new_fp": "<sha256>", "t": 1794396297,
+   "old_cert": "<base64 DER>", "signature": "<base64 DER>" }]
+```
+
+| field | |
+|---|---|
+| `format` | the version of the signed text; only `elamon-rotate-v1` so far |
+| `old_fp` | SHA-256 of `old_cert`, lowercase hex |
+| `new_fp` | SHA-256 of the certificate that replaced it |
+| `t` | Unix time of the rotation, seconds |
+| `old_cert` | the old certificate, DER, standard base64 with padding |
+| `signature` | ECDSA P-256 with SHA-256 (DER-encoded, as `SHA256withECDSA` gives it) by the old certificate's key over the signed text, standard base64 |
+
+The signed text is these four lines in UTF-8, joined by `\n`, with no newline after the last:
+
+    elamon-rotate-v1
+    <old_fp>
+    <new_fp>
+    <t>
+
+The route needs no token: every statement proves itself, and a phone needs them before it can
+trust the service enough to send its token. Every shape is in
+[`rotations.json`](../elamond/fixtures/rotations.json), a real chain of three.
+
+### Following a rotation
+
+A client that meets another certificate than the one it pinned (`P`) on a computer it paired
+with, before it reports the certificate changed:
+
+1. reads `/api/v1/identity/rotations` over a connection that accepts any certificate and keeps
+   the one presented (`C`), on an address where `hello` gives the paired id;
+2. finds the statement whose `old_fp` is `P` and, from there on, checks each: `format` is one it
+   knows, `old_fp` is where the one before ended (`P` for the first), SHA-256 of `old_cert` is
+   `old_fp`, and `signature` verifies under `old_cert`'s public key (a P-256 key) over the signed
+   text;
+3. stops with success at the first statement whose `new_fp` is `C`: it pins `C` in place of `P`
+   and goes on. Anything else, a broken step or a chain that never reaches `C`, means the
+   certificate changed.
+
+A phone that missed rotations follows as long as the one it pinned is among the last 5. Apps before
+0.5 don't follow: after a rotation they say the certificate changed, and pair again. A service
+before 0.5 answers the route 404 `not_found`.
 
 ## Roles
 

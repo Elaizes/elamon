@@ -61,9 +61,11 @@ The app: Material You with frosted glass on Android 12 and newer, light, dark or
    ([details](docs/guide.md#5-the-control-panel)).
 
 The phone and the computer talk directly, over the local network or a VPN they share: TCP 47823,
-and UDP 5353 for finding the computer by itself. Everything is encrypted, each phone has its own
-key that the computer can revoke, and the service only acts on the computer when told it may
-([security](docs/guide.md#10-security)).
+and UDP 5353 for finding the computer by itself. The service can listen on chosen interfaces only
+(`listen = ["tailscale0"]`), and announces itself only on the local network. Everything is
+encrypted, each phone has its own key that the computer can revoke, the computer's certificate can
+be renewed without pairing again (`elamond rotate-cert`), and the service only acts on the computer
+when told it may ([security](docs/guide.md#10-security)).
 
 ## Technical notes
 

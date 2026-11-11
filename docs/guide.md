@@ -115,6 +115,12 @@ the firewall already trusts needs nothing.
 
 Arch and Debian ship with no firewall running; then there's nothing to open.
 
+To open the port on some interfaces only, on NixOS
+`services.elamond.firewallInterfaces = [ "eno1" "tailscale0" ];` (UDP 5353 then opens only on
+those that aren't VPNs, where discovery doesn't reach anyway); elsewhere, your firewall's zones.
+To have the service itself listen only there, see `listen` in
+[section 7](#where-the-service-listens).
+
 ## 3. Pair the phone
 
 On the computer:
@@ -127,7 +133,8 @@ It prints a QR code and a six-digit code, good for five minutes. Five wrong trie
 shut that address out for the rest of the code's life; twenty in all use the code up.
 
 - **QR code:** point the phone's camera at it and open the link. The link carries the computer's
-  address and certificate, so pairing takes one tap.
+  addresses (those the service listens on, the local network first) and its certificate, so
+  pairing takes one tap.
 - **Code:** in the app, tap the computer under *Found on this network*, or *Add computer* and its
   address. The app shows the computer's certificate digits first: they must match the
   `Certificate:` line `elamond pair` printed. Then enter the code.
@@ -408,9 +415,9 @@ All keys are optional.
 | Key | Default | |
 |---|---|---|
 | `port` | `47823` | TCP port |
-| `listen` | `"::"` | address to listen on; `"::"` covers IPv4 and IPv6 |
+| `listen` | `"::"` | addresses and interfaces to listen on, one or a list; `"::"` covers every address, IPv4 and IPv6 ([below](#where-the-service-listens)) |
 | `name` | host name | the name shown in the app |
-| `mdns` | `true` | announce the service on the local network |
+| `mdns` | `true` | announce the service on the local network: only on wired and wireless interfaces it listens on, never over a VPN |
 | `interval_ms` | `1000` | time between readings, 250–10 000 |
 | `history_minutes` | `10` | history a phone gets when it connects (at most 7 200 readings) |
 | `control` | `false` | allow the control panel |
@@ -423,8 +430,31 @@ file that doesn't parse is named in the log and the running settings stay. `cont
 `actions` and `default_role` apply at once; `port`, `listen`, `name`, `mdns`, `interval_ms` and
 `history_minutes` after a restart.
 
-Its state lives in `~/.local/share/elamon`: its id and certificate, the paired phones (only
-hashes of their keys, and their roles), links added in the app, a pending pairing code, the
+### Where the service listens
+
+By default on every address, IPv4 and IPv6. `listen` narrows that to addresses and network
+interfaces, as one entry or a list:
+
+```toml
+listen = ["tailscale0"]                    # over Tailscale only
+listen = ["eno1", "tailscale0"]            # the cable and Tailscale, not Wi-Fi or containers
+listen = ["192.168.200.10", "fd7a:115c::1"]  # these addresses
+```
+
+An interface stands for the addresses it has. One that has none yet, like a VPN that comes up
+after the service, is listened on within seconds of getting one, and an address that goes away
+is let go (connections on it stay until they end); the journal says each. So does an address
+the computer doesn't have yet. `"0.0.0.0"` covers every IPv4 address. A drop-in's `listen`
+replaces the one before rather than adding to it.
+
+`elamond pair` puts the addresses the service listens on in its QR code, the local network first,
+and looks for the running service at one of them. Discovery (`mdns`) only announces the service
+on the wired and wireless interfaces among them, never over a VPN or on a bridge for containers:
+over Tailscale alone, add the computer by address or QR code.
+
+Its state lives in `~/.local/share/elamon`: its id and certificate, the certificates before it
+with their signatures (`rotations.json`, [section 10](#a-new-certificate)), the paired phones
+(only hashes of their keys, and their roles), links added in the app, a pending pairing code, the
 activity log and `elamond control off`'s mark. Deleting that folder unpairs every phone and gives
 the service a new certificate.
 
@@ -444,7 +474,8 @@ to rename.
 | `services.elamond.users` | only these users run it; empty means every regular user. One user's service holds the port at a time |
 | `services.elamond.package` | the service's package |
 | `services.elamond.settings` | `elamond.toml` for every user's service, as Nix; `elamond pair` and the other commands read it too |
-| `services.elamond.openFirewall` | open the service's port (`settings.port`, 47823 by default) and UDP 5353; works without `enable` |
+| `services.elamond.openFirewall` | open the service's port (`settings.port`, 47823 by default) and UDP 5353 (unless `settings.mdns = false`); works without `enable` |
+| `services.elamond.firewallInterfaces` | with `openFirewall`, open them on these interfaces only, UDP 5353 only on those not named like a VPN (`tailscale*`, `wg*`, `tun*`, `tap*`, `zt*`, `ppp*`); empty means every interface |
 | `services.elamond.control.users` | users whose service may use power and the profile without a password |
 | `services.elamond.control.units` | system units those users may start, stop and restart |
 
@@ -476,10 +507,10 @@ computer's menu.
 
 | What happens | What to do |
 |---|---|
-| The computer isn't under *Found on this network* | Same network, UDP 5353 open on the computer; VPNs and many guest Wi-Fi networks block discovery. Add it by address: `elamond pair` prints them. |
-| The app can't connect | `systemctl --user status elamond`, `journalctl --user -u elamond -e`; TCP 47823 open; the address reachable from the phone. |
+| The computer isn't under *Found on this network* | Same network, UDP 5353 open on the computer; VPNs and many guest Wi-Fi networks block discovery, and the service only announces itself on wired and wireless interfaces it listens on (`mdns: announced on …` in the journal). Add it by address: `elamond pair` prints them. |
+| The app can't connect | `systemctl --user status elamond`, `journalctl --user -u elamond -e`; TCP 47823 open; the address reachable from the phone, and one the service listens on (`listen: on …` in the journal). |
 | It works only while you're logged in | `loginctl enable-linger` |
-| *The computer's certificate changed* | The service's data was deleted or the system reinstalled; forget the computer and pair again. If neither happened, check the network first. |
+| *The computer's certificate changed* | The service's data was deleted or the system reinstalled; forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` the app 0.5 follows by itself; an older app says this, and pairs again ([section 10](#a-new-certificate)). |
 | *Control is off* | `control = true` in `elamond.toml` or a drop-in in `elamond.d`; the service takes it up within a few seconds. If it is set, `elamond control status` tells whether `elamond control off` holds it off. |
 | *Not allowed* | The phone's role doesn't allow that: `elamond clients` shows it, `elamond clients role ID ROLE` changes it ([section 6](#6-roles-who-may-do-what)). |
 | *Too many requests* | The phone asked for more than 10 things in a row; wait a few seconds. When pairing: five wrong codes came from this address; run `elamond pair` again for a new code. |
@@ -497,7 +528,8 @@ To see what the service finds, without the app: `elamond snapshot`.
 ## 10. Security
 
 - Everything goes over TLS. The service's certificate is self-signed; the app pins it when pairing
-  and refuses any other afterwards.
+  and refuses any other afterwards, but for one the pinned certificate's key signed
+  (`elamond rotate-cert`, [below](#a-new-certificate)).
 - Each phone holds its own random 256-bit key; the service keeps only its SHA-256. Keys stay out of
   Android backups.
 - A pairing code works for five minutes, one attempt at a time, each wrong one answered after a
@@ -513,3 +545,22 @@ To see what the service finds, without the app: `elamond snapshot`.
 - Every request to act is in the activity log, carried out or refused, and what was carried out
   in the journal with the name of the phone that asked: `journalctl --user -u elamond`.
 - `elamond revoke` cuts a phone off at once, open streams included.
+
+### A new certificate
+
+```sh
+elamond rotate-cert
+```
+
+gives the service a new certificate and key, for instance when the old key may have been copied
+off the computer, or just from time to time. Before the old key is deleted it signs the new
+certificate's fingerprint, and the service shows that signature to any phone that asks. A phone
+with the app 0.5 or newer that meets the new certificate checks the signature against the
+certificate it pinned and moves to the new one by itself, saying *The computer's certificate was
+renewed*; nothing needs pairing again. The running service presents the new certificate within a
+few seconds (at once with `systemctl --user reload elamond`); connections already open keep the
+old one until they end.
+
+The last five rotations are kept, so a phone that was away for one or two still follows. One that
+missed more, and the app before 0.5, says *The computer's certificate changed*: pair it again.
+Deleting `~/.local/share/elamon` is not a rotation: it unpairs every phone.
