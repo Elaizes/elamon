@@ -47,7 +47,6 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.elaizes.elamon.ProcRequest
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.orNull
@@ -146,9 +145,10 @@ fun ProcessesTab(t: TabScope) {
 	}
 
 	// The sheet stays until it is closed: a process that leaves the list (it ended, or fell out of
-	// the heaviest ones) keeps its last readings, marked as such.
+	// the heaviest ones) keeps its last readings, marked as such. It is known by its pid and when it
+	// started, so a new process given the same pid is another one.
 	selected?.let { last ->
-		val live = procs?.find { it.pid == last.pid }
+		val live = procs?.find { it.pid == last.pid && it.start == last.start }
 		if (live != null && live != last) SideEffect { selected = live }
 		ProcessSheet(t, live ?: last, gone = procs != null && live == null, onDismiss = { selected = null })
 	}
@@ -189,7 +189,6 @@ private fun ProcRow(r: ProcItem, onClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProcessSheet(t: TabScope, p: Proc, gone: Boolean, onDismiss: () -> Unit) {
-	val control by t.vm.control.collectAsStateWithLifecycle()
 	val prefs = LocalPrefs.current
 	var confirm by remember { mutableStateOf<String?>(null) }
 	ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
@@ -222,12 +221,13 @@ private fun ProcessSheet(t: TabScope, p: Proc, gone: Boolean, onDismiss: () -> U
 					Text(p.cmd, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
 				}
 			}
-			if (control?.enabled == true) {
+			// Quitting and killing need the admin role and control on.
+			if (t.perms.signal) {
 				Row(horizontalArrangement = Arrangement.spacedBy(Space.sPlus), modifier = Modifier.padding(top = Space.s)) {
-					FilledTonalButton(onClick = { if (prefs.confirmActions) confirm = "term" else t.vm.signal(p.pid, "term") }, modifier = Modifier.weight(1f)) {
+					FilledTonalButton(onClick = { if (prefs.confirmActions) confirm = "term" else t.vm.signal(p.pid, p.start, "term") }, modifier = Modifier.weight(1f)) {
 						Text(stringResource(R.string.processes_quit))
 					}
-					FilledTonalButton(onClick = { if (prefs.confirmActions) confirm = "kill" else t.vm.signal(p.pid, "kill") }, modifier = Modifier.weight(1f)) {
+					FilledTonalButton(onClick = { if (prefs.confirmActions) confirm = "kill" else t.vm.signal(p.pid, p.start, "kill") }, modifier = Modifier.weight(1f)) {
 						Text(stringResource(R.string.processes_force_kill), color = Metric.colors.hot)
 					}
 				}
@@ -245,7 +245,7 @@ private fun ProcessSheet(t: TabScope, p: Proc, gone: Boolean, onDismiss: () -> U
 			},
 			confirm = {
 				TextButton(onClick = {
-					t.vm.signal(p.pid, sig)
+					t.vm.signal(p.pid, p.start, sig)
 					confirm = null
 					onDismiss()
 				}) { Text(stringResource(if (sig == "kill") R.string.processes_force_kill else R.string.processes_quit)) }

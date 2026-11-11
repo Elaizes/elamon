@@ -264,8 +264,10 @@ private val FAQ = listOf(
 private val COMMANDS = listOf(
 	"elamond pair" to R.string.cmd_pair,
 	"elamond clients" to R.string.cmd_clients,
+	"elamond clients role ID ROLE" to R.string.cmd_clients_role,
 	"elamond revoke ID" to R.string.cmd_revoke,
 	"elamond revoke all" to R.string.cmd_revoke_all,
+	"elamond control off" to R.string.cmd_control_off,
 	"elamond snapshot" to R.string.cmd_snapshot,
 	"elamond --version" to R.string.cmd_version,
 )

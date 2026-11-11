@@ -23,6 +23,10 @@ data class Machine(
 	val lastHost: String? = null,
 	val os: String? = null,
 	val addedAt: Long = 0,
+	/** This phone's id in the computer's list of paired phones (`elamond clients`); unknown for pairings before 0.5. */
+	val clientId: String? = null,
+	/** This phone's role there as last heard, from pairing or the control panel; null without roles. */
+	val role: String? = null,
 ) {
 	/** The address that worked last time first, so reconnecting is quick. */
 	fun hostsToTry(): List<String> = (listOfNotNull(lastHost) + hosts).distinct()

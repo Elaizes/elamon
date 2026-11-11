@@ -84,7 +84,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
+import io.github.elaizes.elamon.Can
 import io.github.elaizes.elamon.Conn
+import io.github.elaizes.elamon.PhoneRole
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.data.ActionInfo
 import io.github.elaizes.elamon.data.ActionResult
@@ -116,10 +118,12 @@ fun ControlTab(t: TabScope) {
 	val edit = linkById(editId)
 	val localOnly = linkById(localOnlyId)
 	val ctx = LocalContext.current
+	val perms = t.perms
 
-	DisposableEffect(Unit) {
-		vm.refreshControl()
-		vm.setMedia(true)
+	LaunchedEffect(Unit) { vm.refreshControl() }
+	// Players ride the stream only while they can be shown here.
+	DisposableEffect(perms.mediaRead) {
+		vm.setMedia(perms.mediaRead)
 		onDispose { vm.setMedia(false) }
 	}
 
@@ -139,42 +143,49 @@ fun ControlTab(t: TabScope) {
 		controlError?.let { e ->
 			item(key = "error") { ControlError(e.text(resources())) { vm.refreshControl() } }
 		}
-		if (control != null && !enabled) {
-			item(key = "off") { ControlOff { t.openHelp(null) } }
+		// What this phone's role leaves out is left out, with a word on how to change it.
+		when {
+			perms.known == PhoneRole.Glance -> item(key = "role") { RoleNotice(R.string.control_glance_title, R.string.control_glance_body, vm.clientId, PhoneRole.Monitor) }
+			perms.known == PhoneRole.Monitor -> item(key = "role") { RoleNotice(R.string.control_monitor_title, R.string.control_monitor_body, vm.clientId, PhoneRole.Operate) }
+			control != null && !enabled && perms.mayAct -> item(key = "off") { ControlOff { t.openHelp(null) } }
 		}
-		item(key = "links") {
-			LinksSection(
-				links = s.links,
-				onOpen = { if (it.localOnly) localOnlyId = it.id else launch(it) },
-				onMenu = { openId = it.id },
-				onAdd = { adding = true },
-			)
+		if (perms.links) {
+			item(key = "links") {
+				LinksSection(
+					links = s.links,
+					onOpen = { if (it.localOnly) localOnlyId = it.id else launch(it) },
+					onMenu = { openId = it.id },
+					onAdd = if (perms.linksEdit) ({ adding = true }) else null,
+				)
+			}
 		}
-		item(key = "displays") { DisplaysSection(t.state) }
+		if (perms.displays) {
+			item(key = "displays") { DisplaysSection(t.state) }
+		}
 		val media = s.media
-		if (enabled && media != null && (media.players.isNotEmpty() || media.volume != null)) {
+		if (perms.mediaRead && media != null && (media.players.isNotEmpty() || media.volume != null)) {
 			item(key = "media") { MediaSection(t, media.players, media.volume) }
 		}
-		control?.profiles?.takeIf { enabled && it.available.isNotEmpty() }?.let { p ->
+		control?.profiles?.takeIf { perms.profile && it.available.isNotEmpty() }?.let { p ->
 			item(key = "profile") { ProfileSection(s.power.ppdProfile ?: p.active, p.available) { vm.setProfile(it) } }
 		}
-		control?.actions?.takeIf { enabled && it.isNotEmpty() }?.let { actions ->
+		control?.actions?.takeIf { perms.actions && it.isNotEmpty() }?.let { actions ->
 			item(key = "actions") { ActionsSection(t, actions) }
 		}
-		if (enabled) {
-			item(key = "power") { PowerSection(t, control!!) }
+		control?.takeIf { perms.power }?.let { c ->
+			item(key = "power") { PowerSection(t, c) }
 		}
 	}
 
 	open?.let { link ->
 		LinkSheet(
-			t, link, enabled,
+			t, link,
 			onDismiss = { openId = null },
 			onOpen = { openId = null; if (link.localOnly) localOnlyId = link.id else launch(link) },
 			onEdit = { openId = null; editId = link.id },
 		)
 	}
-	if (adding || edit != null) {
+	if (perms.linksEdit && (adding || edit != null)) {
 		LinkEditor(t, edit, onDismiss = { adding = false; editId = null })
 	}
 	localOnly?.let { link ->
@@ -216,6 +227,19 @@ private fun ControlOff(onHelp: () -> Unit) {
 	}
 }
 
+/**
+ * This phone's role leaves out most of the panel: what it may do, and the command that lets it do
+ * more, [next] being the role up, with this phone's id when the pairing told it.
+ */
+@Composable
+private fun RoleNotice(@StringRes title: Int, @StringRes body: Int, clientId: String?, next: PhoneRole) {
+	Section(stringResource(title), ElIcons.Eye, accent = MaterialTheme.colorScheme.secondary) {
+		Text(stringResource(body), style = MaterialTheme.typography.bodyMedium)
+		CodeBlock("elamond clients role ${clientId ?: "ID"} ${next.key}")
+		Text(stringResource(R.string.control_role_where), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+	}
+}
+
 /** The control panel couldn't be read; what's shown below may be old or missing. */
 @Composable
 private fun ControlError(message: String, onRetry: () -> Unit) {
@@ -229,12 +253,15 @@ private fun ControlError(message: String, onRetry: () -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LinksSection(links: List<LinkStatus>, onOpen: (LinkStatus) -> Unit, onMenu: (LinkStatus) -> Unit, onAdd: () -> Unit) {
+private fun LinksSection(links: List<LinkStatus>, onOpen: (LinkStatus) -> Unit, onMenu: (LinkStatus) -> Unit, onAdd: (() -> Unit)?) {
 	Column(verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
-		Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = Space.xs)) {
+		// As tall with the add button as without it, so the title doesn't move when the role changes.
+		Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = Space.xs).heightIn(min = Sizes.touchTarget)) {
 			Text(stringResource(R.string.control_links), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-			FilledIconButton(onClick = onAdd, colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)) {
-				Icon(Icons.Default.Add, stringResource(R.string.control_add_link))
+			if (onAdd != null) {
+				FilledIconButton(onClick = onAdd, colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)) {
+					Icon(Icons.Default.Add, stringResource(R.string.control_add_link))
+				}
 			}
 		}
 		if (links.isEmpty()) {
@@ -242,7 +269,7 @@ private fun LinksSection(links: List<LinkStatus>, onOpen: (LinkStatus) -> Unit, 
 				Column(Modifier.padding(Space.xl), verticalArrangement = Arrangement.spacedBy(Space.xsPlus)) {
 					Text(stringResource(R.string.control_links_empty), style = MaterialTheme.typography.titleMedium)
 					Text(
-						stringResource(R.string.control_links_empty_body),
+						stringResource(if (onAdd != null) R.string.control_links_empty_body else R.string.control_links_empty_watch),
 						style = MaterialTheme.typography.bodyMedium,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
@@ -322,8 +349,9 @@ private fun LinkTile(link: LinkStatus, modifier: Modifier, onOpen: () -> Unit, o
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LinkSheet(t: TabScope, link: LinkStatus, control: Boolean, onDismiss: () -> Unit, onOpen: () -> Unit, onEdit: () -> Unit) {
+private fun LinkSheet(t: TabScope, link: LinkStatus, onDismiss: () -> Unit, onOpen: () -> Unit, onEdit: () -> Unit) {
 	val prefs = LocalPrefs.current
+	val perms = t.perms
 	var confirm by rememberSaveable { mutableStateOf<String?>(null) }
 	ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
 		Column(Modifier.padding(start = Space.xxl, end = Space.xxl, bottom = Space.xxxl), verticalArrangement = Arrangement.spacedBy(Space.m)) {
@@ -346,7 +374,7 @@ private fun LinkSheet(t: TabScope, link: LinkStatus, control: Boolean, onDismiss
 				Text(stringResource(R.string.control_open))
 			}
 			if (link.unit != null) {
-				if (control) {
+				if (perms.units) {
 					Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 						val running = link.unitState == "active" || link.unitState == "activating"
 						FilledTonalButton(onClick = { t.vm.unit(link.id, if (running) "stop" else "start") }, modifier = Modifier.weight(1f)) {
@@ -360,11 +388,13 @@ private fun LinkSheet(t: TabScope, link: LinkStatus, control: Boolean, onDismiss
 							Text(stringResource(R.string.control_restart))
 						}
 					}
-				} else {
+				} else if (perms.roleAllows(Can.Units)) {
+					// The role would let this phone, but control is off.
 					Text(stringResource(R.string.control_needs_control), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				}
 			}
-			if (link.editable) {
+			// A phone that may only look at links isn't told where they're changed.
+			if (perms.linksEdit && link.editable) {
 				Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 					TextButton(onClick = onEdit) {
 						Icon(Icons.Default.Edit, null, Modifier.size(Sizes.iconS))
@@ -377,7 +407,7 @@ private fun LinkSheet(t: TabScope, link: LinkStatus, control: Boolean, onDismiss
 						Text(stringResource(R.string.control_remove), color = Metric.colors.hot)
 					}
 				}
-			} else {
+			} else if (perms.linksEdit) {
 				Text(stringResource(R.string.control_set_on_computer), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			}
 		}
@@ -478,6 +508,7 @@ private fun LinkEditor(t: TabScope, existing: LinkStatus?, onDismiss: () -> Unit
 
 // ---- media ------------------------------------------------------------------------------
 
+/** What plays, and the volume; a phone not allowed to change them sees them without the buttons. */
 @Composable
 private fun MediaSection(t: TabScope, players: List<Player>, volume: io.github.elaizes.elamon.data.Volume?) {
 	var chosen by remember { mutableStateOf<String?>(null) }
@@ -548,7 +579,7 @@ private fun NowPlaying(t: TabScope, p: Player) {
 					dragging?.let { f -> t.vm.media(p.id, "seek", f * length / US_PER_SECOND) }
 					dragging = null
 				},
-				enabled = p.canSeek,
+				enabled = p.canSeek && t.perms.media,
 			)
 			Row {
 				Text(Fmt.clock(pos), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -557,7 +588,7 @@ private fun NowPlaying(t: TabScope, p: Player) {
 			}
 		}
 	}
-	Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+	if (t.perms.media) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
 		IconButton(onClick = { t.vm.media(p.id, "previous") }, enabled = p.canPrevious) { Icon(ElIcons.Previous, stringResource(R.string.control_previous)) }
 		FilledIconButton(onClick = { t.vm.media(p.id, "play_pause") }, enabled = p.canPlay || p.canPause, modifier = Modifier.size(Sizes.playButton)) {
 			Icon(if (playing) ElIcons.Pause else ElIcons.Play, stringResource(if (playing) R.string.control_pause else R.string.control_play), modifier = Modifier.size(Sizes.iconXl))
@@ -569,8 +600,9 @@ private fun NowPlaying(t: TabScope, p: Player) {
 @Composable
 private fun VolumeRow(t: TabScope, v: io.github.elaizes.elamon.data.Volume) {
 	var dragging by remember { mutableStateOf<Float?>(null) }
+	val canSet = t.perms.volume
 	Row(verticalAlignment = Alignment.CenterVertically) {
-		IconButton(onClick = { t.vm.volume(muted = !v.muted) }) {
+		IconButton(onClick = { t.vm.volume(muted = !v.muted) }, enabled = canSet) {
 			Icon(if (v.muted) ElIcons.Mute else ElIcons.Volume, stringResource(if (v.muted) R.string.control_unmute else R.string.control_mute), tint = if (v.muted) Metric.colors.hot else MaterialTheme.colorScheme.onSurface)
 		}
 		Slider(
@@ -580,6 +612,7 @@ private fun VolumeRow(t: TabScope, v: io.github.elaizes.elamon.data.Volume) {
 				dragging?.let { t.vm.volume(level = it) }
 				dragging = null
 			},
+			enabled = canSet,
 			modifier = Modifier.weight(1f),
 		)
 		Text(Fmt.percent((dragging ?: v.level) * Thresholds.PERCENT), style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(Sizes.volumeLabel).padding(start = Space.xsPlus))

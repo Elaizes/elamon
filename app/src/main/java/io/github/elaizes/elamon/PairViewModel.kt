@@ -106,6 +106,8 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 					token = resp.token,
 					lastHost = ready.host,
 					addedAt = System.currentTimeMillis(),
+					clientId = resp.clientId.ifEmpty { null },
+					role = resp.role,
 				)
 				MachineStore.get(app).put(machine, replacing = target.replaces)
 				_state.update { it.copy(busy = false, paired = machine) }

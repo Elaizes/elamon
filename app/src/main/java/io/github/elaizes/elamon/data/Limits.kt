@@ -50,6 +50,12 @@ object Limits {
 	/** Results and errors kept for the snackbar while no screen shows them. */
 	const val MESSAGES_KEPT = 8
 
+	/** How often a computer's screen reads the control panel again, for a role or control changed on the computer. */
+	const val CONTROL_REFRESH_MS = 60_000L
+
+	/** The least time between two such readings because a sample held what the phone wasn't known to see. */
+	const val ROLE_HINT_MIN_MS = 5_000L
+
 	// ---- processes --------------------------------------------------------------------------------
 
 	/** A detail page's list of the heaviest. */

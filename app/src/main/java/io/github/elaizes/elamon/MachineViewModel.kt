@@ -3,6 +3,7 @@ package io.github.elaizes.elamon
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.SystemClock
 import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
@@ -133,6 +134,11 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	private val _control = MutableStateFlow<ControlInfo?>(null)
 	val control: StateFlow<ControlInfo?> = _control.asStateFlow()
 
+	private val _permissions = MutableStateFlow(Permissions.before(store.get(machineId)?.role))
+
+	/** What this phone may do here: as the control panel says once read, as its last known role allows before. */
+	val permissions: StateFlow<Permissions> = _permissions.asStateFlow()
+
 	private val _controlError = MutableStateFlow<Message?>(null)
 
 	/** Why the control panel couldn't be read, until it can. */
@@ -161,6 +167,13 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	private var stopping: Job? = null
 	private var visible = false
 
+	/** Reads the control panel again now and then while the screen is shown. */
+	private var controlTicker: Job? = null
+	private var controlReading: Job? = null
+
+	/** When a sample last made the control panel be read again (elapsed realtime). */
+	private var lastRoleHint: Long? = null
+
 	/** The address the stream last worked on: a new set of parameters goes straight there. */
 	private var workingHost: String? = null
 	private var attempt = 0
@@ -183,6 +196,9 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	private fun credentialsChanged() {
 		job?.cancel()
 		job = null
+		// A new pairing may come with another role; the panel is read again once the stream is live.
+		_control.value = null
+		_permissions.value = Permissions.before(store.get(machineId)?.role)
 		if (visible) start()
 	}
 
@@ -203,15 +219,28 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 			stopping?.cancel()
 			stopping = null
 			if (job?.isActive != true) start()
-		} else if (job?.isActive == true && stopping == null) {
-			stopping = viewModelScope.launch {
-				delay(Limits.STOP_GRACE_MS)
-				job?.cancel()
-				job = null
-				stopping = null
-				// What's on screen when it comes back is old until the stream is.
-				_state.update { if (it.conn == Conn.Live) it.copy(conn = Conn.Reconnecting) else it }
+			if (controlTicker?.isActive != true) controlTicker = viewModelScope.launch { rereadControl() }
+		} else {
+			controlTicker?.cancel()
+			controlTicker = null
+			if (job?.isActive == true && stopping == null) {
+				stopping = viewModelScope.launch {
+					delay(Limits.STOP_GRACE_MS)
+					job?.cancel()
+					job = null
+					stopping = null
+					// What's on screen when it comes back is old until the stream is.
+					_state.update { if (it.conn == Conn.Live) it.copy(conn = Conn.Reconnecting) else it }
+				}
 			}
+		}
+	}
+
+	/** Reads the control panel every so often until cancelled: a role or control changed on the computer shows without reopening. */
+	private suspend fun rereadControl(): Nothing {
+		while (true) {
+			delay(Limits.CONTROL_REFRESH_MS)
+			refreshControl()
 		}
 	}
 
@@ -350,10 +379,13 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 					)
 				}
 				// Only now is there an address known to work for everything else.
-				if (!wasLive) refreshControl()
+				if (!wasLive) refreshControl() else if (_permissions.value.outgrownBy(msg)) roleWentUp()
 			}
 		}
 	}
+
+	/** This phone's id in the computer's list of paired phones, for the commands that change its role; unknown for older pairings. */
+	val clientId: String? get() = store.get(machineId)?.clientId
 
 	fun dismissCompat() {
 		_compatDismissed.value = true
@@ -368,20 +400,42 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		return ElamondClient(host, machine.port, machine.fingerprint, machine.token)
 	}
 
-	/** Reads the control panel; before the stream is live it waits for the first sample, which calls it. */
+	/**
+	 * Reads the control panel, and with it what this phone may do; before the stream is live it waits
+	 * for the first sample, which calls it. A newer reading replaces one still on its way.
+	 */
 	fun refreshControl() {
 		if (_state.value.conn != Conn.Live) return
-		viewModelScope.launch {
+		controlReading?.cancel()
+		controlReading = viewModelScope.launch {
 			val c = client() ?: return@launch
 			try {
-				_control.value = c.get<ControlInfo>("/api/v1/control")
+				val info = c.get<ControlInfo>("/api/v1/control")
+				_control.value = info
+				_permissions.value = Permissions.of(info)
 				_controlError.value = null
+				// Kept, so the screen opens with the right tabs next time.
+				if (info.role != null && store.get(machineId)?.role != info.role) store.update(machineId) { it.copy(role = info.role) }
 			} catch (e: CancellationException) {
 				throw e
 			} catch (e: Exception) {
 				_controlError.value = messageFor(e)
 			}
 		}
+	}
+
+	/** A sample held what this phone wasn't known to see: its role went up, so read what it may do now, now and then at most. */
+	private fun roleWentUp() {
+		val now = SystemClock.elapsedRealtime()
+		val last = lastRoleHint
+		if (last != null && now - last < Limits.ROLE_HINT_MIN_MS) return
+		lastRoleHint = now
+		refreshControl()
+	}
+
+	/** Refused for this phone's role, which changed on the computer since the panel was read: read it again. */
+	private fun noteRefusal(e: Throwable) {
+		if ((e as? ElamondException)?.notAllowed == true) refreshControl()
 	}
 
 	private fun say(m: Message) {
@@ -400,13 +454,15 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 				throw e
 			} catch (e: Exception) {
 				say(messageFor(e))
+				noteRefusal(e)
+				if ((e as? ElamondException)?.code == "process_changed") refreshProcesses()
 			}
 		}
 	}
 
 	@Serializable private data class PowerReq(val action: String)
 	@Serializable private data class ProfileReq(val profile: String)
-	@Serializable private data class SignalReq(val pid: Int, val signal: String)
+	@Serializable private data class SignalReq(val pid: Int, val signal: String, val start: Long? = null)
 	@Serializable private data class ActionReq(val id: String)
 	@Serializable private data class MediaReq(val player: String, val op: String, val value: Double? = null)
 	@Serializable private data class VolumeReq(val level: Float? = null, val muted: Boolean? = null)
@@ -427,8 +483,24 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		it.post<ProfileReq, Ok>("/api/v1/control/profile", ProfileReq(profile))
 	}
 
-	fun signal(pid: Int, signal: String) = act(done = if (signal == "kill") R.string.done_killed else R.string.done_asked_to_quit) {
-		it.post<SignalReq, Ok>("/api/v1/control/signal", SignalReq(pid, signal))
+	/**
+	 * Sends [signal] to the process [pid] that started at [start] (Unix s, as samples give it): the
+	 * service refuses it, process_changed, when the pid has gone to another process since. Without a
+	 * start (0) whatever has the pid gets it.
+	 */
+	fun signal(pid: Int, start: Long, signal: String) = act(done = if (signal == "kill") R.string.done_killed else R.string.done_asked_to_quit) {
+		it.post<SignalReq, Ok>("/api/v1/control/signal", SignalReq(pid, signal, start.takeIf { s -> s > 0 }))
+	}
+
+	/** The list of processes on screen read at once, rather than at the next sample, which may be a while. */
+	private fun refreshProcesses() {
+		val r = procRequest ?: return
+		viewModelScope.launch {
+			val s = client()?.let { c -> orNull { c.get<Sample>("/api/v1/snapshot?procs=${r.count}&sort=${r.sort}") } } ?: return@launch
+			val procs = s.processes ?: return@launch
+			// Only if the same list is still wanted.
+			if (procRequest == r) _state.update { it.copy(processes = procs, processCount = s.processCount ?: it.processCount) }
+		}
 	}
 
 	/** Runs an action; its output opens when it's done, here or whenever the panel is next shown. */
@@ -445,6 +517,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 				throw e
 			} catch (e: Exception) {
 				say(messageFor(e))
+				noteRefusal(e)
 				// Ids come from what an action runs: one changed on the computer has a new id.
 				if ((e as? ElamondException)?.code == "no_such_action") refreshControl()
 			} finally {
@@ -474,8 +547,8 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		} catch (e: CancellationException) {
 			throw e
 		} catch (e: ElamondException) {
-			// Covers need control; turned off since the panel was read, it should say so instead of the player.
-			if (e.code == "control_disabled") refreshControl()
+			// Covers needed control before 0.5, and need the role since: either changed since the panel was read.
+			if (e.code == "control_disabled" || e.notAllowed) refreshControl()
 			return null
 		} catch (e: Exception) {
 			return null
@@ -497,11 +570,22 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		},
 	) { it.onLinks("/$linkId/unit") { path -> post<UnitReq, Ok>(path, UnitReq(op)) } }
 
-	suspend fun detected(): List<Listener> =
-		client()?.let { orNull { it.onLinks("/detected") { path -> get<List<Listener>>(path) } } }.orEmpty()
+	suspend fun detected(): List<Listener> = quietly { it.onLinks("/detected") { path -> get<List<Listener>>(path) } }.orEmpty()
 
-	suspend fun units(scope: String): List<UnitInfo> =
-		client()?.let { orNull { it.get<List<UnitInfo>>("/api/v1/units?scope=$scope") } }.orEmpty()
+	suspend fun units(scope: String): List<UnitInfo> = quietly { it.get<List<UnitInfo>>("/api/v1/units?scope=$scope") }.orEmpty()
+
+	/** A suggestion read without a word on failure; null then. A refusal for the role still reads the panel again. */
+	private suspend fun <T> quietly(block: suspend (ElamondClient) -> T): T? {
+		val c = client() ?: return null
+		return try {
+			block(c)
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			noteRefusal(e)
+			null
+		}
+	}
 
 	class Factory(private val app: Application, private val id: String) : ViewModelProvider.Factory {
 		@Suppress("UNCHECKED_CAST")

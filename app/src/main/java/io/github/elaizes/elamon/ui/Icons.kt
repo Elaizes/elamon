@@ -63,6 +63,26 @@ object ElIcons {
 		}
 	}
 
+	/** Watching: what a phone that may only look sees on its Control tab. */
+	val Eye = icon("Eye") {
+		stroke {
+			moveTo(2.5f, 12f)
+			quadTo(12f, 2.5f, 21.5f, 12f)
+			quadTo(12f, 21.5f, 2.5f, 12f)
+			close()
+			circle(12f, 12f, 3f)
+		}
+	}
+
+	/** Times past: the activity log. */
+	val Clock = icon("Clock") {
+		stroke {
+			circle(12f, 12f, 9f)
+			line(12f, 7f, 12f, 12f)
+			line(12f, 12f, 15.5f, 14f)
+		}
+	}
+
 	val Laptop = icon("Laptop") {
 		stroke {
 			rect(5f, 5f, 19f, 15f, 1.5f)

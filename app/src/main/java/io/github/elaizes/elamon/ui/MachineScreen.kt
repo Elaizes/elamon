@@ -59,6 +59,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelStoreOwner
@@ -75,6 +77,8 @@ import io.github.elaizes.elamon.MIN_ELAMOND
 import io.github.elaizes.elamon.MachineState
 import io.github.elaizes.elamon.MachineViewModel
 import io.github.elaizes.elamon.Message
+import io.github.elaizes.elamon.Permissions
+import io.github.elaizes.elamon.PhoneRole
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.compatibility
 import io.github.elaizes.elamon.data.Info
@@ -100,6 +104,8 @@ private fun Tab.icon() = when (this) {
 class TabScope(
 	val state: MachineState,
 	val vm: MachineViewModel,
+	/** What this phone may do here: whatever else, the tab leaves out. */
+	val perms: Permissions,
 	val list: LazyListState,
 	val header: @Composable () -> Unit,
 	val openDetail: (String) -> Unit,
@@ -123,8 +129,13 @@ fun MachineScreen(
 		factory = MachineViewModel.Factory(ctx.applicationContext as Application, machine.id),
 	)
 	val state by vm.state.collectAsStateWithLifecycle()
+	val perms by vm.permissions.collectAsStateWithLifecycle()
 	val prefs = LocalPrefs.current
 	var tab by rememberSaveable { mutableStateOf(Tab.Overview) }
+	// A phone that may not see processes has no tab for them; one that loses it goes back to the overview.
+	val tabs = Tab.entries.filter { it != Tab.Processes || perms.processes }
+	val shownTab = if (tab in tabs) tab else Tab.Overview
+	LaunchedEffect(shownTab) { tab = shownTab }
 	var detail by rememberSaveable { mutableStateOf<String?>(null) }
 	var menu by remember { mutableStateOf(false) }
 	var confirmForget by remember { mutableStateOf(false) }
@@ -170,7 +181,7 @@ fun MachineScreen(
 	// Unpaired, another certificate or refused: the screen is a notice, with no tabs to switch
 	// between and no old numbers coming back.
 	val turnedAway = state.conn == Conn.Unauthorized || state.conn == Conn.CertificateChanged || state.conn == Conn.Refused
-	val currentList = if (detail != null) detailList else lists.getValue(tab)
+	val currentList = if (detail != null) detailList else lists.getValue(shownTab)
 	val collapsed = rememberCollapsed(currentList)
 
 	CompositionLocalProvider(LocalHaze provides haze) {
@@ -180,9 +191,9 @@ fun MachineScreen(
 			bar = {
 				if (state.sample != null && detail == null && !turnedAway) {
 					FloatingNavBar(
-						items = Tab.entries.map { NavItem(stringResource(it.label), it.icon()) },
-						selected = tab.ordinal,
-						onSelect = { tab = Tab.entries[it] },
+						items = tabs.map { NavItem(stringResource(it.label), it.icon()) },
+						selected = tabs.indexOf(shownTab),
+						onSelect = { tab = tabs[it] },
 					)
 				}
 			},
@@ -222,21 +233,21 @@ fun MachineScreen(
 							label = "detail",
 						) { d ->
 							if (d != null) {
-								DetailPage(d, state, vm, detailList)
+								DetailPage(d, state, vm, detailList, processes = perms.processes)
 							} else {
 								AnimatedContent(
-									targetState = tab,
+									targetState = shownTab,
 									transitionSpec = { fadeIn(tween(if (prefs.animations) Motion.TAB_IN else 0)) togetherWith fadeOut(tween(if (prefs.animations) Motion.TAB_OUT else 0)) },
 									label = "tab",
 								) { t ->
 									val header = @Composable {
 										Column {
-											MachineHeader(name, state, status, lists.getValue(t))
+											MachineHeader(name, state, status, lists.getValue(t), perms.role)
 											val info = state.info
 											if (compat != Compat.Ok && !compatDismissed && info != null) CompatBanner(compat, info) { vm.dismissCompat() }
 										}
 									}
-									val s = TabScope(state, vm, lists.getValue(t), header, { detail = it }, onHelp)
+									val s = TabScope(state, vm, perms, lists.getValue(t), header, { detail = it }, onHelp)
 									when (t) {
 										Tab.Overview -> OverviewTab(s)
 										Tab.Processes -> ProcessesTab(s)
@@ -305,10 +316,10 @@ fun MachineScreen(
 	}
 }
 
-/** The big title: the computer's name, how it's doing, and what it runs. */
+/** The big title: the computer's name, how it's doing, what it runs, and what this phone may do there. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun MachineHeader(name: String, state: MachineState, status: String, list: LazyListState) {
+private fun MachineHeader(name: String, state: MachineState, status: String, list: LazyListState, role: String?) {
 	val s = state.sample
 	BigTitle(
 		name,
@@ -331,10 +342,38 @@ private fun MachineHeader(name: String, state: MachineState, status: String, lis
 						null -> {}
 					}
 					(s.power.ppdProfile ?: s.power.profile)?.let { p -> Pill(profileName(p), MaterialTheme.colorScheme.tertiary) }
+					role?.let { RolePill(it) }
 				}
 			}
 		},
 	)
+}
+
+/** This phone's role on the computer, small among the other pills; a screen reader also hears what it allows. */
+@Composable
+private fun RolePill(role: String) {
+	val name = roleName(role)
+	val known = PhoneRole.of(role)
+	val description = if (known != null) stringResource(R.string.a11y_role, name, stringResource(known.about())) else stringResource(R.string.a11y_role_unknown, name)
+	Pill(name, MaterialTheme.colorScheme.primary, Modifier.clearAndSetSemantics { contentDescription = description })
+}
+
+/** A role by the name `elamond clients role` takes, which a newer service's may be. */
+@Composable
+private fun roleName(role: String): String = when (PhoneRole.of(role)) {
+	PhoneRole.Glance -> stringResource(R.string.role_glance)
+	PhoneRole.Monitor -> stringResource(R.string.role_monitor)
+	PhoneRole.Operate -> stringResource(R.string.role_operate)
+	PhoneRole.Admin -> stringResource(R.string.role_admin)
+	null -> role.replaceFirstChar { it.uppercase() }
+}
+
+@StringRes
+private fun PhoneRole.about(): Int = when (this) {
+	PhoneRole.Glance -> R.string.role_glance_about
+	PhoneRole.Monitor -> R.string.role_monitor_about
+	PhoneRole.Operate -> R.string.role_operate_about
+	PhoneRole.Admin -> R.string.role_admin_about
 }
 
 @Composable

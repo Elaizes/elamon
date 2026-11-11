@@ -42,9 +42,11 @@ fun detailTitle(kind: String, state: MachineState): String = when {
 	else -> kind
 }
 
+/** A part of the computer in full; with [processes], the heaviest of them for what it's about. */
 @Composable
-fun DetailPage(kind: String, state: MachineState, vm: MachineViewModel, list: LazyListState) {
+fun DetailPage(kind: String, state: MachineState, vm: MachineViewModel, list: LazyListState, processes: Boolean) {
 	val sort = when {
+		!processes -> null
 		kind == "cpu" -> "cpu"
 		kind == "memory" -> "mem"
 		kind.startsWith("gpu/") -> "gpu"
@@ -52,7 +54,7 @@ fun DetailPage(kind: String, state: MachineState, vm: MachineViewModel, list: La
 		else -> null
 	}
 	// The heaviest processes for what this page is about.
-	DisposableEffect(kind) {
+	DisposableEffect(kind, sort) {
 		if (sort != null) vm.setProcesses(ProcRequest(sort, ProcRequest.TOP))
 		onDispose { if (sort != null) vm.setProcesses(null) }
 	}

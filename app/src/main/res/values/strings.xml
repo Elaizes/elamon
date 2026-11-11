@@ -114,6 +114,19 @@
 	<string name="profile_balanced">Balanced</string>
 	<string name="profile_balanced_performance">Balanced performance</string>
 	<string name="profile_performance">Performance</string>
+	<!-- This phone's role on the computer, by the names elamond clients role takes: a pill under the computer's name. -->
+	<string name="role_glance">Glance</string>
+	<string name="role_monitor">Monitor</string>
+	<string name="role_operate">Operate</string>
+	<string name="role_admin">Admin</string>
+	<!-- What each role allows, as a screen reader says it after the role's name. -->
+	<string name="role_glance_about">sees the basics only: load, memory, temperatures, disks, network and battery</string>
+	<string name="role_monitor_about">sees everything, changes nothing</string>
+	<string name="role_operate_about">may also add links and start their units, play media, set the power profile and run actions</string>
+	<string name="role_admin_about">may do everything, power and ending processes included</string>
+	<!-- The role pill read aloud: "This phone's role: Admin, may do everything, power and ending processes included". -->
+	<string name="a11y_role">This phone\'s role: %1$s, %2$s</string>
+	<string name="a11y_role_unknown">This phone\'s role: %1$s</string>
 
 	<!-- Overview tab -->
 	<string name="overview_cpu_load">load</string>
@@ -294,6 +307,13 @@
 	<string name="control_add_link">Add link</string>
 	<string name="control_links_empty">No links yet</string>
 	<string name="control_links_empty_body">Add the web pages this computer hosts — a media server, a dashboard, a download manager — to open them from here and start or stop them.</string>
+	<string name="control_links_empty_watch">The web pages this computer hosts show up here once they\'re added on the computer or from a phone that may add them.</string>
+	<!-- What a phone's role leaves out of the Control tab, and how the computer's owner changes it. -->
+	<string name="control_glance_title">The basics only</string>
+	<string name="control_glance_body">This phone can only watch the basics: load, memory, temperatures, disks, network and battery. To let it see processes, monitors and links too, or control the computer, its owner runs this there:</string>
+	<string name="control_monitor_title">Watching only</string>
+	<string name="control_monitor_body">This phone can see everything here but change nothing. To let it also add links and start what they run, play media, switch the power profile and run actions, its owner runs this on the computer:</string>
+	<string name="control_role_where">elamond clients lists the paired phones with their IDs. The roles are glance, monitor, operate and admin, each allowing more than the one before; admin adds power and ending processes.</string>
 	<string name="control_link_menu">Actions</string>
 	<string name="control_local_only_title">Only on the computer</string>
 	<string name="control_local_only_body">%1$s listens on the computer\'s own address (127.0.0.1), so other devices can\'t open it. Set it to listen on all addresses, or reach it through an SSH tunnel.</string>
@@ -534,8 +554,10 @@
 	<string name="help_commands">Service commands</string>
 	<string name="cmd_pair">pair a phone: shows a QR code and a code</string>
 	<string name="cmd_clients">list paired phones with their IDs</string>
+	<string name="cmd_clients_role">change what a phone may do: glance, monitor, operate or admin; all instead of an ID changes every phone</string>
 	<string name="cmd_revoke">unpair one phone</string>
 	<string name="cmd_revoke_all">unpair every phone</string>
+	<string name="cmd_control_off">hold control off for every phone at once, until elamond control on</string>
 	<string name="cmd_snapshot">print one reading, to see what the service finds</string>
 	<string name="cmd_version">the service\'s version</string>
 	<string name="help_settings">Service settings</string>
