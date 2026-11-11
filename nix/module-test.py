@@ -240,3 +240,44 @@ with subtest("elamond rotate-cert: a new certificate signed by the old key, the 
 	machine.succeed("systemctl --user -M alice@ restart elamond")
 	machine.wait_until_succeeds("curl -sk https://localhost:47823/api/v1/identity/rotations | jq -e 'length == 1'", timeout=60)
 	assert machine.succeed(served_fp).strip() == new_fp
+
+with subtest("elamond backup and restore: a wiped service comes back as the same computer, its phones paired"):
+	code = pair_code("pair-backup")
+	status, paired = call("POST", "/api/v1/pair", body={"code": code, "device": "Backup phone"})
+	assert status == 200, paired
+	kept = f"-H 'Authorization: Bearer {paired['token']}'"
+	fp = machine.succeed(served_fp).strip()
+	machine.succeed("su - alice -c 'umask 077; echo \"two words or more\" > ~/pass; echo \"wrong words\" > ~/wrong'")
+	out = machine.succeed("su - alice -c 'elamond backup ~/b.elamond --passphrase-file ~/pass'")
+	assert "Backup phone" in out and "Argon2id" in out, out
+	machine.succeed("test $(stat -c %a /home/alice/b.elamond) = 600 && head -1 /home/alice/b.elamond | grep -qx elamond-backup")
+	# Nothing of the state shows in the file.
+	machine.fail(f"grep -q {paired['client_id']} /home/alice/b.elamond")
+	# While the service runs, a restore is refused.
+	out = machine.fail("su - alice -c 'elamond restore ~/b.elamond --passphrase-file ~/pass' 2>&1")
+	assert "service is running" in out and "systemctl --user stop elamond" in out, out
+	# A reinstall: the data and the drop-in gone, the service makes a new identity and turns the phone away.
+	machine.succeed("systemctl --user -M alice@ stop elamond")
+	machine.succeed("rm -rf /home/alice/.local/share/elamon /home/alice/.config/elamon/elamond.d")
+	machine.succeed("systemctl --user -M alice@ start elamond")
+	machine.wait_until_succeeds("curl -sk https://localhost:47823/api/v1/hello", timeout=60)
+	assert machine.succeed(served_fp).strip() != fp
+	assert call("GET", "/api/v1/info", kept) == (401, {"error": "unauthorized"})
+	machine.succeed("systemctl --user -M alice@ stop elamond")
+	# A wrong passphrase changes nothing.
+	before = machine.succeed("ls /home/alice/.local/share/elamon")
+	out = machine.fail("su - alice -c 'elamond restore ~/b.elamond --passphrase-file ~/wrong' 2>&1")
+	assert "passphrase is wrong" in out, out
+	assert machine.succeed("ls /home/alice/.local/share/elamon") == before
+	# Restored, settings too: the same certificate, and the phones' tokens work again.
+	out = machine.succeed("su - alice -c 'elamond restore ~/b.elamond --passphrase-file ~/pass --with-settings'")
+	assert "Backup phone" in out and "Test phone" in out and "cert.der.before-restore-" in out, out
+	machine.succeed("grep -qx 'control = true' /home/alice/.config/elamon/elamond.d/on.toml")
+	machine.succeed("systemctl --user -M alice@ start elamond")
+	machine.wait_until_succeeds("curl -sk https://localhost:47823/api/v1/hello", timeout=60)
+	assert machine.succeed(served_fp).strip() == fp
+	assert call("GET", "/api/v1/info", kept)[0] == 200
+	assert call("GET", "/api/v1/info", auth)[0] == 200
+	# With the rotation phones follow, and the drop-in that turned control on.
+	assert len(call("GET", "/api/v1/identity/rotations")[1]) == 1
+	assert call("GET", "/api/v1/control", kept)[1]["enabled"]
