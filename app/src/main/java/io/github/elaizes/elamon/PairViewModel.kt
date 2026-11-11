@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 import io.github.elaizes.elamon.data.ElamondClient
 import io.github.elaizes.elamon.data.ElamondException
 import io.github.elaizes.elamon.data.Hello
+import io.github.elaizes.elamon.data.KeystoreException
 import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.data.PairTarget
 import io.github.elaizes.elamon.data.Machine
@@ -103,13 +104,12 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 					hosts = (listOf(ready.host) + target.hosts).distinct(),
 					port = target.port,
 					fingerprint = ready.fingerprint,
-					token = resp.token,
 					lastHost = ready.host,
 					addedAt = System.currentTimeMillis(),
 					clientId = resp.clientId.ifEmpty { null },
 					role = resp.role,
 				)
-				MachineStore.get(app).put(machine, replacing = target.replaces)
+				MachineStore.get(app).put(machine, resp.token, replacing = target.replaces)
 				_state.update { it.copy(busy = false, paired = machine) }
 			} catch (e: CancellationException) {
 				throw e
@@ -118,7 +118,8 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 					ElamondException.Kind.WrongCode -> R.string.pair_wrong_code
 					ElamondException.Kind.NoPairing -> R.string.pair_no_pairing
 					ElamondException.Kind.TooManyRequests -> R.string.pair_too_many
-					else -> R.string.pair_unreachable
+					// Paired on the computer, but the token couldn't be kept: nothing was saved.
+					else -> if (e is KeystoreException) R.string.pair_keystore else R.string.pair_unreachable
 				}
 				_state.update { it.copy(busy = false, codeError = error) }
 			}

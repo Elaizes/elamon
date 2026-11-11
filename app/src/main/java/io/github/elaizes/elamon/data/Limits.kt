@@ -92,6 +92,10 @@ object Limits {
 	/** Digits a pairing link's version may have; anything longer is broken, not new. */
 	const val PAIR_LINK_VERSION_DIGITS = 9
 
+	/** The key that seals tokens on the phone (AES), and the length of GCM's tag. */
+	const val TOKEN_KEY_BITS = 256
+	const val TOKEN_TAG_BITS = 128
+
 	// ---- addresses --------------------------------------------------------------------------------
 
 	const val PORT_MAX = 65_535

@@ -206,7 +206,7 @@ fun MachineScreen(
 				Box(Modifier.fillMaxSize().hazeSource(haze)) {
 					when {
 						state.conn == Conn.Unauthorized -> Centered {
-							Notice(Icons.Default.Warning, stringResource(R.string.machine_unpaired_title), stringResource(R.string.machine_unpaired_body)) {
+							Notice(Icons.Default.Warning, stringResource(R.string.machine_unpaired_title), stringResource(if (state.keyLost) R.string.machine_key_lost_body else R.string.machine_unpaired_body)) {
 								Button(onClick = { onPairAgain(machine.toTarget()) }) { Text(stringResource(R.string.machine_pair_again)) }
 							}
 						}

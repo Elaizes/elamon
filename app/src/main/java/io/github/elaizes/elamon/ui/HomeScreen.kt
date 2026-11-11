@@ -60,10 +60,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import io.github.elaizes.elamon.R
-import io.github.elaizes.elamon.orNull
 import io.github.elaizes.elamon.pollEach
 import io.github.elaizes.elamon.data.ElamondClient
+import io.github.elaizes.elamon.data.ElamondException
 import io.github.elaizes.elamon.data.DEFAULT_PORT
 import io.github.elaizes.elamon.data.Found
 import io.github.elaizes.elamon.data.Limits
@@ -78,13 +81,16 @@ import io.github.elaizes.elamon.data.parseAddress
 private sealed interface Live {
 	data object Unknown : Live
 	data object Offline : Live
+	/** The computer turned this phone away, or the phone can't read its own token any more. */
+	data object Unpaired : Live
 	data class Online(val sample: Sample) : Live
 }
 
 @Composable
 fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: () -> Unit, onSettings: () -> Unit) {
 	val ctx = LocalContext.current
-	val machines by MachineStore.get(ctx).machines.collectAsStateWithLifecycle()
+	val store = MachineStore.get(ctx)
+	val machines by store.machines.collectAsStateWithLifecycle()
 	val discovery = remember { discoverElamond(ctx) }
 	val found by discovery.collectAsStateWithLifecycle(initialValue = emptyList())
 	val unpaired = found.filter { f -> machines.none { it.id == f.id } }
@@ -97,7 +103,7 @@ fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: 
 	val lifecycle = LocalLifecycleOwner.current.lifecycle
 	LaunchedEffect(machines, lifecycle) {
 		lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-			pollEach(machines, Limits.HOME_POLL_MS, probe = ::reading, report = { s, l -> live[s.id] = l })
+			pollEach(machines, Limits.HOME_POLL_MS, probe = { reading(it, store) }, report = { s, l -> live[s.id] = l })
 		}
 	}
 
@@ -174,11 +180,18 @@ fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: 
 }
 
 /** One reading of [s], on whichever of its addresses answers. */
-private suspend fun reading(s: Machine): Live = orNull {
-	val reached = ElamondClient.firstReachable(s.hostsToTry(), s.port, s.fingerprint, s.id) ?: return@orNull Live.Offline
-	val c = ElamondClient(reached.first.host, s.port, s.fingerprint, s.token)
-	Live.Online(c.get<Sample>("/api/v1/snapshot"))
-} ?: Live.Offline
+private suspend fun reading(s: Machine, store: MachineStore): Live {
+	// Opened by the key store off the main thread, the first time.
+	val token = withContext(Dispatchers.Default) { store.token(s) } ?: return Live.Unpaired
+	return try {
+		val reached = ElamondClient.firstReachable(s.hostsToTry(), s.port, s.fingerprint, s.id) ?: return Live.Offline
+		Live.Online(ElamondClient(reached.first.host, s.port, s.fingerprint, token).get<Sample>("/api/v1/snapshot"))
+	} catch (e: CancellationException) {
+		throw e
+	} catch (e: Exception) {
+		if ((e as? ElamondException)?.kind == ElamondException.Kind.Unauthorized) Live.Unpaired else Live.Offline
+	}
+}
 
 private fun Found.toTarget() = PairTarget(hosts = listOf(host), port = port, name = name, id = id, fingerprint = null, fingerprintPrefix = fingerprintPrefix)
 
@@ -207,6 +220,7 @@ private fun ComputerCard(s: Machine, live: Live, onClick: () -> Unit) {
 				when (live) {
 					is Live.Online -> Pill(stringResource(R.string.home_online), c.good, dot = true)
 					Live.Offline -> Pill(stringResource(R.string.offline), MaterialTheme.colorScheme.outline, dot = true)
+					Live.Unpaired -> Pill(stringResource(R.string.conn_unauthorized), c.warn, dot = true)
 					Live.Unknown -> {}
 				}
 			}

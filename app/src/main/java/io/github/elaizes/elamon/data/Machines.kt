@@ -2,16 +2,19 @@ package io.github.elaizes.elamon.data
 
 import android.content.Context
 import android.net.Uri
+import androidx.core.content.edit
+import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 
 const val DEFAULT_PORT = 47823
 
-/** A paired computer. The token never leaves the phone: backups exclude the app's data. */
+/** A paired computer. Its token never leaves the phone: sealed with a key in the Android key store, and kept out of backups. */
 @Serializable
 data class Machine(
 	val id: String,
@@ -19,7 +22,15 @@ data class Machine(
 	val hosts: List<String>,
 	val port: Int,
 	val fingerprint: String,
-	val token: String,
+	/**
+	 * The token in plain text, as apps before 0.5 kept it; the store seals one it finds. Written
+	 * even when empty: an older app going back over the list still reads it (and finds the phone
+	 * unpaired) rather than lose every computer.
+	 */
+	@EncodeDefault val token: String = "",
+	/** The token sealed ([MachineStore.token] opens it), and the IV it was sealed with, in base64. */
+	val tokenSealed: String? = null,
+	val tokenIv: String? = null,
 	val lastHost: String? = null,
 	val os: String? = null,
 	val addedAt: Long = 0,
@@ -32,32 +43,90 @@ data class Machine(
 	fun hostsToTry(): List<String> = (listOfNotNull(lastHost) + hosts).distinct()
 }
 
-class MachineStore(context: Context) {
-	// Still the file "servers" and the key "list", as when a Machine was called a Server (0.4 and
-	// before): an updated app finds its pairings where it left them.
-	private val prefs = context.getSharedPreferences("servers", Context.MODE_PRIVATE)
+/** Where the list of paired computers is kept: one JSON text, written whole. */
+interface MachineFile {
+	fun read(): String?
+	fun write(json: String)
+}
+
+/**
+ * The paired computers, kept in [file] with their tokens sealed by [cipher]. A token is only ever
+ * written sealed, but for one an app before 0.5 kept in plain text that can't be sealed yet (the
+ * key store fails): that one stays as it was, so the pairing isn't lost, and each save tries again.
+ */
+class MachineStore(private val file: MachineFile, private val cipher: TokenCipher) {
+	/** Tokens opened this run, by their sealed text: the key store is asked once for each. */
+	private val opened = ConcurrentHashMap<String, String>()
+
 	private val _machines = MutableStateFlow(load())
 	val machines: StateFlow<List<Machine>> = _machines.asStateFlow()
 
 	/** Entries paired again under a new id, by the id they had; for as long as the app runs. */
 	private val replacedBy = ConcurrentHashMap<String, String>()
 
-	private fun load(): List<Machine> = runCatching {
-		ProtocolJson.decodeFromString<List<Machine>>(prefs.getString("list", null) ?: "[]")
-	}.getOrDefault(emptyList())
+	/**
+	 * The list as kept, its plain tokens sealed and the list written again at once. One write
+	 * replaces the whole list, so an app stopped midway finds either the old list, to seal again,
+	 * or the new one: never one that lost a token.
+	 */
+	private fun load(): List<Machine> {
+		val kept = runCatching { ProtocolJson.decodeFromString<List<Machine>>(file.read() ?: "[]") }.getOrDefault(emptyList())
+		val sealed = kept.map(::sealedIfPlain)
+		if (sealed != kept) file.write(ProtocolJson.encodeToString(sealed))
+		return sealed
+	}
 
 	private fun save(list: List<Machine>) {
-		prefs.edit().putString("list", ProtocolJson.encodeToString(list)).apply()
-		_machines.value = list
+		val sealed = list.map(::sealedIfPlain)
+		file.write(ProtocolJson.encodeToString(sealed))
+		_machines.value = sealed
+	}
+
+	/** [m] with its plain token sealed; as it is when it has none, or the key store fails. */
+	private fun sealedIfPlain(m: Machine): Machine =
+		if (m.token.isEmpty()) m else runCatching { sealed(m, m.token) }.getOrDefault(m)
+
+	/** [m] with [token] sealed in it and no plain one; throws [KeystoreException] when it can't be sealed. */
+	private fun sealed(m: Machine, token: String): Machine {
+		val s = try {
+			cipher.seal(token.toByteArray(Charsets.UTF_8))
+		} catch (e: Exception) {
+			throw KeystoreException(e)
+		}
+		val data = B64.encodeToString(s.data)
+		opened[data] = token
+		return m.copy(token = "", tokenSealed = data, tokenIv = B64.encodeToString(s.iv))
+	}
+
+	/**
+	 * The token to send to [machine]; null when it can't be read back (the key store lost its key,
+	 * or the app's data came from elsewhere), which leaves the phone as good as unpaired there. The
+	 * key store opens each once a run, which may take a moment.
+	 */
+	fun token(machine: Machine): String? {
+		if (machine.token.isNotEmpty()) return machine.token
+		val data = machine.tokenSealed ?: return null
+		val iv = machine.tokenIv ?: return null
+		opened[data]?.let { return it }
+		return try {
+			String(cipher.open(Sealed(B64D.decode(data), B64D.decode(iv))), Charsets.UTF_8).also { opened[data] = it }
+		} catch (e: Exception) {
+			null
+		}
 	}
 
 	fun get(id: String): Machine? = _machines.value.find { it.id == id }
 
-	/** Adds a computer, replacing an older pairing with it or the entry [replacing] (a reset computer has a new id). */
-	fun put(machine: Machine, replacing: String? = null) {
+	/**
+	 * Adds a computer paired with [token], replacing an older pairing with it or the entry
+	 * [replacing] (a reset computer has a new id). Throws [KeystoreException], saving nothing, when
+	 * the token can't be sealed.
+	 */
+	fun put(machine: Machine, token: String, replacing: String? = null) {
+		val m = sealed(machine, token)
 		val list = _machines.value
-		if (replacing != null && replacing != machine.id && list.any { it.id == replacing }) replacedBy[replacing] = machine.id
-		save(withMachine(list, machine, replacing))
+		if (replacing != null && replacing != m.id && list.any { it.id == replacing }) replacedBy[replacing] = m.id
+		save(withMachine(list, m, replacing))
 	}
 
 	/** The entry that took the place of the gone entry [id] (paired again, the computer had a new id), if one is still here. */
@@ -72,10 +141,28 @@ class MachineStore(context: Context) {
 	}
 
 	companion object {
+		private val B64 = Base64.getEncoder()
+		private val B64D = Base64.getDecoder()
+
 		@Volatile private var instance: MachineStore? = null
 		fun get(context: Context): MachineStore =
-			instance ?: synchronized(this) { instance ?: MachineStore(context.applicationContext).also { instance = it } }
+			instance ?: synchronized(this) {
+				instance ?: MachineStore(PrefsMachineFile(context.applicationContext), GcmTokenCipher(KeystoreKeys)).also { instance = it }
+			}
 	}
+}
+
+/**
+ * Still the file "servers" and the key "list", as when a Machine was called a Server (0.4 and
+ * before): an updated app finds its pairings where it left them. SharedPreferences writes the file
+ * anew and keeps the old one aside until the new one is complete, so a write is all or nothing.
+ */
+private class PrefsMachineFile(context: Context) : MachineFile {
+	private val prefs = context.getSharedPreferences("servers", Context.MODE_PRIVATE)
+
+	override fun read(): String? = prefs.getString("list", null)
+
+	override fun write(json: String) = prefs.edit { putString("list", json) }
 }
 
 /**

@@ -71,6 +71,7 @@
 	<string name="pair_wrong_code">Wrong code. After five wrong codes the computer needs a new one.</string>
 	<string name="pair_no_pairing">The computer isn\'t waiting for a phone. Run elamond pair on it first.</string>
 	<string name="pair_too_many">Too many wrong codes from this phone. Run elamond pair on the computer again for a new code.</string>
+	<string name="pair_keystore">The computer paired this phone, but the phone\'s key store couldn\'t keep the key safe, so nothing was saved. Try again; elamond revoke on the computer removes the pairing left unused.</string>
 	<string name="pair_link_newer">This pairing code is from a newer elamond than this app reads. Update the app, then scan it again.</string>
 	<string name="pair_link_invalid">This pairing link is incomplete or damaged. Run elamond pair on the computer and scan the new code.</string>
 
@@ -86,6 +87,8 @@
 	<string name="machine_forget_confirm">Forget</string>
 	<string name="machine_unpaired_title">This phone isn\'t paired anymore</string>
 	<string name="machine_unpaired_body">The computer no longer accepts it, maybe after elamond revoke. Run elamond pair on the computer and pair again.</string>
+	<!-- The same notice when the phone itself can no longer read the key it was given. -->
+	<string name="machine_key_lost_body">This phone can no longer read its key for the computer, as happens when the phone\'s key store was reset. Run elamond pair on the computer and pair again; elamond revoke there removes the old pairing.</string>
 	<string name="machine_cert_title">The computer\'s certificate changed</string>
 	<string name="machine_cert_body">This happens when the Elamon service\'s data was reset or reinstalled, but also when something else pretends to be the computer. If you didn\'t reset it, check your network before pairing again.</string>
 	<string name="machine_pair_again">Pair again</string>
@@ -599,7 +602,7 @@
 	<string name="set_history">minutes of history a phone gets when it connects</string>
 	<string name="help_settings_state">The service keeps its certificate and the paired phones in ~/.local/share/elamon. Deleting that folder unpairs every phone.</string>
 	<string name="help_privacy">Privacy</string>
-	<string name="help_privacy_body">The phone talks to your computer directly, encrypted, and trusts only the certificate it saw when pairing. Nothing passes through any server, and the app has no trackers, ads or analytics. Each phone has its own key, which the computer can revoke; keys are kept out of Android backups. Unless control is turned on, the service only reads; with it on, it acts as your user, and every action is logged with the name of the phone that asked.</string>
+	<string name="help_privacy_body">The phone talks to your computer directly, encrypted, and trusts only the certificate it saw when pairing. Nothing passes through any server, and the app has no trackers, ads or analytics. Each phone has its own key, which the computer can revoke; on the phone it is sealed with a key that never leaves Android\'s key store, and kept out of backups. Unless control is turned on, the service only reads; with it on, it acts as your user, and every action is logged with the name of the phone that asked.</string>
 	<string name="help_version">Elamon %1$s · GPL-3.0-or-later</string>
 	<string name="help_source">Source code</string>
 

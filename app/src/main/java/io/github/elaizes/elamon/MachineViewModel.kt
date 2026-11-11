@@ -64,6 +64,8 @@ data class MachineState(
 	val receivedAt: Long = 0,
 	/** Why the computer turned the stream away, with [Conn.Refused]. */
 	val refused: Message? = null,
+	/** With [Conn.Unauthorized]: this phone can't read its own token any more, rather than the computer refusing it. */
+	val keyLost: Boolean = false,
 )
 
 /** What a list of processes needs from the service: the order, and how many of the heaviest. */
@@ -198,7 +200,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		// answered): the stream starts over with the new token instead of staying turned away.
 		viewModelScope.launch {
 			store.machines
-				.map { list -> list.find { it.id == machineId }?.let { it.token to it.fingerprint } }
+				.map { list -> list.find { it.id == machineId }?.let { Triple(it.token, it.tokenSealed, it.fingerprint) } }
 				.distinctUntilChanged()
 				.drop(1)
 				.collect { if (it != null) credentialsChanged() }
@@ -282,13 +284,19 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	private fun start() {
 		attempt = 0
 		workingHost = null
-		_state.update { if (it.conn == Conn.Live) it else it.copy(conn = if (it.sample == null) Conn.Connecting else Conn.Reconnecting, refused = null) }
+		_state.update { if (it.conn == Conn.Live) it else it.copy(conn = if (it.sample == null) Conn.Connecting else Conn.Reconnecting, refused = null, keyLost = false) }
 		job = viewModelScope.launch { loop() }
 	}
 
 	private suspend fun loop() {
 		while (true) {
 			val machine = store.get(machineId) ?: return
+			// Opened by the key store off the main thread, the first time; no token, nothing to ask the computer.
+			val token = withContext(Dispatchers.Default) { store.token(machine) }
+			if (token == null) {
+				_state.update { it.copy(conn = Conn.Unauthorized, keyLost = true) }
+				return
+			}
 			val host = workingHost ?: run {
 				_state.update { it.copy(conn = if (it.sample == null) Conn.Connecting else Conn.Reconnecting) }
 				val reached = try {
@@ -308,10 +316,10 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 				continue
 			}
 
-			val e = streamOn(host, ElamondClient(host, machine.port, machine.fingerprint, machine.token))
+			val e = streamOn(host, ElamondClient(host, machine.port, machine.fingerprint, token))
 			when {
 				e.kind == ElamondException.Kind.Unauthorized -> {
-					_state.update { it.copy(conn = Conn.Unauthorized) }
+					_state.update { it.copy(conn = Conn.Unauthorized, keyLost = false) }
 					return
 				}
 				e.kind == ElamondException.Kind.CertificateChanged -> {
@@ -410,7 +418,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	private fun client(): ElamondClient? {
 		val machine = store.get(machineId) ?: return null
 		val host = _state.value.host ?: workingHost ?: return null
-		return ElamondClient(host, machine.port, machine.fingerprint, machine.token)
+		return ElamondClient(host, machine.port, machine.fingerprint, store.token(machine) ?: return null)
 	}
 
 	/**
