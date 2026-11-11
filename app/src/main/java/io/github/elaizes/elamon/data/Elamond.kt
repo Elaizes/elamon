@@ -157,8 +157,9 @@ class ElamondClient(
 		c.connectTimeout = Limits.CONNECT_TIMEOUT_MS
 		c.readTimeout = readTimeoutMs
 		c.useCaches = false
-		c.setRequestProperty("Accept", "application/json")
-		token?.let { c.setRequestProperty("Authorization", "Bearer $it") }
+		// elamond never redirects; an answer that tries is not followed anywhere.
+		c.instanceFollowRedirects = false
+		for ((name, value) in requestHeaders(token)) c.setRequestProperty(name, value)
 		return c
 	}
 
@@ -182,7 +183,7 @@ class ElamondClient(
 	private fun checkStatus(c: HttpURLConnection) {
 		val code = c.responseCode
 		if (code in 200..299) return
-		val body = runCatching { c.errorStream?.bufferedReader()?.readText() }.getOrNull().orEmpty()
+		val body = runCatching { c.errorStream?.use { String(readUpTo(it, Limits.SMALL_BODY_MAX), Charsets.UTF_8) } }.getOrNull().orEmpty()
 		throw ElamondException.fromResponse(code, body)
 	}
 
@@ -214,9 +215,15 @@ class ElamondClient(
 		c.outputStream.use { it.write(body.toByteArray()) }
 	}
 
+	/** The answer's body as text, refused when it is longer than [max] bytes: up front when it says so, else as it comes. */
+	private fun readBody(c: HttpURLConnection, max: Int): String {
+		checkLength(c.contentLengthLong, max)
+		return String(c.inputStream.use { readCapped(it, max) }, Charsets.UTF_8)
+	}
+
 	/**
-	 * A request with an optional JSON body; returns the response body. [finishOnCancel] keeps the
-	 * connection when the caller is cancelled, as [exchange] says.
+	 * A request with an optional JSON body; returns the response body, of at most [maxBytes].
+	 * [finishOnCancel] keeps the connection when the caller is cancelled, as [exchange] says.
 	 */
 	suspend fun request(
 		method: String,
@@ -224,17 +231,24 @@ class ElamondClient(
 		body: String? = null,
 		timeoutMs: Int = Limits.REQUEST_TIMEOUT_MS,
 		finishOnCancel: Boolean = false,
+		maxBytes: Int = Limits.BODY_MAX,
 	): String = exchange(path, timeoutMs, finishOnCancel) { c ->
 		c.requestMethod = method
 		if (body != null) send(c, body)
 		checkStatus(c)
-		c.inputStream.bufferedReader().readText()
+		readBody(c, maxBytes)
 	}
 
-	suspend inline fun <reified T> get(path: String): T = ProtocolJson.decodeFromString(request("GET", path))
+	suspend inline fun <reified T> get(path: String, maxBytes: Int = Limits.BODY_MAX): T =
+		ProtocolJson.decodeFromString(request("GET", path, maxBytes = maxBytes))
 
-	suspend inline fun <reified B, reified T> post(path: String, body: B, timeoutMs: Int = Limits.REQUEST_TIMEOUT_MS, finishOnCancel: Boolean = false): T =
-		ProtocolJson.decodeFromString(request("POST", path, ProtocolJson.encodeToString(body), timeoutMs, finishOnCancel))
+	suspend inline fun <reified B, reified T> post(
+		path: String,
+		body: B,
+		timeoutMs: Int = Limits.REQUEST_TIMEOUT_MS,
+		finishOnCancel: Boolean = false,
+		maxBytes: Int = Limits.BODY_MAX,
+	): T = ProtocolJson.decodeFromString(request("POST", path, ProtocolJson.encodeToString(body), timeoutMs, finishOnCancel, maxBytes))
 
 	suspend fun delete(path: String) {
 		request("DELETE", path)
@@ -247,15 +261,16 @@ class ElamondClient(
 	suspend fun <T> onLinks(path: String = "", call: suspend ElamondClient.(String) -> T): T =
 		newOrOld(LINKS_PATH + path, OLD_LINKS_PATH + path) { call(it) }
 
-	/** Raw bytes, for album art. */
+	/** Raw bytes, for album art: at most [Limits.ART_MAX]. */
 	suspend fun bytes(path: String): ByteArray = exchange(path, Limits.BYTES_TIMEOUT_MS) { c ->
 		checkStatus(c)
-		c.inputStream.use { it.readBytes() }
+		checkLength(c.contentLengthLong, Limits.ART_MAX)
+		c.inputStream.use { readCapped(it, Limits.ART_MAX) }
 	}
 
 	suspend fun hello(): Hello = exchange("/api/v1/hello", Limits.HELLO_TIMEOUT_MS) { c ->
 		checkStatus(c)
-		val h = ProtocolJson.decodeFromString<Hello>(c.inputStream.bufferedReader().readText())
+		val h = ProtocolJson.decodeFromString<Hello>(readBody(c, Limits.SMALL_BODY_MAX))
 		if (h.app != "elamon") throw ElamondException(ElamondException.Kind.NotElamond)
 		// Shown on the pairing screen: a name that can't pass for another, or reorder what follows it.
 		h.copy(name = cleanName(h.name))
@@ -269,7 +284,7 @@ class ElamondClient(
 		}
 		send(c, ProtocolJson.encodeToString(body))
 		checkStatus(c)
-		ProtocolJson.decodeFromString<PairResponse>(c.inputStream.bufferedReader().readText())
+		ProtocolJson.decodeFromString<PairResponse>(readBody(c, Limits.SMALL_BODY_MAX))
 	}
 
 	/**
@@ -277,7 +292,8 @@ class ElamondClient(
 	 * [device] in the computer's list of phones, with the role of the token sent, which stays good.
 	 * elamond before 0.5 doesn't know the path: 404 not_found ([ElamondException.unknownPath]).
 	 */
-	suspend fun rekey(device: String): PairResponse = post<RekeyRequest, PairResponse>(REKEY_PATH, RekeyRequest(device))
+	suspend fun rekey(device: String): PairResponse =
+		post<RekeyRequest, PairResponse>(REKEY_PATH, RekeyRequest(device), maxBytes = Limits.SMALL_BODY_MAX)
 
 	/** Info, then optionally history, then a sample every [intervalMs] until cancelled. */
 	fun stream(intervalMs: Int, procs: Int, sort: String, history: Boolean, media: Boolean = false): Flow<StreamMessage> = flow {
@@ -288,7 +304,8 @@ class ElamondClient(
 		// the failed read that follows is that cancellation, not a lost computer.
 		closeOnCancel(close = { c.disconnect() }) {
 			call { checkStatus(c) }
-			val reader = call { c.inputStream.bufferedReader() }
+			// Line by line, none longer than the largest sample the service sends.
+			val reader = call { LineReader(c.inputStream, Limits.STREAM_LINE_MAX) }
 			while (true) {
 				currentCoroutineContext().ensureActive()
 				val line = call { reader.readLine() } ?: throw ElamondException(ElamondException.Kind.Unreachable, "closed")
@@ -346,7 +363,7 @@ class ElamondClient(
 				try {
 					val probe = ElamondClient(h, port, pin = null)
 					if (expectId != null && probe.hello().id != expectId) return@firstAnswer null
-					val chain = probe.get<List<Rotation>>(Rotations.PATH)
+					val chain = probe.get<List<Rotation>>(Rotations.PATH, Limits.SMALL_BODY_MAX)
 					val presented = probe.seenCertificate.get() ?: return@firstAnswer null
 					Rotations.follow(chain, pinned, presented)
 				} catch (e: ElamondException) {

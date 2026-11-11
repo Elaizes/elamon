@@ -30,6 +30,28 @@ object Limits {
 	/** How long a stream asked for one sample every [intervalMs] may stay silent. */
 	fun streamReadTimeoutMs(intervalMs: Int): Int = maxOf(STREAM_SILENCE_MS, intervalMs * STREAM_MISSED_SAMPLES)
 
+	// ---- sizes, bytes ---------------------------------------------------------------------------
+	// Whatever answers, nothing it sends can take the phone's memory: a longer answer is refused,
+	// up front when it says its length.
+
+	/** Hello, a pairing or a key of the phone's own, the certificate's rotations, an error: a little JSON. */
+	const val SMALL_BODY_MAX = 64 * 1024
+
+	/**
+	 * Any other answer. The largest the service sends is a snapshot with every process it lists:
+	 * 10,000 of them, with command lines of up to 400 bytes, come to about 6 MB.
+	 */
+	const val BODY_MAX = 8 * 1024 * 1024
+
+	/** A cover image. */
+	const val ART_MAX = 4 * 1024 * 1024
+
+	/**
+	 * One line of the stream: a sample, with every process while they are searched or grouped (as
+	 * large as [BODY_MAX] says), or the history, about 1 MB at the 7,200 readings the service keeps at most.
+	 */
+	const val STREAM_LINE_MAX = BODY_MAX
+
 	// ---- retrying ---------------------------------------------------------------------------------
 
 	/** The first wait before looking for a lost computer again; it doubles this many times, never past the cap. */
