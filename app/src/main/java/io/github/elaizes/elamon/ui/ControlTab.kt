@@ -1,9 +1,7 @@
 package io.github.elaizes.elamon.ui
 
-import android.content.Intent
 import android.content.res.Resources
 import android.graphics.Bitmap
-import android.net.Uri
 import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Image
@@ -133,7 +131,8 @@ fun ControlTab(t: TabScope) {
 
 	fun launch(link: LinkStatus) {
 		val host = t.state.host ?: return
-		runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(linkUrl(link.url, host)))) }
+		// A web page, only: what a service sends could name anything a phone opens.
+		openWebLink(ctx, linkUrl(link.url, host))
 	}
 
 	val enabled = control?.enabled == true

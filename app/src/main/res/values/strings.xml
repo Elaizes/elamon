@@ -327,6 +327,7 @@
 	<string name="control_off_body">This computer only lets the app watch. To also control power, links, processes and media from here, turn it on in the service\'s settings and restart it:</string>
 	<string name="control_off_where">in ~/.config/elamon/elamond.toml, or services.elamond.settings.control = true on NixOS.</string>
 	<string name="control_links">Links</string>
+	<string name="link_refused">Only web pages (http or https) are opened from the app.</string>
 	<string name="control_add_link">Add link</string>
 	<string name="control_links_empty">No links yet</string>
 	<string name="control_links_empty_body">Add the web pages this computer hosts — a media server, a dashboard, a download manager — to open them from here and start or stop them.</string>

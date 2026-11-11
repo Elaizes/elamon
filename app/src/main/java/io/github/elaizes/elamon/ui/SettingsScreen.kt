@@ -1,7 +1,5 @@
 package io.github.elaizes.elamon.ui
 
-import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -230,7 +228,7 @@ fun SettingsScreen(onBack: () -> Unit, onHelp: () -> Unit) {
 						ListRow(stringResource(R.string.help), stringResource(R.string.settings_help_summary), icon = ElIcons.Help, onClick = onHelp)
 						GroupDivider()
 						ListRow(stringResource(R.string.settings_source), Project.URL.removePrefix("https://"), icon = ElIcons.Globe, onClick = {
-							runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Project.URL))) }
+							openWebLink(ctx, Project.URL)
 						})
 						GroupDivider()
 						ListRow(stringResource(R.string.settings_licences), stringResource(R.string.settings_licences_summary), icon = Icons.Default.Info, onClick = { license = true })

@@ -119,3 +119,18 @@ fun linkUrl(url: String, host: String): String {
 	val rest = u.substring(end).replace("{host}", host)
 	return u.substring(0, start) + userInfo + newName + hostPort.substring(split) + rest
 }
+
+private val LINK = Regex("^([A-Za-z][A-Za-z0-9+.-]*)://([^/?#]*)")
+
+/**
+ * Whether the app opens [url]: a web page, http or https, with a host, and nothing in it a browser
+ * would read otherwise (spaces, control characters). Anything else a service or a link might give
+ * (intent:, file:, content:, javascript:, a scheme of another app's) isn't opened.
+ */
+fun isWebLink(url: String): Boolean {
+	if (url.any { it.isWhitespace() || it.isISOControl() || Character.getType(it) == Character.FORMAT.toInt() }) return false
+	val m = LINK.find(url) ?: return false
+	val scheme = m.groupValues[1].lowercase()
+	val host = m.groupValues[2].substringAfterLast('@')
+	return (scheme == "http" || scheme == "https") && host.isNotEmpty() && !host.startsWith(":")
+}

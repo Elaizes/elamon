@@ -3,8 +3,6 @@ package io.github.elaizes.elamon.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.annotation.StringRes
@@ -512,5 +510,5 @@ private fun copy(ctx: Context, text: String) {
 }
 
 private fun openUrl(ctx: Context, url: String) {
-	runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+	openWebLink(ctx, url)
 }
