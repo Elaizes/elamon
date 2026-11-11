@@ -220,10 +220,10 @@ pub mod backup {
 	pub const SALT_BYTES: usize = 16;
 	pub const NONCE_BYTES: usize = 24;
 	/// The most a backup may ask for to be opened, so a file can't make a restore take all the
-	/// memory or run for ever: 1 GiB, 64 passes, 64 lanes.
-	pub const ARGON2_M_KIB_MAX: u32 = 1024 * 1024;
-	pub const ARGON2_T_MAX: u32 = 64;
-	pub const ARGON2_P_MAX: u32 = 64;
+	/// memory or run for long: 256 MiB, 10 passes, 8 lanes, well above what `elamond backup` asks.
+	pub const ARGON2_M_KIB_MAX: u32 = 256 * 1024;
+	pub const ARGON2_T_MAX: u32 = 10;
+	pub const ARGON2_P_MAX: u32 = 8;
 	/// The shortest passphrase a backup is made with, in characters.
 	pub const PASSPHRASE_MIN: usize = 8;
 	/// Tries at typing a passphrase twice alike before giving up.

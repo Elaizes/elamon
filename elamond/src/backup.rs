@@ -440,27 +440,24 @@ pub struct Restored {
 
 /// Puts `c` back in the data directory `dir`, and its settings in `settings` when given. Files
 /// that are already as in the backup are left alone; the others are set aside before they are
-/// replaced, and state files the backup doesn't have are taken away beside them. A write that
-/// fails puts back everything done before it. `stamp` names the files set aside.
+/// replaced, and state files the backup doesn't have are taken away beside them, but for
+/// `elamond control off`'s: control held off stays so. A write that fails puts back everything
+/// done before it. `stamp` names the files set aside.
 pub fn restore_into(c: &Contents, dir: &Path, settings: Option<&SettingsPlace>, stamp: u64) -> Result<Restored, String> {
 	let mut journal = Journal { stamp, done: Vec::new() };
 	let mut restored = Restored::default();
 	let written = (|| -> io::Result<()> {
 		store::private_dir(dir)?;
-		let mut later = None;
 		for name in STATE_FILES {
 			let path = dir.join(name);
 			match c.state.get(name) {
 				Some(data) => {
 					journal.write(&path, data, true)?;
 				}
-				// Let go of control last, once everything else is in place.
-				None if name == store::CONTROL_OFF_FILE => later = Some(path),
+				// Control held off here stays held off: a restore never lets go of it.
+				None if name == store::CONTROL_OFF_FILE => {}
 				None => journal.take_away(&path)?,
 			}
-		}
-		if let Some(path) = later {
-			journal.take_away(&path)?;
 		}
 		let Some(place) = settings else { return Ok(()) };
 		for (name, text) in &c.settings {
@@ -642,11 +639,12 @@ struct Args {
 	plain: bool,
 	force: bool,
 	with_settings: bool,
+	with_old_phones: bool,
 	passphrase_file: Option<PathBuf>,
 }
 
 const BACKUP_USAGE: &str = "usage: elamond backup FILE [--passphrase-file PATH | --plain]";
-const RESTORE_USAGE: &str = "usage: elamond restore FILE [--passphrase-file PATH] [--with-settings] [--force]";
+const RESTORE_USAGE: &str = "usage: elamond restore FILE [--passphrase-file PATH] [--with-settings] [--with-old-phones] [--force]";
 
 impl Args {
 	fn parse(restore: bool, args: &[String]) -> Result<Args, String> {
@@ -658,6 +656,7 @@ impl Args {
 				"--plain" if !restore => a.plain = true,
 				"--force" if restore => a.force = true,
 				"--with-settings" if restore => a.with_settings = true,
+				"--with-old-phones" if restore => a.with_old_phones = true,
 				"--passphrase-file" => a.passphrase_file = Some(it.next().ok_or(usage)?.into()),
 				s if s.starts_with("--passphrase-file=") => a.passphrase_file = Some(s["--passphrase-file=".len()..].into()),
 				s if s.starts_with('-') => return Err(format!("unknown option \"{s}\"\n{usage}")),
@@ -726,16 +725,28 @@ pub fn restore(args: &[String]) -> Result<(), String> {
 	if let (Some(why), false) = (&running, a.force) {
 		return Err(still_running(why, &file));
 	}
-	let size = fs::metadata(&file).map_err(|e| format!("can't read {}: {e}", file.display()))?.len();
-	if size > cost::FILE_MAX {
-		return Err(format!("{} is {size} bytes, far more than a backup; it isn't one", file.display()));
-	}
-	let bytes = fs::read(&file).map_err(|e| format!("can't read {}: {e}", file.display()))?;
+	let bytes = read_backup(&file)?;
 	let envelope = Envelope::parse(&bytes)?;
 	let passphrase = if envelope.encrypted() { Some(passphrase(a.passphrase_file.as_deref(), false)?) } else { None };
 	let contents = envelope.open(passphrase.as_deref().map(String::as_str))?;
 	drop(passphrase);
 	let summary = verify(&contents, a.with_settings)?;
+	// Phones unpaired since the backup was made don't come back unasked.
+	let back = returning(&summary.phones, &dir);
+	if !back.is_empty() && !a.with_old_phones {
+		let names: Vec<String> = back.iter().map(|c| format!("{}  {} ({})", c.id, c.name, c.role.as_str())).collect();
+		return Err(format!(
+			"this backup would bring back phones that aren't paired here now:\n    {}\n  \
+			 One unpaired since (lost, stolen or replaced) would get in again with its old key. If they all\n  \
+			 should, restore with --with-old-phones; nothing was changed.",
+			names.join("\n    ")
+		));
+	}
+	if let Some(t) = retired(&summary.fingerprint, &dir) {
+		eprintln!("  ! This backup's certificate was replaced here by `elamond rotate-cert` on {}. Restoring it", crate::format_date(t));
+		eprintln!("  ! brings back the key it retired: phones that moved on say the certificate changed. If it was");
+		eprintln!("  ! replaced because the key may have leaked, stop and don't use this backup.");
+	}
 
 	// Held while writing: a service that starts meanwhile waits for the restore to end.
 	let lock = match store::lock_data_dir(&dir) {
@@ -781,6 +792,9 @@ pub fn restore(args: &[String]) -> Result<(), String> {
 		let names: Vec<&str> = contents.settings.keys().map(String::as_str).collect();
 		println!("  Settings:      not restored: {} (--with-settings puts them back)", names.join(", "));
 	}
+	if !summary.control_off && store::control_held_off(&dir) {
+		println!("  Control:       still held off by `elamond control off`, which a restore never lets go of");
+	}
 	if !restored.set_aside.is_empty() {
 		let names: Vec<String> = restored.set_aside.iter().map(|p| p.display().to_string()).collect();
 		println!("  Set aside:     {}", names.join("\n                 "));
@@ -796,6 +810,41 @@ pub fn restore(args: &[String]) -> Result<(), String> {
 		println!("Start the service: systemctl --user start elamond");
 	}
 	Ok(())
+}
+
+/// The backup at `path`, read once: refused unless it is a regular file of `cost::FILE_MAX`
+/// bytes at most. A FIFO or a device is refused without waiting on it.
+fn read_backup(path: &Path) -> Result<Vec<u8>, String> {
+	use std::io::Read;
+	let failed = |e: io::Error| format!("can't read {}: {e}", path.display());
+	let f = fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY).open(path).map_err(failed)?;
+	if !f.metadata().map_err(failed)?.is_file() {
+		return Err(format!("{} isn't a file", path.display()));
+	}
+	let mut bytes = Vec::new();
+	f.take(cost::FILE_MAX + 1).read_to_end(&mut bytes).map_err(failed)?;
+	if bytes.len() as u64 > cost::FILE_MAX {
+		return Err(format!("{} is larger than {} bytes, far more than a backup; it isn't one", path.display(), cost::FILE_MAX));
+	}
+	Ok(bytes)
+}
+
+/// The phones of a backup (`phones`) that aren't paired in `dir` now, the same id with the same
+/// key: none where no phone has been paired yet (a fresh install), all of them where the list
+/// there doesn't read.
+fn returning(phones: &[store::Client], dir: &Path) -> Vec<store::Client> {
+	if !dir.join(store::CLIENTS_FILE).exists() {
+		return Vec::new();
+	}
+	match store::load_clients_in(dir) {
+		Ok(now) => phones.iter().filter(|b| !now.iter().any(|n| n.id == b.id && n.token_hash == b.token_hash)).cloned().collect(),
+		Err(_) => phones.to_vec(),
+	}
+}
+
+/// When `elamond rotate-cert` replaced the certificate `fp` in `dir`, if it did there.
+fn retired(fp: &str, dir: &Path) -> Option<u64> {
+	identity::rotations(dir).ok()?.iter().find(|r| r.old_fp == fp).map(|r| r.t)
 }
 
 fn print_summary(s: &Summary) {
@@ -1112,6 +1161,10 @@ mod tests {
 		// A file that asks for more than a restore gives is refused before trying.
 		let greedy = text.replace("\"m_kib\":64", "\"m_kib\":4194304").into_bytes();
 		assert!(wrong(&[greedy.as_slice(), &bytes[header_end..]].concat(), PASS).contains("more memory or time"));
+		for (was, asks) in [("\"m_kib\":64", "\"m_kib\":262145"), ("\"t\":1", "\"t\":11"), ("\"p\":1", "\"p\":9")] {
+			let greedy = text.replace(was, asks).into_bytes();
+			assert!(wrong(&[greedy.as_slice(), &bytes[header_end..]].concat(), PASS).contains("more memory or time"), "{asks}");
+		}
 		fs::remove_dir_all(from).unwrap();
 	}
 
@@ -1182,12 +1235,52 @@ mod tests {
 		let c = collect(&from, &[]).unwrap();
 		let to = used_service();
 		let r = restore_into(&c, &to, None, 7).unwrap();
-		assert!(!store::control_held_off(&to));
 		assert!(store::load_clients_in(&to).unwrap().is_empty());
 		assert!(identity::rotations(&to).unwrap().is_empty());
-		assert!(to.join("control-off.json.before-restore-7").exists() && to.join("clients.json.before-restore-7").exists());
-		// Control is let go of last.
-		assert!(r.set_aside.last().unwrap().ends_with("control-off.json.before-restore-7"), "{:?}", r.set_aside);
+		assert!(to.join("clients.json.before-restore-7").exists());
+		// Control held off stays so: a restore never lets go of it.
+		assert!(store::control_held_off(&to));
+		assert!(!r.set_aside.iter().any(|p| p.ends_with("control-off.json.before-restore-7")), "{:?}", r.set_aside);
+		fs::remove_dir_all(from).unwrap();
+		fs::remove_dir_all(to).unwrap();
+	}
+
+	#[test]
+	fn phones_unpaired_since_and_retired_keys_are_named() {
+		let from = used_service();
+		let summary = verify(&collect(&from, &[]).unwrap(), false).unwrap();
+		// A fresh install has no phones to compare with: all come back.
+		let to = scratch();
+		identity::Identity::load_or_create(&to).unwrap();
+		assert!(returning(&summary.phones, &to).is_empty());
+		// The same computer with one of them unpaired since, or all of them: those come back.
+		let mut now = summary.phones.clone();
+		now.retain(|c| c.name != "Tablet");
+		store::save_clients_in(&to, &now).unwrap();
+		assert_eq!(returning(&summary.phones, &to).iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["Tablet"]);
+		store::save_clients_in(&to, &[]).unwrap();
+		assert_eq!(returning(&summary.phones, &to).len(), 2);
+		// The same id with another key is another phone.
+		let mut rekeyed = summary.phones.clone();
+		rekeyed[0].token_hash = store::sha256_hex(b"another");
+		store::save_clients_in(&to, &rekeyed).unwrap();
+		assert_eq!(returning(&summary.phones, &to).len(), 1);
+		// A certificate rotated away here is named, with when.
+		assert_eq!(retired(&summary.fingerprint, &from), None);
+		let before = identity::rotations(&from).unwrap()[0].clone();
+		assert_eq!(retired(&before.old_fp, &from), Some(before.t));
+		// Only a file is read, and not past the limit.
+		assert!(read_backup(&to).unwrap_err().contains("isn't a file"));
+		let fifo = to.join("fifo");
+		let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+		// SAFETY: mkfifo with a valid C string.
+		assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+		assert!(read_backup(&fifo).unwrap_err().contains("isn't a file"));
+		let big = to.join("big");
+		fs::File::create(&big).unwrap().set_len(cost::FILE_MAX + 1).unwrap();
+		assert!(read_backup(&big).unwrap_err().contains("larger than"));
+		fs::write(&big, b"elamond-backup\n").unwrap();
+		assert_eq!(read_backup(&big).unwrap(), b"elamond-backup\n");
 		fs::remove_dir_all(from).unwrap();
 		fs::remove_dir_all(to).unwrap();
 	}
@@ -1274,7 +1367,7 @@ mod tests {
 		let args = |s: &[&str]| s.iter().map(|a| a.to_string()).collect::<Vec<_>>();
 		assert_eq!(
 			Args::parse(true, &args(&["b.elamond", "--force", "--passphrase-file=/p", "--with-settings"])).unwrap(),
-			Args { file: Some("b.elamond".into()), force: true, with_settings: true, passphrase_file: Some("/p".into()), plain: false }
+			Args { file: Some("b.elamond".into()), force: true, with_settings: true, with_old_phones: false, passphrase_file: Some("/p".into()), plain: false }
 		);
 		assert_eq!(Args::parse(false, &args(&["--plain", "b"])).unwrap(), Args { file: Some("b".into()), plain: true, ..Default::default() });
 		assert_eq!(Args::parse(false, &args(&["b", "--passphrase-file", "/p"])).unwrap().passphrase_file, Some("/p".into()));
