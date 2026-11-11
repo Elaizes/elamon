@@ -1,8 +1,8 @@
 //! The HTTPS API the app talks to. See docs/protocol.md.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -77,6 +77,8 @@ pub struct Hub {
 	/// Unix time the computer booted, as read when the service started: process start times
 	/// in samples count from it.
 	pub boot_time: u64,
+	/// Each phone's streams, for the journal.
+	streams: Mutex<HashMap<String, StreamNotes>>,
 }
 
 /// The hash of the token a request came with, so a stream can tell when it is revoked.
@@ -124,6 +126,7 @@ impl Hub {
 			rate: Mutex::new(RateLimiter::default()),
 			activity: Activity::load(&dir),
 			boot_time: sysinfo::System::boot_time().unwrap_or(0),
+			streams: Mutex::new(HashMap::new()),
 			dir,
 		}
 	}
@@ -227,6 +230,76 @@ impl Hub {
 		self.refresh.store(true, Ordering::SeqCst);
 	}
 
+	/// Notes a stream opening; it is logged unless another of the phone's was a moment ago.
+	/// Returns whether it was, so its closing is logged too.
+	fn stream_opened(&self, who: &Caller, from: IpAddr, what: &str) -> bool {
+		let now = Instant::now();
+		let mut map = self.streams.lock().unwrap_or_else(|p| p.into_inner());
+		map.retain(|id, n| *id == who.id || !n.idle(now));
+		let n = map.entry(who.id.clone()).or_default();
+		let Some(more) = n.open(now) else { return false };
+		eprintln!("stream: \"{}\" ({}) opened from {}: {what}{more}", who.name, who.role.as_str(), from.to_canonical());
+		true
+	}
+
+	fn stream_closed(&self, who: &Caller, logged: bool, lasted: Duration, why: &str) {
+		let mut map = self.streams.lock().unwrap_or_else(|p| p.into_inner());
+		let n = map.entry(who.id.clone()).or_default();
+		if let Some(more) = n.close(logged) {
+			eprintln!("stream: \"{}\" closed after {}: {why}{more}", who.name, duration_words(lasted));
+		}
+	}
+}
+
+/// A phone's streams as the journal has heard of them: when one was last logged opening, and
+/// how many opened and closed since without a line of their own.
+#[derive(Default)]
+struct StreamNotes {
+	logged: Option<Instant>,
+	opened: u32,
+	closed: u32,
+}
+
+impl StreamNotes {
+	/// A stream opens at `now`: what to add to its line if it is logged, or nothing if it isn't.
+	fn open(&mut self, now: Instant) -> Option<String> {
+		if self.logged.is_some_and(|t| now.duration_since(t) < cadence::STREAM_LOG_QUIET) {
+			self.opened += 1;
+			return None;
+		}
+		self.logged = Some(now);
+		Some(self.more())
+	}
+
+	/// A stream closes: what to add to its line if it is logged (because its opening was).
+	fn close(&mut self, logged: bool) -> Option<String> {
+		if !logged {
+			self.closed += 1;
+			return None;
+		}
+		Some(self.more())
+	}
+
+	/// The streams that opened and closed without a line, counted since the last line.
+	fn more(&mut self) -> String {
+		let (o, c) = (std::mem::take(&mut self.opened), std::mem::take(&mut self.closed));
+		if o + c == 0 { String::new() } else { format!(" (and {o} more opened, {c} closed, since the last line)") }
+	}
+
+	/// Nothing to tell and nothing to hold back: the phone can be forgotten.
+	fn idle(&self, now: Instant) -> bool {
+		self.opened + self.closed == 0 && self.logged.is_none_or(|t| now.duration_since(t) >= cadence::STREAM_LOG_QUIET)
+	}
+}
+
+/// "45 s", "3 min 20 s", "2 h 5 min".
+fn duration_words(d: Duration) -> String {
+	let s = d.as_secs();
+	match s {
+		0..60 => format!("{s} s"),
+		60..3600 => format!("{} min {} s", s / 60, s % 60),
+		_ => format!("{} h {} min", s / 3600, s % 3600 / 60),
+	}
 }
 
 pub fn router(hub: Arc<Hub>) -> Router {
@@ -432,6 +505,18 @@ impl Want {
 	fn complete(&self, f: &Frame) -> bool {
 		f.watched && (self.procs == 0 || f.processes.is_some()) && (!self.media || f.media.is_some())
 	}
+
+	/// The parameters that matter, for the journal.
+	fn words(&self, interval: Duration) -> String {
+		let mut w = vec![format!("every {} ms", interval.as_millis())];
+		if self.procs > 0 {
+			w.push(format!("{} processes", self.procs));
+		}
+		if self.media {
+			w.push("media".into());
+		}
+		w.join(", ")
+	}
 }
 
 /// Counts an app as watching for as long as it is held.
@@ -484,10 +569,26 @@ async fn snapshot(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>
 	json_response(render_sample(&frame, &want, false))
 }
 
+/// Says in the journal when a stream ends, how long it lasted and why, if its start was.
+struct StreamLog {
+	hub: Arc<Hub>,
+	who: Caller,
+	opened: Instant,
+	logged: bool,
+	why: &'static str,
+}
+
+impl Drop for StreamLog {
+	fn drop(&mut self) {
+		self.hub.stream_closed(&self.who, self.logged, self.opened.elapsed(), self.why);
+	}
+}
+
 async fn stream(
 	State(hub): State<Arc<Hub>>,
 	Extension(who): Extension<Caller>,
 	Extension(token): Extension<TokenHash>,
+	ConnectInfo(peer): ConnectInfo<SocketAddr>,
 	Query(p): Query<StreamParams>,
 ) -> Response {
 	let asked = Want::new(&p);
@@ -517,7 +618,9 @@ async fn stream(
 		role: Role,
 		token: TokenHash,
 		watch: Watch,
+		log: StreamLog,
 	}
+	let logged = hub.stream_opened(&who, peer.ip(), &asked.words(interval));
 	let st = St {
 		rx,
 		pending,
@@ -530,6 +633,7 @@ async fn stream(
 		want,
 		role: who.role,
 		token,
+		log: StreamLog { hub: hub.clone(), who, opened: Instant::now(), logged, why: "connection closed" },
 	};
 
 	let body = futures_util::stream::unfold(st, |mut st| async move {
@@ -537,10 +641,18 @@ async fn stream(
 			if let Some(line) = st.pending.pop_front() {
 				return Some((Ok::<_, Infallible>(Bytes::from(line)), st));
 			}
-			st.rx.changed().await.ok()?;
+			if st.rx.changed().await.is_err() {
+				st.log.why = "the service is stopping";
+				drop(st);
+				return None;
+			}
 			// Revoking a phone ends its stream within a tick, not when it next reconnects.
 			let hub = st.watch.hub.clone();
-			let who = hub.authorized(&st.token.0)?;
+			let Some(who) = hub.authorized(&st.token.0) else {
+				st.log.why = "the phone was unpaired";
+				drop(st);
+				return None;
+			};
 			// A new role applies from the next sample on, more or less.
 			if who.role != st.role {
 				st.role = who.role;
@@ -1006,5 +1118,26 @@ mod tests {
 		assert!(sample(&tx).await.is_none());
 		assert_eq!(hub.watchers.load(Ordering::SeqCst), 0);
 		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[test]
+	fn streams_are_logged_a_few_at_a_time() {
+		let mut n = StreamNotes::default();
+		let t0 = Instant::now();
+		assert_eq!(n.open(t0).as_deref(), Some(""));
+		// A reconnect loop: the first stream's closing is logged, the next ones only counted.
+		assert_eq!(n.close(true).as_deref(), Some(""));
+		for i in 1..5 {
+			assert_eq!(n.open(t0 + Duration::from_secs(i)), None);
+			assert_eq!(n.close(false), None);
+		}
+		assert!(!n.idle(t0 + Duration::from_secs(60)));
+		let line = n.open(t0 + cadence::STREAM_LOG_QUIET).unwrap();
+		assert!(line.contains("4 more opened, 4 closed"), "{line}");
+		assert_eq!(n.close(true).as_deref(), Some(""));
+		assert!(n.idle(t0 + cadence::STREAM_LOG_QUIET * 2));
+		assert_eq!(duration_words(Duration::from_secs(45)), "45 s");
+		assert_eq!(duration_words(Duration::from_secs(200)), "3 min 20 s");
+		assert_eq!(duration_words(Duration::from_secs(7500)), "2 h 5 min");
 	}
 }
