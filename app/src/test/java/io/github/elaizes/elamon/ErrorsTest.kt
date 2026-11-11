@@ -82,6 +82,8 @@ class ErrorsTest {
 			(403 to "not_allowed") to R.string.err_not_allowed,
 			(429 to "too_many_requests") to R.string.err_too_many_requests,
 			(409 to "process_changed") to R.string.err_process_changed,
+			(403 to "too_many_phones") to R.string.err_too_many_phones,
+			(403 to "rekey_refused") to R.string.err_rekey_refused,
 		)
 		for ((sent, id) in expected) {
 			assertEquals(Message.Res(id), messageFor(answer(sent.first, sent.second)), sent.second)

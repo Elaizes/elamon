@@ -37,6 +37,7 @@ class ProtocolContractTest {
 		"sample-glance" to Sample.serializer(),
 		"history" to History.serializer(),
 		"control" to ControlInfo.serializer(),
+		"control-off" to ControlInfo.serializer(),
 		"action-result" to ActionResult.serializer(),
 		"detected" to ListSerializer(Listener.serializer()),
 		"units" to ListSerializer(UnitInfo.serializer()),
@@ -173,6 +174,8 @@ class ProtocolContractTest {
 		assertNull(ProtocolJson.decodeFromJsonElement(PairResponse.serializer(), without("pair", "role")).role)
 		val log = ProtocolJson.decodeFromJsonElement(ListSerializer(LogEntry.serializer()), fixture("log"))
 		assertEquals(listOf("ok", "not_allowed"), log.map { it.result })
+		// The family an entry counts in, said only where it isn't the phone's own.
+		assertEquals(listOf("89ab0123", null), log.map { it.family })
 		assertTrue(log.first().t > log.last().t, "the log comes newest first")
 		assertNull(log.last().message)
 		// An entry without its time is broken, not from 1970.

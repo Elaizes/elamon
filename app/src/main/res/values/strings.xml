@@ -74,6 +74,7 @@
 	<string name="pair_confirm_title">Confirm on the computer</string>
 	<string name="pair_confirm_body">elamond pair asks there whether to allow this phone.</string>
 	<string name="pair_declined">The computer didn\'t allow this phone. Run elamond pair again and answer y.</string>
+	<string name="pair_too_many_phones">The computer has as many phones paired as it takes. Revoke one there with elamond revoke, then pair again.</string>
 	<!-- The computer is already paired here under another certificate. -->
 	<string name="pair_replace_title">Already paired with another certificate</string>
 	<string name="pair_replace_body">%1$s is on this phone already, paired with another certificate. Replacing forgets that pairing: go on only if the computer was reinstalled or its certificate made anew.</string>
@@ -459,6 +460,8 @@
 	<string name="log_not_saved">Not saved</string>
 	<string name="log_gone">Gone</string>
 	<string name="log_invalid">Invalid request</string>
+	<string name="log_too_many_phones">Too many phones</string>
+	<string name="log_key_refused">Key refused</string>
 	<!-- An error code from a newer service, as it is: "Error: rate_limited". -->
 	<string name="log_other">Error: %1$s</string>
 
@@ -501,6 +504,8 @@
 	<string name="err_wrong_code">Wrong code</string>
 	<string name="err_no_pairing">The computer isn\'t waiting for a phone</string>
 	<string name="err_pair_declined">The computer didn\'t allow this phone</string>
+	<string name="err_too_many_phones">The computer has as many phones paired as it takes</string>
+	<string name="err_rekey_refused">The computer gives no other key for this pairing</string>
 	<string name="err_not_elamond">That isn\'t an Elamon service</string>
 	<string name="err_refused">The computer refused</string>
 	<string name="err_protocol">The computer answered in a way this app doesn\'t understand</string>

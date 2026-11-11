@@ -31,6 +31,9 @@ private val CODE_MESSAGES = mapOf(
 	"not_allowed" to R.string.err_not_allowed,
 	"too_many_requests" to R.string.err_too_many_requests,
 	"process_changed" to R.string.err_process_changed,
+	// Pairing, or a key of the phone's own, past the phones the computer takes; a token that gave one already.
+	"too_many_phones" to R.string.err_too_many_phones,
+	"rekey_refused" to R.string.err_rekey_refused,
 )
 
 /** What to tell about a failed request: the computer's own words for a failed command, else one of the app's strings. */

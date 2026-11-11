@@ -90,6 +90,22 @@ class OwnKeysTest {
 	}
 
 	@Test
+	fun aServiceThatTakesNoMorePhonesOrGivesNoOtherKeyIsAskedOnceARun() = runTest {
+		for (code in listOf("too_many_phones", "rekey_refused")) {
+			val p = Phone()
+			var asked = 0
+			val refused = ElamondException(ElamondException.Kind.Forbidden, code, code = code, status = 403)
+			assertNull(p.keys.renew("b", "New phone") { asked++; throw refused })
+			p.clock += 24 * 3_600_000L
+			assertNull(p.keys.renew("b", "New phone") { asked++; throw refused })
+			assertEquals(1, asked, code)
+			// The shared token keeps working meanwhile.
+			assertTrue(p.store.get("b")!!.tokenShared)
+			assertEquals("secret-old", p.token("b"))
+		}
+	}
+
+	@Test
 	fun otherFailuresAreAskedAgainAtALaterConnection() = runTest {
 		val p = Phone()
 		var asked = 0

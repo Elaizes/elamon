@@ -18,9 +18,10 @@ import kotlinx.coroutines.withContext
  * revoked on its own.
  *
  * A service that doesn't know the request (elamond before 0.5) answers 404 `not_found`: the token
- * stays shared, and the mark with it, and that computer isn't asked again until the app runs again.
- * Any other failure is asked again at a later connection, [Limits.OWN_KEY_RETRY_MS] after it at the
- * soonest. [now] is the clock for that, in milliseconds.
+ * stays shared, and the mark with it, and that computer isn't asked again until the app runs again;
+ * so too when it takes no more phones (403 `too_many_phones`) or this token gave its one key of its
+ * own already (403 `rekey_refused`). Any other failure is asked again at a later connection,
+ * [Limits.OWN_KEY_RETRY_MS] after it at the soonest. [now] is the clock for that, in milliseconds.
  */
 class OwnKeys(private val store: MachineStore, private val now: () -> Long = System::currentTimeMillis) {
 	/** Computers not asked again this run: their service is too old, or this phone couldn't keep the key it got. */
@@ -57,7 +58,10 @@ class OwnKeys(private val store: MachineStore, private val now: () -> Long = Sys
 		} catch (e: CancellationException) {
 			throw e
 		} catch (e: Exception) {
-			if ((e as? ElamondException)?.unknownPath == true) notThisRun += machine.id else failedAt[machine.id] = now()
+			// Not asked again this run where asking again gets the same answer: a service that doesn't know the
+			// request, or one that takes no more phones or gives this token no other key (elamond 0.5).
+			val final = (e as? ElamondException)?.let { it.unknownPath || it.code in FINAL_REFUSALS } == true
+			if (final) notThisRun += machine.id else failedAt[machine.id] = now()
 			return null
 		}
 		if (resp.token.isEmpty()) {
@@ -77,6 +81,9 @@ class OwnKeys(private val store: MachineStore, private val now: () -> Long = Sys
 	}
 
 	companion object {
+		/** Refusals a request made again this run would only get again. */
+		private val FINAL_REFUSALS = setOf("too_many_phones", "rekey_refused")
+
 		@Volatile private var instance: OwnKeys? = null
 		fun get(context: Context): OwnKeys =
 			instance ?: synchronized(this) {

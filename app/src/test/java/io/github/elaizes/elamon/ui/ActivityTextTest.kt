@@ -60,7 +60,7 @@ class ActivityTextTest {
 		val errors = Json.parseToJsonElement(File(dir, "errors.json").readText()).jsonArray.map { it.jsonObject.getValue("error").jsonPrimitive.content }
 		val logged = Json.parseToJsonElement(File(dir, "log.json").readText()).jsonArray.map { it.jsonObject.getValue("result").jsonPrimitive.content }
 		// Pairing and the token aren't acting on the computer, so never in the log.
-		val notActing = setOf("unauthorized", "wrong_code", "no_pairing")
+		val notActing = setOf("unauthorized", "wrong_code", "no_pairing", "pair_declined")
 		for (code in (errors + logged).toSet() - notActing) {
 			assertNotEquals(R.string.log_other, logResult(code).words.id, "$code has no words of its own")
 		}

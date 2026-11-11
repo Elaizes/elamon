@@ -346,6 +346,11 @@ data class ControlInfo(
 	val role: String? = null,
 	/** What this phone may do now, by name, in the service's order; null before 0.5 (see Permissions). */
 	val allowed: List<String>? = null,
+	/**
+	 * Why control is off: "settings" (off in them), "held_off" (`elamond control off`) or
+	 * "settings_unreadable" (they stopped parsing); null while it is on, and from elamond before 0.5.
+	 */
+	@SerialName("off_reason") val offReason: String? = null,
 )
 
 /** One request to act on the computer, from any paired phone, let through or refused. */
@@ -362,6 +367,11 @@ data class LogEntry(
 	val result: String = "",
 	/** What failed, or how an action ended: "exit 0", "timed out". */
 	val message: String? = null,
+	/**
+	 * The phone whose key the asking one came by (Import pairings, then a key of its own), when it isn't
+	 * that phone itself: one family, with one rate of acting and one share of the log (elamond 0.5).
+	 */
+	val family: String? = null,
 )
 
 /** logind's answers: "yes", "challenge" (needs a password), "no" or "na". */
