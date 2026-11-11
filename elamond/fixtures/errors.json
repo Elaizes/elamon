@@ -86,5 +86,13 @@
   {
     "error": "process_changed",
     "status": 409
+  },
+  {
+    "error": "too_many_phones",
+    "status": 403
+  },
+  {
+    "error": "rekey_refused",
+    "status": 403
   }
 ]

@@ -746,7 +746,10 @@ pub fn restore(args: &[String]) -> Result<(), String> {
 		return Err(still_running("it started while the backup was read", &file));
 	}
 	let place = a.with_settings.then(SettingsPlace::now);
+	// A running service (--force) doesn't add a phone meanwhile.
+	let clients = store::lock_clients(&dir).map_err(|e| format!("can't lock {}: {e}", dir.join(store::CLIENTS_LOCK_FILE).display()))?;
 	let restored = restore_into(&contents, &dir, place.as_ref(), store::now())?;
+	drop(clients);
 	drop(lock);
 
 	let host = if contents.host.is_empty() { String::new() } else { format!(" on {}", contents.host) };
@@ -999,7 +1002,7 @@ mod tests {
 		links::save_in(&dir, &[link]).unwrap();
 		let log = activity::Activity::load(&dir);
 		for i in 0..3 {
-			log.record(activity::Entry { t: i, phone: "Pixel".into(), client_id: "a".into(), what: "power lock".into(), result: "ok".into(), message: None });
+			log.record(activity::Entry { t: i, phone: "Pixel".into(), client_id: "a".into(), what: "power lock".into(), result: "ok".into(), message: None, family: None });
 		}
 		store::set_control_off(&dir, true).unwrap();
 		dir

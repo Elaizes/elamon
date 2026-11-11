@@ -41,8 +41,9 @@ Usage:
   elamond serve                        run the service (what the systemd unit does)
   elamond pair [--role ROLE]           show a code and QR to pair a phone
   elamond clients                      list paired phones and their roles
-  elamond clients role <id|all> ROLE   change what a phone may do
-  elamond revoke <id|all>              unpair a phone
+  elamond clients role <id|all> ROLE   change what a phone may do; --with-added: and the phones
+                                       that got a key of their own with its token
+  elamond revoke <id|all>              unpair a phone; --with-added: and those phones too
   elamond control [off|on|status]      hold control off for every phone, or let go
   elamond rotate-cert                  a new certificate, which paired phones follow
   elamond backup FILE                  save the identity, the paired phones and the rest to FILE,
@@ -71,7 +72,7 @@ fn main() {
 		"rotate-cert" => rotate_cert(&args[1..]),
 		"backup" => backup::backup(&args[1..]),
 		"restore" => backup::restore(&args[1..]),
-		"revoke" => revoke(args.get(1).map(String::as_str)),
+		"revoke" => revoke(&args[1..]),
 		"snapshot" => snapshot(),
 		"-V" | "--version" | "version" => {
 			println!("elamond {}", env!("CARGO_PKG_VERSION"));
@@ -620,11 +621,52 @@ fn role_arg(s: &str) -> Result<Role, String> {
 	Role::parse(s).ok_or_else(|| format!("no role \"{s}\"; the roles are {}", Role::choices()))
 }
 
+/// `args` without `--with-added`, and whether it was there.
+fn with_added(args: &[String]) -> (Vec<&str>, bool) {
+	let flag = args.iter().any(|a| a == "--with-added");
+	(args.iter().map(String::as_str).filter(|a| *a != "--with-added").collect(), flag)
+}
+
+/// The phones `which` names ("all", or an id) among `clients`, and with `with_added` those added
+/// with its key, one step or more: the ids to act on, and the phones added with its key that are
+/// left out. The id of a phone unpaired before still leads to those added with its key.
+fn choose<'a>(clients: &'a [store::Client], which: &str, with_added: bool) -> Result<(Vec<String>, Vec<&'a store::Client>), String> {
+	if which == "all" {
+		return Ok((clients.iter().map(|c| c.id.clone()).collect(), Vec::new()));
+	}
+	let added = store::added_with(clients, which);
+	let there = clients.iter().any(|c| c.id == which);
+	if !there && (added.is_empty() || !with_added) {
+		let mut e = format!("no paired phone has the id \"{which}\"");
+		if !added.is_empty() {
+			e.push_str(&format!("; {} still paired came by its key, --with-added acts on them", added.len()));
+		}
+		return Err(e);
+	}
+	let mut chosen: Vec<String> = clients.iter().filter(|c| c.id == which).map(|c| c.id.clone()).collect();
+	if with_added {
+		chosen.extend(added.iter().map(|c| c.id.clone()));
+		return Ok((chosen, Vec::new()));
+	}
+	Ok((chosen, added))
+}
+
+/// A phone as the commands list it: id, role, name and how it came.
+fn client_line(c: &store::Client, width: usize) -> String {
+	let pad = width.saturating_sub(c.name.chars().count());
+	let when = match &c.from {
+		Some(from) => format!("added {} with the key of {from}", format_date(c.created)),
+		None => format!("paired {}", format_date(c.created)),
+	};
+	format!("{}  {:<7}  {}{}  ({when})", c.id, c.role.as_str(), c.name, " ".repeat(pad))
+}
+
 fn clients(args: &[String]) -> Result<(), String> {
-	match args {
-		[] => {}
-		[cmd, which, role] if cmd == "role" => return set_role(which, role_arg(role)?),
-		_ => return Err(format!("usage: elamond clients, or elamond clients role <id|all> <{}>", Role::choices())),
+	let (args, family) = with_added(args);
+	match args.as_slice() {
+		[] if !family => {}
+		["role", which, role] => return set_role(which, role_arg(role)?, family),
+		_ => return Err(format!("usage: elamond clients, or elamond clients role <id|all> <{}> [--with-added]", Role::choices())),
 	}
 	let clients = paired()?;
 	if clients.is_empty() {
@@ -633,41 +675,51 @@ fn clients(args: &[String]) -> Result<(), String> {
 	}
 	let width = clients.iter().map(|c| c.name.chars().count()).max().unwrap_or(0);
 	for c in &clients {
-		let pad = width - c.name.chars().count();
-		let when = match &c.from {
-			Some(from) => format!("added {} with the key of {from}", format_date(c.created)),
-			None => format!("paired {}", format_date(c.created)),
-		};
-		println!("{}  {:<7}  {}{}  ({when})", c.id, c.role.as_str(), c.name, " ".repeat(pad));
+		println!("{}", client_line(c, width));
 	}
 	println!();
 	println!("Change what a phone may do: elamond clients role <id|all> <{}>", Role::choices());
 	Ok(())
 }
 
-fn set_role(which: &str, role: Role) -> Result<(), String> {
+/// The lock on clients.json, held from reading it to writing it back.
+fn lock_clients() -> Result<store::ClientsLock, String> {
+	let dir = store::data_dir();
+	store::lock_clients(&dir).map_err(|e| format!("can't lock {}: {e}", dir.join(store::CLIENTS_LOCK_FILE).display()))
+}
+
+fn set_role(which: &str, role: Role, family: bool) -> Result<(), String> {
+	let _lock = lock_clients()?;
 	let mut clients = paired()?;
+	if clients.is_empty() {
+		return Err("no phones are paired".into());
+	}
+	let (chosen, left) = choose(&clients, which, family)?;
+	let left: Vec<store::Client> = left.into_iter().cloned().collect();
 	let mut changed = Vec::new();
-	let mut matched = 0;
-	for c in clients.iter_mut().filter(|c| which == "all" || c.id == which) {
-		matched += 1;
+	for c in clients.iter_mut().filter(|c| chosen.contains(&c.id)) {
 		if c.role != role {
 			c.role = role;
 			changed.push(c.name.clone());
 		}
 	}
-	if matched == 0 {
-		return Err(if which == "all" { "no phones are paired".into() } else { format!("no paired phone has the id \"{which}\"") });
-	}
 	if !changed.is_empty() {
 		store::save_clients(&clients).map_err(|e| e.to_string())?;
 	}
 	match changed.len() {
-		0 if matched == 1 => println!("That phone already is {}.", role.as_str()),
+		0 if chosen.len() == 1 => println!("That phone already is {}.", role.as_str()),
 		0 => println!("They already are {}.", role.as_str()),
 		_ => println!("Now {}: {}. The service applies it at once, open streams included.", role.as_str(), changed.join(", ")),
 	}
 	println!("  {}: {}", role.as_str(), role.describe());
+	if !left.is_empty() {
+		println!();
+		println!("Added with its key, and left as they are (--with-added changes them too):");
+		let width = left.iter().map(|c| c.name.chars().count()).max().unwrap_or(0);
+		for c in &left {
+			println!("  {}", client_line(c, width));
+		}
+	}
 	Ok(())
 }
 
@@ -718,27 +770,34 @@ fn rotate_cert(args: &[String]) -> Result<(), String> {
 	Ok(())
 }
 
-fn revoke(which: Option<&str>) -> Result<(), String> {
-	let which = which.ok_or("which phone? `elamond clients` lists their ids")?;
+fn revoke(args: &[String]) -> Result<(), String> {
+	let (args, family) = with_added(args);
+	let [which] = args.as_slice() else {
+		return Err("usage: elamond revoke <id|all> [--with-added]; `elamond clients` lists the ids".into());
+	};
+	let _lock = lock_clients()?;
 	let clients = paired()?;
-	if which == "all" && clients.is_empty() {
+	if *which == "all" && clients.is_empty() {
 		println!("No phones are paired.");
 		return Ok(());
 	}
-	let keep: Vec<_> = clients.iter().filter(|c| which != "all" && c.id != which).cloned().collect();
-	if keep.len() == clients.len() {
-		return Err(format!("no paired phone has the id \"{which}\""));
-	}
+	let (chosen, left) = choose(&clients, which, family)?;
+	let keep: Vec<_> = clients.iter().filter(|c| !chosen.contains(&c.id)).cloned().collect();
 	store::save_clients(&keep).map_err(|e| e.to_string())?;
-	println!("Unpaired {} phone(s).", clients.len() - keep.len());
-	// A phone that came by this one's key and asked for its own (Import pairings) stays paired.
-	let added: Vec<_> = keep.iter().filter(|c| c.from.as_deref() == Some(which)).collect();
-	if !added.is_empty() {
-		println!("Still paired, added with its key:");
-		for c in added {
-			println!("  {}  {}", c.id, c.name);
+	let gone: Vec<&str> = clients.iter().filter(|c| chosen.contains(&c.id)).map(|c| c.name.as_str()).collect();
+	println!("Unpaired {} phone(s): {}.", gone.len(), gone.join(", "));
+	// A phone that came by this one's token and asked for a key of its own stays paired: after
+	// Import pairings, the new phone. Unless that is known for sure, it is the one to look at.
+	if !left.is_empty() {
+		println!();
+		println!("  ! STILL PAIRED: these got a key of their own with the token of the phone just unpaired,");
+		println!("  ! or of one that did:");
+		let width = left.iter().map(|c| c.name.chars().count()).max().unwrap_or(0);
+		for c in &left {
+			println!("  !   {}", client_line(c, width));
 		}
-		println!("That is the new phone after Import pairings; if it isn't yours, revoke it too.");
+		println!("  ! After Import pairings on a new phone, that is the new phone. If you don't know them, or the");
+		println!("  ! phone was lost or stolen, unpair them too: elamond revoke {which} --with-added");
 	}
 	Ok(())
 }
@@ -801,6 +860,34 @@ mod tests {
 				"ab".repeat(32)
 			)
 		);
+	}
+
+	#[test]
+	fn revoking_and_roles_reach_the_keys_a_token_gave_when_asked() {
+		let c = |id: &str, from: Option<&str>| store::Client {
+			id: id.into(),
+			name: id.into(),
+			token_hash: String::new(),
+			created: 0,
+			role: Role::Admin,
+			from: from.map(str::to_string),
+		};
+		let list = [c("old", None), c("new", Some("old")), c("newer", Some("new")), c("other", None)];
+		let ids = |r: Result<(Vec<String>, Vec<&store::Client>), String>| {
+			let (chosen, left) = r.unwrap();
+			(chosen, left.iter().map(|c| c.id.clone()).collect::<Vec<_>>())
+		};
+		// Alone, the rest of its family named; with --with-added, all of it.
+		assert_eq!(ids(choose(&list, "old", false)), (vec!["old".into()], vec!["new".into(), "newer".into()]));
+		assert_eq!(ids(choose(&list, "old", true)).0, ["old", "new", "newer"]);
+		assert_eq!(ids(choose(&list, "new", false)), (vec!["new".into()], vec!["newer".into()]));
+		assert_eq!(ids(choose(&list, "other", true)), (vec!["other".into()], vec![]));
+		assert_eq!(ids(choose(&list, "all", false)).0.len(), 4);
+		// The id of a phone unpaired before still reaches those added with its key, when asked.
+		let after = [c("new", Some("old")), c("newer", Some("new")), c("other", None)];
+		assert!(choose(&after, "old", false).unwrap_err().contains("--with-added"));
+		assert_eq!(ids(choose(&after, "old", true)).0, ["new", "newer"]);
+		assert!(choose(&after, "nobody", true).unwrap_err().contains("no paired phone"));
 	}
 
 	#[test]

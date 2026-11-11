@@ -314,6 +314,7 @@ fn activity_log() {
 				what: "action Some action".into(),
 				result: "ok".into(),
 				message: some("exit 0"),
+				family: some("89ab0123"),
 			},
 			Entry {
 				t: 1_700_000_000_000,
@@ -322,6 +323,7 @@ fn activity_log() {
 				what: "power reboot".into(),
 				result: "not_allowed".into(),
 				message: None,
+				family: None,
 			},
 		],
 	);

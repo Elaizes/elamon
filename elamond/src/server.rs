@@ -143,8 +143,13 @@ impl Hub {
 		if stale && let Ok(mut c) = self.clients.write() {
 			match store::load_clients_in(&self.dir) {
 				Ok(list) => {
-					let fresh: Vec<(String, Caller)> =
-						list.into_iter().map(|c| (c.token_hash, Caller { id: c.id, name: c.name, role: c.role })).collect();
+					let fresh: Vec<(String, Caller)> = list
+						.iter()
+						.map(|c| {
+							let family = store::family_of(&list, &c.id);
+							(c.token_hash.clone(), Caller { id: c.id.clone(), name: c.name.clone(), role: c.role, family })
+						})
+						.collect();
 					for (_, now) in &fresh {
 						if let Some((_, before)) = c.clients.iter().find(|(_, b)| b.id == now.id)
 							&& before.role != now.role
@@ -454,11 +459,20 @@ async fn pair(
 	}
 	// The phone is added before the code is withdrawn: `elamond pair` takes a code gone with
 	// no new phone for one used up by wrong attempts.
-	match store::add_client(&req.device, pending.role) {
-		Ok((client, token)) => {
+	let (dir, device, role) = (hub.dir.clone(), req.device.clone(), pending.role);
+	match tokio::task::spawn_blocking(move || store::add_client_in(&dir, &device, role)).await {
+		Ok(Ok((client, token))) => {
 			store::clear_pairing();
 			eprintln!("pairing: added \"{}\" ({}) as {} from {ip}", client.name, client.id, client.role.as_str());
 			Json(paired_body(&token, &client.id, &hub.id, &hub.name, client.role)).into_response()
+		}
+		Ok(Err(store::NotAdded::Full)) => {
+			eprintln!("pairing: \"{}\" from {ip} not added: {}", store::sanitize_name(&req.device), store::NotAdded::Full);
+			error(ErrorCode::TooManyPhones)
+		}
+		Ok(Err(e)) => {
+			eprintln!("pairing: can't save the client: {e}");
+			error(ErrorCode::Storage)
 		}
 		Err(e) => {
 			eprintln!("pairing: can't save the client: {e}");
@@ -477,7 +491,9 @@ struct RekeyRequest {
 /// a new entry named `device`, with the role of the entry whose token asked and a new token, the
 /// same answer as pairing's. That token stays good, so the phone it was copied from keeps working
 /// until it is revoked on its own. Any role may ask, and none is raised by it; it counts as acting
-/// (the rate and the activity log), but needs no control.
+/// (the rate and the activity log, both the family's), but needs no control. Only an entry paired
+/// with a code may ask, and once (403 `rekey_refused`), and not past `limit::PHONES_MAX` phones
+/// (403 `too_many_phones`).
 async fn rekey(
 	State(hub): State<Arc<Hub>>,
 	Extension(who): Extension<Caller>,
@@ -487,9 +503,12 @@ async fn rekey(
 	let name = store::sanitize_name(&req.device);
 	let ip = peer.ip().to_canonical();
 	hub.act_as(&who, None, format!("phone added: {name}"), async {
-		// One write to the phones at a time, pairing's included.
-		let _guard = hub.pair_lock.lock().await;
-		match store::add_client_from(&hub.dir, &who.id, &name, who.role) {
+		// clients.json's lock keeps it to one change at a time, pairing's and the commands' included.
+		let (dir, from, device, role) = (hub.dir.clone(), who.id.clone(), name.clone(), who.role);
+		let added = tokio::task::spawn_blocking(move || store::add_client_from(&dir, &from, &device, role))
+			.await
+			.unwrap_or_else(|e| Err(store::NotAdded::Io(std::io::Error::other(e))));
+		match added {
 			Ok((client, token)) => {
 				eprintln!(
 					"pairing: added \"{}\" ({}) as {} from {ip}, asked with the key of \"{}\" ({}), which stays paired",
@@ -503,8 +522,14 @@ async fn rekey(
 				Ok(Acted { response, note: Some(format!("id {}, {}", client.id, client.role.as_str())) })
 			}
 			Err(e) => {
-				eprintln!("pairing: can't save the phone \"{}\" ({}) asked to add: {e}", who.name, who.id);
-				Err(ErrorCode::Storage.into())
+				let code = match e {
+					store::NotAdded::Full => ErrorCode::TooManyPhones,
+					store::NotAdded::Rekeyed => ErrorCode::RekeyRefused,
+					store::NotAdded::Gone => ErrorCode::Unauthorized,
+					store::NotAdded::Io(_) => ErrorCode::Storage,
+				};
+				eprintln!("pairing: \"{}\" ({}) asked for a key of its own, not added: {e}", who.name, who.id);
+				Err(code.into())
 			}
 		}
 	})
@@ -1189,18 +1214,35 @@ mod tests {
 	}
 
 	#[tokio::test]
-	async fn keys_of_their_own_are_rate_limited_and_never_written_over_a_damaged_file() {
+	async fn a_token_gives_one_key_of_its_own_and_its_family_one_rate() {
 		let (hub, _tx) = hub(true);
 		*hub.rate.lock().unwrap() = RateLimiter::default();
+		let (status, v) = call(&hub, "POST", "/api/v1/rekey", "monitor", r#"{"device":"New"}"#).await;
+		assert_eq!(status, StatusCode::OK, "{v}");
+		let new = v["token"].as_str().unwrap().to_string();
+		// Once: not again from the old entry, and never from the new one.
+		let refused = (StatusCode::FORBIDDEN, Some("rekey_refused"));
+		let (status, v) = call(&hub, "POST", "/api/v1/rekey", "monitor", r#"{"device":"Again"}"#).await;
+		assert_eq!((status, v["error"].as_str()), refused);
+		let (status, v) = call_as(&hub, "POST", "/api/v1/rekey", &new, r#"{"device":"Again"}"#).await;
+		assert_eq!((status, v["error"].as_str()), refused);
+		// The two share one rate: what is left of the burst, then 429 for either.
 		let mut statuses = Vec::new();
-		for _ in 0..limit::ACTS_BURST + 2 {
-			statuses.push(call(&hub, "POST", "/api/v1/rekey", "monitor", r#"{"device":"Again"}"#).await.0);
+		for i in 0..limit::ACTS_BURST - 3 + 2 {
+			let token = if i % 2 == 0 { "t-monitor".to_string() } else { new.clone() };
+			statuses.push(call_as(&hub, "POST", "/api/v1/control/profile", &token, r#"{"profile":"nothing"}"#).await.0);
 		}
-		assert!(statuses[..limit::ACTS_BURST as usize].iter().all(|s| *s == StatusCode::OK), "{statuses:?}");
-		assert!(statuses[limit::ACTS_BURST as usize..].iter().all(|s| *s == StatusCode::TOO_MANY_REQUESTS), "{statuses:?}");
+		let used = (limit::ACTS_BURST - 3) as usize;
+		assert!(statuses[..used].iter().all(|s| *s == StatusCode::FORBIDDEN), "{statuses:?}");
+		assert!(statuses[used..].iter().all(|s| *s == StatusCode::TOO_MANY_REQUESTS), "{statuses:?}");
+		// Another phone isn't held up.
+		assert_eq!(call(&hub, "POST", "/api/v1/rekey", "operate", r#"{"device":"Mine"}"#).await.0, StatusCode::OK);
 		let log = hub.activity.newest(usize::MAX);
 		assert_eq!(log.iter().filter(|e| e.result == "too_many_requests").count(), 1);
-		assert_eq!(store::load_clients_in(&hub.dir).unwrap().len(), PHONES.len() + limit::ACTS_BURST as usize);
+		assert_eq!(log.iter().filter(|e| e.result == "rekey_refused").count(), 2);
+		// The new phone's entries carry the family they share.
+		assert!(log.iter().filter(|e| e.client_id != "id-monitor" && e.phone == "New").all(|e| e.family.as_deref() == Some("id-monitor")));
+		assert_eq!(store::load_clients_in(&hub.dir).unwrap().len(), PHONES.len() + 2);
 
 		// A file of phones that no longer parses is left alone: the phones read before keep working,
 		// and no new one is added over them.

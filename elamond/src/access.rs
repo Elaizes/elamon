@@ -156,6 +156,9 @@ pub struct Caller {
 	pub id: String,
 	pub name: String,
 	pub role: Role,
+	/// The entry its key came from (`store::family_of`), its own id for a phone paired with a
+	/// code: the rate of acting and the share of the activity log are the family's.
+	pub family: String,
 }
 
 /// A token bucket per phone for acting requests: `burst` in a row, then one per `refill`.

@@ -42,12 +42,16 @@ pub enum ErrorCode {
 	TooManyRequests,
 	/// A signal named the process's start time, and the process with that pid started at another.
 	ProcessChanged,
+	/// Pairing or `rekey` while the most phones there may be are paired.
+	TooManyPhones,
+	/// `rekey` from an entry that came by `rekey` itself, or that asked once already.
+	RekeyRefused,
 }
 
 impl ErrorCode {
 	/// Every code, for elamond/fixtures/errors.json.
 	#[cfg(test)]
-	pub const ALL: [ErrorCode; 22] = [
+	pub const ALL: [ErrorCode; 24] = [
 		ErrorCode::NotFound,
 		ErrorCode::Unauthorized,
 		ErrorCode::NoPairing,
@@ -70,6 +74,8 @@ impl ErrorCode {
 		ErrorCode::NotAllowed,
 		ErrorCode::TooManyRequests,
 		ErrorCode::ProcessChanged,
+		ErrorCode::TooManyPhones,
+		ErrorCode::RekeyRefused,
 	];
 
 	fn parts(self) -> (&'static str, StatusCode) {
@@ -96,6 +102,8 @@ impl ErrorCode {
 			ErrorCode::NotAllowed => ("not_allowed", StatusCode::FORBIDDEN),
 			ErrorCode::TooManyRequests => ("too_many_requests", StatusCode::TOO_MANY_REQUESTS),
 			ErrorCode::ProcessChanged => ("process_changed", StatusCode::CONFLICT),
+			ErrorCode::TooManyPhones => ("too_many_phones", StatusCode::FORBIDDEN),
+			ErrorCode::RekeyRefused => ("rekey_refused", StatusCode::FORBIDDEN),
 		}
 	}
 

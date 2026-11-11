@@ -112,7 +112,8 @@ impl Hub {
 	/// `act` for a request that may need no role at all (`None`), and so no control either: only
 	/// the rate and the log apply.
 	pub async fn act_as(&self, who: &Caller, can: Option<Can>, what: String, work: impl Future<Output = Result<Acted, Refusal>>) -> Response {
-		let rate = self.rate.lock().map(|mut r| r.take(&who.id, Instant::now())).unwrap_or(Rate::Allowed);
+		// One rate for a phone and the keys of their own its token gave.
+		let rate = self.rate.lock().map(|mut r| r.take(&who.family, Instant::now())).unwrap_or(Rate::Allowed);
 		let outcome = match (rate, can) {
 			(Rate::Refused { first: false }, _) => return error(ErrorCode::TooManyRequests),
 			(Rate::Refused { first: true }, _) => Err(ErrorCode::TooManyRequests.into()),
@@ -131,6 +132,7 @@ impl Hub {
 			what: activity::clean(&what),
 			result,
 			message: message.map(|m| activity::clean(&m)),
+			family: (who.family != who.id).then(|| who.family.clone()),
 		});
 		response
 	}

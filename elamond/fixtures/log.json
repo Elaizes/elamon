@@ -5,7 +5,8 @@
     "client_id": "0123abcd",
     "what": "action Some action",
     "result": "ok",
-    "message": "exit 0"
+    "message": "exit 0",
+    "family": "89ab0123"
   },
   {
     "t": 1700000000000,

@@ -31,6 +31,17 @@ pub struct Entry {
 	/// More about the result: what failed, or how an action exited.
 	#[serde(default)]
 	pub message: Option<String>,
+	/// For a phone that got a key of its own with another's token: the entry that key came from
+	/// (`store::family_of`). The phones of one family share `limit::ACTIVITY_PER_FAMILY` entries.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub family: Option<String>,
+}
+
+impl Entry {
+	/// The family whose share of the log this entry is in.
+	fn family(&self) -> &str {
+		self.family.as_deref().unwrap_or(&self.client_id)
+	}
 }
 
 pub struct Activity {
@@ -50,10 +61,32 @@ pub fn now_ms() -> u64 {
 	SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
-/// No control characters and a sane length: names and pids come from phones and processes.
+/// Nothing that doesn't show and a sane length: names and pids come from phones and processes.
+/// Controls become spaces, format characters (`store::unseen`) go.
 pub fn clean(s: &str) -> String {
-	let s: String = s.chars().map(|c| if c.is_control() { ' ' } else { c }).take(limit::WHAT_MAX).collect();
+	let s: String = s
+		.chars()
+		.filter(|c| c.is_control() || !crate::store::unseen(*c))
+		.map(|c| if c.is_control() { ' ' } else { c })
+		.take(limit::WHAT_MAX)
+		.collect();
 	s.trim().to_string()
+}
+
+/// Adds `entry` to `entries`, keeping `limit::ACTIVITY_PER_FAMILY` of its family's and
+/// `limit::ACTIVITY_MAX` in all: a family past its share loses its own oldest, so one phone that
+/// keeps asking can't push the others' out of the log.
+fn push(entries: &mut VecDeque<Entry>, entry: Entry) {
+	let family = entry.family().to_string();
+	if entries.iter().filter(|e| e.family() == family).count() >= limit::ACTIVITY_PER_FAMILY
+		&& let Some(oldest) = entries.iter().position(|e| e.family() == family)
+	{
+		entries.remove(oldest);
+	}
+	entries.push_back(entry);
+	while entries.len() > limit::ACTIVITY_MAX {
+		entries.pop_front();
+	}
 }
 
 impl Activity {
@@ -68,10 +101,7 @@ impl Activity {
 				for line in text.lines().filter(|l| !l.trim().is_empty()) {
 					lines += 1;
 					if let Ok(e) = serde_json::from_str::<Entry>(line) {
-						entries.push_back(e);
-						if entries.len() > limit::ACTIVITY_MAX {
-							entries.pop_front();
-						}
+						push(&mut entries, e);
 					}
 				}
 				(entries, lines)
@@ -88,10 +118,7 @@ impl Activity {
 
 	pub fn record(&self, entry: Entry) {
 		let mut s = self.state.lock().unwrap_or_else(|p| p.into_inner());
-		s.entries.push_back(entry.clone());
-		while s.entries.len() > limit::ACTIVITY_MAX {
-			s.entries.pop_front();
-		}
+		push(&mut s.entries, entry.clone());
 		let written = if s.lines + 1 >= limit::ACTIVITY_FILE_LINES {
 			// Rewritten whole, atomically, with what is kept.
 			let mut text = Vec::new();
@@ -137,14 +164,16 @@ impl Activity {
 mod tests {
 	use super::*;
 
+	/// One of eight phones' entries, in turn.
 	fn entry(i: usize) -> Entry {
 		Entry {
 			t: i as u64,
 			phone: "Phone".into(),
-			client_id: "0123abcd".into(),
+			client_id: format!("phone{}", i % 8),
 			what: format!("power lock {i}"),
 			result: "ok".into(),
 			message: None,
+			family: None,
 		}
 	}
 
@@ -190,8 +219,35 @@ mod tests {
 	}
 
 	#[test]
+	fn one_family_keeps_its_share_and_no_more() {
+		let dir = scratch();
+		let log = Activity::load(&dir);
+		let quiet = |i: usize, phone: &str| Entry { client_id: phone.into(), ..entry(i) };
+		log.record(quiet(0, "quiet"));
+		log.record(quiet(1, "other"));
+		// A phone and the key of its own it asked for, acting as fast as they may, for long.
+		for i in 2..2000 {
+			let id = if i % 2 == 0 { "busy" } else { "busy-new" };
+			log.record(Entry { family: (id != "busy").then(|| "busy".to_string()), ..quiet(i, id) });
+		}
+		let kept = log.newest(usize::MAX);
+		assert_eq!(kept.len(), 2 + limit::ACTIVITY_PER_FAMILY);
+		assert!(kept.iter().any(|e| e.client_id == "quiet") && kept.iter().any(|e| e.client_id == "other"));
+		// The family's newest are kept, both its phones'.
+		assert_eq!(kept[0].t, 1999);
+		assert!(kept.iter().any(|e| e.client_id == "busy-new") && kept.iter().any(|e| e.client_id == "busy"));
+		// And so it reads back.
+		assert_eq!(Activity::load(&dir).newest(usize::MAX), kept);
+		let line = fs::read_to_string(dir.join(FILE)).unwrap().lines().last().unwrap().to_string();
+		assert!(line.contains("\"family\":\"busy\""), "{line}");
+		fs::remove_dir_all(dir).unwrap();
+	}
+
+	#[test]
 	fn what_is_asked_is_cleaned() {
 		assert_eq!(clean(" power\u{1b}[2J reboot\n"), "power [2J reboot");
 		assert_eq!(clean(&"x".repeat(1000)).len(), limit::WHAT_MAX);
+		// Format characters go: a name can't read backwards or hide a part.
+		assert_eq!(clean("link add Web\u{202e}gpj.exe\u{200b}\u{feff}"), "link add Webgpj.exe");
 	}
 }

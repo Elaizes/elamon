@@ -432,6 +432,31 @@ pub struct Client {
 }
 
 pub const CLIENTS_FILE: &str = "clients.json";
+/// Locked around every change to clients.json, by the service and the commands alike, so two
+/// changes at once never lose one of them.
+pub const CLIENTS_LOCK_FILE: &str = "clients.lock";
+
+/// The lock on the paired phones in a data directory, let go when dropped.
+pub struct ClientsLock(#[allow(dead_code)] fs::File);
+
+/// Waits for, and takes, the lock on the paired phones in `dir`: hold it from reading clients.json
+/// to writing it back. An advisory flock, so another elamond (the service, or a command) that
+/// changes the file waits, and two in one process too.
+pub fn lock_clients(dir: &Path) -> io::Result<ClientsLock> {
+	use std::os::fd::AsRawFd;
+	private_dir(dir)?;
+	let f = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600).open(dir.join(CLIENTS_LOCK_FILE))?;
+	loop {
+		// SAFETY: flock on a descriptor `f` owns; it doesn't touch memory.
+		if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } == 0 {
+			return Ok(ClientsLock(f));
+		}
+		let e = io::Error::last_os_error();
+		if e.kind() != io::ErrorKind::Interrupted {
+			return Err(e);
+		}
+	}
+}
 
 /// The paired phones; none when the file doesn't exist yet. A file that can't be read or
 /// doesn't parse is an error, never an empty list: that would unpair every phone.
@@ -459,42 +484,135 @@ pub fn clients_stamp_in(dir: &Path) -> Option<(SystemTime, u64, u64)> {
 	Some((m.modified().ok()?, m.ino(), m.len()))
 }
 
-/// Adds a phone with `role` and returns its token.
-pub fn add_client(name: &str, role: Role) -> io::Result<(Client, String)> {
-	let clients = match load_clients() {
+/// Why a phone wasn't added.
+#[derive(Debug)]
+pub enum NotAdded {
+	/// `limit::PHONES_MAX` phones are paired already.
+	Full,
+	/// The entry that asked for a key of its own got it by asking itself, or has given one already.
+	Rekeyed,
+	/// The entry that asked is no longer paired.
+	Gone,
+	Io(io::Error),
+}
+
+impl From<io::Error> for NotAdded {
+	fn from(e: io::Error) -> Self {
+		NotAdded::Io(e)
+	}
+}
+
+impl std::fmt::Display for NotAdded {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			NotAdded::Full => write!(f, "{} phones are paired already, the most there may be; revoke some first", limit::PHONES_MAX),
+			NotAdded::Rekeyed => write!(f, "that entry was itself added with another's key, or has given a key of its own already"),
+			NotAdded::Gone => write!(f, "the entry that asked is no longer paired"),
+			NotAdded::Io(e) => write!(f, "{e}"),
+		}
+	}
+}
+
+/// Adds a phone with `role` to those paired in `dir` and returns its token.
+pub fn add_client_in(dir: &Path, name: &str, role: Role) -> Result<(Client, String), NotAdded> {
+	let _lock = lock_clients(dir)?;
+	let clients = match load_clients_in(dir) {
 		Ok(c) => c,
 		// The damaged file is set aside by the write below; the phones in it pair again.
 		Err(e) if e.kind() == io::ErrorKind::InvalidData => Vec::new(),
-		Err(e) => return Err(e),
+		Err(e) => return Err(e.into()),
 	};
-	push_client(&data_dir(), clients, name, role, None)
+	push_client(dir, clients, name, role, None)
 }
 
 /// Adds a phone with `role` beside those paired in `dir`, asked for with the token of the entry
-/// `from` (a key of its own for a phone that came by that token); returns its token. A file that
-/// doesn't parse is an error here, never a fresh start: that would unpair every other phone.
-pub fn add_client_from(dir: &Path, from: &str, name: &str, role: Role) -> io::Result<(Client, String)> {
-	push_client(dir, load_clients_in(dir)?, name, role, Some(from))
+/// `from` (a key of its own for a phone that came by that token); returns its token. Only an entry
+/// paired with a code may ask, and only once, so one token gives one key of its own, however
+/// often it is copied. A file that doesn't parse is an error here, never a fresh start: that would
+/// unpair every other phone.
+pub fn add_client_from(dir: &Path, from: &str, name: &str, role: Role) -> Result<(Client, String), NotAdded> {
+	let _lock = lock_clients(dir)?;
+	let clients = load_clients_in(dir)?;
+	let asking = clients.iter().find(|c| c.id == from).ok_or(NotAdded::Gone)?;
+	if asking.from.is_some() || clients.iter().any(|c| c.from.as_deref() == Some(from)) {
+		return Err(NotAdded::Rekeyed);
+	}
+	push_client(dir, clients, name, role, Some(from))
 }
 
-fn push_client(dir: &Path, mut clients: Vec<Client>, name: &str, role: Role, from: Option<&str>) -> io::Result<(Client, String)> {
+fn push_client(dir: &Path, mut clients: Vec<Client>, name: &str, role: Role, from: Option<&str>) -> Result<(Client, String), NotAdded> {
+	if clients.len() >= limit::PHONES_MAX {
+		return Err(NotAdded::Full);
+	}
 	let token = data_encoding::BASE64URL_NOPAD.encode(&random_bytes::<{ protocol::TOKEN_BYTES }>());
-	let client = Client {
-		id: data_encoding::HEXLOWER.encode(&random_bytes::<{ protocol::CLIENT_ID_BYTES }>()),
-		name: sanitize_name(name),
-		token_hash: sha256_hex(token.as_bytes()),
-		created: now(),
-		role,
-		from: from.map(str::to_string),
+	// Short ids, as phones and people know them; never one another phone has.
+	let id = loop {
+		let id = data_encoding::HEXLOWER.encode(&random_bytes::<{ protocol::CLIENT_ID_BYTES }>());
+		if !clients.iter().any(|c| c.id == id || c.from.as_deref() == Some(id.as_str())) {
+			break id;
+		}
 	};
+	let client = Client { id, name: sanitize_name(name), token_hash: sha256_hex(token.as_bytes()), created: now(), role, from: from.map(str::to_string) };
 	clients.push(client.clone());
 	save_clients_in(dir, &clients)?;
 	Ok((client, token))
 }
 
-/// Phone-supplied names end up in a terminal: no control characters, sane length.
+/// The family of the entry `id` among `clients`: the entry whose key it came by, following `from`
+/// as far as it goes, or itself. A family shares one rate of acting and one share of the activity
+/// log, however many keys of its own it asked for.
+pub fn family_of(clients: &[Client], id: &str) -> String {
+	let mut at = id.to_string();
+	let mut seen = vec![at.clone()];
+	while let Some(from) = clients.iter().find(|c| c.id == at).and_then(|c| c.from.clone()) {
+		if seen.contains(&from) {
+			break;
+		}
+		seen.push(from.clone());
+		at = from;
+	}
+	at
+}
+
+/// The entries added with the key of `id`, and with theirs in turn: every phone whose key came,
+/// one step or more, from that one's token.
+pub fn added_with<'a>(clients: &'a [Client], id: &str) -> Vec<&'a Client> {
+	let mut out: Vec<&Client> = Vec::new();
+	let mut look = vec![id.to_string()];
+	while let Some(parent) = look.pop() {
+		for c in clients.iter().filter(|c| c.from.as_deref() == Some(parent.as_str())) {
+			if c.id != id && !out.iter().any(|o| o.id == c.id) {
+				out.push(c);
+				look.push(c.id.clone());
+			}
+		}
+	}
+	out
+}
+
+/// Characters that don't show: controls, and Unicode's format characters (bidirectional
+/// overrides, zero-width spaces and joiners, tags), which make a name read as another.
+pub fn unseen(c: char) -> bool {
+	c.is_control()
+		|| matches!(
+			c as u32,
+			0xAD | 0x600..=0x605
+				| 0x61C | 0x6DD | 0x70F | 0x890..=0x891
+				| 0x8E2 | 0x180E | 0x200B..=0x200F
+				| 0x202A..=0x202E
+				| 0x2060..=0x2064
+				| 0x2066..=0x206F
+				| 0xFEFF | 0xFFF9..=0xFFFB
+				| 0x110BD | 0x110CD | 0x13430..=0x1343F
+				| 0x1BCA0..=0x1BCA3
+				| 0x1D173..=0x1D17A
+				| 0xE0001 | 0xE0020..=0xE007F
+		)
+}
+
+/// Phone-supplied names end up in a terminal: nothing that doesn't show, sane length.
 pub fn sanitize_name(name: &str) -> String {
-	let clean: String = name.chars().filter(|c| !c.is_control()).take(limit::NAME_MAX).collect();
+	let clean: String = name.chars().filter(|c| !unseen(*c)).take(limit::NAME_MAX).collect();
 	let clean = clean.trim();
 	if clean.is_empty() { "Phone".into() } else { clean.to_string() }
 }
@@ -789,7 +907,85 @@ mod tests {
 	}
 
 	#[test]
+	fn concurrent_changes_to_the_phones_lose_none() {
+		let dir = scratch();
+		let mut writers = Vec::new();
+		// Pairing and keys of their own add phones while a command changes every phone's role.
+		for t in 0..8 {
+			let dir = dir.clone();
+			writers.push(std::thread::spawn(move || {
+				for i in 0..5 {
+					add_client_in(&dir, &format!("Phone {t}.{i}"), Role::Monitor).unwrap();
+				}
+			}));
+		}
+		for t in 0..4 {
+			let dir = dir.clone();
+			writers.push(std::thread::spawn(move || {
+				for _ in 0..5 {
+					let _lock = lock_clients(&dir).unwrap();
+					let mut list = load_clients_in(&dir).unwrap();
+					for c in &mut list {
+						c.role = if t % 2 == 0 { Role::Glance } else { Role::Operate };
+					}
+					save_clients_in(&dir, &list).unwrap();
+				}
+			}));
+		}
+		for w in writers {
+			w.join().unwrap();
+		}
+		let list = load_clients_in(&dir).unwrap();
+		assert_eq!(list.len(), 40);
+		let mut ids: Vec<&str> = list.iter().map(|c| c.id.as_str()).collect();
+		ids.sort();
+		ids.dedup();
+		assert_eq!(ids.len(), 40);
+		fs::remove_dir_all(dir).unwrap();
+	}
+
+	#[test]
+	fn a_token_gives_one_key_of_its_own_and_the_phones_have_a_limit() {
+		let dir = scratch();
+		let (root, _) = add_client_in(&dir, "Old", Role::Operate).unwrap();
+		let (new, _) = add_client_from(&dir, &root.id, "New", Role::Operate).unwrap();
+		assert_eq!(new.from.as_deref(), Some(root.id.as_str()));
+		// Once from the entry paired with a code, never from the one that came by it.
+		assert!(matches!(add_client_from(&dir, &root.id, "Again", Role::Operate), Err(NotAdded::Rekeyed)));
+		assert!(matches!(add_client_from(&dir, &new.id, "Third", Role::Operate), Err(NotAdded::Rekeyed)));
+		assert!(matches!(add_client_from(&dir, "gone", "Ghost", Role::Operate), Err(NotAdded::Gone)));
+		// A family: the entry the key came from, however far.
+		let list = load_clients_in(&dir).unwrap();
+		assert_eq!((family_of(&list, &new.id), family_of(&list, &root.id)), (root.id.clone(), root.id.clone()));
+		assert_eq!(added_with(&list, &root.id).iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), [new.id.as_str()]);
+		// Chains from before the limit, and loops written by hand, end.
+		let chain: Vec<Client> = [("a", None), ("b", Some("a")), ("c", Some("b")), ("x", Some("y")), ("y", Some("x"))]
+			.iter()
+			.map(|(id, from)| Client { id: id.to_string(), name: id.to_string(), token_hash: String::new(), created: 0, role: Role::Admin, from: from.map(str::to_string) })
+			.collect();
+		assert_eq!((family_of(&chain, "c"), family_of(&chain, "a"), family_of(&chain, "gone")), ("a".into(), "a".into(), "gone".into()));
+		assert_eq!(added_with(&chain, "a").iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["b", "c"]);
+		assert!(["x", "y"].contains(&family_of(&chain, "x").as_str()));
+		assert_eq!(added_with(&chain, "x").len(), 1);
+		// No more than the limit, by pairing or by a key of its own.
+		for i in list.len()..limit::PHONES_MAX {
+			add_client_in(&dir, &format!("Phone {i}"), Role::Glance).unwrap();
+		}
+		assert!(matches!(add_client_in(&dir, "One more", Role::Glance), Err(NotAdded::Full)));
+		let (spare, _) = {
+			let mut list = load_clients_in(&dir).unwrap();
+			list.retain(|c| c.id != new.id);
+			save_clients_in(&dir, &list).unwrap();
+			add_client_in(&dir, "Last", Role::Glance).unwrap()
+		};
+		assert!(matches!(add_client_from(&dir, &spare.id, "Over", Role::Glance), Err(NotAdded::Full)));
+		assert_eq!(load_clients_in(&dir).unwrap().len(), limit::PHONES_MAX);
+		fs::remove_dir_all(dir).unwrap();
+	}
+
+	#[test]
 	fn names_lose_control_characters() {
+		assert_eq!(sanitize_name("Pixel\u{202e}8\u{200d}\u{e0041} "), "Pixel8");
 		assert_eq!(sanitize_name("  Pixel\u{7} 8\n "), "Pixel 8");
 		assert_eq!(sanitize_name("\u{1b}[2J"), "[2J");
 		assert_eq!(sanitize_name(" \t"), "Phone");

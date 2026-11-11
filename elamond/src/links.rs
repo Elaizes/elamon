@@ -241,7 +241,7 @@ pub fn settings_notes(config: &store::Config) -> Vec<String> {
 /// everywhere: these end up in the log and on other phones. Whether the settings allow its unit
 /// is `unit_refusal`'s to say.
 pub fn validate(name: &str, url: &str, unit: Option<&str>, scope: Option<&str>) -> Result<(), ErrorCode> {
-	if name.trim().is_empty() || name.chars().count() > limit::NAME_MAX || name.chars().any(char::is_control) {
+	if name.trim().is_empty() || name.chars().count() > limit::NAME_MAX || name.chars().any(store::unseen) {
 		return Err(ErrorCode::BadName);
 	}
 	if url.trim().is_empty() || url.len() > limit::URL_MAX || url.chars().any(char::is_control) {
@@ -340,6 +340,7 @@ mod tests {
 		assert_eq!(validate(" ", "http://x", None, None), Err(ErrorCode::BadName));
 		assert_eq!(validate(&"n".repeat(65), "http://x", None, None), Err(ErrorCode::BadName));
 		assert_eq!(validate("a\u{1b}[31m", "http://x", None, None), Err(ErrorCode::BadName));
+		assert_eq!(validate("Web\u{202e}", "http://x", None, None), Err(ErrorCode::BadName));
 		assert_eq!(validate("a", "http://x\n", None, None), Err(ErrorCode::BadUrl));
 		assert_eq!(validate("a", &"u".repeat(513), None, None), Err(ErrorCode::BadUrl));
 		assert_eq!(validate("a", "http://x", Some("a b.service"), None), Err(ErrorCode::BadUnit));

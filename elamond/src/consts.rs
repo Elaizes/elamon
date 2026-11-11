@@ -175,6 +175,11 @@ pub mod limit {
 	pub const ACTS_BURST: u32 = 10;
 	/// Entries kept in the activity log, in memory and in its file.
 	pub const ACTIVITY_MAX: usize = 500;
+	/// Of those, the most one phone's family (it and the keys of its own it asked for) keeps:
+	/// its newest push out its oldest, never another phone's.
+	pub const ACTIVITY_PER_FAMILY: usize = 100;
+	/// Phones paired at once, keys of their own included; pairing and `rekey` refuse more.
+	pub const PHONES_MAX: usize = 64;
 	/// Lines the activity log's file grows to before it is rewritten with the last `ACTIVITY_MAX`.
 	pub const ACTIVITY_FILE_LINES: usize = 2 * ACTIVITY_MAX;
 	/// Characters in what an activity log entry says was asked, and in its message.
