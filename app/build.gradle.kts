@@ -52,6 +52,11 @@ android {
 	}
 
 	buildTypes {
+		// Beside the real app, never in its place: installing or uninstalling a debug build (as
+		// maestro/run.sh does) leaves the real app and its pairings alone. Its launcher label says so.
+		debug {
+			applicationIdSuffix = ".debug"
+		}
 		release {
 			isMinifyEnabled = true
 			isShrinkResources = true

@@ -1,5 +1,5 @@
 # Every tab and a detail page, with the computer paired by pair.yaml.
-appId: io.github.elaizes.elamon
+appId: io.github.elaizes.elamon.debug
 ---
 - launchApp
 - extendedWaitUntil:

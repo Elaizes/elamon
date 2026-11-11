@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 	<string name="app_name">Elamon</string>
+	<!-- Under the launcher icon; a debug build's says it is one (src/debug). -->
+	<string name="app_label">Elamon</string>
 
 	<!-- Common -->
 	<string name="back">Back</string>

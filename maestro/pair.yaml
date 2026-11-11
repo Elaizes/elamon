@@ -1,5 +1,5 @@
 # Pairs with the test service by address and code, as a person would.
-appId: io.github.elaizes.elamon
+appId: io.github.elaizes.elamon.debug
 ---
 - launchApp:
     clearState: true

@@ -1,6 +1,6 @@
 # The phone made a glance one by run.sh (elamond clients role all glance): the basics only, no
 # Processes tab, and on the Control tab a word on why instead of links and monitors.
-appId: io.github.elaizes.elamon
+appId: io.github.elaizes.elamon.debug
 ---
 - launchApp
 - extendedWaitUntil:
