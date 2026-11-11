@@ -67,6 +67,11 @@ object Limits {
 	/** Searching or grouping needs every process: the service's own cap. */
 	const val PROCESSES_ALL = 10_000
 
+	// ---- activity --------------------------------------------------------------------------------
+
+	/** Entries of the activity log the app asks for, newest first; the service keeps 500. */
+	const val ACTIVITY_SHOWN = 200
+
 	// ---- pairing ----------------------------------------------------------------------------------
 
 	/** Digits in a pairing code. */

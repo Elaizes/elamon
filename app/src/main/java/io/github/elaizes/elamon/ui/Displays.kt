@@ -1,6 +1,5 @@
 package io.github.elaizes.elamon.ui
 
-import android.content.res.Resources
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -142,11 +141,6 @@ fun DisplaysSection(state: MachineState) {
 
 /** Which monitor a row is, from one sample to the next. */
 private val Display.key: String get() = "$gpu/$connector"
-
-private fun Words.text(res: Resources): String = when (this) {
-	is Words.Str -> res.getString(id)
-	is Words.Count -> res.getQuantityString(id, n, n)
-}
 
 /** A connected monitor: its name, current mode and state; touched, its details open under it. */
 @Composable

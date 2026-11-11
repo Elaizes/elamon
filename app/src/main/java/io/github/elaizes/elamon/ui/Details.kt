@@ -39,6 +39,7 @@ fun detailTitle(kind: String, state: MachineState): String = when {
 	kind == "storage" -> stringResource(R.string.storage)
 	kind == "battery" -> stringResource(R.string.battery)
 	kind == "temps" -> stringResource(R.string.temperatures)
+	kind == ACTIVITY_PAGE -> stringResource(R.string.activity_title)
 	else -> kind
 }
 

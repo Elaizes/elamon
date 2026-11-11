@@ -175,6 +175,19 @@ fun ControlTab(t: TabScope) {
 		control?.takeIf { perms.power }?.let { c ->
 			item(key = "power") { PowerSection(t, c) }
 		}
+		if (perms.log) {
+			item(key = "activity") {
+				ListGroup {
+					ListRow(
+						stringResource(R.string.activity_title),
+						summary = stringResource(R.string.activity_summary),
+						icon = ElIcons.Clock,
+						accent = MaterialTheme.colorScheme.secondary,
+						onClick = { t.openDetail(ACTIVITY_PAGE) },
+					)
+				}
+			}
+		}
 	}
 
 	open?.let { link ->

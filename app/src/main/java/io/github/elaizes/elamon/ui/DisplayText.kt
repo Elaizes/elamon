@@ -1,5 +1,6 @@
 package io.github.elaizes.elamon.ui
 
+import android.content.res.Resources
 import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import io.github.elaizes.elamon.R
@@ -10,6 +11,12 @@ import io.github.elaizes.elamon.data.Mode
 sealed interface Words {
 	data class Str(@StringRes val id: Int) : Words
 	data class Count(@PluralsRes val id: Int, val n: Int) : Words
+}
+
+/** The words, looked up. */
+fun Words.text(res: Resources): String = when (this) {
+	is Words.Str -> res.getString(id)
+	is Words.Count -> res.getQuantityString(id, n, n)
 }
 
 /**

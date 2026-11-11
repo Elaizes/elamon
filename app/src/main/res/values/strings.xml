@@ -390,6 +390,27 @@
 	<string name="power_needs_permission_body">The Elamon service runs outside a login session, so the system asks for a password it can\'t give. Allow it with a polkit rule: on NixOS, services.elamond.control.users = [ \"you\" ]; elsewhere, a rule that permits org.freedesktop.login1 power actions for your user.</string>
 	<string name="power_try_anyway">Try anyway</string>
 
+	<!-- The activity log: what phones asked the computer to do, let through or refused, newest first. -->
+	<string name="activity_title">Activity</string>
+	<string name="activity_summary">What phones asked this computer to do</string>
+	<string name="activity_refresh">Refresh</string>
+	<string name="activity_empty">Nothing yet</string>
+	<string name="activity_empty_body">Each time a phone asks this computer to do something, let through or refused, it shows up here.</string>
+	<string name="activity_error_title">Can\'t read the activity</string>
+	<!-- How a request ended, on its tag. -->
+	<string name="log_ok">Done</string>
+	<string name="log_not_allowed">Not allowed</string>
+	<string name="log_control_off">Control off</string>
+	<string name="log_too_often">Too often</string>
+	<string name="log_system_refused">Refused by the system</string>
+	<string name="log_failed">Failed</string>
+	<string name="log_process_changed">Process replaced</string>
+	<string name="log_not_saved">Not saved</string>
+	<string name="log_gone">Gone</string>
+	<string name="log_invalid">Invalid request</string>
+	<!-- An error code from a newer service, as it is: "Error: rate_limited". -->
+	<string name="log_other">Error: %1$s</string>
+
 	<!-- What became of a control request, shown in a snackbar -->
 	<string name="done_locked">Locked</string>
 	<string name="done_shutting_down">Shutting down</string>
@@ -479,7 +500,7 @@
 	<string name="settings_licence_inter">The Inter typeface:</string>
 	<string name="settings_close">Close</string>
 
-	<!-- Times in numbers (Fmt.duration, Fmt.ago); the unit symbols of other numbers stay in Format.kt -->
+	<!-- Times in numbers (Fmt.duration, Fmt.ago, the activity log's agoWords); the unit symbols of other numbers stay in Format.kt -->
 	<string name="duration_days_hours">%1$d d %2$d h</string>
 	<string name="duration_hours_minutes">%1$d h %2$d min</string>
 	<string name="duration_minutes">%1$d min</string>
@@ -491,6 +512,14 @@
 	<plurals name="ago_minutes">
 		<item quantity="one">%1$d min ago</item>
 		<item quantity="other">%1$d min ago</item>
+	</plurals>
+	<plurals name="ago_hours">
+		<item quantity="one">%1$d h ago</item>
+		<item quantity="other">%1$d h ago</item>
+	</plurals>
+	<plurals name="ago_days">
+		<item quantity="one">%1$d d ago</item>
+		<item quantity="other">%1$d d ago</item>
 	</plurals>
 
 	<!-- Help -->

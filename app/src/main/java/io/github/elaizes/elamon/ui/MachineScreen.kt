@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -137,6 +138,9 @@ fun MachineScreen(
 	val shownTab = if (tab in tabs) tab else Tab.Overview
 	LaunchedEffect(shownTab) { tab = shownTab }
 	var detail by rememberSaveable { mutableStateOf<String?>(null) }
+	// The activity page closes for a phone no longer allowed to read it.
+	LaunchedEffect(detail, perms.log) { if (detail == ACTIVITY_PAGE && !perms.log) detail = null }
+	val activity by vm.activity.collectAsStateWithLifecycle()
 	var menu by remember { mutableStateOf(false) }
 	var confirmForget by remember { mutableStateOf(false) }
 	val haze = remember { HazeState() }
@@ -233,7 +237,8 @@ fun MachineScreen(
 							label = "detail",
 						) { d ->
 							if (d != null) {
-								DetailPage(d, state, vm, detailList, processes = perms.processes)
+								if (d == ACTIVITY_PAGE) ActivityPage(vm, state, detailList)
+								else DetailPage(d, state, vm, detailList, processes = perms.processes)
 							} else {
 								AnimatedContent(
 									targetState = shownTab,
@@ -267,6 +272,11 @@ fun MachineScreen(
 					onBack = { if (detail != null) detail = null else onBack() },
 					subtitle = if (detail != null) name else status,
 					actions = {
+						if (detail == ACTIVITY_PAGE) {
+							IconButton(onClick = { vm.refreshActivity() }, enabled = !activity.loading) {
+								Icon(Icons.Default.Refresh, stringResource(R.string.activity_refresh))
+							}
+						}
 						IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.machine_more)) }
 						DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
 							DropdownMenuItem(text = { Text(stringResource(R.string.settings)) }, onClick = { menu = false; onSettings() })

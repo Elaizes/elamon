@@ -40,6 +40,7 @@ import io.github.elaizes.elamon.data.History
 import io.github.elaizes.elamon.data.Info
 import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.data.Listener
+import io.github.elaizes.elamon.data.LogEntry
 import io.github.elaizes.elamon.data.Proc
 import io.github.elaizes.elamon.data.Sample
 import io.github.elaizes.elamon.data.MachineStore
@@ -90,6 +91,13 @@ data class ActionsState(
 	val results: Map<String, ActionResult> = emptyMap(),
 	/** The action whose output is on screen. */
 	val shown: String? = null,
+)
+
+/** The activity log as last read: null until it is; [error] when reading it failed. */
+data class ActivityState(
+	val entries: List<LogEntry>? = null,
+	val loading: Boolean = false,
+	val error: Message? = null,
 )
 
 /** The first value at once, then each one that stays for [ms]: quick to start, calm while settings change. */
@@ -146,6 +154,11 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 
 	private val _actions = MutableStateFlow(ActionsState())
 	val actions: StateFlow<ActionsState> = _actions.asStateFlow()
+
+	private val _activity = MutableStateFlow(ActivityState())
+
+	/** What phones asked the computer to do, newest first, once the activity page has asked for it. */
+	val activity: StateFlow<ActivityState> = _activity.asStateFlow()
 
 	private val _compatDismissed = MutableStateFlow(false)
 
@@ -522,6 +535,26 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 				if ((e as? ElamondException)?.code == "no_such_action") refreshControl()
 			} finally {
 				_actions.update { it.copy(running = null) }
+			}
+		}
+	}
+
+	/** Reads the activity log again; what was read before stays on screen meanwhile. */
+	fun refreshActivity() {
+		if (_activity.value.loading) return
+		_activity.update { it.copy(loading = true) }
+		viewModelScope.launch {
+			try {
+				val c = client() ?: throw ElamondException(ElamondException.Kind.Unreachable)
+				val entries = c.get<List<LogEntry>>("/api/v1/control/log?limit=${Limits.ACTIVITY_SHOWN}")
+				_activity.update { it.copy(entries = entries, error = null) }
+			} catch (e: CancellationException) {
+				throw e
+			} catch (e: Exception) {
+				_activity.update { it.copy(error = messageFor(e)) }
+				noteRefusal(e)
+			} finally {
+				_activity.update { it.copy(loading = false) }
 			}
 		}
 	}
