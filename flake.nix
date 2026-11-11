@@ -102,7 +102,18 @@
 						openFirewall = lib.mkOption {
 							type = lib.types.bool;
 							default = false;
-							description = "Open the service's TCP port (`settings.port`, 47823 by default) for the app and UDP 5353 so it finds the computer by mDNS. Works without `enable`, for a service run by Home Manager.";
+							description = "Open the service's TCP port (`settings.port`, 47823 by default) for the app and UDP 5353 so it finds the computer by mDNS (unless `settings.mdns = false`). Works without `enable`, for a service run by Home Manager.";
+						};
+						firewallInterfaces = lib.mkOption {
+							type = lib.types.listOf lib.types.str;
+							default = [ ];
+							example = [ "eno1" "tailscale0" ];
+							description = ''
+								With `openFirewall`, open the ports on these interfaces only; empty opens them on
+								every interface. UDP 5353 opens only on those whose names aren't a VPN's (tailscale*,
+								wg*, tun*, tap*, zt*, ppp*): the service never announces itself over a VPN. To also
+								listen only there, name them in `settings.listen`.
+							'';
 						};
 						control = {
 							users = lib.mkOption {
@@ -148,12 +159,24 @@
 								};
 							};
 						})
-						(lib.mkIf cfg.openFirewall {
-							networking.firewall = {
-								allowedTCPPorts = [ (cfg.settings.port or 47823) ];
-								allowedUDPPorts = [ 5353 ];
-							};
-						})
+						(lib.mkIf cfg.openFirewall (
+							let
+								port = cfg.settings.port or 47823;
+								mdns = cfg.settings.mdns or true;
+								# The names elamond takes for VPNs, which it never announces itself on.
+								vpn = name: lib.any (p: lib.hasPrefix p name) [ "tun" "tap" "wg" "tailscale" "zt" "ppp" ];
+								everywhere = cfg.firewallInterfaces == [ ];
+							in {
+								networking.firewall = {
+									allowedTCPPorts = lib.optional everywhere port;
+									allowedUDPPorts = lib.optional (everywhere && mdns) 5353;
+									interfaces = lib.genAttrs cfg.firewallInterfaces (name: {
+										allowedTCPPorts = [ port ];
+										allowedUDPPorts = lib.optional (mdns && !vpn name) 5353;
+									});
+								};
+							}
+						))
 						(lib.mkIf (cfg.control.users != [ ]) {
 							security.polkit.enable = true;
 							security.polkit.extraConfig = ''
@@ -246,6 +269,8 @@
 					services.elamond = {
 						enable = true;
 						openFirewall = true;
+						# The test reaches the service over loopback, which the firewall always lets through.
+						firewallInterfaces = [ "eth1" "wg0" ];
 						users = [ "alice" ];
 					};
 					users.users.alice = { isNormalUser = true; uid = 1000; };
@@ -253,7 +278,7 @@
 					# A display manager's greeter: a system user with a user manager of its own.
 					users.users.greeter = { isSystemUser = true; uid = 990; group = "greeter"; };
 					users.groups.greeter = { };
-					environment.systemPackages = [ pkgs.curl pkgs.jq ];
+					environment.systemPackages = [ pkgs.curl pkgs.jq pkgs.openssl ];
 				};
 				testScript = builtins.readFile ./nix/module-test.py;
 			};
