@@ -509,7 +509,11 @@ fn art_path(url: &str) -> Option<PathBuf> {
 /// A cover image, if the path is a regular file no larger than `limit::ART_MAX`.
 async fn read_image(path: &Path) -> Option<(Vec<u8>, &'static str)> {
 	use tokio::io::AsyncReadExt;
-	// Non-blocking, so a FIFO can't hang the open; it, a device or a directory is then refused.
+	// Only a regular file is opened at all: opening a device can do something by itself.
+	if !tokio::fs::metadata(path).await.ok()?.is_file() {
+		return None;
+	}
+	// Non-blocking, so a FIFO put in its place since can't hang the open; it is then refused.
 	let file = tokio::fs::OpenOptions::new()
 		.read(true)
 		.custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY)

@@ -73,7 +73,8 @@ pub fn save_in(dir: &Path, list: &[LinkDef]) -> io::Result<()> {
 	store::write_json::<Vec<LinkDef>>(&dir.join(FILE), list)
 }
 
-/// Every link, the configured ones first.
+/// Every link the app may open, the configured ones first; one whose URL isn't a web page's
+/// (`web_url`) is left out, wherever it came from.
 pub fn all(config: &store::Config, app: &[LinkDef]) -> Vec<(LinkDef, bool)> {
 	let fixed = config.links.iter().map(|s| {
 		(
@@ -81,7 +82,25 @@ pub fn all(config: &store::Config, app: &[LinkDef]) -> Vec<(LinkDef, bool)> {
 			false,
 		)
 	});
-	fixed.chain(app.iter().cloned().map(|s| (s, true))).collect()
+	fixed.chain(app.iter().cloned().map(|s| (s, true))).filter(|(l, _)| web_url(&l.url)).collect()
+}
+
+/// Whether the app may open `url`: an http:// or https:// one, or a bare host and port, which the
+/// app opens as http. Another scheme (javascript:, intent:, file:, data:…) never.
+pub fn web_url(url: &str) -> bool {
+	let u = url.trim();
+	let scheme = u.bytes().take_while(|b| b.is_ascii_alphanumeric() || b"+.-".contains(b)).count();
+	// "{host}:8080", "192.0.2.10:80": no scheme at all.
+	if !u.starts_with(|c: char| c.is_ascii_alphabetic()) || !u[scheme..].starts_with(':') {
+		return true;
+	}
+	let rest = &u[scheme + 1..];
+	if rest.starts_with("//") {
+		return matches!(u[..scheme].to_ascii_lowercase().as_str(), "http" | "https");
+	}
+	// "localhost:8080/admin": a host and its port, not a scheme.
+	let port = rest.split(['/', '?', '#']).next().unwrap_or("");
+	!port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// The port a link's URL points at: explicit, or the scheme's.
@@ -230,6 +249,9 @@ pub fn settings_notes(config: &store::Config) -> Vec<String> {
 		.links
 		.iter()
 		.filter_map(|l| {
+			if !web_url(&l.url) {
+				return Some(format!("[[links]] \"{}\" is left out: its url isn't an http:// or https:// one", l.name));
+			}
 			let unit = l.unit.as_deref()?;
 			let why = unit_shape(unit).err()?;
 			Some(format!("[[links]] \"{}\": its unit {unit} {why}; the app can't start or stop it", l.name))
@@ -244,7 +266,7 @@ pub fn validate(name: &str, url: &str, unit: Option<&str>, scope: Option<&str>) 
 	if name.trim().is_empty() || name.chars().count() > limit::NAME_MAX || name.chars().any(store::unseen) {
 		return Err(ErrorCode::BadName);
 	}
-	if url.trim().is_empty() || url.len() > limit::URL_MAX || url.chars().any(char::is_control) {
+	if url.trim().is_empty() || url.len() > limit::URL_MAX || url.chars().any(char::is_control) || !web_url(url) {
 		return Err(ErrorCode::BadUrl);
 	}
 	if unit.is_some_and(|u| unit_shape(u).is_err()) {
@@ -342,6 +364,12 @@ mod tests {
 		assert_eq!(validate("a\u{1b}[31m", "http://x", None, None), Err(ErrorCode::BadName));
 		assert_eq!(validate("Web\u{202e}", "http://x", None, None), Err(ErrorCode::BadName));
 		assert_eq!(validate("a", "http://x\n", None, None), Err(ErrorCode::BadUrl));
+		for bad in ["javascript:alert(1)", "intent://x#Intent;end", "file:///etc/passwd", "data:text/html,x", "ftp://{host}", "http:x", "mailto:a@b"] {
+			assert_eq!(validate("a", bad, None, None), Err(ErrorCode::BadUrl), "{bad}");
+		}
+		for good in ["HTTPS://{host}/", "{host}:3000", "localhost:8080/admin", "pc.lan:81", "192.0.2.10:8096", "[::1]:9090"] {
+			assert_eq!(validate("a", good, None, None), Ok(()), "{good}");
+		}
 		assert_eq!(validate("a", &"u".repeat(513), None, None), Err(ErrorCode::BadUrl));
 		assert_eq!(validate("a", "http://x", Some("a b.service"), None), Err(ErrorCode::BadUnit));
 		assert_eq!(validate("a", "http://x", Some("a\tb"), None), Err(ErrorCode::BadUnit));
@@ -380,6 +408,19 @@ mod tests {
 		for bad in ["units = [\"-.slice\"]", "units = [\"x.socket\"]", "units = [{ name = \"a.service\", scope = \"global\" }]", "units = [\"elamond.service\"]", "units = [{ name = \"a.service\", other = 1 }]"] {
 			assert!(toml::from_str::<store::Config>(bad).is_err(), "{bad}");
 		}
+	}
+
+	#[test]
+	fn links_that_arent_web_pages_are_left_out_wherever_they_came_from() {
+		let link = |name: &str, url: &str| store::LinkConfig { name: name.into(), url: url.into(), unit: None, scope: None };
+		let config = store::Config { links: vec![link("Web", "http://{host}"), link("File", "file:///etc/passwd")], ..Default::default() };
+		let app = [
+			LinkDef { id: "a".into(), name: "Old".into(), url: "javascript:alert(1)".into(), unit: None, scope: None },
+			LinkDef { id: "b".into(), name: "Mine".into(), url: "{host}:81".into(), unit: None, scope: None },
+		];
+		let names: Vec<String> = all(&config, &app).into_iter().map(|(l, _)| l.name).collect();
+		assert_eq!(names, ["Web", "Mine"]);
+		assert!(settings_notes(&config)[0].contains("\"File\" is left out"));
 	}
 
 	#[test]

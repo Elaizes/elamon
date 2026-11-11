@@ -110,6 +110,9 @@ impl Hub {
 			eprintln!("links: {e}\n  the links added from the app are left out; the file is kept until one is saved");
 			Vec::new()
 		});
+		for l in app_links.iter().filter(|l| !crate::links::web_url(&l.url)) {
+			eprintln!("links: \"{}\" added from the app is left out: its url isn't an http:// or https:// one", store::sanitize_name(&l.name));
+		}
 		Hub {
 			id,
 			name,
