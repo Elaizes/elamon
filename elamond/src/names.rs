@@ -169,7 +169,7 @@ mod tests {
 
 	#[test]
 	fn tailscale_addresses() {
-		for yes in ["100.64.0.1", "100.64.0.1", "100.127.255.254", "fd7a:115c:a1e0::1"] {
+		for yes in ["100.64.0.1", "100.100.0.1", "100.127.255.254", "fd7a:115c:a1e0::1"] {
 			assert!(tailscale_range(&ip(yes)), "{yes}");
 		}
 		for no in ["100.63.255.255", "100.128.0.1", "192.168.200.101", "fd7a:115c:a1e1::1", "fd00::1"] {
@@ -183,7 +183,7 @@ mod tests {
 		"BackendState": "Running",
 		"TailscaleIPs": ["100.64.0.1", "fd7a:115c:a1e0::1"],
 		"Self": {
-			"HostName": "deskpcnix",
+			"HostName": "deskpc",
 			"DNSName": "Deskpc.tail1234.ts.net.",
 			"TailscaleIPs": ["100.64.0.1", "fd7a:115c:a1e0::1"]
 		},

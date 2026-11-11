@@ -783,6 +783,7 @@ mod tests {
 	fn names_in_the_pairing_link() {
 		assert_eq!(percent_encode("Laptop-16.local_~"), "Laptop-16.local_~");
 		assert_eq!(percent_encode("My PC"), "My%20PC");
+		assert_eq!(percent_encode("It's"), "It%27s");
 		assert_eq!(percent_encode("Ноут"), "%D0%9D%D0%BE%D1%83%D1%82");
 		assert_eq!(percent_encode("a&b=c"), "a%26b%3Dc");
 	}

@@ -447,7 +447,7 @@ interfaces, as one entry or a list:
 ```toml
 listen = ["tailscale0"]                    # over Tailscale only
 listen = ["eno1", "tailscale0"]            # the cable and Tailscale, not Wi-Fi or containers
-listen = ["192.168.200.10", "fd7a:115c::1"]  # these addresses
+listen = ["192.0.2.10", "fd7a:115c::1"]    # these addresses
 ```
 
 An interface stands for the addresses it has. One that has none yet, like a VPN that comes up

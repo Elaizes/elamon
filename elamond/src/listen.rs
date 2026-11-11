@@ -455,7 +455,7 @@ mod tests {
 		assert_eq!(Target::parse("[fd7a::1]").unwrap(), Target::Addr(ip("fd7a::1")));
 		assert_eq!(Target::parse("tailscale0").unwrap(), Target::Interface("tailscale0".into()));
 		assert_eq!(Target::parse("eth0.100").unwrap(), Target::Interface("eth0.100".into()));
-		for bad in ["192.168.200.1o1", "192.168.0", "fd7a::g", "", "a/b", "has space", "much-too-long-name0"] {
+		for bad in ["192.168.200.1o1", "192.168.200", "fd7a::g", "", "a/b", "has space", "much-too-long-name0"] {
 			assert!(Target::parse(bad).is_err(), "{bad}");
 		}
 	}
