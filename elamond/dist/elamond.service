@@ -13,6 +13,8 @@ ExecStart=/usr/bin/elamond serve
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5
+# Room for its connections (256 at most) and the files it reads, whatever the system's default.
+LimitNOFILE=8192
 
 [Install]
 WantedBy=default.target

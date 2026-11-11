@@ -3,17 +3,19 @@
 //! interface that has none yet (a VPN that comes up after the service) is listened on once it has
 //! one, and an address that goes away stops being listened on.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 use std::path::Path;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use axum_server::tls_rustls::RustlsConfig;
 use serde::{Deserialize, Deserializer};
 
-use crate::consts::limit;
+use crate::consts::{limit, timeout};
 
 /// One entry of `listen`: an address, or an interface by name.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -327,12 +329,173 @@ pub fn not_here(e: &io::Error) -> bool {
 
 pub type App = axum::extract::connect_info::IntoMakeServiceWithConnectInfo<axum::Router, SocketAddr>;
 
+/// How many connections the service holds, and how long a new one has to say something.
+#[derive(Clone, Copy, Debug)]
+pub struct Limits {
+	/// Connections at once, on every address together.
+	pub total: usize,
+	/// Connections from one address (an IPv6 one by its /64) that haven't shown a phone's key yet.
+	pub per_address: usize,
+	/// The TLS handshake, then the first request, then the headers of each request.
+	pub handshake: Duration,
+	pub first_request: Duration,
+	pub header_read: Duration,
+}
+
+impl Limits {
+	pub const SERVICE: Limits = Limits {
+		total: limit::CONNECTIONS_MAX,
+		per_address: limit::STRANGERS_PER_ADDRESS,
+		handshake: timeout::TLS_HANDSHAKE,
+		first_request: timeout::FIRST_REQUEST,
+		header_read: timeout::HEADER_READ,
+	};
+}
+
+/// Lets a connection in while there is room: `Limits::total` in all, and `Limits::per_address`
+/// from one address until a request on it shows a paired phone's key (`Admission::known`). One
+/// that doesn't fit is closed at once, before its TLS handshake, so a flood of them can't take the
+/// service's descriptors or keep the phones out.
+#[derive(Clone)]
+pub struct Gate(Arc<GateState>);
+
+struct GateState {
+	limits: Limits,
+	slots: Arc<tokio::sync::Semaphore>,
+	/// Connections from each address that haven't shown a key, by `store::address_key`.
+	strangers: Mutex<HashMap<String, usize>>,
+	/// When a refusal was last told, so a flood is a line a minute in the journal.
+	told: Mutex<Option<Instant>>,
+}
+
+/// A connection the gate let in, in the extensions of each request on it: it holds its place
+/// for as long as the connection lasts.
+#[derive(Clone)]
+pub struct Admission(Arc<Admitted>);
+
+struct Admitted {
+	gate: Arc<GateState>,
+	key: String,
+	/// Still counted against its address: no request on it has shown a key yet.
+	stranger: AtomicBool,
+	_slot: tokio::sync::OwnedSemaphorePermit,
+}
+
+impl Admission {
+	/// A request on the connection showed a paired phone's key: it no longer counts against its
+	/// address.
+	pub fn known(&self) {
+		if self.0.stranger.swap(false, Ordering::SeqCst) {
+			self.0.gate.release(&self.0.key);
+		}
+	}
+}
+
+impl Drop for Admitted {
+	fn drop(&mut self) {
+		if *self.stranger.get_mut() {
+			self.gate.release(&self.key);
+		}
+	}
+}
+
+impl GateState {
+	fn release(&self, key: &str) {
+		let mut s = self.strangers.lock().unwrap_or_else(|p| p.into_inner());
+		if let Some(n) = s.get_mut(key) {
+			*n -= 1;
+			if *n == 0 {
+				s.remove(key);
+			}
+		}
+	}
+}
+
+impl Gate {
+	pub fn new(limits: Limits) -> Self {
+		Gate(Arc::new(GateState {
+			limits,
+			slots: Arc::new(tokio::sync::Semaphore::new(limits.total)),
+			strangers: Mutex::new(HashMap::new()),
+			told: Mutex::new(None),
+		}))
+	}
+
+	/// A place for a connection from `peer`, or why there is none.
+	fn admit(&self, peer: IpAddr) -> Result<Admission, String> {
+		let Ok(slot) = self.0.slots.clone().try_acquire_owned() else {
+			return Err(format!("all {} connections are in use", self.0.limits.total));
+		};
+		let key = crate::store::address_key(peer);
+		let mut s = self.0.strangers.lock().unwrap_or_else(|p| p.into_inner());
+		let n = s.entry(key.clone()).or_default();
+		if *n >= self.0.limits.per_address {
+			return Err(format!("{n} connections from {key} haven't shown a phone's key yet"));
+		}
+		*n += 1;
+		drop(s);
+		Ok(Admission(Arc::new(Admitted { gate: self.0.clone(), key, stranger: AtomicBool::new(true), _slot: slot })))
+	}
+
+	/// Says why a connection was refused, once a minute at most.
+	fn tell(&self, peer: Option<IpAddr>, why: &str) {
+		let mut told = self.0.told.lock().unwrap_or_else(|p| p.into_inner());
+		if told.is_none_or(|t| t.elapsed() >= Duration::from_secs(60)) {
+			*told = Some(Instant::now());
+			let from = peer.map(|p| format!(" from {}", p.to_canonical())).unwrap_or_default();
+			eprintln!("listen: refused a connection{from}: {why}; more are refused without a word for a minute");
+		}
+	}
+}
+
+impl<S> axum_server::accept::Accept<tokio::net::TcpStream, S> for Gate {
+	type Stream = tokio::net::TcpStream;
+	type Service = axum::middleware::AddExtension<S, Admission>;
+	type Future = std::future::Ready<io::Result<(Self::Stream, Self::Service)>>;
+
+	fn accept(&self, stream: tokio::net::TcpStream, service: S) -> Self::Future {
+		use tower::Layer;
+		let peer = stream.peer_addr().ok().map(|a| a.ip());
+		let admitted = match peer {
+			Some(ip) => self.admit(ip),
+			None => Err("its address can't be read".into()),
+		};
+		std::future::ready(match admitted {
+			Ok(a) => Ok((stream, axum::Extension(a).layer(service))),
+			Err(why) => {
+				self.tell(peer, &why);
+				Err(io::Error::other(why))
+			}
+		})
+	}
+}
+
+/// A server on `listener` for `app`: TLS for the connections `gate` lets in, each given
+/// `limits`' time for its handshake, its first request and every request's headers.
+fn serve_on(
+	listener: TcpListener,
+	tls: RustlsConfig,
+	gate: Gate,
+	limits: Limits,
+	handle: axum_server::Handle<SocketAddr>,
+	app: App,
+) -> io::Result<tokio::task::JoinHandle<io::Result<()>>> {
+	let acceptor = axum_server::tls_rustls::RustlsAcceptor::new(tls).handshake_timeout(limits.handshake).acceptor(gate);
+	let mut server = axum_server::from_tcp(listener)?.acceptor(acceptor);
+	server.http_builder().http1().header_read_timeout(limits.header_read);
+	let server = server.first_request_timeout(limits.first_request).handle(handle);
+	Ok(tokio::spawn(server.serve(app)))
+}
+
 /// The service's listening sockets, one server on each, kept in step with `listen` as the
 /// interfaces' addresses change.
 pub struct Listeners {
 	port: u16,
 	tls: RustlsConfig,
 	app: App,
+	limits: Limits,
+	/// One for every socket: the limits hold for all of them together.
+	gate: Gate,
 	open: Vec<Open>,
 	/// What was said about addresses that can't be listened on, so each is said once.
 	told: BTreeMap<String, String>,
@@ -346,24 +509,21 @@ struct Open {
 }
 
 impl Listeners {
-	pub fn new(port: u16, tls: RustlsConfig, app: App) -> Self {
-		Listeners { port, tls, app, open: Vec::new(), told: BTreeMap::new() }
+	pub fn new(port: u16, tls: RustlsConfig, app: App, limits: Limits) -> Self {
+		Listeners { port, tls, app, limits, gate: Gate::new(limits), open: Vec::new(), told: BTreeMap::new() }
 	}
 
 	/// Serves on a socket bound for `spot`. Needs the runtime.
 	pub fn serve(&mut self, spot: Spot, listener: TcpListener) {
 		let local = listener.local_addr().unwrap_or(SocketAddr::new(spot.addr, self.port));
-		let server = match axum_server::from_tcp_rustls(listener, self.tls.clone()) {
-			Ok(s) => s,
-			Err(e) => {
-				eprintln!("listen: can't serve on {local}: {e}");
-				return;
-			}
-		};
 		let handle = axum_server::Handle::new();
-		let task = tokio::spawn(server.handle(handle.clone()).serve(self.app.clone()));
-		eprintln!("listen: on {}{}", local, spot.on());
-		self.open.push(Open { spot, local, handle, task });
+		match serve_on(listener, self.tls.clone(), self.gate.clone(), self.limits, handle.clone(), self.app.clone()) {
+			Ok(task) => {
+				eprintln!("listen: on {}{}", local, spot.on());
+				self.open.push(Open { spot, local, handle, task });
+			}
+			Err(e) => eprintln!("listen: can't serve on {local}: {e}"),
+		}
 	}
 
 	/// Says `what` about `key` unless it was just said; keys not said this round are forgotten,
@@ -560,6 +720,61 @@ mod tests {
 		assert_eq!(carried(&root, "podman0", LOWER_DEPTH), None);
 		assert_eq!(carried(&root, "br0", 1), None, "only so deep");
 		std::fs::remove_dir_all(root).unwrap();
+	}
+
+	#[test]
+	fn the_gate_holds_strangers_per_address_and_connections_in_all() {
+		let gate = Gate::new(Limits { total: 4, per_address: 2, ..Limits::SERVICE });
+		let first = gate.admit(ip("192.0.2.1")).unwrap();
+		let _second = gate.admit(ip("192.0.2.1")).unwrap();
+		assert!(gate.admit(ip("192.0.2.1")).err().unwrap().contains("haven't shown"));
+		// A key shown frees its place among the strangers, not among the connections.
+		first.known();
+		first.known();
+		let _third = gate.admit(ip("192.0.2.1")).unwrap();
+		// IPv6 by its /64.
+		let v6a = gate.admit(ip("2001:db8::1")).unwrap();
+		assert!(gate.admit(ip("2001:db8::2")).err().unwrap().contains("all 4"));
+		drop(first);
+		let v6 = gate.admit(ip("2001:db8::2")).unwrap();
+		assert!(gate.admit(ip("2001:db8::3")).is_err());
+		drop(v6);
+		drop(v6a);
+		assert_eq!(gate.0.strangers.lock().unwrap().get("2001:db8::/64"), None);
+		assert!(gate.admit(ip("2001:db8::3")).is_ok());
+	}
+
+	#[tokio::test]
+	async fn connections_beyond_the_limits_are_closed_and_silent_ones_dropped() {
+		use tokio::io::AsyncReadExt;
+		let dir = std::env::temp_dir().join(format!("elamond-gate-{}", data_encoding::HEXLOWER.encode(&crate::store::random_bytes::<6>())));
+		let identity = crate::identity::Identity::load_or_create(&dir).unwrap();
+		let tls = RustlsConfig::from_config(Arc::new(crate::tls_with(&identity.cert_der, &identity.key_der).unwrap()));
+		let app = axum::Router::new().route("/", axum::routing::get(|| async { "ok" })).into_make_service_with_connect_info::<SocketAddr>();
+		let quiet = Duration::from_millis(800);
+		let limits = Limits { total: 8, per_address: 2, handshake: quiet, first_request: quiet, header_read: quiet };
+		let listener = bind(ip("127.0.0.1"), 0).unwrap();
+		let addr = listener.local_addr().unwrap();
+		let handle = axum_server::Handle::new();
+		serve_on(listener, tls, Gate::new(limits), limits, handle.clone(), app).unwrap();
+		let connect = || tokio::net::TcpStream::connect(addr);
+		// Closed (the end, or a reset) within `within`, or still open then.
+		async fn closed(s: &mut tokio::net::TcpStream, within: Duration) -> bool {
+			let mut b = [0u8; 16];
+			matches!(tokio::time::timeout(within, s.read(&mut b)).await, Ok(Ok(0) | Err(_)))
+		}
+		// Two that say nothing are let in; a third from the same address is closed at once.
+		let mut a = connect().await.unwrap();
+		let mut b = connect().await.unwrap();
+		let mut c = connect().await.unwrap();
+		assert!(closed(&mut c, Duration::from_millis(300)).await, "the third stranger");
+		assert!(!closed(&mut a, Duration::from_millis(100)).await, "the first, still in its handshake time");
+		// Saying nothing, they are dropped once the handshake's time is up, which makes room again.
+		assert!(closed(&mut a, quiet * 2).await && closed(&mut b, quiet).await);
+		let mut d = connect().await.unwrap();
+		assert!(!closed(&mut d, Duration::from_millis(200)).await);
+		handle.shutdown();
+		std::fs::remove_dir_all(dir).unwrap();
 	}
 
 	#[test]

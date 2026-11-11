@@ -203,7 +203,7 @@ fn serve() -> Result<(), String> {
 		tokio::spawn(watch_settings(hub.clone()));
 		let app = server::router(hub.clone()).into_make_service_with_connect_info::<SocketAddr>();
 		let tls = RustlsConfig::from_config(Arc::new(tls));
-		let mut listeners = listen::Listeners::new(config.port, tls.clone(), app);
+		let mut listeners = listen::Listeners::new(config.port, tls.clone(), app, listen::Limits::SERVICE);
 		for (spot, l) in ready {
 			listeners.serve(spot, l);
 		}

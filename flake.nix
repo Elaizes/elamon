@@ -156,6 +156,8 @@
 									ExecReload = "${pkgs.coreutils}/bin/kill -HUP $MAINPID";
 									Restart = "on-failure";
 									RestartSec = 5;
+									# Room for its connections (256 at most) and the files it reads.
+									LimitNOFILE = 8192;
 								};
 							};
 						})
@@ -254,6 +256,7 @@
 								ExecReload = "${pkgs.coreutils}/bin/kill -HUP $MAINPID";
 								Restart = "on-failure";
 								RestartSec = 5;
+								LimitNOFILE = 8192;
 							};
 							Install.WantedBy = [ "default.target" ];
 						};

@@ -136,6 +136,12 @@ pub mod timeout {
 	pub const KEEPALIVE_PROBES: u32 = 3;
 	/// The same bound for data sent and never acknowledged, which keepalive doesn't cover.
 	pub const UNACKED: Duration = Duration::from_secs(60);
+	/// A new connection's TLS handshake, then its first request, then the headers of each request
+	/// (an idle connection between requests included): a client that says nothing, or says it a
+	/// byte at a time, doesn't hold a connection for longer.
+	pub const TLS_HANDSHAKE: Duration = Duration::from_secs(10);
+	pub const FIRST_REQUEST: Duration = Duration::from_secs(15);
+	pub const HEADER_READ: Duration = Duration::from_secs(15);
 }
 
 /// Sizes and counts that keep one phone, process or file from costing too much.
@@ -179,6 +185,12 @@ pub mod limit {
 	pub const ROTATIONS_KEPT: usize = 5;
 	/// Addresses `elamond pair` tries, to tell whether the service runs.
 	pub const SERVICE_CHECK_ADDRS: usize = 3;
+	/// Connections the service holds at once; more are closed as they come. The systemd units give
+	/// it far more descriptors than these take.
+	pub const CONNECTIONS_MAX: usize = 256;
+	/// Connections from one address (an IPv6 one by its /64) that haven't shown a paired phone's
+	/// key yet: pairing, `hello`, or nothing at all.
+	pub const STRANGERS_PER_ADDRESS: usize = 16;
 }
 
 /// `elamond backup`: how a passphrase becomes the key a backup is sealed with, and how much a
