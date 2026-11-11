@@ -19,10 +19,11 @@ The phone talks to the computer directly: on the same network, or over a VPN bot
 - [3. Pair the phone](#3-pair-the-phone)
 - [4. The app](#4-the-app)
 - [5. The control panel](#5-the-control-panel)
-- [6. Settings reference](#6-settings-reference)
-- [7. Updating and removing](#7-updating-and-removing)
-- [8. Troubleshooting](#8-troubleshooting)
-- [9. Security](#9-security)
+- [6. Roles: who may do what](#6-roles-who-may-do-what)
+- [7. Settings reference](#7-settings-reference)
+- [8. Updating and removing](#8-updating-and-removing)
+- [9. Troubleshooting](#9-troubleshooting)
+- [10. Security](#10-security)
 
 ## 1. Install the service
 
@@ -122,7 +123,8 @@ On the computer:
 elamond pair
 ```
 
-It prints a QR code and a six-digit code, good for five minutes and five wrong attempts.
+It prints a QR code and a six-digit code, good for five minutes. Five wrong tries from one address
+shut that address out for the rest of the code's life; twenty in all use the code up.
 
 - **QR code:** point the phone's camera at it and open the link. The link carries the computer's
   address and certificate, so pairing takes one tap.
@@ -130,8 +132,10 @@ It prints a QR code and a six-digit code, good for five minutes and five wrong a
   address. The app shows the computer's certificate digits first: they must match the
   `Certificate:` line `elamond pair` printed. Then enter the code.
 
-Each phone gets its own key. `elamond clients` lists the paired phones and `elamond revoke ID`
-unpairs one.
+Each phone gets its own key, and a role that says what it may see and do: by default `admin`,
+everything. Pairing someone else's phone, give it less, for example
+`elamond pair --role glance` ([section 6](#6-roles-who-may-do-what)). `elamond clients` lists the
+paired phones with their roles and `elamond revoke ID` unpairs one.
 
 ## 4. The app
 
@@ -210,6 +214,11 @@ background.
   again, unless it wakes on LAN.
 - **…watch several computers?** Pair each one; the home screen shows them all.
 - **…keep it on screen as a dashboard?** Settings → *Keep screen on*.
+- **…let someone watch the computer without touching it?** Pair their phone with
+  `elamond pair --role glance` (the basics) or `--role monitor` (everything to see, nothing to
+  change); see [section 6](#6-roles-who-may-do-what).
+- **…stop every phone from acting, right now?** `elamond control off` on the computer;
+  `elamond control on` lets them again.
 - **…stop a phone from seeing a computer?** On the computer `elamond clients`, then
   `elamond revoke ID`; on the phone, ⋮ → *Forget computer*.
 
@@ -230,7 +239,12 @@ The service notices the change within a few seconds by itself (or at once with
 `systemctl --user reload elamond`). On NixOS, set it through the module instead
 (`services.elamond.settings.control = true;`): the service then reads its settings from a read-only
 file the module builds, and restarts when they change. Anything you want to add by hand goes in
-a drop-in beside it, `~/.config/elamon/elamond.d/*.toml` ([section 6](#6-settings-reference)).
+a drop-in beside it, `~/.config/elamon/elamond.d/*.toml` ([section 7](#7-settings-reference)).
+
+With control on, each phone does as much as its role allows: a phone paired as `admin` (the
+default, and every phone paired before 0.5) everything below, others less
+([section 6](#6-roles-who-may-do-what)). `elamond control off` stops them all at once, whatever the
+settings say.
 
 ### What comes from where
 
@@ -319,7 +333,69 @@ polkit.addRule(function (action, subject) {
 *Lock* locks every session of your user through logind; your desktop's locker has to respond to
 that (GNOME and KDE do; on wlroots compositors, set up e.g. hypridle's `lock_cmd`).
 
-## 6. Settings reference
+## 6. Roles: who may do what
+
+Every paired phone has a role. Each allows what the one before it does, and more:
+
+| Role | Sees | Does (with control on) |
+|---|---|---|
+| `glance` | the basics: CPU, memory, graphics cards, temperatures, fans, storage, network, battery and power, with their history | nothing |
+| `monitor` | everything: processes with their commands and users, monitors, links, media, the activity log | nothing |
+| `operate` | everything | links and their units, media and the volume, the power profile, the commands from `[[actions]]` |
+| `admin` | everything | all that, and shutting down, restarting, sleeping, locking, quitting and killing processes |
+
+Phones paired before 0.5 are `admin`: they keep doing what they did.
+
+### Choosing a role
+
+`elamond pair` pairs as `admin` and says so; give another role when you pair:
+
+```sh
+elamond pair --role glance     # someone else's phone: how the computer is doing, nothing more
+elamond pair --role monitor    # sees what runs and what you host, changes nothing
+elamond pair --role operate    # everyday control without power or killing processes
+```
+
+To make another role the default for `elamond pair`, set `default_role = "monitor"` (or any role)
+in `elamond.toml`.
+
+`elamond clients` lists each phone with its role. To change one later:
+
+```sh
+elamond clients role ID glance    # ID from `elamond clients`
+elamond clients role all monitor  # every paired phone
+```
+
+It applies at once: the phone's next request, and the stream it has open from the next update, so
+a phone turned into `glance` stops getting processes, monitors and links within a second or two.
+The app shows only what the phone's role allows.
+
+### Stopping every phone at once
+
+```sh
+elamond control off     # no phone acts on the computer, whatever its role and the settings
+elamond control status  # whether control is on, and why
+elamond control on      # back to what the settings say
+```
+
+`control off` takes effect at the next request; phones still see what their roles show. It
+survives restarts of the service and of the computer, until `elamond control on`. It's the quick
+way when a phone is lost or something acts that shouldn't: the settings' `control = true` stays as
+it was.
+
+### The activity log
+
+Everything a phone asks the computer to do is written down, carried out or refused, with how it
+ended: when, which phone, what (*power reboot*, *unit restart nginx.service*, *action Back up
+now*…) and the result. The last 500 are kept in `~/.local/share/elamon/activity.jsonl` (one JSON
+object per line; only your user can read it) and survive restarts. Phones with the `monitor` role
+or above can read it in the app. What was carried out is also in the journal, as before:
+`journalctl --user -u elamond`.
+
+A phone may ask the computer to do 10 things in a row, then one a second; more are refused for a
+moment (*Too many requests*). Seeing is never limited.
+
+## 7. Settings reference
 
 ### `elamond.toml`
 
@@ -338,17 +414,19 @@ All keys are optional.
 | `interval_ms` | `1000` | time between readings, 250–10 000 |
 | `history_minutes` | `10` | history a phone gets when it connects (at most 7 200 readings) |
 | `control` | `false` | allow the control panel |
+| `default_role` | `"admin"` | the role `elamond pair` gives a phone when not told: `glance`, `monitor`, `operate` or `admin` ([section 6](#6-roles-who-may-do-what)) |
 | `[[links]]` | | `name`, `url`, `unit`, `scope` — see above; `[[services]]` before 0.5 |
 | `[[actions]]` | | `name`, `command`, `confirm`, `timeout` (seconds, at most 3 600) — see above |
 
 The service rereads the files when one of them changes, or on `systemctl --user reload elamond`. A
-file that doesn't parse is named in the log and the running settings stay. `control`, `links`
-and `actions` apply at once; `port`, `listen`, `name`, `mdns`, `interval_ms` and `history_minutes`
-after a restart.
+file that doesn't parse is named in the log and the running settings stay. `control`, `links`,
+`actions` and `default_role` apply at once; `port`, `listen`, `name`, `mdns`, `interval_ms` and
+`history_minutes` after a restart.
 
 Its state lives in `~/.local/share/elamon`: its id and certificate, the paired phones (only
-hashes of their keys), links added in the app and a pending pairing code. Deleting that folder
-unpairs every phone and gives the service a new certificate.
+hashes of their keys, and their roles), links added in the app, a pending pairing code, the
+activity log and `elamond control off`'s mark. Deleting that folder unpairs every phone and gives
+the service a new certificate.
 
 Where these live follows `XDG_CONFIG_HOME` and `XDG_DATA_HOME`. `ELAMON_CONFIG_DIR` and
 `ELAMON_DATA_DIR` name the two folders outright, `ELAMON_CONFIG` the settings file alone, and
@@ -378,7 +456,7 @@ to rename.
 | `services.elamond.package` | the service's package |
 | `services.elamond.settings` | written to `~/.config/elamon/elamond.toml`; a change restarts the service. Drop-ins in `elamond.d` still add to it |
 
-## 7. Updating and removing
+## 8. Updating and removing
 
 Update the app and the service together; this is a test version and they change in step.
 
@@ -394,7 +472,7 @@ To remove the service: `systemctl --user disable --now elamond`, delete the bina
 file, and `~/.config/elamon` and `~/.local/share/elamon`. In the app, *Forget computer* in the
 computer's menu.
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | What happens | What to do |
 |---|---|
@@ -402,7 +480,10 @@ computer's menu.
 | The app can't connect | `systemctl --user status elamond`, `journalctl --user -u elamond -e`; TCP 47823 open; the address reachable from the phone. |
 | It works only while you're logged in | `loginctl enable-linger` |
 | *The computer's certificate changed* | The service's data was deleted or the system reinstalled; forget the computer and pair again. If neither happened, check the network first. |
-| *Control is off* | `control = true` in `elamond.toml` or a drop-in in `elamond.d`; the service takes it up within a few seconds. |
+| *Control is off* | `control = true` in `elamond.toml` or a drop-in in `elamond.d`; the service takes it up within a few seconds. If it is set, `elamond control status` tells whether `elamond control off` holds it off. |
+| *Not allowed* | The phone's role doesn't allow that: `elamond clients` shows it, `elamond clients role ID ROLE` changes it ([section 6](#6-roles-who-may-do-what)). |
+| *Too many requests* | The phone asked for more than 10 things in a row; wait a few seconds. When pairing: five wrong codes came from this address; run `elamond pair` again for a new code. |
+| The phone keeps dropping off | The journal has a line for each stream a phone opens and closes, with its address (local network or VPN), how long it lasted and why it ended: `journalctl --user -u elamond -e`. |
 | *needs permission*, or *The computer didn't allow that* | The polkit rule from section 5. |
 | A link shows *Local only* | It listens on 127.0.0.1; see section 5. |
 | A link shows *No such unit* | The `unit` name is wrong, or the unit isn't installed; `systemctl list-units` (add `--user` for user units). |
@@ -413,16 +494,22 @@ computer's menu.
 
 To see what the service finds, without the app: `elamond snapshot`.
 
-## 9. Security
+## 10. Security
 
 - Everything goes over TLS. The service's certificate is self-signed; the app pins it when pairing
   and refuses any other afterwards.
 - Each phone holds its own random 256-bit key; the service keeps only its SHA-256. Keys stay out of
   Android backups.
-- A pairing code works for five minutes and five attempts, one attempt at a time.
+- A pairing code works for five minutes, one attempt at a time, each wrong one answered after a
+  second; five wrong ones shut that address out, twenty in all use the code up.
 - Without a key the service answers only its name (`hello`) and pairing.
-- Unless `control = true`, the service doesn't act on the computer: phones only read, and may
-  keep their list of links. With control on it acts as your user; commands can only come from
-  the settings files, never from a phone; it never signals itself, its parents or PID 1; and
-  every action is logged with the name of the phone that asked: `journalctl --user -u elamond`.
+- Each phone sees and does only what its role allows; give phones that aren't yours `glance` or
+  `monitor` ([section 6](#6-roles-who-may-do-what)).
+- Unless `control = true`, and no `elamond control off`, the service doesn't act on the computer:
+  phones only read, and may keep their list of links. With control on it acts as your user;
+  commands can only come from the settings files, never from a phone; it never signals itself,
+  its parents or PID 1, and with the start time the app sends, never a process that took the pid
+  of the one meant; a phone acts at most 10 times in a row, then once a second.
+- Every request to act is in the activity log, carried out or refused, and what was carried out
+  in the journal with the name of the phone that asked: `journalctl --user -u elamond`.
 - `elamond revoke` cuts a phone off at once, open streams included.

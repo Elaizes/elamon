@@ -33,6 +33,10 @@ Controlling, once the computer allows it:
 - commands you define on the computer;
 - quitting and killing processes.
 
+Each phone has a role, set on the computer: glancing at the basics, watching everything, everyday
+control, or all of it. Every request to act is kept in an activity log, and `elamond control off`
+stops every phone at once.
+
 The app: Material You with frosted glass on Android 12 and newer, light, dark or pure black.
 
 ## Quick start
@@ -59,7 +63,7 @@ The app: Material You with frosted glass on Android 12 and newer, light, dark or
 The phone and the computer talk directly, over the local network or a VPN they share: TCP 47823,
 and UDP 5353 for finding the computer by itself. Everything is encrypted, each phone has its own
 key that the computer can revoke, and the service only acts on the computer when told it may
-([security](docs/guide.md#9-security)).
+([security](docs/guide.md#10-security)).
 
 ## Technical notes
 

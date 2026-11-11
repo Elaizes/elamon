@@ -51,13 +51,18 @@ The service announces `_elamon._tcp` over mDNS with TXT records:
 
 ## Pairing
 
-`elamond pair` makes a six-digit code, valid for 5 minutes and 5 wrong attempts, and prints it
-with a QR code holding
+`elamond pair` makes a six-digit code, valid for 5 minutes, and prints it with a QR code holding
 
     elamon://pair?v=1&id=<id>&name=<name>&port=<port>&fp=<sha256>&code=<code>&h=<addr>,<addr>…
 
 `h` lists the computer's IPv4 addresses, local network first, then VPNs. Stopping `elamond pair`
-withdraws its code.
+withdraws its code. The phone that pairs with it gets the role `elamond pair --role` named, or
+`default_role` from the settings ([roles](#roles)).
+
+An address may try 5 wrong codes; after that it is answered 429 `too_many_requests`, whatever it
+sends, for as long as the code lives (an IPv6 address counts by its /64). Other addresses can still
+pair until 20 wrong codes in all use the code up. Attempts are taken one at a time, and each wrong
+one is answered after a second.
 
 ### `POST /api/v1/pair` (no token)
 
@@ -65,8 +70,10 @@ withdraws its code.
 { "code": "123456", "device": "Phone name" }
 ```
 
-200: `{ "token": "…", "client_id": "…", "id": "<service id>", "name": "<computer name>" }`
-403: `{ "error": "wrong_code" }` or `{ "error": "no_pairing" }` when no code is pending.
+200: `{ "token": "…", "client_id": "…", "id": "<service id>", "name": "<computer name>", "role": "<role>" }`
+(`role` since 0.5)
+403: `{ "error": "wrong_code" }` or `{ "error": "no_pairing" }` when no code is pending; 429
+`{ "error": "too_many_requests" }` from an address that tried too many wrong codes.
 
 The token goes in every other request as `Authorization: Bearer <token>`. Without a valid one
 the service answers 401 `{ "error": "unauthorized" }`. A phone removed with `elamond revoke` gets
@@ -75,6 +82,50 @@ the service answers 401 `{ "error": "unauthorized" }`. A phone removed with `ela
 ### `GET /api/v1/hello` (no token)
 
 `{ "app": "elamon", "api": 1, "id": "…", "name": "…", "version": "0.4.0", "min_app": "0.3.0" }`
+
+## Roles
+
+Since 0.5 each paired phone has a role. They are ordered, each allowing what the one before does
+and more:
+
+| role | |
+|---|---|
+| `glance` | `info`, `history`, `stream` and `snapshot` with the basics: CPU, memory, GPUs, temperatures, fans, disks, disk I/O, network, battery and power. `procs` and `media` are ignored (no `processes`, `process_count` or `media`), and `displays`, `links` and `services` are `[]`. And `GET /api/v1/control`, to learn its role |
+| `monitor` | everything there is to read: processes with their commands and users, monitors, links with the ports in use and the units to pick from, media with their covers, the activity log |
+| `operate` | adding, changing and removing links; starting, stopping and restarting their units; media and the volume; the power profile; the actions in the settings |
+| `admin` | power (shut down, restart, sleep, lock) and signals to processes |
+
+Phones paired before 0.5 have no role and are `admin`, which is what they could do then. The
+person at the computer chooses: `elamond pair --role <role>`, otherwise `default_role` from the
+settings (`admin` unless set); `elamond clients role` changes a paired phone's role, which applies
+from its next request, and in a stream it has open from the next sample.
+
+Acting on the computer also needs control, whatever the role: `control = true` in the settings
+and no `elamond control off`. A request the role doesn't allow is answered 403 `not_allowed`; one
+it allows while control is off, 403 `control_disabled`.
+
+`GET /api/v1/control` gives the phone its `role`, and in `allowed` what it may do now:
+
+| name | role | needs control | covers |
+|---|---|---|---|
+| `processes` | monitor | | `processes` and `process_count` in samples |
+| `displays` | monitor | | `displays` in samples |
+| `links` | monitor | | `links` in samples, `GET /api/v1/links`, `/api/v1/links/detected`, `/api/v1/units` |
+| `media.read` | monitor | | `media` in samples, `GET /api/v1/media/art` |
+| `log` | monitor | | `GET /api/v1/control/log` |
+| `links.edit` | operate | | `POST /api/v1/links`, `DELETE /api/v1/links/{id}` |
+| `units` | operate | yes | `POST /api/v1/links/{id}/unit` |
+| `media` | operate | yes | `POST /api/v1/media` |
+| `volume` | operate | yes | `POST /api/v1/media/volume` |
+| `profile` | operate | yes | `POST /api/v1/control/profile` |
+| `actions` | operate | yes | `POST /api/v1/control/action` |
+| `power` | admin | yes | `POST /api/v1/control/power` |
+| `signal` | admin | yes | `POST /api/v1/control/signal` |
+
+A name is in `allowed` when the role allows it and, where it needs control, control is on; the
+list is in this order. Whether the computer offers a thing is told beside it, in `power`,
+`profiles`, `actions` and `volume`. A client ignores names it doesn't know: later versions may add
+some.
 
 ## Data
 
@@ -96,6 +147,10 @@ Query parameters:
 | `history` | 0 | 1 to get the last minutes first |
 | `media` | 0 | 1 to include `media` in samples: the players, and the volume when `control` is on |
 
+`procs` and `media` are ignored for a `glance` phone ([roles](#roles)). When a phone's role
+changes, its open stream follows from the next sample: processes come back a tick or two later,
+as they do when first asked for.
+
 The service reads costlier sources (NVML, DRM, process list) only while some client streams and
 asks for them, and lets a powered-down GPU sleep. The first sample with processes comes a tick
 after they are first asked for: process CPU and disk use are rates, which need two readings.
@@ -112,7 +167,9 @@ The `info` and `history` objects alone.
 ## Objects
 
 A field marked `?` is `null` when the computer doesn't report it. Only `media`, `process_count`
-and `processes` are left out of a sample when they weren't asked for.
+and `processes` are left out of a sample, when they weren't asked for or the phone's role doesn't
+allow them; a `glance` phone's samples also have `displays`, `links` and `services` empty
+([`sample-glance.json`](../elamond/fixtures/sample-glance.json)).
 
 `info`:
 
@@ -174,21 +231,23 @@ Missing values are `null`.
 
 ## Control
 
-Everything below needs a token. Requests that change the computer, and media, also need
-`control = true` in the service's settings, or it answers 403 `control_disabled`. Adding,
-changing and removing links only changes the list the app shows; starting and stopping their
-units needs control. The routes under `/api/v1/links` answer under `/api/v1/services` too.
+Everything below needs a token, and the [role](#roles) for it. Requests that change the computer
+also need control: `control = true` in the service's settings and no `elamond control off` on the
+computer, or the service answers 403 `control_disabled`. Adding, changing and removing links only
+changes the list the app shows: it needs the `operate` role, not control. The routes under
+`/api/v1/links` answer under `/api/v1/services` too.
 
 | request | body | |
 |---|---|---|
-| `GET /api/v1/control` | | `{ enabled, power: { poweroff, reboot, suspend: "yes"\|"challenge"\|"no"\|"na", lock }, profiles?: { active, available }, actions: [{ id, name, confirm }], volume }` |
+| `GET /api/v1/control` | | `{ enabled, power: { poweroff, reboot, suspend: "yes"\|"challenge"\|"no"\|"na", lock }, profiles?: { active, available }, actions: [{ id, name, confirm }], volume, role, allowed: [] }` |
+| `GET /api/v1/control/log?limit=` | | the activity log, newest first, at most `limit` entries (all 500 kept by default) |
 | `POST /api/v1/control/power` | `{ action: "poweroff"\|"reboot"\|"suspend"\|"lock" }` | |
 | `POST /api/v1/control/profile` | `{ profile }` | power-profiles-daemon |
-| `POST /api/v1/control/signal` | `{ pid, signal: "term"\|"kill" }` | never the service, its parents or PID 1 |
+| `POST /api/v1/control/signal` | `{ pid, signal: "term"\|"kill", start? }` | never the service, its parents or PID 1 |
 | `POST /api/v1/control/action` | `{ id }` | `{ exit_code?, timed_out, output }` |
 | `POST /api/v1/media` | `{ player, op: "play_pause"\|"next"\|"previous"\|"seek"\|"volume", value? }` | MPRIS; seek in seconds |
 | `POST /api/v1/media/volume` | `{ level?, muted? }` | the default output, level 0–1 |
-| `GET /api/v1/media/art?player=` | | the cover, when the player has a local file |
+| `GET /api/v1/media/art?player=` | | the cover, when the player has a local file; reading, so no control needed (before 0.5 it was) |
 | `GET /api/v1/links` | | the links with their state, as in samples |
 | `POST /api/v1/links` | `{ id?, name, url, unit?, scope? }` | add, or change one added from the app; answers the saved `{ id, name, url, unit, scope }` |
 | `DELETE /api/v1/links/{id}` | | links from the settings files can't be changed or removed here |
@@ -196,12 +255,45 @@ units needs control. The routes under `/api/v1/links` answer under `/api/v1/serv
 | `GET /api/v1/links/detected` | | `[{ port, local_only, process? }]`: ports something listens on |
 | `GET /api/v1/units?scope=user\|system` | | `[{ name, description, active }]` |
 
+In `GET /api/v1/control`, `enabled` says whether control is on now, `elamond control off`
+included; `role` and `allowed` are the asking phone's ([roles](#roles)), new in 0.5. `power`,
+`profiles`, `actions` and `volume` go only as far as the role: beyond it they read as on a
+computer without them (`"na"` and `false`, `null`, `[]`, `false`), so an app from before roles
+offers no more than the phone may do.
+
 Action ids come from the action's name and command, not its place in the settings, so a phone
 holding an old list can't run a different command after the settings change; an id that no
 longer exists answers 404 `no_such_action`. An action's output keeps its first 4 KiB and last
 12 KiB; a timed-out action answers with what it printed so far.
 
+A signal's `start` is the process's start time as samples give it (Unix s). With it, the service
+signals only the process that started then: if the pid now belongs to another, it answers 409
+`process_changed` and signals nothing. Without it, whatever has the pid gets the signal, as
+before 0.5.
+
 Successful actions answer `{ "ok": true }`.
+
+### How often
+
+A phone may make 10 acting requests (every one in the table but the `GET`s) in a row, then one more
+each second; beyond that it gets 429 `too_many_requests`. Reading isn't counted.
+
+### Activity log
+
+Every acting request is recorded, let through or refused, with how it ended. The service keeps
+the last 500, in a private file in its data directory (`activity.jsonl`), so they survive
+restarts. Each entry:
+
+```
+{ t (Unix ms), phone (its name then), client_id, what, result ("ok" or the error code),
+  message? (what failed, or how an action ended: "exit 0", "timed out") }
+```
+
+`what` reads like `power reboot`, `profile balanced`, `signal term 1234 firefox`,
+`action Back up now`, `unit restart nginx.service`, `media play_pause`, `volume 40 %`,
+`link add Jellyfin`, `link remove Jellyfin`. Of a run of 429 refusals only the first is
+recorded. A request whose body the service can't read at all isn't. Requests that were let through
+are also in the journal (`journalctl --user -u elamond`), as before.
 
 ## Errors
 
@@ -212,10 +304,15 @@ Errors are `{ "error": "<code>" }` with these statuses (the same list is in
 |---|---|
 | 400 | `unknown_signal`, `empty_command`, `no_unit`, `bad_name`, `bad_url`, `bad_unit`, `bad_scope` |
 | 401 | `unauthorized` |
-| 403 | `no_pairing`, `wrong_code`, `control_disabled`, `not_permitted` (polkit refused, or a protected process) |
+| 403 | `no_pairing`, `wrong_code`, `control_disabled`, `not_permitted` (polkit refused, or a protected process), `not_allowed` (the phone's role doesn't allow it) |
 | 404 | `not_found`, `no_such_process`, `no_such_action`, `no_such_link` (`no_such_service` before 0.5), `no_art` |
+| 409 | `process_changed` (a signal's `start` names another process than the pid's) |
+| 429 | `too_many_requests` (acting too often, or too many wrong pairing codes from one address) |
 | 500 | `storage` |
 | 502 | `failed`, with `"message"` |
+
+`not_allowed`, `process_changed` and `too_many_requests` are new in 0.5; an app from before
+them takes them as an error it has no words for.
 
 `failed` carries a `message`: either one of `unknown_action`, `unknown_operation`,
 `unknown_player`, `unknown_profile`, `no_value`, `no_track`, `no_session`, `no_system_bus`,
