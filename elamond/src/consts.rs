@@ -26,7 +26,7 @@ pub mod protocol {
 	pub const CONTENT_ID_LEN: usize = 12;
 	/// Digits in a pairing code.
 	pub const PAIRING_DIGITS: u32 = 6;
-	/// Addresses in a pairing link: the app reads no more than these.
+	/// Addresses and names in a pairing link: the app reads no more than these.
 	pub const PAIR_HOSTS_MAX: usize = 8;
 	/// What a statement that one certificate follows another starts with, and what its `format`
 	/// says: the version of the text signed. The app follows only those it knows.
@@ -115,6 +115,8 @@ pub mod timeout {
 	pub const PROBE: Duration = Duration::from_millis(250);
 	/// `elamond pair` tries the service's port for this long to tell whether it runs.
 	pub const SERVICE_CHECK: Duration = Duration::from_millis(300);
+	/// `elamond pair` waits this long for `tailscale status`, for the computer's Tailscale name.
+	pub const TAILSCALE: Duration = Duration::from_millis(1500);
 	/// Open connections get this long to finish when the service stops.
 	pub const SHUTDOWN: Duration = Duration::from_secs(2);
 	/// A pairing attempt without a pending code is answered after this, a wrong code after the next.

@@ -14,6 +14,7 @@ mod links;
 mod listen;
 mod mdns;
 mod model;
+mod names;
 mod server;
 mod store;
 
@@ -444,22 +445,16 @@ fn pair(args: &[String]) -> Result<(), String> {
 	}
 	let new_phone = || store::load_clients().ok()?.into_iter().find(|c| !before.contains(&c.id));
 
-	// Where the service listens, as the phone can reach it: the local network first.
+	// Where the service listens, as the phone can reach it: the local network first, then the
+	// names that stay when addresses change.
 	let ifaces = listen::interfaces();
 	let plan = listen::Plan::of(&config.listen, &ifaces);
-	let hosts: Vec<String> = plan.pairing_hosts(&ifaces).iter().map(IpAddr::to_string).collect();
-	let uri = format!(
-		"elamon://pair?v=1&id={}&name={}&port={}&fp={}&code={}&h={}",
-		identity.id,
-		percent_encode(&name),
-		config.port,
-		identity.fingerprint,
-		pairing.code,
-		hosts.join(",")
-	);
+	let offered = names::Offered::of(&plan.pairing_hosts(&ifaces), &config.names, names::tailscale(&plan, &ifaces).as_deref());
+	let hosts = offered.hosts();
+	let uri = pair_link(&identity, &name, config.port, &pairing.code, &hosts);
 
 	let tty = std::io::stdout().is_terminal();
-	// Without an address in it, the link would only be refused.
+	// Without an address or a name in it, the link would only be refused.
 	if let Some(qr) = qrcode::QrCode::new(uri.as_bytes()).ok().filter(|_| !hosts.is_empty()) {
 		let img = qr
 			.render::<qrcode::render::unicode::Dense1x2>()
@@ -479,9 +474,10 @@ fn pair(args: &[String]) -> Result<(), String> {
 	let code = format!("{} {}", &pairing.code[..3], &pairing.code[3..]);
 	println!();
 	if hosts.is_empty() {
-		println!("  In Elamon tap Add, give the address the phone reaches this computer at, and enter:");
+		println!("  In Elamon tap Add computer, give the address the phone reaches this computer at, and enter:");
 	} else {
-		println!("  Scan the code with the phone's camera, or in Elamon tap Add and enter:");
+		println!("  Scan the code with the phone's camera, or in Elamon tap Add computer, give an address");
+		println!("  or name below, and enter:");
 	}
 	println!();
 	println!("      {code}");
@@ -489,11 +485,17 @@ fn pair(args: &[String]) -> Result<(), String> {
 	println!("  Computer:     {name}");
 	println!(
 		"  Addresses:    {}  port {}",
-		if hosts.is_empty() { "none a phone can reach".into() } else { hosts.join(", ") },
+		if offered.addrs.is_empty() { "none a phone can reach".into() } else { offered.addrs.join(", ") },
 		config.port
 	);
 	if !plan.waiting.is_empty() {
 		println!("                and {} once it has an address", plan.waiting.join(", "));
+	}
+	if !offered.names.is_empty() {
+		println!("  Names:        {}", offered.names.join(", "));
+	}
+	if !offered.left_out.is_empty() {
+		println!("  Not in the QR code, which carries {} at most: {}", consts::protocol::PAIR_HOSTS_MAX, offered.left_out.join(", "));
 	}
 	println!("  Certificate:  {}", store::pretty_fingerprint(&identity.fingerprint));
 	println!("  The app shows the same certificate digits when you pair by code; they must match.");
@@ -550,6 +552,18 @@ fn used_up() -> String {
 /// Whether the service answers at one of `addrs`, where it listens.
 fn service_running(addrs: &[IpAddr], port: u16) -> bool {
 	addrs.iter().any(|a| std::net::TcpStream::connect_timeout(&SocketAddr::new(*a, port), timeout::SERVICE_CHECK).is_ok())
+}
+
+/// The link in the QR code: what the app needs to find this computer at one of `hosts`, know its
+/// certificate and pair with `code`. Addresses and names need no encoding.
+fn pair_link(identity: &identity::Identity, name: &str, port: u16, code: &str, hosts: &[String]) -> String {
+	format!(
+		"elamon://pair?v=1&id={}&name={}&port={port}&fp={}&code={code}&h={}",
+		identity.id,
+		percent_encode(name),
+		identity.fingerprint,
+		hosts.join(",")
+	)
 }
 
 fn percent_encode(s: &str) -> String {
@@ -725,6 +739,21 @@ mod tests {
 		assert_eq!(percent_encode("My PC"), "My%20PC");
 		assert_eq!(percent_encode("Ноут"), "%D0%9D%D0%BE%D1%83%D1%82");
 		assert_eq!(percent_encode("a&b=c"), "a%26b%3Dc");
+	}
+
+	#[test]
+	fn the_pairing_link_carries_addresses_then_names() {
+		let identity = identity::Identity { id: "0123456789abcdef0123456789abcdef".into(), cert_der: Vec::new(), key_der: Vec::new(), fingerprint: "ab".repeat(32) };
+		let addrs: Vec<IpAddr> = ["192.168.200.101", "100.64.0.1"].iter().map(|a| a.parse().unwrap()).collect();
+		let offered = names::Offered::of(&addrs, &["deskpc.example.net".into()], Some("deskpc.tail1234.ts.net"));
+		let link = pair_link(&identity, "My PC", 47823, "042917", &offered.hosts());
+		assert_eq!(
+			link,
+			format!(
+				"elamon://pair?v=1&id=0123456789abcdef0123456789abcdef&name=My%20PC&port=47823&fp={}&code=042917&h=192.168.200.101,100.64.0.1,deskpc.example.net,deskpc.tail1234.ts.net",
+				"ab".repeat(32)
+			)
+		);
 	}
 
 	#[test]

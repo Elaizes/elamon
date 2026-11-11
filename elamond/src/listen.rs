@@ -13,7 +13,7 @@ use std::time::Duration;
 use axum_server::tls_rustls::RustlsConfig;
 use serde::{Deserialize, Deserializer};
 
-use crate::consts::{limit, protocol};
+use crate::consts::limit;
 
 /// One entry of `listen`: an address, or an interface by name.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -219,12 +219,17 @@ impl Plan {
 		self.any || (self.any_v4 && ip.is_ipv4())
 	}
 
+	/// Whether a phone could reach it at `ip`, an address of this computer's.
+	pub fn listens_on(&self, ip: &IpAddr) -> bool {
+		usable(ip) && (self.everywhere(ip) || self.spots.iter().any(|s| s.addr == *ip))
+	}
+
 	/// The interfaces it listens on, with the addresses of each it listens on.
 	fn by_interface<'a>(&self, ifaces: &'a [Iface]) -> Vec<(&'a Iface, Vec<IpAddr>)> {
 		ifaces
 			.iter()
 			.map(|i| {
-				let addrs = i.addrs.iter().copied().filter(|a| usable(a) && (self.everywhere(a) || self.spots.iter().any(|s| s.addr == *a))).collect();
+				let addrs = i.addrs.iter().copied().filter(|a| self.listens_on(a)).collect();
 				(i, addrs)
 			})
 			.filter(|(_, a): &(&Iface, Vec<IpAddr>)| !a.is_empty())
@@ -234,7 +239,8 @@ impl Plan {
 	/// The addresses for a pairing link: those a phone could reach the service at, the local
 	/// network first, then VPNs. Of each interface its IPv4 addresses, or its IPv6 ones when it
 	/// has no IPv4 one listened on. Listening everywhere, bridges and containers are left out as
-	/// no phone is behind them; named, they come last. Never loopback.
+	/// no phone is behind them; named, they come last. Never loopback. All of them: `names::Offered`
+	/// keeps what fits in the link.
 	pub fn pairing_hosts(&self, ifaces: &[Iface]) -> Vec<IpAddr> {
 		let wildcard = self.any || self.any_v4;
 		let mut found: Vec<(u8, IpAddr)> = Vec::new();
@@ -255,7 +261,7 @@ impl Plan {
 			}
 		}
 		found.sort_by_key(|(rank, _)| *rank);
-		found.into_iter().map(|(_, a)| a).take(protocol::PAIR_HOSTS_MAX).collect()
+		found.into_iter().map(|(_, a)| a).collect()
 	}
 
 	/// Where `elamond pair` looks for the service: this computer's own address when it listens
@@ -509,9 +515,6 @@ mod tests {
 		// A bridge named outright counts, last; loopback never.
 		assert_eq!(hosts(&["docker0", "tailscale0", "lo"]), ["100.64.0.1", "172.17.0.1"]);
 		assert!(hosts(&["127.0.0.1"]).is_empty());
-		// No more than the app reads.
-		let many: Vec<Iface> = (0..20).map(|n| iface(&format!("eth{n}"), "wired", &[&format!("10.0.{n}.1")])).collect();
-		assert_eq!(Plan::of(&[Target::ANY], &many).pairing_hosts(&many).len(), protocol::PAIR_HOSTS_MAX);
 	}
 
 	#[test]

@@ -607,6 +607,13 @@ fn volume_set(level: Option<f32>, muted: Option<bool>) -> Result<(), String> {
 /// Runs a short command and returns its output, or nothing if it failed or took longer than
 /// `timeout::COMMAND`: the collector calls this, and must not hang on a stuck sound server.
 fn run(argv: &[&str]) -> Option<String> {
+	run_within(argv, timeout::COMMAND)
+}
+
+/// Runs a command that prints little and returns its output, or nothing if it failed, isn't there
+/// or took longer than `limit`; then it is killed with whatever it started. The output is read once
+/// the command has ended, so it has to fit in a pipe (64 KiB on Linux).
+pub fn run_within(argv: &[&str], limit: Duration) -> Option<String> {
 	use std::os::unix::process::CommandExt;
 	let mut child = std::process::Command::new(argv[0])
 		.args(&argv[1..])
@@ -618,7 +625,7 @@ fn run(argv: &[&str]) -> Option<String> {
 		.process_group(0)
 		.spawn()
 		.ok()?;
-	let deadline = Instant::now() + timeout::COMMAND;
+	let deadline = Instant::now() + limit;
 	let status = loop {
 		match child.try_wait() {
 			Ok(Some(s)) => break s,

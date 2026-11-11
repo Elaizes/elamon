@@ -30,6 +30,9 @@ pub struct Config {
 	#[serde(deserialize_with = "crate::listen::deserialize")]
 	pub listen: Vec<Target>,
 	pub port: u16,
+	/// Host names that reach this computer, for `elamond pair` to offer after its addresses.
+	#[serde(deserialize_with = "crate::names::deserialize")]
+	pub names: Vec<String>,
 	/// Name shown in the app; the hostname when empty.
 	pub name: String,
 	/// Announce the service on the local network so the app finds it.
@@ -112,6 +115,7 @@ impl Default for Config {
 		Config {
 			listen: vec![Target::ANY],
 			port: protocol::DEFAULT_PORT,
+			names: Vec::new(),
 			name: String::new(),
 			mdns: true,
 			interval_ms: 1000,
