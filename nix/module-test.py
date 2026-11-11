@@ -129,3 +129,81 @@ with subtest("five wrong codes from one address shut it out of that code"):
 		assert call("POST", "/api/v1/pair", body={"code": wrong}) == (403, {"error": "wrong_code"})
 	assert call("POST", "/api/v1/pair", body={"code": code}) == (429, {"error": "too_many_requests"})
 	machine.succeed("systemctl stop pair-guess")
+
+with subtest("openFirewall with firewallInterfaces opens the port on those alone, mDNS's not over a VPN"):
+	rules = machine.succeed("iptables-save 2>/dev/null || nft list ruleset")
+	def opened(iface, proto, port):
+		return re.search(rf'(-i {iface} -p {proto} -m {proto} --dport {port} |iifname "{iface}" {proto} dport (\{{ )?{port}\b)', rules)
+	assert opened("eth1", "tcp", 47823) and opened("eth1", "udp", 5353), rules
+	assert opened("wg0", "tcp", 47823) and not opened("wg0", "udp", 5353), rules
+	assert not re.search(r'(-A nixos-fw -p tcp -m tcp --dport 47823 |^\s*tcp dport (\{ )?47823\b)', rules, re.M), rules
+
+def second(*args, unit):
+	"""elamond as alice with the settings and state in /tmp/second."""
+	env = " ".join(f"-p Environment={e}" for e in ["HOME=/home/alice", "ELAMON_CONFIG_DIR=/tmp/second/cfg", "ELAMON_DATA_DIR=/tmp/second/data", "ELAMON_CONFIG=/tmp/second/cfg/elamond.toml"])
+	machine.succeed(f"systemd-run --uid=alice {env} --unit={unit} /run/current-system/sw/bin/timeout 300 /run/current-system/sw/bin/elamond {' '.join(args)}")
+
+with subtest("listen names interfaces: eth1 at once, dummy0 once it has an address and until it loses it; mDNS on eth1 alone"):
+	machine.succeed("mkdir -p /tmp/second/cfg /tmp/second/data")
+	machine.succeed("""printf '%s\\n' 'port = 47900' 'listen = ["eth1", "dummy0"]' 'name = "Second"' > /tmp/second/cfg/elamond.toml""")
+	machine.succeed("chown -R alice: /tmp/second")
+	second("serve", unit="second")
+	eth1 = machine.succeed("ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1").strip()
+	eth0 = machine.succeed("ip -4 -o addr show eth0 | awk '{print $4}' | cut -d/ -f1").strip()
+	machine.wait_until_succeeds(f"curl -sk https://{eth1}:47900/api/v1/hello | jq -e '.name == \"Second\"'", timeout=60)
+	# Not on loopback or the other interface, which it wasn't told to listen on.
+	machine.fail("curl -sk --max-time 3 https://127.0.0.1:47900/api/v1/hello")
+	if eth0:
+		machine.fail(f"curl -sk --max-time 3 https://{eth0}:47900/api/v1/hello")
+	journal = lambda: machine.succeed("journalctl -u second -o cat")
+	assert "dummy0 has no address yet" in journal(), journal()
+	machine.wait_until_succeeds("journalctl -u second -o cat | grep -qx 'mdns: announced on eth1'", timeout=30)
+	# An interface that comes up after the service: taken within seconds.
+	machine.succeed("ip link add dummy0 type dummy && ip addr add 10.99.0.1/24 dev dummy0 && ip link set dummy0 up")
+	machine.wait_until_succeeds("curl -sk https://10.99.0.1:47900/api/v1/hello | jq -e '.name == \"Second\"'", timeout=30)
+	assert "listen: on 10.99.0.1:47900 (dummy0)" in journal(), journal()
+	# A dummy interface is virtual: mDNS stays on eth1.
+	assert journal().count("mdns: announced on") == 1, journal()
+	# An address that goes away is let go, and the service goes on.
+	machine.succeed("ip addr del 10.99.0.1/24 dev dummy0")
+	machine.wait_until_succeeds("journalctl -u second -o cat | grep -q 'listen: no longer on 10.99.0.1:47900'", timeout=30)
+	machine.fail("ss -ltn | grep -q '10.99.0.1:47900'")
+	machine.succeed(f"curl -sk https://{eth1}:47900/api/v1/hello")
+
+with subtest("elamond pair offers the addresses listened on, and finds the service there"):
+	second("pair", unit="second-pair")
+	machine.wait_until_succeeds("journalctl -u second-pair -o cat | grep -q 'Addresses:'", timeout=30)
+	out = machine.succeed("journalctl -u second-pair -o cat")
+	assert re.search(rf"Addresses: +{re.escape(eth1)}  port 47900$", out, re.M), out
+	assert "dummy0 once it has an address" in out and "isn't answering" not in out, out
+	machine.succeed("systemctl stop second-pair second")
+
+with subtest("elamond rotate-cert: a new certificate signed by the old key, the phone's pairing kept"):
+	served_fp = "openssl s_client -connect localhost:47823 </dev/null 2>/dev/null | openssl x509 -outform DER | sha256sum | cut -d' ' -f1"
+	served_key = "openssl s_client -connect localhost:47823 </dev/null 2>/dev/null | openssl x509 -pubkey -noout | openssl pkey -pubin -outform DER | openssl dgst -sha256 -binary | base64"
+	old_fp = machine.succeed(served_fp).strip()
+	old_key = machine.succeed(served_key).strip()
+	machine.succeed(f"curl -sk --pinnedpubkey 'sha256//{old_key}' https://localhost:47823/api/v1/hello")
+	assert call("GET", "/api/v1/identity/rotations") == (200, [])
+	machine.succeed("su - alice -c 'elamond rotate-cert' | grep -q 'New certificate'")
+	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -q 'certificate: now'", timeout=30)
+	new_fp = machine.succeed(served_fp).strip()
+	assert new_fp != old_fp
+	# What the phone pinned no longer holds...
+	machine.fail(f"curl -sk --pinnedpubkey 'sha256//{old_key}' https://localhost:47823/api/v1/hello")
+	# ...but the service shows, with no token, how the new certificate follows from it.
+	status, chain = call("GET", "/api/v1/identity/rotations")
+	assert status == 200 and len(chain) == 1, chain
+	step = chain[0]
+	assert (step["format"], step["old_fp"], step["new_fp"]) == ("elamon-rotate-v1", old_fp, new_fp), step
+	machine.succeed(f"echo {step['old_cert']} | base64 -d > /tmp/old.der && echo {step['signature']} | base64 -d > /tmp/sig")
+	machine.succeed(f"printf '%s\\n%s\\n%s\\n%s' {step['format']} {old_fp} {new_fp} {step['t']} > /tmp/signed")
+	assert machine.succeed("sha256sum /tmp/old.der").split()[0] == old_fp
+	machine.succeed("openssl x509 -inform DER -in /tmp/old.der -pubkey -noout > /tmp/old.pem")
+	machine.succeed("openssl dgst -sha256 -verify /tmp/old.pem -signature /tmp/sig /tmp/signed")
+	# The same phone, its token unchanged, carries on.
+	assert call("GET", "/api/v1/info", auth)[0] == 200
+	# And the chain outlives a restart.
+	machine.succeed("systemctl --user -M alice@ restart elamond")
+	machine.wait_until_succeeds("curl -sk https://localhost:47823/api/v1/identity/rotations | jq -e 'length == 1'", timeout=60)
+	assert machine.succeed(served_fp).strip() == new_fp
