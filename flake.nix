@@ -68,6 +68,7 @@
 			#     enable = true;
 			#     openFirewall = true;
 			#     settings.control = true;
+			#     settings.units = [ { name = "jellyfin.service"; scope = "system"; } ];
 			#     control.users = [ "alice" ];
 			#     control.units = [ "jellyfin.service" ];
 			#   };
@@ -97,7 +98,13 @@
 						settings = lib.mkOption {
 							type = toml.type;
 							default = { };
-							description = "elamond.toml for every user's service; empty keeps each user's own ~/.config/elamon/elamond.toml. Each user's ~/.config/elamon/elamond.d/*.toml still adds to it.";
+							description = ''
+								elamond.toml for every user's service; empty keeps each user's own
+								~/.config/elamon/elamond.toml. Each user's ~/.config/elamon/elamond.d/*.toml still adds
+								to it. A change restarts the services. It lands in the Nix store, which every user can
+								read: keep secrets (a link's URL with a password in it, a token among an action's
+								arguments) out of it, in a drop-in only its user can read (chmod 600).
+							'';
 						};
 						openFirewall = lib.mkOption {
 							type = lib.types.bool;
@@ -110,9 +117,10 @@
 							example = [ "eno1" "tailscale0" ];
 							description = ''
 								With `openFirewall`, open the ports on these interfaces only; empty opens them on
-								every interface. UDP 5353 opens only on those whose names aren't a VPN's (tailscale*,
-								wg*, tun*, tap*, zt*, ppp*): the service never announces itself over a VPN. To also
-								listen only there, name them in `settings.listen`.
+								every interface. UDP 5353 opens only on those whose names don't look like a VPN's
+								(tailscale*, wg*, nordlynx*, tun*, tap*, zt*, ppp*): the service never announces itself
+								over a VPN. That is told by the name alone, so a VPN interface named otherwise gets
+								UDP 5353 too. To also listen only there, name them in `settings.listen`.
 							'';
 						};
 						control = {
@@ -120,17 +128,32 @@
 								type = lib.types.listOf lib.types.str;
 								default = [ ];
 								description = ''
-									Users whose service may power off, reboot and suspend the computer and switch
-									the power profile without a password. Their service runs outside a login
-									session, where polkit would otherwise ask for one. Needs `control = true`
-									in the service's settings to be of use.
+									Users who may power off, reboot and suspend the computer and switch the power
+									profile without a password, so that their Elamon service can: it runs outside a
+									login session, where polkit would otherwise ask for one. polkit can't tell the
+									service from the user's other programs, so this holds for every process these
+									users run, not only elamond. Needs `control = true` in the service's settings to
+									be of use.
 								'';
 							};
 							units = lib.mkOption {
 								type = lib.types.listOf lib.types.str;
 								default = [ ];
 								example = [ "jellyfin.service" ];
-								description = "System units those users may start, stop and restart from the app.";
+								description = ''
+									System units those users may start, stop and restart without a password, from
+									the app or any other program of theirs. The app can only use one the service's
+									settings name too: on a `[[links]]` entry with `scope = "system"`, or in `units`
+									as `{ name = "…"; scope = "system"; }`.
+								'';
+							};
+							multipleSessions = lib.mkOption {
+								type = lib.types.bool;
+								default = false;
+								description = ''
+									Also let those users power off, reboot and suspend while other users are logged in
+									(logind's `*-multiple-sessions` actions), ending their sessions.
+								'';
 							};
 						};
 					};
@@ -146,7 +169,12 @@
 								# Every user manager has this unit; these say whose may start it. "|" entries
 								# need one of them to hold, the plain one always.
 								unitConfig.ConditionUser = [ "!@system" ] ++ map (u: "|${u}") cfg.users;
-								environment = lib.mkIf (cfg.settings != { }) { ELAMON_CONFIG = "${configFile}"; };
+								# NixOS gives a unit a PATH of coreutils and the like; the service runs wpctl or
+								# pactl, and actions may run sudo, pkexec or what the user installed.
+								enableDefaultPath = false;
+								environment = {
+									PATH = "/run/wrappers/bin:%h/.nix-profile/bin:/etc/profiles/per-user/%u/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin";
+								} // lib.optionalAttrs (cfg.settings != { }) { ELAMON_CONFIG = "${configFile}"; };
 								restartTriggers = lib.optional (cfg.settings != { }) configFile;
 								# A broken identity or setting fails at once; ten tries in five minutes, then stop.
 								startLimitIntervalSec = 300;
@@ -165,8 +193,9 @@
 							let
 								port = cfg.settings.port or 47823;
 								mdns = cfg.settings.mdns or true;
-								# The names elamond takes for VPNs, which it never announces itself on.
-								vpn = name: lib.any (p: lib.hasPrefix p name) [ "tun" "tap" "wg" "tailscale" "zt" "ppp" ];
+								# Names VPN interfaces go by, where mDNS isn't opened: the service never announces
+								# itself over a VPN. A guess by the name alone.
+								vpn = name: lib.any (p: lib.hasPrefix p name) [ "tun" "tap" "wg" "nordlynx" "tailscale" "zt" "ppp" ];
 								everywhere = cfg.firewallInterfaces == [ ];
 							in {
 								networking.firewall = {
@@ -182,21 +211,26 @@
 						(lib.mkIf (cfg.control.users != [ ]) {
 							security.polkit.enable = true;
 							security.polkit.extraConfig = ''
-								// Elamon: what paired phones may do through these users' Elamon services.
+								// Elamon: what paired phones may do through these users' Elamon services, and so
+								// any program of these users without a password.
 								polkit.addRule(function (action, subject) {
 									if (${builtins.toJSON cfg.control.users}.indexOf(subject.user) < 0) {
 										return polkit.Result.NOT_HANDLED;
 									}
-									var power = [
-										"org.freedesktop.login1.power-off",
-										"org.freedesktop.login1.power-off-multiple-sessions",
-										"org.freedesktop.login1.reboot",
-										"org.freedesktop.login1.reboot-multiple-sessions",
-										"org.freedesktop.login1.suspend",
-										"org.freedesktop.login1.suspend-multiple-sessions",
-										"org.freedesktop.UPower.PowerProfiles.switch-profile",
-										"net.hadess.PowerProfiles.switch-profile"
-									];
+									var power = ${builtins.toJSON (
+										[
+											"org.freedesktop.login1.power-off"
+											"org.freedesktop.login1.reboot"
+											"org.freedesktop.login1.suspend"
+											"org.freedesktop.UPower.PowerProfiles.switch-profile"
+											"net.hadess.PowerProfiles.switch-profile"
+										]
+										++ lib.optionals cfg.control.multipleSessions [
+											"org.freedesktop.login1.power-off-multiple-sessions"
+											"org.freedesktop.login1.reboot-multiple-sessions"
+											"org.freedesktop.login1.suspend-multiple-sessions"
+										]
+									)};
 									if (power.indexOf(action.id) >= 0) {
 										return polkit.Result.YES;
 									}
@@ -234,10 +268,15 @@
 								{
 									control = true;
 									links = [ { name = "Jellyfin"; url = "http://{host}:8096"; unit = "jellyfin.service"; scope = "system"; } ];
-									actions = [ { name = "Update"; command = [ "nh" "os" "switch" ]; timeout = 900; } ];
+									actions = [ { name = "Update"; command = [ "''${pkgs.nh}/bin/nh" "os" "switch" ]; timeout = 900; } ];
 								}
 							'';
-							description = "Written to ~/.config/elamon/elamond.toml; empty leaves that file alone.";
+							description = ''
+								Written to ~/.config/elamon/elamond.toml, and a change restarts the service; empty
+								leaves that file alone. It lands in the Nix store, which every user can read: keep
+								secrets (a link's URL with a password in it, a token among an action's arguments) in a
+								drop-in in ~/.config/elamon/elamond.d only you can read (chmod 600).
+							'';
 						};
 					};
 					config = lib.mkIf cfg.enable {
@@ -262,6 +301,9 @@
 						};
 					};
 				};
+
+			# The same under the name Home Manager now looks for.
+			homeModules.default = self.homeManagerModules.default;
 
 			# `nix flake check`: the NixOS module in a VM, as on a machine with a greeter and
 			# more than one user.
