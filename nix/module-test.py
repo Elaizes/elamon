@@ -281,3 +281,28 @@ with subtest("elamond backup and restore: a wiped service comes back as the same
 	# With the rotation phones follow, and the drop-in that turned control on.
 	assert len(call("GET", "/api/v1/identity/rotations")[1]) == 1
 	assert call("GET", "/api/v1/control", kept)[1]["enabled"]
+
+with subtest("a phone that came by another's token gets a key of its own, and the old phone is revoked alone"):
+	code = pair_code("pair-move")
+	status, paired = call("POST", "/api/v1/pair", body={"code": code, "device": "Old phone"})
+	assert status == 200 and paired["role"] == "admin", paired
+	old_id = paired["client_id"]
+	# Import pairings on a new phone: the old phone's token, from another client.
+	shared = f"-H 'Authorization: Bearer {paired['token']}'"
+	assert call("GET", "/api/v1/info", shared)[0] == 200
+	status, own = call("POST", "/api/v1/rekey", shared, {"device": "New phone"})
+	assert status == 200 and own["role"] == "admin" and own["client_id"] != old_id and own["token"] != paired["token"], own
+	mine = f"-H 'Authorization: Bearer {own['token']}'"
+	clients = machine.succeed("su - alice -c 'elamond clients'")
+	assert re.search(rf"^{old_id}\s+admin\s+Old phone\s+\(paired ", clients, re.M), clients
+	assert re.search(rf"^{own['client_id']}\s+admin\s+New phone\s+\(added \S+ with the key of {old_id}\)", clients, re.M), clients
+	# The old token works until it is revoked; then only the new one does.
+	assert call("GET", "/api/v1/info", shared)[0] == 200
+	out = machine.succeed(f"su - alice -c 'elamond revoke {old_id}'")
+	assert "Unpaired 1 phone(s)" in out and "added with its key" in out and own["client_id"] in out, out
+	assert call("GET", "/api/v1/info", shared) == (401, {"error": "unauthorized"})
+	assert call("GET", "/api/v1/info", mine)[0] == 200
+	assert call("GET", "/api/v1/control", mine)[1]["role"] == "admin"
+	_, log = call("GET", "/api/v1/control/log", mine)
+	assert any(e["client_id"] == old_id and e["what"] == "phone added: New phone" and e["result"] == "ok" for e in log), log
+	machine.succeed("journalctl _UID=1000 -o cat | grep -q 'pairing: added \"New phone\" .* asked with the key of \"Old phone\"'")
