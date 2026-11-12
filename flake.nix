@@ -20,6 +20,8 @@
 				};
 				cargoLock.lockFile = ./elamond/Cargo.lock;
 				nativeBuildInputs = [ pkgs.makeWrapper ];
+				# `elamond update`'s tests download, with curl, from a server of their own on 127.0.0.1.
+				nativeCheckInputs = [ pkgs.curl ];
 				# GPU names come from the PCI database, which NixOS keeps in the store.
 				postFixup = ''
 					wrapProgram $out/bin/elamond \

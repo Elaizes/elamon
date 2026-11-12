@@ -51,17 +51,24 @@ The app: Material You with frosted glass on Android 12 and newer, light, dark or
 
 ## Quick start
 
-1. Install the service. On any distribution with systemd, take the binary from the
-   [latest release](https://github.com/Elaizes/elamon/releases/latest) (or build it with `cargo`),
-   then let `elamond setup` install it for your user:
+1. Install the service. On any distribution with systemd and glibc 2.28 or newer, this puts the
+   newest release's `elamond` in `~/.local/bin`, its checksum checked, and lets `elamond setup`
+   install it for your user:
+
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/Elaizes/elamon/main/install.sh | sh
+   ```
+
+   Then run what it prints as root: lingering, the firewall, the polkit rule. `elamond update`
+   installs a newer release later. To do it by hand instead, take the binary from the
+   [releases](https://github.com/Elaizes/elamon/releases) (or build it with `cargo`):
 
    ```sh
    install -Dm755 elamond ~/.local/bin/elamond
    ~/.local/bin/elamond setup
    ```
 
-   and run what it prints as root: lingering, the firewall, the polkit rule. On NixOS, from this
-   flake:
+   On NixOS, from this flake:
 
    ```nix
    imports = [ inputs.elamon.nixosModules.default ];

@@ -94,7 +94,7 @@ struct Opts {
 // ---- the init system ---------------------------------------------------------------------
 
 /// What setup needs of the init system that runs the service for the user.
-trait InitSystem {
+pub(crate) trait InitSystem {
 	/// Its name, for what setup says.
 	fn name(&self) -> &'static str;
 	/// Whether it runs this computer.
@@ -112,6 +112,9 @@ trait InitSystem {
 	/// The commands that take up the definition as written, enable the service and start it
 	/// (`Start::Now`) or start it again (`Start::Again`).
 	fn activate(&self, start: Start) -> Vec<Vec<String>>;
+	/// The commands that start the service again on a binary replaced under it, if it runs, and leave
+	/// it stopped if it doesn't: after `elamond update`.
+	fn restart_if_running(&self) -> Vec<Vec<String>>;
 	/// Whether the user's services run while they are logged out, when that can be told.
 	fn lingers(&self, user: &str) -> Option<bool>;
 	/// The command, as root, that keeps them running.
@@ -121,7 +124,7 @@ trait InitSystem {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Start {
+pub(crate) enum Start {
 	Not,
 	Now,
 	Again,
@@ -129,15 +132,15 @@ enum Start {
 
 /// The service as the user's service manager sees it; `None` where it couldn't say.
 #[derive(Default, Debug, PartialEq)]
-struct Status {
-	loaded: Option<bool>,
-	path: Option<PathBuf>,
-	enabled: Option<String>,
-	active: Option<String>,
-	main_pid: Option<u32>,
+pub(crate) struct Status {
+	pub(crate) loaded: Option<bool>,
+	pub(crate) path: Option<PathBuf>,
+	pub(crate) enabled: Option<String>,
+	pub(crate) active: Option<String>,
+	pub(crate) main_pid: Option<u32>,
 }
 
-struct Systemd;
+pub(crate) struct Systemd;
 
 impl InitSystem for Systemd {
 	fn name(&self) -> &'static str {
@@ -191,6 +194,10 @@ impl InitSystem for Systemd {
 			}
 		}
 		out
+	}
+
+	fn restart_if_running(&self) -> Vec<Vec<String>> {
+		vec![["systemctl", "--user", "try-restart", "elamond"].map(String::from).to_vec()]
 	}
 
 	fn lingers(&self, user: &str) -> Option<bool> {
@@ -279,7 +286,7 @@ fn home() -> PathBuf {
 }
 
 /// A path with the home folder written `~`, for reading.
-fn short(path: &Path) -> String {
+pub(crate) fn short(path: &Path) -> String {
 	match path.strip_prefix(home()) {
 		Ok(rest) if home() != Path::new("/") => format!("~/{}", rest.display()),
 		_ => path.display().to_string(),
@@ -628,7 +635,7 @@ fn managed_elsewhere(init: &dyn InitSystem) -> Option<&'static str> {
 }
 
 /// The binary running now, as the unit should name it.
-fn this_exe() -> Result<String, String> {
+pub(crate) fn this_exe() -> Result<String, String> {
 	let exe = std::env::current_exe().map_err(|e| format!("can't tell where this elamond is: {e}"))?;
 	let exe = exe.to_str().ok_or_else(|| format!("{} isn't UTF-8; move elamond to a plainer path", exe.display()))?;
 	// The binary was replaced since it started: the new one at the same path is meant.
@@ -902,7 +909,7 @@ fn write_new(path: &Path, text: &str) -> io::Result<()> {
 	f.write_all(text.as_bytes())
 }
 
-fn run_command(c: &[String]) -> Result<(), String> {
+pub(crate) fn run_command(c: &[String]) -> Result<(), String> {
 	let out = Command::new(&c[0]).args(&c[1..]).output().map_err(|e| format!("{}: {e}", c[0]))?;
 	if out.status.success() {
 		Ok(())

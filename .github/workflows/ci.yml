@@ -1,6 +1,7 @@
 # elamond's lints and tests (with the protocol fixtures), and its tests built on each distribution
-# the guide names, with that distribution's compiler; `elamond setup` with a real systemd user
-# manager; the app's unit tests, lint and release build; and the NixOS module in a VM.
+# the guide names, with that distribution's compiler, with install.sh there; install.sh,
+# `elamond setup` and `elamond update` with a real systemd user manager; install.sh's lint; the
+# app's unit tests, lint and release build; and the NixOS module in a VM.
 #
 # Every action is pinned to a commit, its release in the comment beside it: a tag can be moved,
 # a commit can't. To update one: git ls-remote https://github.com/OWNER/REPO refs/tags/TAG
@@ -35,9 +36,18 @@ jobs:
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
 
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: shellcheck --version && shellcheck install.sh .github/local-release.sh
+
   # elamond built and tested on each distribution the guide names, as someone building it there
   # from source would: Fedora, Arch and openSUSE with their own Rust, Debian and Ubuntu with
-  # rustup's, theirs being older than 1.88. A C compiler is all the crates need besides.
+  # rustup's, theirs being older than 1.88. A C compiler is all the crates need besides; Python
+  # serves the release install.sh is tried on, made there from what was built.
   distros:
     runs-on: ubuntu-latest
     strategy:
@@ -45,17 +55,17 @@ jobs:
       matrix:
         include:
           - image: debian:stable
-            tools: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gcc libc6-dev git
+            tools: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gcc libc6-dev git python3
             rustup: true
           - image: ubuntu:24.04
-            tools: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gcc libc6-dev git
+            tools: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gcc libc6-dev git python3
             rustup: true
           - image: fedora:latest
-            tools: dnf install -y cargo gcc git
+            tools: dnf install -y cargo gcc git python3
           - image: archlinux:latest
-            tools: pacman -Syu --noconfirm --needed rust gcc git
+            tools: pacman -Syu --noconfirm --needed rust gcc git python
           - image: opensuse/tumbleweed
-            tools: zypper --non-interactive install cargo gcc git tar gzip
+            tools: zypper --non-interactive install cargo gcc git tar gzip gawk python3
     container: ${{ matrix.image }}
     steps:
       - name: Build tools
@@ -67,9 +77,23 @@ jobs:
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       - run: cargo --version && cargo test --locked
         working-directory: elamond
+      # As a user: install.sh refuses root, which the job runs as.
+      - name: install.sh from a release made here, served on 127.0.0.1
+        run: |
+          cargo build --locked --manifest-path elamond/Cargo.toml
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' elamond/Cargo.toml | head -n 1)
+          sh .github/local-release.sh elamond/target/debug/elamond "$version" /tmp/release 8765
+          python3 -m http.server -b 127.0.0.1 -d /tmp/release 8765 > /tmp/http.log 2>&1 &
+          for _ in $(seq 50); do curl -sf -o /dev/null http://127.0.0.1:8765/releases.json && break; sleep 0.2; done
+          mkdir -p /tmp/home && chown 65534:65534 /tmp/home && cp install.sh /tmp/install.sh
+          python3 -c 'import os, sys; os.setgroups([]); os.setgid(65534); os.setuid(65534); os.execvp(sys.argv[1], sys.argv[1:])' \
+            env HOME=/tmp/home ELAMON_RELEASES_URL=http://127.0.0.1:8765/releases.json sh /tmp/install.sh --no-setup
+          /tmp/home/.local/bin/elamond --version | grep -qx "elamond $version"
 
-  # `elamond setup` as a person runs it, under a real systemd user manager: the service installed,
-  # started and answering, `setup --check` content, and a second run changing nothing.
+  # install.sh and `elamond setup` as a person runs them, under a real systemd user manager, from a
+  # release made here and served on 127.0.0.1: the service installed, started and answering,
+  # `setup --check` content, a second run changing nothing; then `elamond update` finding a newer
+  # release there, installing it and starting the service again on it.
   setup:
     runs-on: ubuntu-latest
     defaults:
@@ -94,10 +118,18 @@ jobs:
           done
           echo "no user manager" >&2
           exit 1
-      - name: elamond setup
+      - name: A release made here, served on 127.0.0.1 as GitHub would
         run: |
-          install -Dm755 target/debug/elamond ~/.local/bin/elamond
-          ~/.local/bin/elamond setup | tee "$RUNNER_TEMP/setup.txt"
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          sh ../.github/local-release.sh target/debug/elamond "$version" "$RUNNER_TEMP/release" 8765
+          nohup python3 -m http.server -b 127.0.0.1 -d "$RUNNER_TEMP/release" 8765 > "$RUNNER_TEMP/http.log" 2>&1 &
+          echo "ELAMON_RELEASES_URL=http://127.0.0.1:8765/releases.json" >> "$GITHUB_ENV"
+          for _ in $(seq 50); do curl -sf -o /dev/null http://127.0.0.1:8765/releases.json && exit 0; sleep 0.2; done
+          exit 1
+      - name: install.sh, which runs elamond setup
+        run: |
+          sh ../install.sh | tee "$RUNNER_TEMP/setup.txt"
+          ~/.local/bin/elamond --version
           grep -q 'OK  the service answers on port 47823' "$RUNNER_TEMP/setup.txt"
           test -f ~/.config/elamon/elamond.toml
           grep -q '^ExecStart=/home/.*/\.local/bin/elamond serve$' ~/.config/systemd/user/elamond.service
@@ -108,6 +140,29 @@ jobs:
       - run: ~/.local/bin/elamond setup --check
       - name: Run again, it changes nothing
         run: ~/.local/bin/elamond setup | tee /dev/stderr | grep -q 'elamond.service is up to date'
+      # 9.9.9: the binary built here, behind a script that says it is 9.9.9.
+      - name: elamond update --check names a newer release
+        run: |
+          cp target/debug/elamond "$RUNNER_TEMP/elamond-real"
+          mkdir -p "$RUNNER_TEMP/fake"
+          cat > "$RUNNER_TEMP/fake/elamond" << EOF
+          #!/bin/sh
+          [ "\$1" = --version ] && { echo "elamond 9.9.9"; exit 0; }
+          exec "$RUNNER_TEMP/elamond-real" "\$@"
+          EOF
+          sh ../.github/local-release.sh "$RUNNER_TEMP/fake/elamond" 9.9.9 "$RUNNER_TEMP/release" 8765
+          ~/.local/bin/elamond update --check | tee "$RUNNER_TEMP/check.txt"
+          grep -q '^elamond 9.9.9 is out; this is ' "$RUNNER_TEMP/check.txt"
+          grep -q 'elamond update installs it' "$RUNNER_TEMP/check.txt"
+      - name: elamond update installs it and starts the service again on it
+        run: |
+          before=$(systemctl --user show --property=MainPID --value elamond)
+          ~/.local/bin/elamond update --yes | tee "$RUNNER_TEMP/update.txt"
+          grep -q 'OK  started the service again on it' "$RUNNER_TEMP/update.txt"
+          ~/.local/bin/elamond --version | grep -qx 'elamond 9.9.9'
+          after=$(systemctl --user show --property=MainPID --value elamond)
+          test "$after" != 0 && test "$after" != "$before"
+          curl -sSk --retry 10 --retry-connrefused https://127.0.0.1:47823/api/v1/hello | grep -q '"app":"elamon"'
       - if: failure()
         run: journalctl --user -u elamond --no-pager || systemctl --user status elamond --no-pager
 
