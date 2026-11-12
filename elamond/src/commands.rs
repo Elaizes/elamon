@@ -1,7 +1,8 @@
 //! The commands about the settings: `elamond check`, `edit`, `schema`, `defaults` and `values`.
 
 use std::fs;
-use std::io::{IsTerminal, Write};
+use std::io::{self, IsTerminal, Write};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use crate::settings::{self, Mistake, Source};
@@ -115,8 +116,7 @@ pub fn edit(args: &[String]) -> Result<(), String> {
 	}
 	// The copy is edited away from the settings, so the service never reads it half done.
 	let base = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).filter(|d| d.is_absolute() && d.is_dir()).unwrap_or_else(std::env::temp_dir);
-	let scratch = base.join(format!("elamond-edit-{}", std::process::id()));
-	store::private_dir(&scratch).map_err(|e| format!("can't make {}: {e}", scratch.display()))?;
+	let scratch = scratch_dir(&base).map_err(|e| format!("can't make a folder to edit in, in {}: {e}", base.display()))?;
 	let copy = scratch.join(target.file_name().unwrap_or("elamond.toml".as_ref()));
 	let start = original.clone().unwrap_or_else(|| {
 		"# elamond's settings (docs/config.md). `elamond defaults` prints the built-in dashboards and\n# profile; a table here with the same id changes them key by key.\n\n".into()
@@ -156,27 +156,62 @@ fn edit_loop(editor: &str, target: &Path, copy: &Path, start: &str, original: Op
 					std::io::stdin().read_line(&mut line).is_ok() && !matches!(line.trim().to_ascii_lowercase().as_str(), "n" | "no")
 				};
 				if !again {
-					let kept = target.with_file_name(format!("{}.broken", target.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()));
-					let _ = fs::write(&kept, &text);
-					return Err(format!("the settings weren't changed; the edit is kept in {}", kept.display()));
+					return Err(match keep_broken(target, &text) {
+						Ok(kept) => format!("the settings weren't changed; the edit is kept in {}", kept.display()),
+						Err(e) => format!("the settings weren't changed, and the edit couldn't be kept beside them: {e}"),
+					});
 				}
 			}
 		}
 	}
 }
 
-/// Replaces `path` with `text` in one step, keeping its permissions.
-fn save(path: &Path, text: &str) -> std::io::Result<()> {
+/// A folder of its own for `elamond edit`'s copy in `base`, only its owner may enter: a new one,
+/// with a name no one can tell in advance, never one that was there.
+fn scratch_dir(base: &Path) -> io::Result<PathBuf> {
+	let dir = base.join(format!("elamond-edit-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<8>())));
+	fs::DirBuilder::new().mode(0o700).create(&dir)?;
+	Ok(dir)
+}
+
+/// The permissions settings written for `path` get: its own, or only its owner's for a new file
+/// (a link may hold a password, a command a token).
+fn mode_for(path: &Path) -> u32 {
+	fs::metadata(path).map(|m| m.permissions().mode() & 0o777).unwrap_or(0o600)
+}
+
+/// Replaces `path` with `text` in one step, keeping its permissions (only its owner's for a new
+/// file). The text is never in a file others may read where the settings themselves aren't.
+fn save(path: &Path, text: &str) -> io::Result<()> {
+	replace_as(path, text, mode_for(path))
+}
+
+/// Keeps an edit the settings refused beside `target`, as `<name>.broken`, as private as it.
+fn keep_broken(target: &Path, text: &str) -> io::Result<PathBuf> {
+	let kept = target.with_file_name(format!("{}.broken", target.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()));
+	replace_as(&kept, text, mode_for(target))?;
+	Ok(kept)
+}
+
+/// Writes `text` to `path` in one step, the file having `mode`: through a new file beside it of a
+/// name of its own, made with that mode, renamed over `path`.
+fn replace_as(path: &Path, text: &str, mode: u32) -> io::Result<()> {
 	let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
 	let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-	let tmp = dir.join(format!(".{name}.{}.saving", std::process::id()));
-	fs::write(&tmp, text)?;
-	if let Ok(m) = fs::metadata(path) {
-		fs::set_permissions(&tmp, m.permissions())?;
-	}
-	fs::rename(&tmp, path).inspect_err(|_| {
+	let tag = data_encoding::HEXLOWER.encode(&store::random_bytes::<4>());
+	let tmp = dir.join(format!(".{name}.{}.{tag}.saving", std::process::id()));
+	let written = (|| {
+		let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(mode).open(&tmp)?;
+		f.write_all(text.as_bytes())?;
+		// The umask may have taken some of the mode away: the file is to have it whole.
+		f.set_permissions(fs::Permissions::from_mode(mode))?;
+		f.sync_all()?;
+		fs::rename(&tmp, path)
+	})();
+	if written.is_err() {
 		let _ = fs::remove_file(&tmp);
-	})
+	}
+	written
 }
 
 /// `elamond schema`: the JSON Schema of a settings file.
@@ -197,7 +232,7 @@ pub fn values() -> Result<(), String> {
 	let config = store::load_config()?;
 	let (interval, history_len, _) = crate::timing(&config);
 	let mut c = collect::Collector::new(crate::consts::cadence::Ticks::new(crate::consts::cadence::CLI_SNAPSHOT));
-	let all = crate::ui::Sources { processes: true, media: true, volume: true, gpus: true, displays: true, links: true };
+	let all = crate::ui::Sources::ALL;
 	c.read(true, all);
 	std::thread::sleep(crate::consts::cadence::CLI_SNAPSHOT);
 	let mut reading = c.read(true, all);
@@ -253,6 +288,41 @@ mod tests {
 		let s = sources_with(Some(&other), Some("port = 4\n".into())).unwrap();
 		assert!(s.iter().any(|s| s.name.ends_with("other.toml") && s.text == "port = 4\n"));
 		assert!(sources_with(Some(&dir.join("missing.toml")), None).is_err());
+		fs::remove_dir_all(dir).unwrap();
+	}
+
+	#[test]
+	fn edits_are_written_as_private_as_the_settings() {
+		let dir = std::env::temp_dir().join(format!("elamond-edit-test-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
+		fs::create_dir_all(&dir).unwrap();
+		let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+		// A new file: only its owner reads it.
+		let new = dir.join("new.toml");
+		save(&new, "port = 1\n").unwrap();
+		assert_eq!((mode(&new), fs::read_to_string(&new).unwrap().as_str()), (0o600, "port = 1\n"));
+		// One that is there keeps its own, whatever the umask.
+		let shared = dir.join("shared.toml");
+		fs::write(&shared, "port = 2\n").unwrap();
+		fs::set_permissions(&shared, fs::Permissions::from_mode(0o640)).unwrap();
+		save(&shared, "port = 3\n").unwrap();
+		assert_eq!((mode(&shared), fs::read_to_string(&shared).unwrap().as_str()), (0o640, "port = 3\n"));
+		// An edit the settings refused, kept beside the file, no more readable than it; again over it.
+		let private = dir.join("elamond.toml");
+		fs::write(&private, "port = 4\n").unwrap();
+		fs::set_permissions(&private, fs::Permissions::from_mode(0o600)).unwrap();
+		let kept = keep_broken(&private, "port = \n").unwrap();
+		assert_eq!((kept.clone(), mode(&kept)), (dir.join("elamond.toml.broken"), 0o600));
+		keep_broken(&private, "port = x\n").unwrap();
+		assert_eq!(fs::read_to_string(&kept).unwrap(), "port = x\n");
+		// Nothing else left behind.
+		let mut names: Vec<String> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+		names.sort();
+		assert_eq!(names, ["elamond.toml", "elamond.toml.broken", "new.toml", "shared.toml"]);
+		// The folder the copy is edited in: a new one each time, of a name of its own, the owner's alone.
+		let (a, b) = (scratch_dir(&dir).unwrap(), scratch_dir(&dir).unwrap());
+		assert_ne!(a, b);
+		assert_eq!(mode(&a), 0o700);
+		assert!(fs::DirBuilder::new().mode(0o700).create(&a).is_err());
 		fs::remove_dir_all(dir).unwrap();
 	}
 }

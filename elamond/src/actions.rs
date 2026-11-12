@@ -258,6 +258,25 @@ pub fn param_takes(p: &Param, v: &Value) -> bool {
 	}
 }
 
+/// A value `p` takes, as a command is given it: a range's number in the range's own terms, so
+/// `-0` is `0` (never an argument that starts with `-` where the range has no negatives) and `1e2`
+/// of a range of whole numbers is `100`, not `100.0`.
+fn as_taken(p: &Param, v: &Value) -> Value {
+	match (&p.kind, v) {
+		(ParamKind::Range { min, step, .. }, Value::Number(n)) => {
+			let x = n.as_f64().unwrap_or(0.0);
+			if min.is_i64() && step.is_i64() {
+				Value::from(x.round() as i64)
+			} else if x == 0.0 {
+				Value::from(0.0)
+			} else {
+				v.clone()
+			}
+		}
+		_ => v.clone(),
+	}
+}
+
 /// The values to run `spec` with, from those a client sent: each checked against its parameter,
 /// defaults filled in. `Err` names the first parameter that is wrong, missing or unknown
 /// (400 `bad_param`).
@@ -269,12 +288,12 @@ pub fn check_params(spec: &Spec, given: &serde_json::Map<String, Value>) -> Resu
 	for p in &spec.params {
 		match given.get(&p.id) {
 			Some(v) if param_takes(p, v) => {
-				out.insert(p.id.clone(), v.clone());
+				out.insert(p.id.clone(), as_taken(p, v));
 			}
 			Some(_) => return Err(p.id.clone()),
 			None => match &p.default {
 				Some(d) => {
-					out.insert(p.id.clone(), d.clone());
+					out.insert(p.id.clone(), as_taken(p, d));
 				}
 				None if p.optional => {}
 				None => return Err(p.id.clone()),
@@ -365,5 +384,29 @@ mod tests {
 		let params = check_params(&fan, &given(json!({ "speed": 55 }))).unwrap();
 		assert_eq!(command(&config.actions["fan"], &params), ["fanctl", "--speed", "55"]);
 		assert_eq!((whole_param("{mode}"), whole_param("--x={mode}"), whole_param("{}")), (Some("mode"), None, None));
+	}
+
+	#[test]
+	fn a_range_gives_the_command_its_own_kind_of_number() {
+		let config = settings::read_sources(&[settings::Source::new(
+			"a.toml",
+			"[actions.fan]\nname = \"Fan\"\ncommand = [\"fanctl\", \"{speed}\"]\nparams.speed = { range = [0, 100], step = 5 }\n\
+			 [actions.tilt]\nname = \"Tilt\"\ncommand = [\"tilt\", \"{by}\"]\nparams.by = { range = [-1, 1], step = 0.5, default = -0.0 }\n",
+		)])
+		.unwrap();
+		let run = |id: &str, body: &str| {
+			let given: serde_json::Map<String, Value> = serde_json::from_str(body).unwrap();
+			check_params(&settings_spec(id, &config.actions[id]), &given).map(|p| command(&config.actions[id], &p))
+		};
+		// Never "-0.0", which a command may take for an option; whole numbers as such.
+		for (body, arg) in [(r#"{"speed": -0.0}"#, "0"), (r#"{"speed": -0}"#, "0"), (r#"{"speed": 1e2}"#, "100"), (r#"{"speed": 5}"#, "5"), (r#"{"speed": 95.0}"#, "95")] {
+			assert_eq!(run("fan", body), Ok(vec!["fanctl".to_string(), arg.to_string()]), "{body}");
+		}
+		for body in [r#"{"speed": 5.0000000001}"#, r#"{"speed": -5}"#, r#"{"speed": 2.5}"#] {
+			assert_eq!(run("fan", body), Err("speed".into()), "{body}");
+		}
+		for (body, arg) in [(r#"{"by": -0.0}"#, "0.0"), (r#"{"by": -0.5}"#, "-0.5"), (r#"{"by": 1}"#, "1"), ("{}", "0.0")] {
+			assert_eq!(run("tilt", body), Ok(vec!["tilt".to_string(), arg.to_string()]), "{body}");
+		}
 	}
 }

@@ -56,6 +56,10 @@ pub mod cadence {
 	pub const UI_REBUILD: Duration = Duration::from_secs(5);
 	/// A `ui` no client has asked for in this long is forgotten.
 	pub const UI_FORGET: Duration = Duration::from_secs(60);
+	/// The app a phone says it is (`Elamon-Client`) is written to clients.json at once when it
+	/// changes, then at most this often for the phone: `elamond clients` may be as late as this
+	/// with a phone that keeps saying another.
+	pub const APP_NOTE: Duration = Duration::from_secs(300);
 	/// The settings files, and `elamond control off`'s file, are looked at for edits; SIGHUP
 	/// rereads them at once. Acting requests look at `control off`'s file themselves.
 	pub const SETTINGS_POLL: Duration = Duration::from_secs(5);
@@ -202,6 +206,9 @@ pub mod limit {
 	pub const BODY_MAX: usize = 4 * 1024;
 	/// Streams one client holds open at once; a new one beyond these ends its oldest.
 	pub const STREAMS_PER_CLIENT: usize = 4;
+	/// `ui` documents kept built at once (one for each role, profile, kind of client and set of
+	/// widget types asked for); beyond these the least lately asked for is forgotten.
+	pub const UIS_KEPT: usize = 64;
 	/// Connections the service holds at once; more are closed as they come. The systemd units give
 	/// it far more descriptors than these take.
 	pub const CONNECTIONS_MAX: usize = 256;

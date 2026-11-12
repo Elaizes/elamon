@@ -33,27 +33,25 @@ tests read them, so the two can't drift apart.
 ### `GET /api/v1/hello` (no token)
 
 ```json
-{ "app": "elamon", "api": 2, "widgets": 1, "id": "…", "name": "…", "version": "0.6.0",
-  "min_app": "0.6.0", "features": ["control", "media", "power", "power_profiles", "processes", "units"] }
+{ "app": "elamon", "api": 2, "widgets": 1, "id": "…", "name": "…", "version": "0.6.0", "min_app": "0.6.0" }
 ```
 
-`features` says what this computer can offer at all (whatever a client's role), sorted:
-`control` (`control = true` in the settings), `power` (logind can power off, restart, sleep or
-lock), `power_profiles` (power-profiles-daemon or tuned-ppd), `units` (systemd), `media` (a session
-bus for MPRIS), `processes`, `displays` (a GPU whose monitors DRM tells of), `nvml` (an NVIDIA GPU
-NVML can read). A client ignores those it doesn't know.
+Anyone on the network may ask, so it says which service this is and which versions it speaks, and
+nothing of what the computer can do: that a paired client reads in `ui` (`service.features`).
 
 ### The client says what it is
 
 Every request with a token carries `Elamon-Client: <kind>/<version>`: `android/0.6.0`, later
 `web/0.8.0`. The service shows it in `elamond clients`, and gives each client the profile's part for
-its kind. A request without it, or with one that isn't `<kind>/<version>` (a kind of `a-z`, `0-9`,
-`_` and `-`, a version of letters, digits and `.+-_`), is taken as `android` of an unknown version.
-The service writes the version down only when it changes.
+its kind. The kinds are `android` and `web`; a request without the header, with one that isn't
+`<kind>/<version>` (a version of letters, digits and `.+-_`), or with a kind the service doesn't
+know, is taken as `android` of an unknown version. The service writes the version down when it
+changes: at once, then at most once every 5 minutes for a client that keeps changing it.
 
 What widget types a client draws it says in `GET /api/v1/ui?widgets=…`; the service describes the
 dashboards with those alone ([below](#what-a-client-cant-draw)), in that `ui` and in what the
-client's streams and snapshots send from then on.
+client's streams and snapshots send from then on. A type the service doesn't know is left out, as
+if the client hadn't listed it.
 
 ## Discovery
 
@@ -274,7 +272,8 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
 ```json
 {
   "version": "5c1f0e2a9d3b7a41",
-  "service": { "id": "…", "name": "…", "version": "0.6.0", "interval_ms": 1000, "history_seconds": 600 },
+  "service": { "id": "…", "name": "…", "version": "0.6.0", "interval_ms": 1000, "history_seconds": 600,
+               "features": ["control", "media", "power", "power_profiles", "processes", "units"] },
   "role": "admin",
   "control": { "enabled": true, "off_reason": null },
   "profile": { "id": "owner", "name": "Owner", "theme": "dark", "pure_black": true, "animations": true,
@@ -294,6 +293,11 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
   label or title that holds values follows them within 5 seconds). A
   client keeps the last document of each computer (a cache, not settings) to start at once and to
   show while offline, and fetches it again when a stream says `ui` with another version.
+- `service.features` says what this computer can offer at all (whatever the client's role),
+  sorted: `control` (`control = true` in the settings), `power` (logind can power off, restart,
+  sleep or lock), `power_profiles` (power-profiles-daemon or tuned-ppd), `units` (systemd), `media`
+  (a session bus for MPRIS), `processes`, `displays` (a GPU whose monitors DRM tells of), `nvml` (an
+  NVIDIA GPU NVML can read). A client ignores those it doesn't know.
 - `profile` holds the part every client reads, and the part for this client's kind (`android`)
   only.
 - `tabs` are the profile's dashboards the role sees, in order (one for each item of a dashboard
@@ -362,7 +366,12 @@ Lines:
 2. `data`, every interval: `{ "type": "data", "t": <Unix ms>, "dashboard": "<id>", "widgets": { … } }`,
    the state of each widget of the dashboard by its id, nested groups included, and of the
    header's widgets (`header/os`…) whatever dashboard is on screen. The first after opening, or
-   after the dashboard changed, also has `history`: the graphs' points so far.
+   after the dashboard changed, also has `history`: the graphs' points so far. It comes at once,
+   from the reading there is (with the next reading for a client that opened another stream within
+   half the interval): a widget whose source isn't read yet (the processes, monitors, media
+   players, the volume, NVIDIA GPUs or the links, read only while a client shows them) has no state
+   in a line until it is; a client shows it loading. The first reading that has them sends a line
+   at once.
 3. `ui`, whenever the client's `ui` changes: `{ "type": "ui", "ui": "<version>" }`. The stream goes
    on, with the dashboard it had (or the first tab, when that one is gone for this client).
 
@@ -409,17 +418,20 @@ Changes what an open stream of this client sends, from its next line, without re
 
 Each key is optional. `sort` asks a table, by its widget id, for another of its `sorts`
 (descending); `null` in place of a field (`{ "processes/table": null }`) returns the table to its own
-`sort`, field and direction. A new dashboard or order comes with the next reading, not after an
-interval; a new dashboard's first line has `history`. 200 `{ "ok": true }`; 404 `no_such_stream`
-when the stream has ended or isn't this client's; 404 `no_such_dashboard` for one not in the
-client's `ui`; 400 `bad_sort` with the table's id in `message`. A refused request (400 `bad_sort`,
-404 `no_such_dashboard`) applies none of its keys: the stream goes on as it was. A body over 4 KiB
-is a plain-text 413.
+`sort`, field and direction. A new dashboard or order comes at once, from the reading there is, not
+after an interval; a new dashboard's first line has `history`. At once no more than every half
+interval: a change soon after another comes with the next reading. Changes the stream hasn't taken
+up yet (its client doesn't read it) become one, each key the last asked. 200 `{ "ok": true }`;
+404 `no_such_stream` when the stream has ended or isn't this client's; 404 `no_such_dashboard` for
+one not in the client's `ui`; 400 `bad_sort` with the table's id in `message`. A refused request
+(400 `bad_sort`, 404 `no_such_dashboard`) applies none of its keys: the stream goes on as it was. A
+body over 4 KiB is a plain-text 413.
 
 ## `GET /api/v1/snapshot`
 
 One `data` object (without `type`, with `history` unless `history=0`) for `dashboard=<id>` (the
-first tab without it), after waiting a few ticks for a reading that has everything it needs; 404
+first tab without it), after waiting a few ticks for a reading that has everything it needs (a
+widget whose source still isn't read then has no state, as in a stream); 404
 `no_such_dashboard` for one not in the client's `ui`. `widgets` as for the stream.
 
 ## `POST /api/v1/actions/{id}`
@@ -441,7 +453,7 @@ for one it can that the client's role may not run (so not in its `ui`), `control
 They are checked in this order: the rate, the role, control, then the parameters.
 
 `process.signal` with `start` signals only the process that started then: if the pid now belongs to
-another, 409 `process_changed`. `unit.*` act on the unit of the link given, only one the settings
+another, 409 `process_changed`; a negative `start` is 400 `bad_param`. `unit.*` act on the unit of the link given, only one the settings
 name; system units also need polkit's leave ([the guide](guide.md#power-the-profile-and-system-units-polkit)).
 
 ## `GET /api/v1/media/art?player=`

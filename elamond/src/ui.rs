@@ -216,6 +216,8 @@ pub struct Service {
 	pub version: String,
 	pub interval_ms: u64,
 	pub history_seconds: u64,
+	/// What the computer can offer at all, sorted: only for paired clients, not in `hello`.
+	pub features: Vec<&'static str>,
 }
 
 /// Whether clients may act, and why not.
@@ -278,37 +280,43 @@ impl Dashboard {
 		out
 	}
 
-	/// The costlier sources its widgets need read: the collections of their tables and bars, and the
-	/// addresses they show, are judged by or hold in their strings.
+	/// The costlier sources its widgets need read.
+	pub fn needs(&self) -> Sources {
+		self.all_widgets().into_iter().fold(Sources::default(), |n, w| n.union(w.needs()))
+	}
+}
+
+impl UiWidget {
+	/// The costlier sources this widget's own state needs read (not those of the widgets in it):
+	/// the collection of a table or bars, and the addresses it shows, is judged by or holds in its
+	/// strings.
 	pub fn needs(&self) -> Sources {
 		let mut n = Sources::default();
-		for w in self.all_widgets() {
-			let d = &w.def;
-			if let Some(s) = &d.source {
-				n.collection(s);
-			}
-			if w.kind == "media" {
-				n.media = true;
-				n.volume = true;
-			}
-			for a in addresses(d) {
+		let d = &self.def;
+		if let Some(s) = &d.source {
+			n.collection(s);
+		}
+		if self.kind == "media" {
+			n.media = true;
+			n.volume = true;
+		}
+		for a in addresses(d) {
+			n.address(a);
+		}
+		let mut texts: Vec<&str> = [&d.label, &d.caption, &d.text, &d.empty].into_iter().flatten().map(String::as_str).collect();
+		for i in d.items.iter().flatten() {
+			texts.extend([&i.label, &i.text, &i.empty].into_iter().flatten().map(String::as_str));
+			for a in [&i.value, &i.when].into_iter().flatten() {
 				n.address(a);
 			}
-			let mut texts: Vec<&str> = [&d.label, &d.caption, &d.text, &d.empty].into_iter().flatten().map(String::as_str).collect();
-			for i in d.items.iter().flatten() {
-				texts.extend([&i.label, &i.text, &i.empty].into_iter().flatten().map(String::as_str));
-				for a in [&i.value, &i.when].into_iter().flatten() {
-					n.address(a);
-				}
+		}
+		for t in texts {
+			for p in format::placeholders(t) {
+				n.address(format::split_placeholder(p.inner).0);
 			}
-			for t in texts {
-				for p in format::placeholders(t) {
-					n.address(format::split_placeholder(p.inner).0);
-				}
-			}
-			if let Some(a) = &d.when {
-				n.address(a);
-			}
+		}
+		if let Some(a) = &d.when {
+			n.address(a);
 		}
 		n
 	}
@@ -333,6 +341,9 @@ pub struct Sources {
 }
 
 impl Sources {
+	/// Every source.
+	pub const ALL: Sources = Sources { processes: true, media: true, volume: true, gpus: true, displays: true, links: true };
+
 	/// What either needs.
 	pub fn union(self, o: Sources) -> Sources {
 		Sources {
@@ -739,8 +750,10 @@ impl Ctx<'_> {
 			ParamKind::Choice(c) => c.iter().map(|(v, l)| (Value::String(v.clone()), l.clone())).collect(),
 			ParamKind::Range { min, max, step, unit } => {
 				let (lo, hi, st) = (min.as_f64()?, max.as_f64()?, step.as_f64()?.max(f64::EPSILON));
+				// As many as fit, for a range wider than any count of steps.
 				let steps = ((hi - lo) / st).floor() as u64;
-				let picks: Vec<u64> = if steps <= 10 { (0..=steps).collect() } else { (0..=10).map(|i| (i * steps + 5) / 10).collect() };
+				let picks: Vec<u64> =
+					if steps <= 10 { (0..=steps).collect() } else { (0..=10u64).map(|i| ((u128::from(i) * u128::from(steps) + 5) / 10) as u64).collect() };
 				let whole = min.is_i64() && step.is_i64();
 				picks
 					.into_iter()
@@ -957,6 +970,7 @@ fn service_json(s: &Service) -> Obj {
 	o.put("version", s.version.as_str());
 	o.put("interval_ms", s.interval_ms);
 	o.put("history_seconds", s.history_seconds);
+	o.put("features", J::Arr(s.features.iter().map(|f| J::from(*f)).collect()));
 	o
 }
 
@@ -1283,13 +1297,44 @@ pub mod tests {
 			config,
 			values,
 			caps,
-			service: Service { id: info.id, name: info.name, version: info.service_version.into(), interval_ms: info.interval_ms, history_seconds: info.history_seconds },
+			service: Service {
+				id: info.id,
+				name: info.name,
+				version: info.service_version.into(),
+				interval_ms: info.interval_ms,
+				history_seconds: info.history_seconds,
+				features: vec!["processes"],
+			},
 			control: Control { enabled: config.control, off_reason: (!config.control).then_some("settings") },
 			role,
 			profile,
 			kind: "android",
 			draws,
 		}
+	}
+
+	#[test]
+	fn a_range_wider_than_any_count_of_steps_still_makes_buttons() {
+		let config = crate::settings::read_sources(&[crate::settings::Source::new(
+			"a.toml",
+			"[actions.big]\nname = \"Big\"\ncommand = [\"big\", \"{n}\"]\nparams.n = { range = [0, 9223372036854775807] }\n\
+			 [actions.huge]\nname = \"Huge\"\ncommand = [\"huge\", \"{x}\"]\nparams.x = { range = [-1e300, 1e300], step = 1e-300 }\n\
+			 [dashboards.big]\ntitle = \"Big\"\n\
+			 [[dashboards.big.widgets]]\ntype = \"slider\"\naction = \"big\"\nparam = \"n\"\n\
+			 [[dashboards.big.widgets]]\ntype = \"slider\"\naction = \"huge\"\nparam = \"x\"\n\
+			 [profiles.default]\ndashboards = [\"big\"]\n",
+		)])
+		.unwrap();
+		let values = crate::fixtures::values(&config);
+		let caps = Caps::all(&values.power_profiles);
+		let draws: BTreeSet<String> = ["group", "button", "text"].iter().map(|s| s.to_string()).collect();
+		let ui = build(&input(&config, &values, &caps, Role::Admin, "default", Some(&draws)));
+		let big = ui.dashboard("big").unwrap();
+		for w in &big.widgets {
+			assert_eq!((w.kind.as_str(), w.widgets.len()), ("group", 11), "{w:?}");
+		}
+		let last = big.widgets[0].widgets.last().unwrap().def.params.as_ref().unwrap()["n"].clone();
+		assert_eq!(last, serde_json::json!(i64::MAX));
 	}
 
 	#[test]

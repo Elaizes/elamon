@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::format;
 use crate::settings::{Bound, Labels, Widget};
-use crate::ui::{Dashboard, Obj, UiWidget, J};
+use crate::ui::{Dashboard, Obj, Sources, UiWidget, J};
 use crate::values::{self, Item, Level, Limits, Scalar, View, V};
 
 /// What the states of a client's widgets are built from.
@@ -17,6 +17,9 @@ pub struct States<'a> {
 	pub control: bool,
 	/// The other order a client asked a table for (`POST /api/v1/stream/{id}`), by its id.
 	pub sorts: &'a HashMap<String, String>,
+	/// The costlier sources the reading was made with: a widget that needs another has no state
+	/// yet, rather than one of what isn't read (a table of no processes).
+	pub read: Sources,
 }
 
 /// Rows a table sends at most unless it says.
@@ -40,10 +43,14 @@ pub fn data(t: u64, dashboard: &Dashboard, header: Option<&Dashboard>, s: &State
 	o
 }
 
-/// The state of each widget of `d` that has one, by id, those in groups included.
+/// The state of each widget of `d` that has one, by id, those in groups included; none for a widget
+/// whose sources the reading wasn't made with.
 pub fn widgets(d: &Dashboard, s: &States) -> Obj {
 	let mut out = Obj::new();
 	for w in d.all_widgets() {
+		if !s.read.covers(w.needs()) {
+			continue;
+		}
 		if let Some(state) = state(w, s) {
 			out.put(&w.id, state);
 		}
@@ -375,17 +382,17 @@ mod tests {
 		let ui = crate::ui::build(&crate::ui::tests::input(&config, &values, &caps, Role::Admin, "default", None));
 		let d = ui.dashboard("t").unwrap();
 		let mut sorts = HashMap::new();
-		let s = States { view: View::new(&values, Role::Admin, Units::default()), control: true, sorts: &sorts };
+		let s = States { view: View::new(&values, Role::Admin, Units::default()), control: true, sorts: &sorts, read: Sources::ALL };
 		let st = widgets(d, &s).get("t/p").unwrap().to_value();
 		assert_eq!((st["rows"][0]["key"].as_str(), st["total"].as_u64()), (Some("7"), Some(2)));
 		sorts.insert("t/p".to_string(), "mem".to_string());
-		let s = States { view: View::new(&values, Role::Admin, Units::default()), control: true, sorts: &sorts };
+		let s = States { view: View::new(&values, Role::Admin, Units::default()), control: true, sorts: &sorts, read: Sources::ALL };
 		let st = widgets(d, &s).get("t/p").unwrap().to_value();
 		assert_eq!(st["rows"][0]["key"].as_str(), Some("4242"));
 		assert_eq!(st["rows"][0]["f"], serde_json::json!({ "name": "some", "cpu": "some" }));
 		// A sort it doesn't offer isn't taken.
 		sorts.insert("t/p".to_string(), "pid".to_string());
-		let s = States { view: View::new(&values, Role::Admin, Units::default()), control: true, sorts: &sorts };
+		let s = States { view: View::new(&values, Role::Admin, Units::default()), control: true, sorts: &sorts, read: Sources::ALL };
 		assert_eq!(widgets(d, &s).get("t/p").unwrap().to_value()["rows"][0]["key"].as_str(), Some("7"));
 	}
 
@@ -439,7 +446,7 @@ value = "system.uptime"
 		let d = ui.dashboard("t").unwrap();
 		let sorts = HashMap::new();
 		let state = |control: bool| {
-			let s = States { view: View::new(&values, Role::Admin, ui.units), control, sorts: &sorts };
+			let s = States { view: View::new(&values, Role::Admin, ui.units), control, sorts: &sorts, read: Sources::ALL };
 			widgets(d, &s).to_value_map()
 		};
 		let on = state(true);

@@ -39,7 +39,9 @@ impl Target {
 		// What looks like an address and doesn't read as one is a typo, not an interface: interface
 		// names have a dot or two at most (a VLAN's "eth0.100").
 		let like_address = s.contains(':') || s.chars().all(|c| c.is_ascii_digit() || c == '.') || s.matches('.').count() >= 3;
-		let name_ok = s.len() <= IFNAME_MAX && s != "." && s != ".." && !s.chars().any(|c| c == '/' || c.is_whitespace() || c.is_control());
+		// Letters, digits and `_.@-`, as interfaces are named: nothing a shell or a firewall's rule
+		// would read as more than a name, in the commands `elamond setup` prints with it.
+		let name_ok = s.len() <= IFNAME_MAX && s != "." && s != ".." && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.@-".contains(&b));
 		if s.is_empty() || like_address || !name_ok {
 			return Err(format!("\"{s}\" is neither an IP address nor an interface name"));
 		}
@@ -615,7 +617,8 @@ mod tests {
 		assert_eq!(Target::parse("[fd7a::1]").unwrap(), Target::Addr(ip("fd7a::1")));
 		assert_eq!(Target::parse("tailscale0").unwrap(), Target::Interface("tailscale0".into()));
 		assert_eq!(Target::parse("eth0.100").unwrap(), Target::Interface("eth0.100".into()));
-		for bad in ["192.168.200.1o1", "192.168.200", "fd7a::g", "", "a/b", "has space", "much-too-long-name0"] {
+		assert_eq!(Target::parse("br-1a2b@vlan_3").unwrap(), Target::Interface("br-1a2b@vlan_3".into()));
+		for bad in ["192.168.200.1o1", "192.168.200", "fd7a::g", "", "a/b", "has space", "much-too-long-name0", "e;reboot", "$(x)", "`x`", "a'b", "a\"b", "wlan\\0", "é0"] {
 			assert!(Target::parse(bad).is_err(), "{bad}");
 		}
 	}

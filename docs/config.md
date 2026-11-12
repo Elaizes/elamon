@@ -31,7 +31,7 @@ service's own (built-in actions, dashboards made by `for_each`).
 
 | key | type | default | |
 |---|---|---|---|
-| `listen` | list of addresses and interface names | `["::"]` | where the service listens ([guide](guide.md#where-the-service-listens)) |
+| `listen` | list of addresses and interface names (letters, digits and `_.@-`) | `["::"]` | where the service listens ([guide](guide.md#where-the-service-listens)) |
 | `port` | integer | 47823 | |
 | `names` | list of host names | `[]` | names offered in the pairing link after the addresses |
 | `name` | string | the host name | the computer's name in the app |
@@ -73,9 +73,12 @@ scope = "system"
 | `icon` | [icon](#icons) | `globe` | |
 
 The links the 0.5 app added (its links.json) the service writes into
-`elamond.d/links-from-app.toml` once, at its first start, ids made from their names; links.json
-becomes links.json.migrated. A unit no link may have is left out of them, and so is a link that
-isn't a web page's.
+`elamond.d/links-from-app.toml` once, at its first start, ids made from their names (`app-…`, none
+the settings already give a link); links.json becomes links.json.migrated. A link keeps its unit
+where the 0.5 settings let links use it (in `units` or on a `[[links]]` entry, in that scope), as
+0.5 checked at each use; any other unit is written commented out, and phones start and stop it once
+the owner takes the `#` off its `unit` and `scope` (the journal names each). A unit no link may
+have is left out, and so is a link that isn't a web page's.
 
 ## Actions
 
@@ -111,7 +114,7 @@ part of another argument or an option.
 | form | kind | the value passed |
 |---|---|---|
 | `{ choices = ["a", "b"], labels = { a = "A" }, default = "a" }` | `choice` | one of `choices`, as written |
-| `{ range = [0, 100], step = 5, unit = "%", default = 50 }` | `range` | a number within the range, on a step from its start; an integer when `step` and the start are |
+| `{ range = [0, 100], step = 5, unit = "%", default = 50 }` | `range` | a number within the range, on a step from its start; written as an integer when `step` and the start are (`100`, never `100.0` or `1e2`); zero never as `-0` |
 | `{ type = "bool", default = false }` | `bool` | `true` or `false` |
 
 Each may have a `label` (what a form calls it; the parameter's id by default). A parameter

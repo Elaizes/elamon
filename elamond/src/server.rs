@@ -101,8 +101,12 @@ struct CachedUi {
 	used: Instant,
 }
 
-/// What the client says it is: `Elamon-Client: <kind>/<version>`. Without it, `android` of an
-/// unknown version.
+/// The kinds of client the service knows, each with its part of a profile.
+pub const CLIENT_KINDS: [&str; 2] = ["android", "web"];
+
+/// What the client says it is: `Elamon-Client: <kind>/<version>`. Without it, or of a kind the
+/// service doesn't know, `android` of an unknown version: what it is decides the `ui` it gets, and
+/// each kind is a `ui` of its own to keep.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClientApp {
 	pub kind: String,
@@ -116,8 +120,7 @@ impl ClientApp {
 		let (kind, version) = h.split_once('/').unwrap_or((h, ""));
 		let kind = kind.trim().to_ascii_lowercase();
 		let version = version.trim();
-		let kind_ok = (1..=16).contains(&kind.len()) && kind.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-');
-		if !kind_ok {
+		if !CLIENT_KINDS.contains(&kind.as_str()) {
 			return unknown;
 		}
 		let version_ok = (1..=32).contains(&version.len()) && version.bytes().all(|b| b.is_ascii_alphanumeric() || b".+-_".contains(&b));
@@ -169,8 +172,11 @@ pub struct Hub {
 	uis: Mutex<HashMap<UiKey, CachedUi>>,
 	/// The open streams, by id.
 	pub(crate) streams: Mutex<HashMap<String, Open>>,
-	/// The app each client said it is last ("android/0.6.0"), by its id.
-	apps: Mutex<HashMap<String, String>>,
+	/// The app each client said it is last ("android/0.6.0"), and when that was written down, by
+	/// its id.
+	apps: Mutex<HashMap<String, AppNote>>,
+	/// A client's app is written down at most this often (`cadence::APP_NOTE`).
+	app_note: Duration,
 	/// The widget types each client said it draws in its last `GET /api/v1/ui`, by its id and kind:
 	/// what its streams describe with.
 	draws: Mutex<HashMap<(String, String), Draws>>,
@@ -178,6 +184,15 @@ pub struct Hub {
 
 /// The widget types a client draws; `None` for all of them.
 pub type Draws = Option<BTreeSet<String>>;
+
+/// The app a client said it is last, as clients.json is to have it.
+struct AppNote {
+	said: String,
+	/// When it was last written down.
+	written: Option<Instant>,
+	/// A write waits for its turn, and will write what the client said last.
+	pending: bool,
+}
 
 /// The hash of the token a request came with, so a stream can tell when it is revoked.
 #[derive(Clone)]
@@ -224,6 +239,7 @@ impl Hub {
 			uis: Mutex::new(HashMap::new()),
 			streams: Mutex::new(HashMap::new()),
 			apps: Mutex::new(HashMap::new()),
+			app_note: cadence::APP_NOTE,
 			draws: Mutex::new(HashMap::new()),
 			dir,
 		}
@@ -283,26 +299,51 @@ impl Hub {
 			.map(|(_, who)| who.clone())
 	}
 
-	/// Notes the app a client says it is; clients.json keeps the last of each, written only when it
-	/// changes, for `elamond clients`.
-	fn saw(&self, who: &Caller, app: &ClientApp) {
+	/// Notes the app a client says it is; clients.json keeps the last of each, for `elamond clients`.
+	/// It is written when it changes: at once the first time, then at most once every `app_note`
+	/// for a client, one write at a time, with what the client said last. A client that keeps
+	/// saying another costs a write now and then, not one for each request.
+	fn saw(self: &Arc<Self>, who: &Caller, app: &ClientApp) {
 		let Some(label) = app.label() else { return };
-		if who.app.as_deref() == Some(label.as_str()) {
-			return;
-		}
-		{
+		let wait = {
 			let mut apps = self.apps.lock().unwrap_or_else(|p| p.into_inner());
-			if apps.get(&who.id) == Some(&label) {
+			let note = apps.entry(who.id.clone()).or_insert_with(|| AppNote { said: String::new(), written: None, pending: false });
+			note.said = label;
+			if note.pending || who.app.as_deref() == Some(note.said.as_str()) {
 				return;
 			}
-			apps.insert(who.id.clone(), label.clone());
+			note.pending = true;
+			note.written.map_or(Duration::ZERO, |t| self.app_note.saturating_sub(t.elapsed()))
+		};
+		let (id, name) = (who.id.clone(), who.name.clone());
+		if wait.is_zero() {
+			self.write_app(id, name);
+		} else {
+			let hub = self.clone();
+			tokio::spawn(async move {
+				tokio::time::sleep(wait).await;
+				if let Some(writing) = hub.write_app(id, name) {
+					let _ = writing.await;
+				}
+			});
 		}
-		let (dir, id, name) = (self.dir.clone(), who.id.clone(), who.name.clone());
-		tokio::task::spawn_blocking(move || {
+	}
+
+	/// Writes down what the client `id` said it is last, off the runtime.
+	fn write_app(&self, id: String, name: String) -> Option<tokio::task::JoinHandle<()>> {
+		let label = {
+			let mut apps = self.apps.lock().unwrap_or_else(|p| p.into_inner());
+			let note = apps.get_mut(&id)?;
+			note.pending = false;
+			note.written = Some(Instant::now());
+			note.said.clone()
+		};
+		let dir = self.dir.clone();
+		Some(tokio::task::spawn_blocking(move || {
 			if let Err(e) = store::set_client_app(&dir, &id, &label) {
 				eprintln!("clients: can't note that \"{name}\" ({id}) is {label}: {e}");
 			}
-		});
+		}))
 	}
 
 	/// The settings as last read.
@@ -433,8 +474,8 @@ impl Hub {
 		self.wants.lock().map(|w| w.len()).unwrap_or(0)
 	}
 
-	/// The service as `ui` names it.
-	fn service(&self) -> ui::Service {
+	/// The service as `ui` names it, with what the computer offers in the reading `frame`.
+	fn service(&self, frame: &Frame) -> ui::Service {
 		let cap = self.history.lock().map(|h| h.capacity()).unwrap_or(0);
 		ui::Service {
 			id: self.id.clone(),
@@ -442,6 +483,7 @@ impl Hub {
 			version: env!("CARGO_PKG_VERSION").into(),
 			interval_ms: self.interval.as_millis() as u64,
 			history_seconds: (self.interval * cap as u32).as_secs(),
+			features: features_of(&frame.features, self.config().control),
 		}
 	}
 
@@ -482,7 +524,7 @@ impl Hub {
 			config: &config,
 			values: &frame.values,
 			caps: &frame.caps,
-			service: self.service(),
+			service: self.service(frame),
 			control: ui::Control { enabled: off_reason.is_none(), off_reason },
 			role: key.role,
 			profile: &key.profile,
@@ -491,6 +533,11 @@ impl Hub {
 		}));
 		let mut uis = self.uis.lock().unwrap_or_else(|p| p.into_inner());
 		uis.retain(|_, c| now.duration_since(c.used) < cadence::UI_FORGET);
+		// However many ways clients ask, a few documents are kept: the least lately asked for goes.
+		while !uis.contains_key(key) && uis.len() >= limit::UIS_KEPT {
+			let Some(oldest) = uis.iter().min_by_key(|(_, c)| c.used).map(|(k, _)| k.clone()) else { break };
+			uis.remove(&oldest);
+		}
 		uis.insert(key.clone(), CachedUi { stamp, ui: built.clone(), used: now });
 		built
 	}
@@ -504,6 +551,20 @@ impl Hub {
 		let n = map.entry(who.id.clone()).or_default();
 		let Some(more) = n.open(now) else { return false };
 		eprintln!("stream: \"{}\" ({}) opened from {}: {what}{more}", who.name, who.role.as_str(), from.to_canonical());
+		true
+	}
+
+	/// Whether a stream of the phone `id` may send its first line at once, from the reading there
+	/// is, rather than with the next: once every `gap` for the phone, so opening stream after stream
+	/// costs no more than a line a reading.
+	pub(crate) fn first_at_once(&self, id: &str, gap: Duration) -> bool {
+		let now = Instant::now();
+		let mut map = self.stream_notes.lock().unwrap_or_else(|p| p.into_inner());
+		let n = map.entry(id.to_string()).or_default();
+		if n.at_once.is_some_and(|t| now.duration_since(t) < gap) {
+			return false;
+		}
+		n.at_once = Some(now);
 		true
 	}
 
@@ -542,6 +603,8 @@ struct StreamNotes {
 	logged: Option<Instant>,
 	opened: u32,
 	closed: u32,
+	/// When a stream of the phone's last sent its first line at once.
+	at_once: Option<Instant>,
 }
 
 impl StreamNotes {
@@ -572,7 +635,8 @@ impl StreamNotes {
 
 	/// Nothing to tell and nothing to hold back: the phone can be forgotten.
 	fn idle(&self, now: Instant) -> bool {
-		self.opened + self.closed == 0 && self.logged.is_none_or(|t| now.duration_since(t) >= cadence::STREAM_LOG_QUIET)
+		let past = |t: Option<Instant>, d: Duration| t.is_none_or(|t| now.duration_since(t) >= d);
+		self.opened + self.closed == 0 && past(self.logged, cadence::STREAM_LOG_QUIET) && past(self.at_once, cadence::STREAM_INTERVAL_MAX)
 	}
 }
 
@@ -660,21 +724,14 @@ async fn auth(State(hub): State<Arc<Hub>>, mut req: Request, next: Next) -> Resp
 	}
 }
 
-/// Lets a client check that an address is an Elamon service, which one, and what it can do,
-/// before pairing.
+/// Lets a client check that an address is an Elamon service, which one, and which versions it
+/// speaks, before pairing. What the computer can do (control among it) only paired clients learn,
+/// in `ui`.
 async fn hello(State(hub): State<Arc<Hub>>) -> Response {
-	let features = hub.frame.borrow().features.clone();
-	Json(hello_body(&hub.id, &hub.name, &features, hub.config().control)).into_response()
+	Json(hello_body(&hub.id, &hub.name)).into_response()
 }
 
-/// `features`: what the computer offers, `control` when the settings turn it on, sorted.
-pub(crate) fn hello_body(id: &str, name: &str, features: &[&'static str], control: bool) -> serde_json::Value {
-	let mut f: Vec<&str> = features.to_vec();
-	if control {
-		f.push("control");
-	}
-	f.sort_unstable();
-	f.dedup();
+pub(crate) fn hello_body(id: &str, name: &str) -> serde_json::Value {
 	json!({
 		"app": "elamon",
 		"api": protocol::API_VERSION,
@@ -683,8 +740,19 @@ pub(crate) fn hello_body(id: &str, name: &str, features: &[&'static str], contro
 		"name": name,
 		"version": env!("CARGO_PKG_VERSION"),
 		"min_app": protocol::MIN_APP,
-		"features": f,
 	})
+}
+
+/// `ui`'s `service.features`: what the computer offers, `control` when the settings turn it on,
+/// sorted.
+pub(crate) fn features_of(features: &[&'static str], control: bool) -> Vec<&'static str> {
+	let mut f = features.to_vec();
+	if control {
+		f.push("control");
+	}
+	f.sort_unstable();
+	f.dedup();
+	f
 }
 
 pub(crate) fn paired_body(token: &str, client_id: &str, id: &str, name: &str, role: Role, profile: &str) -> serde_json::Value {
@@ -922,9 +990,15 @@ async fn rotations(State(hub): State<Arc<Hub>>) -> Response {
 }
 
 
-/// The widget types a client draws, from `widgets=value,gauge,…`.
+/// The widget types a client draws, from `widgets=value,gauge,…`: those the service knows, the
+/// rest left out, so what it keeps for a client is one of few sets whatever the client sends.
 pub fn draws_from(widgets: &str) -> BTreeSet<String> {
-	widgets.split(',').map(str::trim).filter(|w| !w.is_empty()).map(str::to_string).collect()
+	widgets
+		.split(',')
+		.map(str::trim)
+		.filter_map(|w| crate::settings::WIDGET_TYPES.iter().find(|t| **t == w))
+		.map(|t| t.to_string())
+		.collect()
 }
 
 #[derive(Deserialize, Default)]
@@ -968,7 +1042,7 @@ pub(crate) fn data_of(hub: &Hub, ui: &Ui, dashboard: &ui::Dashboard, who: &Calle
 		}
 		h
 	});
-	let states = crate::states::States { view: crate::values::View::new(&frame.values, who.role, ui.units), control: hub.control_on(), sorts };
+	let states = crate::states::States { view: crate::values::View::new(&frame.values, who.role, ui.units), control: hub.control_on(), sorts, read: frame.read };
 	crate::states::data(frame.values.t, dashboard, header, &states, history)
 }
 
@@ -1061,8 +1135,9 @@ mod tests {
 		let app = |h: Option<&str>| ClientApp::parse(h);
 		assert_eq!(app(Some("android/0.6.0")), ClientApp { kind: "android".into(), version: Some("0.6.0".into()) });
 		assert_eq!(app(Some(" Web/0.8.0-rc.1 ")).label().as_deref(), Some("web/0.8.0-rc.1"));
-		// Without it, or with what isn't one, an Android app of no known version.
-		for h in [None, Some(""), Some("andr oid/1"), Some("\u{1b}[31m/1"), Some(&"x".repeat(40))] {
+		// Without it, with what isn't one, or of a kind the service doesn't know, an Android app of
+		// no known version.
+		for h in [None, Some(""), Some("andr oid/1"), Some("\u{1b}[31m/1"), Some(&"x".repeat(40)), Some("ios/1.0"), Some("k17/0.6.0")] {
 			assert_eq!(app(h), ClientApp { kind: "android".into(), version: None }, "{h:?}");
 		}
 		assert_eq!(app(Some("android/1.0 \u{7}")).version, None);
@@ -1141,13 +1216,18 @@ dashboards = ["overview", "control"]
 	fn frame(config: &store::Config, seq: u64) -> Frame {
 		let values = crate::fixtures::values(config);
 		let caps = Caps::all(&values.power_profiles);
-		let all = Sources { processes: true, media: true, volume: true, gpus: true, displays: true, links: true };
+		let all = Sources::ALL;
 		Frame { seq, shape: shape_of(&values, &caps), values: Arc::new(values), caps: Arc::new(caps), read: all, features: Arc::new(vec!["processes"]) }
 	}
 
 	/// A hub with its state in a directory of its own, the phones above paired, and a rate
 	/// limit out of the way.
 	fn hub(control: bool) -> (Arc<Hub>, watch::Sender<Arc<Frame>>) {
+		hub_with(control, |_| {})
+	}
+
+	/// `hub`, changed by `change` before it serves.
+	fn hub_with(control: bool, change: impl FnOnce(&mut Hub)) -> (Arc<Hub>, watch::Sender<Arc<Frame>>) {
 		let dir = scratch();
 		let mut clients: Vec<serde_json::Value> =
 			Role::ALL.iter().map(|r| serde_json::to_value(client(r.as_str(), *r)).unwrap()).collect();
@@ -1157,18 +1237,24 @@ dashboards = ["overview", "control"]
 		std::fs::write(dir.join("clients.json"), serde_json::to_vec(&clients).unwrap()).unwrap();
 		let config = settings(control);
 		let (tx, rx) = watch::channel(Arc::new(frame(&config, 1)));
-		let hub = Hub::new("id".into(), "test".into(), rx, Ring::new(10), Duration::from_millis(250), Arc::new(config), dir);
+		let mut hub = Hub::new("id".into(), "test".into(), rx, Ring::new(10), Duration::from_millis(250), Arc::new(config), dir);
 		*hub.rate.lock().unwrap() = RateLimiter::new(10_000, Duration::from_secs(1));
+		change(&mut hub);
 		(Arc::new(hub), tx)
 	}
 
 	fn request_as(method: &str, path: &str, token: &str, body: &str) -> Request {
+		request_from(method, path, token, "android/0.6.0", body)
+	}
+
+	/// `request_as` from a client that says it is `app`.
+	fn request_from(method: &str, path: &str, token: &str, app: &str, body: &str) -> Request {
 		axum::http::Request::builder()
 			.method(Method::from_bytes(method.as_bytes()).unwrap())
 			.uri(path)
 			.header(header::AUTHORIZATION, format!("Bearer {token}"))
 			.header(header::CONTENT_TYPE, "application/json")
-			.header(protocol::CLIENT_HEADER, "android/0.6.0")
+			.header(protocol::CLIENT_HEADER, app)
 			.extension(ConnectInfo(SocketAddr::from(([192, 0, 2, 1], 50000))))
 			.body(Body::from(body.to_string()))
 			.unwrap()
@@ -1319,6 +1405,79 @@ dashboards = ["overview", "control"]
 	}
 
 	#[tokio::test]
+	async fn what_a_client_says_it_draws_and_is_keeps_to_a_few_documents() {
+		let (hub, tx) = hub(true);
+		// Types no service knows, by the thousand, and a kind of its own each time: the kind is
+		// android, the types are the one it knows, and the service keeps one set for the phone.
+		let junk: String = (0..3000).map(|i| format!("w{i}")).collect::<Vec<_>>().join(",");
+		for i in 0..40 {
+			let path = format!("/api/v1/ui?widgets=value,{junk}");
+			let resp = router(hub.clone()).oneshot(request_from("GET", &path, "t-glance", &format!("k{i}/1.0"), "")).await.unwrap();
+			assert_eq!(resp.status(), StatusCode::OK);
+		}
+		{
+			let draws = hub.draws.lock().unwrap();
+			let only = BTreeSet::from(["value".to_string()]);
+			assert_eq!(draws.iter().collect::<Vec<_>>(), [(&("id-glance".to_string(), "android".to_string()), &Some(only))]);
+		}
+		let snapshot = format!("/api/v1/snapshot?history=0&widgets={junk}");
+		assert_eq!(call(&hub, "GET", &snapshot, "glance", "").await.0, StatusCode::OK);
+		let mut stream = Lines::open(&hub, &format!("/api/v1/stream?widgets={junk}"), "t-glance").await;
+		stream.next().await.unwrap();
+		drop(stream);
+		// Every set of the types it knows, and readings meanwhile: no more documents kept than the
+		// limit, and the ones asked for lately among them.
+		for mask in 0..(limit::UIS_KEPT as u32 * 2) {
+			let types: Vec<&str> = crate::settings::WIDGET_TYPES.iter().enumerate().filter(|(i, _)| mask & (1 << i) != 0).map(|(_, t)| *t).collect();
+			assert_eq!(call(&hub, "GET", &format!("/api/v1/ui?widgets={}", types.join(",")), "glance", "").await.0, StatusCode::OK);
+			if mask % 16 == 0 {
+				tick(&hub, &tx);
+			}
+		}
+		assert_eq!(hub.uis.lock().unwrap().len(), limit::UIS_KEPT);
+		let last = Some(draws_from("value,gauge,meter,status,graph,list,bars"));
+		assert!(hub.uis.lock().unwrap().keys().any(|k| k.draws == last));
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+	async fn a_client_that_keeps_saying_another_app_is_written_down_now_and_then() {
+		let every = Duration::from_secs(3);
+		let (hub, _tx) = hub_with(true, |h| h.app_note = every);
+		let app = || store::load_clients_in(&hub.dir).unwrap().into_iter().find(|c| c.name == "glance").unwrap().app;
+		let mut stamps = std::collections::HashSet::new();
+		let t0 = Instant::now();
+		for i in 0..30 {
+			let said = if i % 2 == 0 { "android/1" } else { "android/2" };
+			let resp = router(hub.clone()).oneshot(request_from("GET", "/api/v1/ui", "t-glance", said, "")).await.unwrap();
+			assert_eq!(resp.status(), StatusCode::OK);
+			tokio::time::sleep(Duration::from_millis(5)).await;
+			stamps.insert(store::clients_stamp_in(&hub.dir));
+		}
+		// The first, written at once; the others wait for one write, of what it said last.
+		assert!(t0.elapsed() < every, "a busy computer: {:?}", t0.elapsed());
+		assert_eq!(app().as_deref(), Some("android/1"));
+		assert!(stamps.len() <= 2, "{} versions of clients.json", stamps.len());
+		for _ in 0..250 {
+			if app().as_deref() == Some("android/2") {
+				break;
+			}
+			tokio::time::sleep(Duration::from_millis(20)).await;
+		}
+		assert_eq!(app().as_deref(), Some("android/2"));
+		// Saying what the file has writes nothing.
+		let stamp = store::clients_stamp_in(&hub.dir);
+		for _ in 0..5 {
+			let resp = router(hub.clone()).oneshot(request_from("GET", "/api/v1/ui", "t-glance", "android/2", "")).await.unwrap();
+			assert_eq!(resp.status(), StatusCode::OK);
+		}
+		assert!(!hub.apps.lock().unwrap()["id-glance"].pending);
+		tokio::time::sleep(Duration::from_millis(300)).await;
+		assert_eq!(store::clients_stamp_in(&hub.dir), stamp);
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
 	async fn control_off_disables_the_actions_and_says_why() {
 		let (hub, _tx) = hub(true);
 		let ui = async || call(&hub, "GET", "/api/v1/ui", "admin", "").await.1;
@@ -1374,6 +1533,11 @@ dashboards = ["overview", "control"]
 		let body = |start: u64| format!(r#"{{"params":{{"pid":{pid},"signal":"kill","start":{start}}}}}"#);
 		let (status, v) = call(&hub, "POST", "/api/v1/actions/process.signal", "admin", &body(start + 1)).await;
 		assert_eq!((status, v["error"].as_str()), (StatusCode::CONFLICT, Some("process_changed")));
+		assert!(child.try_wait().unwrap().is_none());
+		// A start time no process has isn't one to leave unchecked.
+		let before = format!(r#"{{"params":{{"pid":{pid},"signal":"kill","start":-1}}}}"#);
+		let (status, v) = call(&hub, "POST", "/api/v1/actions/process.signal", "admin", &before).await;
+		assert_eq!((status, v["error"].as_str(), v["message"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_param"), Some("start")));
 		assert!(child.try_wait().unwrap().is_none());
 		let (status, v) = call(&hub, "POST", "/api/v1/actions/process.signal", "admin", &body(start)).await;
 		assert_eq!((status, v), (StatusCode::OK, serde_json::json!({ "ok": true })));
@@ -1705,6 +1869,167 @@ dashboards = ["overview", "control"]
 	}
 
 	#[tokio::test]
+	async fn a_dashboard_comes_at_once_and_what_isnt_read_yet_follows() {
+		let (hub, tx) = hub(true);
+		// The CPU's page, and which of its widgets show the processes.
+		let ui = call(&hub, "GET", "/api/v1/ui", "admin", "").await.1;
+		let cpu = ui["dashboards"].as_array().unwrap().iter().find(|d| d["id"] == "cpu").unwrap().clone();
+		fn ids(ws: &serde_json::Value, out: &mut Vec<(String, bool)>) {
+			for w in ws.as_array().into_iter().flatten() {
+				out.push((w["id"].as_str().unwrap().to_string(), w["source"] == "processes"));
+				ids(&w["widgets"], out);
+			}
+		}
+		let mut all = Vec::new();
+		ids(&cpu["widgets"], &mut all);
+		let procs: Vec<&str> = all.iter().filter(|(_, p)| *p).map(|(id, _)| id.as_str()).collect();
+		assert!(!procs.is_empty(), "{cpu}");
+		// Readings made before anyone looked at processes, then one with them.
+		let reading = |seq: u64, processes: bool| {
+			let mut f = frame(&hub.config(), seq);
+			f.read.processes = processes;
+			Arc::new(f)
+		};
+		tx.send_replace(reading(2, false));
+		let mut lines = Lines::open(&hub, "/api/v1/stream?dashboard=cpu&interval=5000", "t-admin").await;
+		lines.next().await.unwrap();
+		// At once, with no reading in between: everything but what shows the processes.
+		let first = lines.next().await.unwrap();
+		assert_eq!((first["type"].as_str(), first["dashboard"].as_str()), (Some("data"), Some("cpu")));
+		assert!(first["history"].is_object());
+		let widgets = first["widgets"].as_object().unwrap();
+		assert!(procs.iter().all(|id| !widgets.contains_key(*id)), "{first}");
+		assert!(all.iter().filter(|(_, p)| !p).any(|(id, _)| widgets.contains_key(id)) && widgets.contains_key("header/os"), "{first}");
+		assert!(hub.wanted().is_some_and(|w| w.processes));
+		// Another reading still without them: nothing before the interval.
+		tx.send_replace(reading(3, false));
+		assert!(tokio::time::timeout(Duration::from_millis(300), lines.0.next()).await.is_err());
+		// The first with them: a line at once, with them.
+		tx.send_replace(reading(4, true));
+		let next = lines.next().await.unwrap();
+		assert!(procs.iter().all(|id| next["widgets"].get(*id).is_some()) && next.get("history").is_none(), "{next}");
+		// Then at the interval again.
+		tx.send_replace(reading(5, true));
+		assert!(tokio::time::timeout(Duration::from_millis(300), lines.0.next()).await.is_err());
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
+	async fn a_phone_that_opens_stream_after_stream_gets_a_first_line_at_once_now_and_then() {
+		let (hub, tx) = hub(true);
+		let mut first = Lines::open(&hub, "/api/v1/stream?interval=2000", "t-admin").await;
+		first.next().await.unwrap();
+		assert!(first.next().await.unwrap()["history"].is_object());
+		// Another at once after: its first line with the next reading.
+		let mut second = Lines::open(&hub, "/api/v1/stream?interval=2000", "t-admin").await;
+		second.next().await.unwrap();
+		assert!(tokio::time::timeout(Duration::from_millis(300), second.0.next()).await.is_err());
+		tick(&hub, &tx);
+		assert!(second.next().await.unwrap()["history"].is_object());
+		// Another phone's isn't held up.
+		let mut other = Lines::open(&hub, "/api/v1/stream?interval=2000", "t-operate").await;
+		other.next().await.unwrap();
+		assert_eq!(other.next().await.unwrap()["type"], "data");
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
+	async fn a_change_goes_out_at_once_at_most_once_a_half_interval() {
+		let (hub, tx) = hub(true);
+		let mut lines = Lines::open(&hub, "/api/v1/stream?interval=2000", "t-admin").await;
+		let id = lines.next().await.unwrap()["stream"].as_str().unwrap().to_string();
+		// The stream's task looks at the readings before the next one comes.
+		tokio::time::sleep(Duration::from_millis(50)).await;
+		tick(&hub, &tx);
+		assert_eq!(lines.next_of("data").await.unwrap()["dashboard"], "overview");
+		let change = |dashboard: &str| {
+			let (hub, path, body) = (hub.clone(), format!("/api/v1/stream/{id}"), format!(r#"{{"dashboard":"{dashboard}"}}"#));
+			async move { call(&hub, "POST", &path, "admin", &body).await.0 }
+		};
+		// At once, with no reading in between.
+		assert_eq!(change("control").await, StatusCode::OK);
+		let now = lines.next().await.unwrap();
+		assert_eq!((now["type"].as_str(), now["dashboard"].as_str()), (Some("data"), Some("control")));
+		assert!(now["history"].is_object());
+		// Again within half the interval: with the next reading, not at once.
+		assert_eq!(change("overview").await, StatusCode::OK);
+		assert!(tokio::time::timeout(Duration::from_millis(300), lines.0.next()).await.is_err());
+		tick(&hub, &tx);
+		assert_eq!(lines.next_of("data").await.unwrap()["dashboard"], "overview");
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+	async fn a_client_that_keeps_changing_dashboards_gets_a_line_a_reading_at_most() {
+		let (hub, tx) = hub(true);
+		let _ticks = ticking(&hub, tx);
+		let mut lines = Lines::open(&hub, "/api/v1/stream?interval=1000", "t-admin").await;
+		let id = lines.next().await.unwrap()["stream"].as_str().unwrap().to_string();
+		lines.next_of("data").await.unwrap();
+		let reader = tokio::spawn(async move {
+			let (mut with_history, t0) = (0, Instant::now());
+			while t0.elapsed() < Duration::from_millis(1500) {
+				if let Ok(Some(chunk)) = tokio::time::timeout(Duration::from_millis(200), lines.0.next()).await {
+					let l: serde_json::Value = serde_json::from_slice(&chunk.unwrap()).unwrap();
+					with_history += l["history"].is_object() as u32;
+				}
+			}
+			with_history
+		});
+		// A change every few milliseconds for a second: about 200 of them.
+		let t0 = Instant::now();
+		let mut changes = 0;
+		while t0.elapsed() < Duration::from_secs(1) {
+			let dashboard = if changes % 2 == 0 { "control" } else { "overview" };
+			let (status, _) = call(&hub, "POST", &format!("/api/v1/stream/{id}"), "admin", &format!(r#"{{"dashboard":"{dashboard}"}}"#)).await;
+			assert_eq!(status, StatusCode::OK);
+			changes += 1;
+			tokio::time::sleep(Duration::from_millis(5)).await;
+		}
+		let with_history = reader.await.unwrap();
+		// A reading every 100 ms, and a line at once every half second at most.
+		assert!(changes > 50 && (2..=20).contains(&with_history), "{changes} changes, {with_history} lines with history");
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+	async fn a_stream_its_client_doesnt_read_holds_one_change_and_still_ends() {
+		let (hub, tx) = hub(true);
+		let _ticks = ticking(&hub, tx);
+		// Opened and never read: its task is held up once its lines fill what waits to be sent, a
+		// line every 300 ms here.
+		let mut stalled = Lines::open(&hub, "/api/v1/stream?interval=250", "t-admin").await;
+		let id = stalled.next().await.unwrap()["stream"].as_str().unwrap().to_string();
+		tokio::time::sleep(Duration::from_millis(2000)).await;
+		let path = format!("/api/v1/stream/{id}");
+		for i in 0..10_000 {
+			let body = if i % 2 == 0 { r#"{"dashboard":"control","interval":1000}"# } else { r#"{"dashboard":"overview","interval":2000,"sort":{"processes/table":"mem"}}"# };
+			assert_eq!(call(&hub, "POST", &path, "admin", body).await.0, StatusCode::OK);
+		}
+		// However many, one change waits: the last of each key.
+		let waiting = hub.streams.lock().unwrap()[&id].waiting();
+		let last = stream::Change { dashboard: Some("overview".into()), interval: Some(2000), sort: [("processes/table".to_string(), Some("mem".to_string()))].into() };
+		assert_eq!(waiting, Some(last));
+		// A fifth stream of the phone's ends it, held up as it is: what it needed read no longer is.
+		let mut others = Vec::new();
+		for _ in 0..limit::STREAMS_PER_CLIENT {
+			let mut s = Lines::open(&hub, "/api/v1/stream", "t-admin").await;
+			s.next().await.unwrap();
+			others.push(s);
+		}
+		for _ in 0..100 {
+			if hub.watchers() == limit::STREAMS_PER_CLIENT {
+				break;
+			}
+			tokio::time::sleep(Duration::from_millis(20)).await;
+		}
+		assert_eq!(hub.watchers(), limit::STREAMS_PER_CLIENT);
+		while stalled.next().await.is_some() {}
+		assert_eq!(call(&hub, "POST", &path, "admin", "{}").await.1["error"], "no_such_stream");
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
 	async fn a_dashboard_gone_from_the_settings_gives_way_to_the_first_tab() {
 		let (hub, tx) = hub(true);
 		let config = |extra: &str| {
@@ -1808,6 +2133,22 @@ dashboards = ["overview", "control"]
 		store::new_pairing(&hub.dir, Role::Glance, Some("owner"), false).unwrap();
 		let (status, _) = pair_from(&hub, "123456", &"x".repeat(limit::BODY_MAX)).await.unwrap();
 		assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
+	async fn hello_tells_a_stranger_which_service_it_is_and_no_more() {
+		let (hub, _tx) = hub(true);
+		let req = axum::http::Request::builder().uri("/api/v1/hello").body(Body::empty()).unwrap();
+		let resp = router(hub.clone()).oneshot(req).await.unwrap();
+		assert_eq!(resp.status(), StatusCode::OK);
+		let v: serde_json::Value = serde_json::from_slice(&axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap()).unwrap();
+		let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+		assert_eq!(keys, ["api", "app", "id", "min_app", "name", "version", "widgets"], "{v}");
+		// What the computer can do, control among it, a paired phone learns in `ui`.
+		assert_eq!(call(&hub, "GET", "/api/v1/ui", "glance", "").await.1["service"]["features"], serde_json::json!(["control", "processes"]));
+		hub.set_config(settings(false));
+		assert_eq!(call(&hub, "GET", "/api/v1/ui", "glance", "").await.1["service"]["features"], serde_json::json!(["processes"]));
 		std::fs::remove_dir_all(&hub.dir).unwrap();
 	}
 
