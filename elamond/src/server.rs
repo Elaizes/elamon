@@ -1222,6 +1222,20 @@ dashboards = ["overview", "control"]
 
 	/// A hub with its state in a directory of its own, the phones above paired, and a rate
 	/// limit out of the way.
+	/// A test's data directory gone, though the app a phone said it is may still be being written
+	/// down in the background (clients.json, under its lock): that write is waited out, not raced.
+	fn remove_test_dir(dir: &std::path::Path) {
+		for _ in 0..50 {
+			let _lock = store::lock_clients(dir);
+			match std::fs::remove_dir_all(dir) {
+				Ok(()) => return,
+				Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+				Err(_) => std::thread::sleep(std::time::Duration::from_millis(20)),
+			}
+		}
+		panic!("{} stays", dir.display());
+	}
+
 	fn hub(control: bool) -> (Arc<Hub>, watch::Sender<Arc<Frame>>) {
 		hub_with(control, |_| {})
 	}
@@ -1345,7 +1359,7 @@ dashboards = ["overview", "control"]
 				assert_eq!(reboot("admin").result, "control_disabled");
 			}
 			assert!(log.windows(2).all(|w| w[0].t >= w[1].t));
-			std::fs::remove_dir_all(&hub.dir).unwrap();
+			remove_test_dir(&hub.dir);
 		}
 	}
 
@@ -1401,7 +1415,7 @@ dashboards = ["overview", "control"]
 		call(&hub, "GET", "/api/v1/ui", "admin", "").await;
 		tokio::time::sleep(Duration::from_millis(100)).await;
 		assert_eq!(store::clients_stamp_in(&hub.dir), stamp);
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test]
@@ -1437,7 +1451,7 @@ dashboards = ["overview", "control"]
 		assert_eq!(hub.uis.lock().unwrap().len(), limit::UIS_KEPT);
 		let last = Some(draws_from("value,gauge,meter,status,graph,list,bars"));
 		assert!(hub.uis.lock().unwrap().keys().any(|k| k.draws == last));
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1474,7 +1488,7 @@ dashboards = ["overview", "control"]
 		assert!(!hub.apps.lock().unwrap()["id-glance"].pending);
 		tokio::time::sleep(Duration::from_millis(300)).await;
 		assert_eq!(store::clients_stamp_in(&hub.dir), stamp);
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test]
@@ -1500,7 +1514,7 @@ dashboards = ["overview", "control"]
 		assert_eq!(ui().await["control"]["enabled"], true);
 		hub.set_config(settings(false));
 		assert_eq!(ui().await["control"]["off_reason"], "settings");
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test]
@@ -1546,7 +1560,7 @@ dashboards = ["overview", "control"]
 		assert_eq!(e.what, format!("signal kill {pid} sleep"));
 		// No signal for an operator.
 		assert_eq!(call(&hub, "POST", "/api/v1/actions/process.signal", "operate", &body(start)).await.1["error"], "not_allowed");
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	/// When a process started, as the process list counts it.
@@ -1575,7 +1589,7 @@ dashboards = ["overview", "control"]
 		// Only the first refusal of the run is logged.
 		let log = hub.activity.newest(usize::MAX);
 		assert_eq!(log.iter().filter(|e| e.result == "too_many_requests").count(), 1);
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test]
@@ -1631,7 +1645,7 @@ dashboards = ["overview", "control"]
 		let e = log.iter().find(|e| e.client_id == "id-glance").unwrap();
 		assert_eq!((e.phone.as_str(), e.what.as_str(), e.result.as_str()), ("glance", "phone added: New phone", "ok"));
 		assert!(e.message.as_deref().is_some_and(|m| m.starts_with("id ") && m.ends_with(", glance")), "{e:?}");
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test]
@@ -1677,7 +1691,7 @@ dashboards = ["overview", "control"]
 		assert_eq!((status, v["error"].as_str()), (StatusCode::INTERNAL_SERVER_ERROR, Some("storage")));
 		assert_eq!(std::fs::read_to_string(hub.dir.join(store::CLIENTS_FILE)).unwrap(), "[{broken");
 		assert_eq!(call(&hub, "GET", "/api/v1/ui", "glance", "").await.0, StatusCode::OK);
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test]
@@ -1700,7 +1714,7 @@ dashboards = ["overview", "control"]
 		assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("no_such_action")));
 		let statuses = hub.link_statuses().await;
 		assert_eq!(statuses.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["plain"]);
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test]
@@ -1721,7 +1735,7 @@ dashboards = ["overview", "control"]
 				assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("no_such_dashboard")), "{phone}");
 			}
 		}
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	/// The lines of a stream as they come, each in time.
@@ -1843,7 +1857,7 @@ dashboards = ["overview", "control"]
 		tokio::time::sleep(Duration::from_millis(50)).await;
 		assert_eq!(hub.watchers(), 0);
 		assert!(hub.streams.lock().unwrap().is_empty());
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test]
@@ -1865,7 +1879,7 @@ dashboards = ["overview", "control"]
 		assert_eq!(streams[1].next_of("data").await.unwrap()["dashboard"], "control");
 		assert!(other.next_of("data").await.is_some() && fifth.next_of("data").await.is_some());
 		assert_eq!(hub.streams.lock().unwrap().len(), limit::STREAMS_PER_CLIENT + 1);
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test]
@@ -1911,7 +1925,7 @@ dashboards = ["overview", "control"]
 		// Then at the interval again.
 		tx.send_replace(reading(5, true));
 		assert!(tokio::time::timeout(Duration::from_millis(300), lines.0.next()).await.is_err());
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test]
@@ -1930,7 +1944,7 @@ dashboards = ["overview", "control"]
 		let mut other = Lines::open(&hub, "/api/v1/stream?interval=2000", "t-operate").await;
 		other.next().await.unwrap();
 		assert_eq!(other.next().await.unwrap()["type"], "data");
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test]
@@ -1956,7 +1970,7 @@ dashboards = ["overview", "control"]
 		assert!(tokio::time::timeout(Duration::from_millis(300), lines.0.next()).await.is_err());
 		tick(&hub, &tx);
 		assert_eq!(lines.next_of("data").await.unwrap()["dashboard"], "overview");
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1989,7 +2003,7 @@ dashboards = ["overview", "control"]
 		let with_history = reader.await.unwrap();
 		// A reading every 100 ms, and a line at once every half second at most.
 		assert!(changes > 50 && (2..=20).contains(&with_history), "{changes} changes, {with_history} lines with history");
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2026,7 +2040,7 @@ dashboards = ["overview", "control"]
 		assert_eq!(hub.watchers(), limit::STREAMS_PER_CLIENT);
 		while stalled.next().await.is_some() {}
 		assert_eq!(call(&hub, "POST", &path, "admin", "{}").await.1["error"], "no_such_stream");
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test]
@@ -2049,7 +2063,7 @@ dashboards = ["overview", "control"]
 		let after = lines.next_of("data").await.unwrap();
 		assert_eq!(after["dashboard"], "overview");
 		assert!(after["history"].is_object());
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	/// A phone's attempt at pairing from 192.0.2.7, answered on a task of its own: it may wait.
@@ -2133,7 +2147,7 @@ dashboards = ["overview", "control"]
 		store::new_pairing(&hub.dir, Role::Glance, Some("owner"), false).unwrap();
 		let (status, _) = pair_from(&hub, "123456", &"x".repeat(limit::BODY_MAX)).await.unwrap();
 		assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test]
@@ -2149,7 +2163,7 @@ dashboards = ["overview", "control"]
 		assert_eq!(call(&hub, "GET", "/api/v1/ui", "glance", "").await.1["service"]["features"], serde_json::json!(["control", "processes"]));
 		hub.set_config(settings(false));
 		assert_eq!(call(&hub, "GET", "/api/v1/ui", "glance", "").await.1["service"]["features"], serde_json::json!(["processes"]));
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[tokio::test]
@@ -2167,7 +2181,7 @@ dashboards = ["overview", "control"]
 		let chain: Vec<crate::identity::Rotation> = serde_json::from_str(&text).unwrap();
 		hub.set_rotations(&chain);
 		assert_eq!(get().await, chain);
-		std::fs::remove_dir_all(&hub.dir).unwrap();
+		remove_test_dir(&hub.dir);
 	}
 
 	#[test]
