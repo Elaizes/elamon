@@ -15,11 +15,10 @@ The phone talks to the computer directly: on the same network, or over a VPN bot
 
 ## Quick start
 
-1. **Install the service.** Download `elamond` from the
-   [latest release](https://github.com/Elaizes/elamon/releases/latest) and put it in
-   `~/.local/bin` ([section 1](#1-install-the-service)). On NixOS, use the module instead.
-2. **Set it up.** Run `~/.local/bin/elamond setup` as yourself, then run as root the commands it
-   prints.
+1. **Install the service.** As yourself, run
+   `curl -fsSL https://raw.githubusercontent.com/Elaizes/elamon/main/install.sh | sh`
+   ([section 1](#1-install-the-service)). On NixOS, use the module instead.
+2. **Set it up.** The install ends with `elamond setup`. Run as root the commands it prints.
 3. **Pair the phone.** Run `elamond pair`, scan the QR code with the phone, and answer `y` on the
    computer ([section 3](#3-pair-the-phone)).
 4. **Watch.** The app shows the computer's load, temperatures, memory, processes and more.
@@ -44,26 +43,50 @@ The phone talks to the computer directly: on the same network, or over a VPN bot
 This works the same way on every distribution that runs systemd: Debian, Ubuntu, Fedora, Arch,
 openSUSE and the rest. On NixOS, the module does it ([below](#nixos-and-home-manager)).
 
-### From a release
+### With one command
 
-1. **Download and unpack it.** Take `x86_64` for most PCs and `aarch64` for ARM boards. It runs on
-   any distribution with glibc 2.28 or newer (Debian 10, Ubuntu 20.04, RHEL 8 and later).
-
-   ```sh
-   sha256sum -c elamond-VERSION-x86_64-linux.tar.gz.sha256
-   tar -xzf elamond-VERSION-x86_64-linux.tar.gz
-   install -Dm755 elamond-VERSION-x86_64-linux/elamond ~/.local/bin/elamond
-   ```
-
-2. **Set it up**, as yourself, not as root:
+1. **Install it**, as yourself, not as root:
 
    ```sh
-   ~/.local/bin/elamond setup
+   curl -fsSL https://raw.githubusercontent.com/Elaizes/elamon/main/install.sh | sh
    ```
 
-   It installs a systemd user unit (`~/.config/systemd/user/elamond.service`) that runs this
-   binary. It writes starter settings to `~/.config/elamon/elamond.toml` if there are none. Then
-   it starts the service.
+   It takes the newest release for this computer (`x86_64` for most PCs, `aarch64` for ARM boards;
+   glibc 2.28 or newer: Debian 10, Ubuntu 20.04, RHEL 8 and later), checks its SHA-256, puts
+   `elamond` in `~/.local/bin`, and runs `elamond setup` (step 2):
+
+   ```
+   Downloading elamond 0.6.1 for x86_64
+     OK  SHA-256 matches
+     OK  installed ~/.local/bin/elamond (elamond 0.6.1)
+         release notes: https://github.com/Elaizes/elamon/releases/tag/v0.6.1
+   ```
+
+   To read the script before it runs, download it and run it yourself:
+
+   ```sh
+   curl -fsSLO https://raw.githubusercontent.com/Elaizes/elamon/main/install.sh
+   less install.sh
+   sh install.sh
+   ```
+
+   | Option | |
+   |---|---|
+   | `--version X.Y.Z` | that release instead of the newest |
+   | `--no-setup` | only put `elamond` in place; run `~/.local/bin/elamond setup` yourself |
+   | `--force` | install even when `elamond` is there already (otherwise it says so and points to `elamond update`) |
+   | `--no-start`, `--print`, `--multiple-sessions` | passed on to `elamond setup` |
+   | `ELAMON_BIN_DIR=DIR` | another folder than `~/.local/bin` |
+
+   Piped, options go after `sh -s --`: `curl -fsSL … | sh -s -- --no-setup`. It needs `tar`,
+   `gzip`, `sha256sum`, `awk`, and `curl` or `wget`, and names whichever is missing. It refuses
+   root, musl, an older glibc and other architectures: build from source there
+   ([below](#building-from-source)).
+
+2. **`elamond setup`**, which the install ran, installs a systemd user unit
+   (`~/.config/systemd/user/elamond.service`) that runs the binary. It writes the settings to start
+   from to `~/.config/elamon/elamond.toml` if there are none ([section 7](#7-settings-reference)).
+   Then it starts the service.
 
    You can run it again at any time. It changes only what changed, and restarts the service when
    the binary was moved or updated. `--print` shows what it would do without doing it;
@@ -103,6 +126,18 @@ It exits with 1 when the service can't run or can't be reached.
 - On NixOS it only points at the module's options. Where the unit comes from Home Manager or a Nix
   profile, it leaves the unit and the settings alone and prints only what needs root.
 - `elamond --version` prints the version.
+
+### By hand, from a release
+
+The same without the script: take the archive and its `.sha256` for your architecture from the
+[releases](https://github.com/Elaizes/elamon/releases), then:
+
+```sh
+sha256sum -c elamond-VERSION-x86_64-linux.tar.gz.sha256
+tar -xzf elamond-VERSION-x86_64-linux.tar.gz
+install -Dm755 elamond-VERSION-x86_64-linux/elamond ~/.local/bin/elamond
+~/.local/bin/elamond setup
+```
 
 ### Building from source
 
@@ -987,12 +1022,38 @@ port), or open it yourself.
 
 | Installed from | To update |
 |---|---|
-| a release | unpack the new one and install it over the old binary as in [section 1](#1-install-the-service), then run `elamond setup` |
+| a release (`install.sh`, or by hand) | `elamond update` (below) |
 | source | `git pull`, `cargo build --release` in `elamond/`, install the binary again, then run `elamond setup` |
 | a Nix profile | `nix profile upgrade --all`, then `systemctl --user daemon-reload` and `systemctl --user restart elamond` |
 | NixOS or Home Manager | `nix flake update elamon`, then rebuild; the rebuild restarts the service |
 
-For a release or a source build, `elamond setup` sees the new binary and restarts the service.
+**`elamond update`** looks for a newer release, only when you run it:
+
+```sh
+elamond update --check     # only tell whether there is one
+elamond update             # show it, ask, install it and start the service again on it
+elamond update --yes       # the same without asking
+```
+
+```
+elamond 0.6.1 is out; this is 0.6.0.
+  Release notes: https://github.com/Elaizes/elamon/releases/tag/v0.6.1
+Install it over ~/.local/bin/elamond? [y/N] y
+  OK  downloaded elamond-0.6.1-x86_64-linux.tar.gz (4.0 MB); its SHA-256 matches
+  OK  installed elamond 0.6.1 at ~/.local/bin/elamond
+  OK  started the service again on it
+```
+
+- It asks GitHub for the list of releases, anonymously, and takes the newest one with a build for
+  this computer. It checks the archive's SHA-256 and that the new binary says it's that version,
+  then puts it in place of the old one in one step. Anything wrong leaves the old one as it was.
+- A new minor version (0.6 → 0.7) gets a warning: update the app with it.
+- It restarts the service only when it runs and runs this binary; otherwise it says what to do.
+- It refuses a binary from the Nix store (update it through Nix, as in the table), one in a folder
+  you can't write, and root.
+- A release whose notes say the unit changed needs `elamond setup` after the update.
+- GitHub answers 60 such requests an hour to one address without signing in; past that, it says
+  to try again later.
 
 **Update the app and the service together.** App 0.6 and service 0.6 speak API 2, which no earlier
 app or service does. Each asks for the other to be updated when they don't match. Pairings stay:
@@ -1222,6 +1283,17 @@ do about those marked `!`. To see what the service reads without the app, run `e
   control off until they parse again.
 - Every request to act is in the activity log, carried out or refused. What was carried out is also
   in the journal, with the name of the phone that asked: `journalctl --user -u elamond`.
+
+**Installing and updating**
+
+- `install.sh` and `elamond update` take releases from GitHub over HTTPS, anonymously, and check
+  each archive against the SHA-256 published with it. That catches a damaged or cut-off download,
+  not a forged release: whoever could change the release could change its checksum too. Signed
+  releases are planned for 1.0. `curl … | sh` also trusts whoever can change `install.sh` on
+  `main`; download it and read it first if that matters to you.
+- A paired phone learns the computer's addresses and names (`endpoints`), for it to find the
+  computer again. Only paired phones get them; whatever answers at one of them is accepted only
+  with the paired id and certificate.
 
 **Backups and moved pairings**
 
