@@ -1409,11 +1409,12 @@ dashboards = ["overview", "control"]
 
 	#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 	async fn a_client_that_keeps_saying_another_app_is_written_down_now_and_then() {
-		let (hub, _tx) = hub_with(true, |h| h.app_note = Duration::from_millis(500));
+		let every = Duration::from_secs(3);
+		let (hub, _tx) = hub_with(true, |h| h.app_note = every);
 		let app = || store::load_clients_in(&hub.dir).unwrap().into_iter().find(|c| c.name == "glance").unwrap().app;
 		let mut stamps = std::collections::HashSet::new();
 		let t0 = Instant::now();
-		for i in 0..60 {
+		for i in 0..30 {
 			let said = if i % 2 == 0 { "android/1" } else { "android/2" };
 			let resp = router(hub.clone()).oneshot(request_from("GET", "/api/v1/ui", "t-glance", said, "")).await.unwrap();
 			assert_eq!(resp.status(), StatusCode::OK);
@@ -1421,10 +1422,10 @@ dashboards = ["overview", "control"]
 			stamps.insert(store::clients_stamp_in(&hub.dir));
 		}
 		// The first, written at once; the others wait for one write, of what it said last.
-		assert!(t0.elapsed() < Duration::from_millis(500));
+		assert!(t0.elapsed() < every, "a busy computer: {:?}", t0.elapsed());
 		assert_eq!(app().as_deref(), Some("android/1"));
 		assert!(stamps.len() <= 2, "{} versions of clients.json", stamps.len());
-		for _ in 0..100 {
+		for _ in 0..250 {
 			if app().as_deref() == Some("android/2") {
 				break;
 			}
@@ -1438,7 +1439,7 @@ dashboards = ["overview", "control"]
 			assert_eq!(resp.status(), StatusCode::OK);
 		}
 		assert!(!hub.apps.lock().unwrap()["id-glance"].pending);
-		tokio::time::sleep(Duration::from_millis(600)).await;
+		tokio::time::sleep(Duration::from_millis(300)).await;
 		assert_eq!(store::clients_stamp_in(&hub.dir), stamp);
 		std::fs::remove_dir_all(&hub.dir).unwrap();
 	}

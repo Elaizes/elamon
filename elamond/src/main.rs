@@ -169,7 +169,7 @@ fn timing(config: &store::Config) -> (Duration, usize, Vec<String>) {
 fn serve() -> Result<(), String> {
 	let dir = store::data_dir();
 	// Links the 0.5 app added go into the settings before they are read, once.
-	links::migrate(&dir, &store::config_dir(), store::load_config().ok().as_ref());
+	links::migrate(&dir, &store::config_dir(), &store::config_files());
 	let config = store::load_config()?;
 	// Held until the service stops: `elamond restore` sees it, and the identity isn't read while
 	// a restore writes it.

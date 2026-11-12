@@ -5,6 +5,8 @@
 
 use std::collections::BTreeSet;
 use std::fs;
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
 
@@ -220,8 +222,9 @@ pub fn unit_refusal(config: &store::Config, unit: &str, scope: Option<&str>) -> 
 /// The drop-in the links added from 0.5's app are written to, in the settings' elamond.d.
 pub const MIGRATED: &str = "links-from-app";
 
-/// A link's id from its name: `a-z`, `0-9`, `_` and `-`, at most 32, starting with a letter or a
-/// digit; `link` when nothing of the name is left; with `_2`, `_3`… when `taken` has it.
+/// A link's id from its name: `app-`, then `a-z`, `0-9`, `_` and `-` of the name, at most 32 in
+/// all; `app-link` when nothing of the name is left; with `_2`, `_3`… when `taken` has it. The
+/// prefix keeps them apart from the ids an owner gives links, which a drop-in's would merge into.
 fn id_from(name: &str, taken: &BTreeSet<String>) -> String {
 	let mut base = String::new();
 	for c in name.to_lowercase().chars() {
@@ -231,10 +234,11 @@ fn id_from(name: &str, taken: &BTreeSet<String>) -> String {
 			_ => {}
 		}
 	}
-	let mut base: String = base.trim_matches(|c| c == '_' || c == '-').chars().take(28).collect();
+	let mut base: String = base.trim_matches(|c| c == '_' || c == '-').chars().take(22).collect();
 	if base.is_empty() {
 		base = "link".into();
 	}
+	let base = format!("app-{base}");
 	let mut id = base.clone();
 	let mut n = 2;
 	while taken.contains(&id) {
@@ -257,11 +261,15 @@ fn free_path(dir: &Path, name: &str, ext: &str) -> PathBuf {
 
 /// The settings drop-in for the links 0.5's app added, as `[links.<id>]` tables; ids made from the
 /// names, unique among themselves and `taken`. A link that isn't a web page's is left out, and so is
-/// a unit no link could have (with the reason); `None` when nothing is left.
-pub fn migrated_toml(list: &[LinkDef], taken: &BTreeSet<String>) -> (Option<String>, Vec<String>) {
+/// a unit no link could have (with the reason). A unit stays the link's only where the owner let
+/// it be, as 0.5 checked at each use: `approved` has it, with its scope. Any other is written
+/// commented out, for the owner to confirm by taking the `#` off (said in a note). `None` when
+/// nothing is left; with the text, how many links it has.
+pub fn migrated_toml(list: &[LinkDef], taken: &BTreeSet<String>, approved: &BTreeSet<(String, String)>) -> (Option<(String, usize)>, Vec<String>) {
 	let mut taken = taken.clone();
 	let mut notes = Vec::new();
-	let mut links = toml::Table::new();
+	let mut body = String::new();
+	let mut written = 0;
 	for l in list {
 		let name = store::sanitize_name(&l.name);
 		if !web_url(&l.url) {
@@ -270,39 +278,92 @@ pub fn migrated_toml(list: &[LinkDef], taken: &BTreeSet<String>) -> (Option<Stri
 		}
 		let id = id_from(&name, &taken);
 		taken.insert(id.clone());
-		let mut t = toml::Table::new();
-		t.insert("name".into(), name.clone().into());
-		t.insert("url".into(), l.url.clone().into());
-		if let Some(u) = l.unit.as_deref().filter(|u| !u.is_empty()) {
+		let mut link = toml::Table::new();
+		link.insert("name".into(), name.clone().into());
+		link.insert("url".into(), l.url.clone().into());
+		let scope = if l.scope.as_deref() == Some("system") { "system" } else { "user" };
+		let unit = l.unit.as_deref().filter(|u| !u.is_empty());
+		let shaped = unit.map(|u| unit_shape(u).map(|()| u));
+		let owners = shaped.and_then(Result::ok).filter(|u| approved.contains(&(u.to_string(), scope.to_string())));
+		if let Some(u) = owners {
+			link.insert("unit".into(), u.into());
+			link.insert("scope".into(), scope.into());
+		}
+		let mut top = toml::Table::new();
+		top.insert("links".into(), toml::Value::Table(toml::Table::from_iter([(id.clone(), toml::Value::Table(link))])));
+		body.push('\n');
+		body.push_str(&toml::to_string(&top).unwrap_or_default());
+		written += 1;
+		if let (Some(u), None) = (unit, owners) {
 			match unit_shape(u) {
 				Ok(()) => {
-					t.insert("unit".into(), u.into());
-					t.insert("scope".into(), (if l.scope.as_deref() == Some("system") { "system" } else { "user" }).into());
+					body.push_str(&format!(
+						"# The 0.5 app gave it this unit, for phones to start, stop and restart. They may once you\n\
+						 # take the # off these two lines; a system unit also needs `elamond setup` run again.\n\
+						 # unit = {}\n# scope = \"{scope}\"\n",
+						toml::Value::String(u.to_string())
+					));
+					notes.push(format!("\"{name}\" ({id}) has its unit {u} ({scope}) commented out, until you take the # off its lines"));
 				}
 				Err(why) => notes.push(format!("\"{name}\" keeps no unit: {u} {why}")),
 			}
 		}
-		links.insert(id, t.into());
 	}
-	if links.is_empty() {
+	if written == 0 {
 		return (None, notes);
 	}
-	let mut top = toml::Table::new();
-	top.insert("links".into(), links.into());
-	let body = toml::to_string(&top).unwrap_or_default();
 	let text = format!(
 		"# The links Elamon 0.5's app added, written here once by elamond 0.6 from links.json (which\n\
 		 # is now links.json.migrated beside it). Change or remove them here; the app no longer edits\n\
-		 # links. docs/config.md, Links.\n\n{body}"
+		 # links. docs/config.md, Links.\n{body}"
 	);
-	(Some(text), notes)
+	(Some((text, written)), notes)
+}
+
+/// The units 0.5's settings let a link added from the app use, with their scopes: those in `units`
+/// and on a `[[links]]` entry. Read as plain TOML, since 0.6 doesn't load settings that still have
+/// them.
+fn approved_in(files: &[PathBuf]) -> BTreeSet<(String, String)> {
+	let text = |v: &toml::Value, key: &str| v.get(key).and_then(toml::Value::as_str).map(str::to_string);
+	let mut out = BTreeSet::new();
+	for t in files.iter().filter_map(|f| fs::read_to_string(f).ok()?.parse::<toml::Table>().ok()) {
+		for u in t.get("units").and_then(toml::Value::as_array).into_iter().flatten() {
+			let named = match u {
+				toml::Value::String(name) => Some(name.clone()),
+				other => text(other, "name"),
+			};
+			if let Some(name) = named {
+				out.insert((name, text(u, "scope").unwrap_or_else(|| "user".into())));
+			}
+		}
+		for l in t.get("links").and_then(toml::Value::as_array).into_iter().flatten() {
+			if let Some(unit) = text(l, "unit") {
+				out.insert((unit, text(l, "scope").unwrap_or_else(|| "user".into())));
+			}
+		}
+	}
+	out
+}
+
+/// The ids of the links the settings files `files` give, read as plain TOML: from settings that
+/// don't load as a whole too (0.5's), so a link written from links.json never takes the id of one
+/// the owner gave, which it would merge into.
+fn link_ids_in(files: &[PathBuf]) -> BTreeSet<String> {
+	files
+		.iter()
+		.filter_map(|f| fs::read_to_string(f).ok()?.parse::<toml::Table>().ok())
+		.filter_map(|t| Some(t.get("links")?.as_table()?.keys().cloned().collect::<Vec<_>>()))
+		.flatten()
+		.collect()
 }
 
 /// Turns links.json in the data directory `data`, where 0.5 kept the links added from the app, into
 /// the settings drop-in elamond.d/links-from-app.toml in the config directory `config`, once:
-/// links.json becomes links.json.migrated. No file that is there is written over; a drop-in that
-/// wouldn't read as settings isn't written, and links.json stays. Says what it did in the journal.
-pub fn migrate(data: &Path, config: &Path, settings: Option<&store::Config>) {
+/// links.json becomes links.json.migrated. The ids are none the settings files `files` give a link,
+/// and a unit stays a link's where they let links added from the app use it, as 0.5's did.
+/// No file that is there is written over; a drop-in that wouldn't read as settings isn't written,
+/// and links.json stays. Says what it did in the journal.
+pub fn migrate(data: &Path, config: &Path, files: &[PathBuf]) {
 	let from = data.join(FILE);
 	if !from.exists() {
 		return;
@@ -315,26 +376,30 @@ pub fn migrate(data: &Path, config: &Path, settings: Option<&store::Config>) {
 			return;
 		}
 	};
-	let taken: BTreeSet<String> = settings.map(|c| c.links.keys().cloned().collect()).unwrap_or_default();
-	let (text, notes) = migrated_toml(&list, &taken);
+	let (text, notes) = migrated_toml(&list, &link_ids_in(files), &approved_in(files));
 	for n in &notes {
 		eprintln!("links: from links.json, {n}");
 	}
 	let dropins = config.join(store::DROPIN_DIR);
 	let written = match text {
 		None => None,
-		Some(text) => {
+		Some((text, n)) => {
 			if let Err(e) = crate::settings::read_sources(&[crate::settings::Source::new(format!("{MIGRATED}.toml"), text.clone())]) {
 				eprintln!("links: the links of links.json don't make sound settings, so they stay there: {}", crate::settings::join_mistakes(&e));
 				return;
 			}
 			let to = free_path(&dropins, MIGRATED, ".toml");
-			let wrote = fs::create_dir_all(&dropins).and_then(|_| fs::write(&to, text));
+			// Only the owner's to read, as links.json was: a link's address may hold a password.
+			let wrote = fs::create_dir_all(&dropins).and_then(|_| {
+				let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&to)?;
+				f.write_all(text.as_bytes())
+			});
 			if let Err(e) = wrote {
 				eprintln!("links: can't write {} ({e}); the links added from the app stay in {}", to.display(), from.display());
+				let _ = fs::remove_file(&to);
 				return;
 			}
-			Some(to)
+			Some((to, n))
 		}
 	};
 	let aside = free_path(data, &format!("{FILE}.migrated"), "");
@@ -342,12 +407,7 @@ pub fn migrate(data: &Path, config: &Path, settings: Option<&store::Config>) {
 		eprintln!("links: can't move {} aside ({e})", from.display());
 	}
 	match written {
-		Some(to) => eprintln!(
-			"links: the {} link(s) added from the app are in the settings now, {}; links.json is {}",
-			list.len() - notes.iter().filter(|n| n.contains("left out")).count(),
-			to.display(),
-			aside.display()
-		),
+		Some((to, n)) => eprintln!("links: the {n} link(s) added from the app are in the settings now, {}; links.json is {}", to.display(), aside.display()),
 		None => eprintln!("links: links.json held no link to keep; it is {}", aside.display()),
 	}
 }
@@ -412,7 +472,8 @@ mod tests {
 	}
 
 	#[test]
-	fn the_links_the_app_added_become_settings_once() {
+	fn the_links_the_app_added_become_settings_once_their_units_left_to_the_owner() {
+		use std::os::unix::fs::PermissionsExt;
 		let dir = std::env::temp_dir().join(format!("elamond-links-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
 		let (data, config) = (dir.join("data"), dir.join("config"));
 		fs::create_dir_all(&data).unwrap();
@@ -422,31 +483,68 @@ mod tests {
 			link("Jellyfin", "{host}:8097", None),
 			link("Web UI", "https://{host}/", Some("elamond.service")),
 			link("Script", "javascript:alert(1)", None),
-			link("Ünïcode ☃", "http://{host}:1", None),
+			link("Ünïcode ☃", "http://user:secret@{host}:1", None),
+			link("Web", "http://{host}:80", Some("nginx.service")),
+			link("Sync", "http://{host}:8384", Some("syncthing.service")),
+			LinkDef { scope: Some("user".into()), ..link("Hole", "http://{host}:81", Some("pihole.service")) },
+			link("Hole", "http://{host}:82", Some("pihole.service")),
 		];
 		save_in(&data, &list).unwrap();
-		let settings = crate::settings::read_sources(&[crate::settings::Source::new("a.toml", "[links.web_ui]\nname = \"Mine\"\nurl = \"http://{host}:2\"\n")]).unwrap();
-		migrate(&data, &config, Some(&settings));
-		let text = fs::read_to_string(config.join("elamond.d/links-from-app.toml")).unwrap();
-		let read = crate::settings::read_sources(&[crate::settings::Source::new("links-from-app.toml", text)]).unwrap();
-		let got: Vec<(&str, &str, Option<&str>, &str)> = read.links.iter().map(|(id, l)| (id.as_str(), l.name.as_str(), l.unit.as_deref(), l.scope())).collect();
+		// The owner's settings, which don't load in 0.6 (a key it doesn't know) and give a link an
+		// id the first link's would be: the migrated one takes another rather than merge into it.
+		fs::create_dir_all(&config).unwrap();
+		let main = config.join("elamond.toml");
+		fs::write(&main, "no_such_key = 1\n[links.app-jellyfin]\nname = \"Mine\"\nurl = \"http://{host}:2\"\nunit = \"mine.service\"\n").unwrap();
+		// 0.5's settings, in a drop-in of their own: the units they let links added from the app use.
+		let old = config.join("old.toml");
+		fs::write(&old, "units = [\"syncthing.service\", { name = \"nginx.service\", scope = \"system\" }]\n[[links]]\nname = \"Pi\"\nurl = \"http://{host}:3\"\nunit = \"pihole.service\"\nscope = \"system\"\n").unwrap();
+		migrate(&data, &config, &[main.clone(), old.clone()]);
+		let path = config.join("elamond.d/links-from-app.toml");
+		// Only the owner's to read: an address may hold a password.
+		assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+		let text = fs::read_to_string(&path).unwrap();
+		let read = crate::settings::read_sources(&[crate::settings::Source::new("links-from-app.toml", text.clone())]).unwrap();
+		let got: Vec<(&str, &str, Option<&str>)> = read.links.iter().map(|(id, l)| (id.as_str(), l.name.as_str(), l.unit.as_deref())).collect();
+		// No unit but one the owner let them use, in its scope; never one no link may have.
 		assert_eq!(
 			got,
 			[
-				("jellyfin", "Jellyfin", Some("jellyfin.service"), "system"),
-				("jellyfin_2", "Jellyfin", None, "user"),
-				("n_code", "Ünïcode ☃", None, "user"),
-				// Not the settings' own id, and not a unit no link may have.
-				("web_ui_2", "Web UI", None, "user"),
+				("app-hole", "Hole", None),
+				("app-hole_2", "Hole", Some("pihole.service")),
+				("app-jellyfin_2", "Jellyfin", None),
+				("app-jellyfin_3", "Jellyfin", None),
+				("app-n_code", "Ünïcode ☃", None),
+				("app-sync", "Sync", None),
+				("app-web", "Web", Some("nginx.service")),
+				("app-web_ui", "Web UI", None),
 			]
 		);
+		assert_eq!(read.links["app-web"].scope(), "system");
+		assert!(text.contains("# unit = \"jellyfin.service\"\n# scope = \"system\"\n") && !text.contains("elamond.service"), "{text}");
+		// The # taken off, it is the link's.
+		let confirmed = text.replace("# unit = ", "unit = ").replace("# scope = ", "scope = ");
+		let read = crate::settings::read_sources(&[crate::settings::Source::new("links-from-app.toml", confirmed)]).unwrap();
+		assert_eq!((read.links["app-jellyfin_2"].unit.as_deref(), read.links["app-jellyfin_2"].scope()), (Some("jellyfin.service"), "system"));
 		assert!(!data.join(FILE).exists() && data.join("links.json.migrated").exists());
-		// Once: another links.json (a backup of 0.5 restored) goes beside, over nothing.
+		// What the journal is told of each.
+		let (_, notes) = migrated_toml(&list[..5], &BTreeSet::new(), &BTreeSet::new());
+		assert_eq!(
+			notes,
+			[
+				"\"Jellyfin\" (app-jellyfin) has its unit jellyfin.service (system) commented out, until you take the # off its lines",
+				"\"Web UI\" keeps no unit: elamond.service is the Elamon service's own unit",
+				"\"Script\" left out: javascript:alert(1) isn't a web page's address",
+			]
+		);
+		// Once: another links.json (a backup of 0.5 restored) goes beside, over nothing, its ids
+		// none of those the settings files give.
 		save_in(&data, &list[..1]).unwrap();
-		migrate(&data, &config, None);
-		assert!(config.join("elamond.d/links-from-app-2.toml").exists() && data.join("links.json.migrated-2").exists());
-		assert_eq!(id_from("---", &BTreeSet::new()), "link");
-		assert_eq!(id_from(&"a".repeat(40), &BTreeSet::new()).len(), 28);
+		migrate(&data, &config, &[main, old, path]);
+		let again = fs::read_to_string(config.join("elamond.d/links-from-app-2.toml")).unwrap();
+		assert!(again.contains("[links.app-jellyfin_4]") && data.join("links.json.migrated-2").exists(), "{again}");
+		assert_eq!(id_from("---", &BTreeSet::new()), "app-link");
+		assert_eq!(id_from(&"a".repeat(40), &BTreeSet::new()).len(), 26);
+		assert!(crate::settings::is_id(&id_from(&"a".repeat(40), &(2..10_000).map(|n| format!("app-{}_{n}", "a".repeat(22))).chain([format!("app-{}", "a".repeat(22))]).collect())));
 		fs::remove_dir_all(dir).unwrap();
 	}
 }

@@ -73,9 +73,12 @@ scope = "system"
 | `icon` | [icon](#icons) | `globe` | |
 
 The links the 0.5 app added (its links.json) the service writes into
-`elamond.d/links-from-app.toml` once, at its first start, ids made from their names; links.json
-becomes links.json.migrated. A unit no link may have is left out of them, and so is a link that
-isn't a web page's.
+`elamond.d/links-from-app.toml` once, at its first start, ids made from their names (`app-…`, none
+the settings already give a link); links.json becomes links.json.migrated. A link keeps its unit
+where the 0.5 settings let links use it (in `units` or on a `[[links]]` entry, in that scope), as
+0.5 checked at each use; any other unit is written commented out, and phones start and stop it once
+the owner takes the `#` off its `unit` and `scope` (the journal names each). A unit no link may
+have is left out, and so is a link that isn't a web page's.
 
 ## Actions
 

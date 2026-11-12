@@ -375,7 +375,10 @@ icon = "music"                # optional; "globe" by default
   with `operate` or `admin` start, stop and restart their units. The app doesn't add or change
   links any more: the links the 0.5 app added are written into the settings once, as
   `~/.config/elamon/elamond.d/links-from-app.toml`, when the 0.6 service first starts
-  (`links.json` beside its state becomes `links.json.migrated`). Change them there.
+  (`links.json` beside its state becomes `links.json.migrated`). Change them there. A link keeps
+  its unit where the 0.5 settings named it (`units`, or a `[[links]]` entry); any other is there
+  commented out: take the `#` off its `unit` and `scope` for phones to start and stop it (and run
+  `elamond setup` again for a system unit).
 
 A phone can only start or stop the unit a link names, so it can never touch what you didn't
 choose: only service units (`NAME.service`), each in its own scope; a template's instance
