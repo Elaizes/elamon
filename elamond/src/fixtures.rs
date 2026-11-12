@@ -17,7 +17,7 @@ use crate::control::{ActionResult, Media, Volume};
 use crate::errors::ErrorCode;
 use crate::links::LinkStatus;
 use crate::model::*;
-use crate::server::{hello_body, paired_body};
+use crate::server::{features_of, hello_body, paired_body};
 
 fn check(name: &str, value: &impl Serialize) {
 	write_or_compare(name, serde_json::to_string_pretty(value).unwrap() + "\n");
@@ -271,9 +271,11 @@ pub fn processes() -> Vec<Process> {
 
 #[test]
 fn hello() {
-	let features = ["displays", "media", "power", "power_profiles", "processes", "units"];
-	check_compact("hello", &crate::ui::J::from(hello_body("0123456789abcdef0123456789abcdef", "fixture", &features, true)));
+	check_compact("hello", &crate::ui::J::from(hello_body("0123456789abcdef0123456789abcdef", "fixture")));
 }
+
+/// What the fixtures' computer offers, as `ui`'s `service.features` says.
+const FEATURES: [&str; 6] = ["displays", "media", "power", "power_profiles", "processes", "units"];
 
 #[test]
 fn paired() {
@@ -374,6 +376,7 @@ fn ui_for(config: &crate::settings::Config, values: &crate::values::Values, role
 			version: info.service_version.into(),
 			interval_ms: info.interval_ms,
 			history_seconds: info.history_seconds,
+			features: features_of(&FEATURES, config.control),
 		},
 		control: crate::ui::Control { enabled: config.control, off_reason: (!config.control).then_some("settings") },
 		role,

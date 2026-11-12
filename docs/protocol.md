@@ -33,15 +33,11 @@ tests read them, so the two can't drift apart.
 ### `GET /api/v1/hello` (no token)
 
 ```json
-{ "app": "elamon", "api": 2, "widgets": 1, "id": "…", "name": "…", "version": "0.6.0",
-  "min_app": "0.6.0", "features": ["control", "media", "power", "power_profiles", "processes", "units"] }
+{ "app": "elamon", "api": 2, "widgets": 1, "id": "…", "name": "…", "version": "0.6.0", "min_app": "0.6.0" }
 ```
 
-`features` says what this computer can offer at all (whatever a client's role), sorted:
-`control` (`control = true` in the settings), `power` (logind can power off, restart, sleep or
-lock), `power_profiles` (power-profiles-daemon or tuned-ppd), `units` (systemd), `media` (a session
-bus for MPRIS), `processes`, `displays` (a GPU whose monitors DRM tells of), `nvml` (an NVIDIA GPU
-NVML can read). A client ignores those it doesn't know.
+Anyone on the network may ask, so it says which service this is and which versions it speaks, and
+nothing of what the computer can do: that a paired client reads in `ui` (`service.features`).
 
 ### The client says what it is
 
@@ -276,7 +272,8 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
 ```json
 {
   "version": "5c1f0e2a9d3b7a41",
-  "service": { "id": "…", "name": "…", "version": "0.6.0", "interval_ms": 1000, "history_seconds": 600 },
+  "service": { "id": "…", "name": "…", "version": "0.6.0", "interval_ms": 1000, "history_seconds": 600,
+               "features": ["control", "media", "power", "power_profiles", "processes", "units"] },
   "role": "admin",
   "control": { "enabled": true, "off_reason": null },
   "profile": { "id": "owner", "name": "Owner", "theme": "dark", "pure_black": true, "animations": true,
@@ -296,6 +293,11 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
   label or title that holds values follows them within 5 seconds). A
   client keeps the last document of each computer (a cache, not settings) to start at once and to
   show while offline, and fetches it again when a stream says `ui` with another version.
+- `service.features` says what this computer can offer at all (whatever the client's role),
+  sorted: `control` (`control = true` in the settings), `power` (logind can power off, restart,
+  sleep or lock), `power_profiles` (power-profiles-daemon or tuned-ppd), `units` (systemd), `media`
+  (a session bus for MPRIS), `processes`, `displays` (a GPU whose monitors DRM tells of), `nvml` (an
+  NVIDIA GPU NVML can read). A client ignores those it doesn't know.
 - `profile` holds the part every client reads, and the part for this client's kind (`android`)
   only.
 - `tabs` are the profile's dashboards the role sees, in order (one for each item of a dashboard

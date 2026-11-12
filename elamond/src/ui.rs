@@ -216,6 +216,8 @@ pub struct Service {
 	pub version: String,
 	pub interval_ms: u64,
 	pub history_seconds: u64,
+	/// What the computer can offer at all, sorted: only for paired clients, not in `hello`.
+	pub features: Vec<&'static str>,
 }
 
 /// Whether clients may act, and why not.
@@ -966,6 +968,7 @@ fn service_json(s: &Service) -> Obj {
 	o.put("version", s.version.as_str());
 	o.put("interval_ms", s.interval_ms);
 	o.put("history_seconds", s.history_seconds);
+	o.put("features", J::Arr(s.features.iter().map(|f| J::from(*f)).collect()));
 	o
 }
 
@@ -1292,7 +1295,14 @@ pub mod tests {
 			config,
 			values,
 			caps,
-			service: Service { id: info.id, name: info.name, version: info.service_version.into(), interval_ms: info.interval_ms, history_seconds: info.history_seconds },
+			service: Service {
+				id: info.id,
+				name: info.name,
+				version: info.service_version.into(),
+				interval_ms: info.interval_ms,
+				history_seconds: info.history_seconds,
+				features: vec!["processes"],
+			},
 			control: Control { enabled: config.control, off_reason: (!config.control).then_some("settings") },
 			role,
 			profile,

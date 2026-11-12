@@ -1,11 +1,12 @@
 {
-  "version": "c80e39d0e4308db1",
+  "version": "ae316e8538344d50",
   "service": {
     "id": "0123456789abcdef0123456789abcdef",
     "name": "fixture",
     "version": "9.9.9",
     "interval_ms": 1000,
-    "history_seconds": 600
+    "history_seconds": 600,
+    "features": ["control", "displays", "media", "power", "power_profiles", "processes", "units"]
   },
   "role": "admin",
   "control": { "enabled": true, "off_reason": null },

@@ -55,8 +55,8 @@ with subtest("the listed user's service takes the port, and says it speaks API 2
 	machine.wait_until_succeeds("ss -ltnpe | grep :47823 | grep -q uid:1000", timeout=60)
 	hello = json.loads(machine.succeed("curl -sk https://localhost:47823/api/v1/hello"))
 	assert hello["app"] == "elamon" and hello["api"] == 2 and hello["widgets"] == 1 and hello["min_app"] == "0.6.0", hello
-	assert "processes" in hello["features"] and "control" not in hello["features"], hello
-	assert hello["features"] == sorted(hello["features"]), hello
+	# What the computer can do is no stranger's business: only a paired phone reads it, in ui.
+	assert "features" not in hello, hello
 
 with subtest("a phone pairs with the profile the settings in Nix give, and gets their dashboard and action"):
 	code = pair_code("pair", "--profile", "vm")
@@ -68,6 +68,8 @@ with subtest("a phone pairs with the profile the settings in Nix give, and gets 
 	doc = ui(auth)
 	assert doc["service"]["interval_ms"] > 0 and doc["service"]["history_seconds"] > 0, doc["service"]
 	assert doc["service"]["version"] == hello["version"], doc["service"]
+	features = doc["service"]["features"]
+	assert "processes" in features and "control" not in features and features == sorted(features), doc["service"]
 	assert doc["profile"]["id"] == "vm" and doc["tabs"] == ["vm", "overview"], (doc["profile"], doc["tabs"])
 	vm = next(d for d in doc["dashboards"] if d["id"] == "vm")
 	kinds = {w["id"]: w["type"] for w in vm["widgets"]}

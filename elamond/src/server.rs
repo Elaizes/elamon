@@ -463,8 +463,8 @@ impl Hub {
 		self.wants.lock().map(|w| w.len()).unwrap_or(0)
 	}
 
-	/// The service as `ui` names it.
-	fn service(&self) -> ui::Service {
+	/// The service as `ui` names it, with what the computer offers in the reading `frame`.
+	fn service(&self, frame: &Frame) -> ui::Service {
 		let cap = self.history.lock().map(|h| h.capacity()).unwrap_or(0);
 		ui::Service {
 			id: self.id.clone(),
@@ -472,6 +472,7 @@ impl Hub {
 			version: env!("CARGO_PKG_VERSION").into(),
 			interval_ms: self.interval.as_millis() as u64,
 			history_seconds: (self.interval * cap as u32).as_secs(),
+			features: features_of(&frame.features, self.config().control),
 		}
 	}
 
@@ -512,7 +513,7 @@ impl Hub {
 			config: &config,
 			values: &frame.values,
 			caps: &frame.caps,
-			service: self.service(),
+			service: self.service(frame),
 			control: ui::Control { enabled: off_reason.is_none(), off_reason },
 			role: key.role,
 			profile: &key.profile,
@@ -695,21 +696,14 @@ async fn auth(State(hub): State<Arc<Hub>>, mut req: Request, next: Next) -> Resp
 	}
 }
 
-/// Lets a client check that an address is an Elamon service, which one, and what it can do,
-/// before pairing.
+/// Lets a client check that an address is an Elamon service, which one, and which versions it
+/// speaks, before pairing. What the computer can do (control among it) only paired clients learn,
+/// in `ui`.
 async fn hello(State(hub): State<Arc<Hub>>) -> Response {
-	let features = hub.frame.borrow().features.clone();
-	Json(hello_body(&hub.id, &hub.name, &features, hub.config().control)).into_response()
+	Json(hello_body(&hub.id, &hub.name)).into_response()
 }
 
-/// `features`: what the computer offers, `control` when the settings turn it on, sorted.
-pub(crate) fn hello_body(id: &str, name: &str, features: &[&'static str], control: bool) -> serde_json::Value {
-	let mut f: Vec<&str> = features.to_vec();
-	if control {
-		f.push("control");
-	}
-	f.sort_unstable();
-	f.dedup();
+pub(crate) fn hello_body(id: &str, name: &str) -> serde_json::Value {
 	json!({
 		"app": "elamon",
 		"api": protocol::API_VERSION,
@@ -718,8 +712,19 @@ pub(crate) fn hello_body(id: &str, name: &str, features: &[&'static str], contro
 		"name": name,
 		"version": env!("CARGO_PKG_VERSION"),
 		"min_app": protocol::MIN_APP,
-		"features": f,
 	})
+}
+
+/// `ui`'s `service.features`: what the computer offers, `control` when the settings turn it on,
+/// sorted.
+pub(crate) fn features_of(features: &[&'static str], control: bool) -> Vec<&'static str> {
+	let mut f = features.to_vec();
+	if control {
+		f.push("control");
+	}
+	f.sort_unstable();
+	f.dedup();
+	f
 }
 
 pub(crate) fn paired_body(token: &str, client_id: &str, id: &str, name: &str, role: Role, profile: &str) -> serde_json::Value {
@@ -2079,6 +2084,22 @@ dashboards = ["overview", "control"]
 		store::new_pairing(&hub.dir, Role::Glance, Some("owner"), false).unwrap();
 		let (status, _) = pair_from(&hub, "123456", &"x".repeat(limit::BODY_MAX)).await.unwrap();
 		assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
+	async fn hello_tells_a_stranger_which_service_it_is_and_no_more() {
+		let (hub, _tx) = hub(true);
+		let req = axum::http::Request::builder().uri("/api/v1/hello").body(Body::empty()).unwrap();
+		let resp = router(hub.clone()).oneshot(req).await.unwrap();
+		assert_eq!(resp.status(), StatusCode::OK);
+		let v: serde_json::Value = serde_json::from_slice(&axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap()).unwrap();
+		let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+		assert_eq!(keys, ["api", "app", "id", "min_app", "name", "version", "widgets"], "{v}");
+		// What the computer can do, control among it, a paired phone learns in `ui`.
+		assert_eq!(call(&hub, "GET", "/api/v1/ui", "glance", "").await.1["service"]["features"], serde_json::json!(["control", "processes"]));
+		hub.set_config(settings(false));
+		assert_eq!(call(&hub, "GET", "/api/v1/ui", "glance", "").await.1["service"]["features"], serde_json::json!(["processes"]));
 		std::fs::remove_dir_all(&hub.dir).unwrap();
 	}
 
