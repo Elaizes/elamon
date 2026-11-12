@@ -143,21 +143,22 @@ fun TableWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val folded = scope.folds.folded(w)
 	val accent = accent(w.color)
 	val open = w.open?.let { d -> { scope.open(d) } }
-	val body: @Composable () -> Unit = {
-		captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-		if (!folded) {
-			if (w.search == true) TableControls(scope, w, s?.total, rows.size)
-			TableHead(w)
-			if (rows.isEmpty()) {
-				Text(stringResource(if (s == null) R.string.loading else R.string.table_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			}
-			for (r in rows) TableRowView(scope, w, r, rows, card = false)
+	val tile = open != null && scope.dashboard in scope.ui.tabs
+	val rowsShown: @Composable () -> Unit = {
+		if (w.search == true) TableControls(scope, w, s?.total, rows.size)
+		// A tile names its figures beside them ("120 GiB free"), a card over them.
+		if (!tile) TableHead(w)
+		if (rows.isEmpty()) {
+			Text(stringResource(if (s == null) R.string.loading else R.string.table_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
+		for (r in rows) TableRowView(scope, w, r, rows, card = false, labelled = tile)
 	}
-	if (open != null && scope.dashboard in scope.ui.tabs) {
+	if (tile) {
 		Tile(modifier, accent = accent, onClick = open) {
 			TileLabel(w.label.orEmpty(), icon(w.icon), accent)
-			body()
+			if (!folded) rowsShown()
+			// The caption under a tile, as its footer.
+			captionOf(w, s)?.let { TileFooter(it) }
 		}
 	} else {
 		Section(
@@ -168,7 +169,11 @@ fun TableWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 			trailing = if (foldable) ({ FoldMark(folded) }) else null,
 			onClick = open,
 			onTitleClick = if (foldable) ({ scope.folds.toggle(w) }) else null,
-		) { body() }
+		) {
+			// Under a card's title, as the Displays section's summary was.
+			captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+			if (!folded) rowsShown()
+		}
 	}
 }
 
@@ -266,7 +271,7 @@ private fun TableHead(w: Widget) {
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TableRowView(scope: DashScope, w: Widget, row: TableRow, rows: List<TableRow>, card: Boolean) {
+private fun TableRowView(scope: DashScope, w: Widget, row: TableRow, rows: List<TableRow>, card: Boolean, labelled: Boolean = false) {
 	val ctx = LocalContext.current
 	val haptics = LocalHapticFeedback.current
 	val prefs = LocalPrefs.current
@@ -307,7 +312,8 @@ private fun TableRowView(scope: DashScope, w: Widget, row: TableRow, rows: List<
 				}
 				Text(name, style = if (card) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
 				for (c in others) {
-					Text(cell(row, c), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(cellWidth(c)), textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
+					val text = cell(row, c).let { v -> if (labelled && c.label != null) "$v ${c.label}" else v }
+					Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = if (labelled) Modifier.padding(start = Space.s) else Modifier.width(cellWidth(c)), textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
 				}
 				if (bar != null && barColor != null) {
 					Column(Modifier.width(cellWidth(bar)), horizontalAlignment = Alignment.End) {

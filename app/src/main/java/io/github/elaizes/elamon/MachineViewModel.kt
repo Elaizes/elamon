@@ -217,7 +217,8 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 
 	private fun keepData() {
 		val data = _state.value.data
-		if (data.isNotEmpty()) viewModelScope.launch { cache.putData(machineId, data) }
+		// Written apart from this screen, which may be going away.
+		if (data.isNotEmpty()) cache.keep(machineId, data)
 	}
 
 	/** Shows [dashboard]: the stream is told, and sends its values from its next line. */

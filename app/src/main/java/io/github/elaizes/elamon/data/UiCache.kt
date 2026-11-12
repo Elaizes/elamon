@@ -3,7 +3,10 @@ package io.github.elaizes.elamon.data
 import android.content.Context
 import java.io.File
 import java.io.IOException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +22,9 @@ import kotlinx.serialization.builtins.serializer
  * says before it has been asked. Anything here can go: the computer is asked again.
  */
 class UiCache(private val dir: File) {
+	/** Writes that outlive the screen that asked for them. */
+	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
 	private val _profiles = MutableStateFlow(readProfiles())
 
 	/** Each computer's profile as last heard, by its id. */
@@ -54,6 +60,12 @@ class UiCache(private val dir: File) {
 			write(file(id, UI), ProtocolJson.encodeToString(UiDoc.serializer(), ui))
 			write(file(id, PROFILE), ProtocolJson.encodeToString(Profile.serializer(), ui.profile))
 		}
+	}
+
+	/** [putData] in the background, for a screen that is going away. */
+	fun keep(id: String, data: Map<String, DataLine>) {
+		// Not for a computer forgotten meanwhile: only while its ui is still kept.
+		scope.launch { if (file(id, UI)?.exists() == true) putData(id, data) }
 	}
 
 	/** Its dashboards' last readings, without history: the graphs ask the service for theirs again. */
