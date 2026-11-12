@@ -21,6 +21,13 @@ data class Found(
 	val fingerprintPrefix: String?,
 )
 
+/**
+ * The computers of [found] that aren't among [paired], each once: two announcements on the
+ * network may carry one id (a computer renamed, or one that copies another's), and a list shows an
+ * id once.
+ */
+fun unpairedFound(found: List<Found>, paired: Collection<String>): List<Found> = found.filter { it.id !in paired }.distinctBy { it.id }
+
 private const val SERVICE_TYPE = "_elamon._tcp."
 
 /**

@@ -35,7 +35,10 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.elaizes.elamon.data.PairLink
 import io.github.elaizes.elamon.data.PairTarget
+import io.github.elaizes.elamon.data.Machine as Paired
 import io.github.elaizes.elamon.data.MachineStore
+import io.github.elaizes.elamon.data.Profile
+import io.github.elaizes.elamon.data.UiCache
 import io.github.elaizes.elamon.ui.ElamonTheme
 import io.github.elaizes.elamon.ui.Guard
 import io.github.elaizes.elamon.ui.GuardDialog
@@ -57,7 +60,8 @@ sealed interface Screen {
 	data class Machine(val id: String) : Screen
 	data class Pair(val target: PairTarget) : Screen
 	data class Help(val topic: String? = null) : Screen
-	data object Settings : Screen
+	/** The settings in force, those of the computer [machine] or of the first one paired. */
+	data class Settings(val machine: String? = null) : Screen
 }
 
 /** The screen stack; lives through rotation, starts over after the process dies. */
@@ -137,12 +141,18 @@ class MainActivity : FragmentActivity() {
 		super.onCreate(savedInstanceState)
 		enableEdgeToEdge()
 		// The app's own background from the first frame, not the phone's day or night.
-		val start = Settings.get(this).current
+		val cache = UiCache.get(this)
+		val store = MachineStore.get(this)
+		// The settings of 0.5, once, as a profile to put on the computers.
+		Settings.get(this)
+		val start = prefsFor(nav.top, store.machines.value, cache.profiles.value)
 		window.setBackgroundDrawable(appColorScheme(this, start, isDark(this, start)).surface.toArgb().toDrawable())
 		if (savedInstanceState == null) handle(intent)
 		val guard = Guard(this, guardState)
 		setContent {
-			val prefs by Settings.get(this).state.collectAsStateWithLifecycle()
+			val profiles by cache.profiles.collectAsStateWithLifecycle()
+			val paired by store.machines.collectAsStateWithLifecycle()
+			val prefs = prefsFor(nav.top, paired, profiles)
 			ElamonTheme(prefs) {
 				CompositionLocalProvider(LocalGuard provides guard) {
 					Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
@@ -164,7 +174,7 @@ class MainActivity : FragmentActivity() {
 									onOpen = { nav.push(Screen.Machine(it.id)) },
 									onPair = { nav.push(Screen.Pair(it)) },
 									onHelp = { nav.push(Screen.Help()) },
-									onSettings = { nav.push(Screen.Settings) },
+									onSettings = { nav.push(Screen.Settings()) },
 								)
 								is Screen.Machine -> {
 									val store = MachineStore.get(this@MainActivity)
@@ -188,7 +198,7 @@ class MainActivity : FragmentActivity() {
 											onPairAgain = { nav.push(Screen.Pair(it)) },
 											onForgotten = { nav.reset(Screen.Home) },
 											onHelp = { nav.push(Screen.Help(it)) },
-											onSettings = { nav.push(Screen.Settings) },
+											onSettings = { nav.push(Screen.Settings(screen.id)) },
 										)
 									}
 								}
@@ -200,7 +210,7 @@ class MainActivity : FragmentActivity() {
 									onHelp = { nav.push(Screen.Help(HelpTopic.TROUBLESHOOTING)) },
 								)
 								is Screen.Help -> HelpScreen(screen.topic, onBack = { nav.pop() })
-								Screen.Settings -> SettingsScreen(onBack = { nav.pop() }, onHelp = { nav.push(Screen.Help()) })
+								is Screen.Settings -> SettingsScreen(screen.machine, onBack = { nav.pop() }, onHelp = { nav.push(Screen.Help()) })
 							}
 						}
 					}
@@ -256,4 +266,18 @@ class MainActivity : FragmentActivity() {
 			PairLink.Invalid -> Toast.makeText(this, R.string.pair_link_invalid, Toast.LENGTH_LONG).show()
 		}
 	}
+}
+
+/**
+ * How the app looks on [top]: as the profile of the computer it shows says (a computer's screen,
+ * or the settings opened from it), elsewhere as the first paired computer's, as last heard; with
+ * none, as the built-in `default` profile.
+ */
+fun prefsFor(top: Screen, paired: List<Paired>, profiles: Map<String, Profile>): Prefs {
+	val id = when (top) {
+		is Screen.Machine -> top.id
+		is Screen.Settings -> top.machine ?: paired.firstOrNull()?.id
+		else -> paired.firstOrNull()?.id
+	}
+	return id?.let { profiles[it] }?.let(Prefs::of) ?: Prefs()
 }

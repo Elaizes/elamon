@@ -27,7 +27,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import io.github.elaizes.elamon.Before
 import io.github.elaizes.elamon.Guarded
 import io.github.elaizes.elamon.R
-import io.github.elaizes.elamon.Settings
+import io.github.elaizes.elamon.UnlockGrace
 import io.github.elaizes.elamon.UnlockMemory
 import io.github.elaizes.elamon.authenticators
 import io.github.elaizes.elamon.data.Limits
@@ -45,8 +45,12 @@ data class Ask(
 	/** What follows from it, under the prompt's title and the confirmation's. */
 	val body: String? = null,
 	val icon: ImageVector? = null,
-	/** Whether Confirm actions covers it: not for what was never confirmed, nor where a dialog has just asked. */
-	val confirmable: Boolean = true,
+	/** Asked before it runs: the action's `confirm`, as the computer's settings and profile make it. */
+	val confirm: Boolean = true,
+	/** The phone unlocked first: the action's `unlock`. A fixed kind ([Guarded.Transfer]) always is. */
+	val unlock: Boolean = false,
+	/** How long an unlock covers later actions: the profile's `unlock.grace`. */
+	val grace: UnlockGrace = UnlockGrace.EveryTime,
 )
 
 /** An action waiting for the unlock prompt or the confirmation. */
@@ -123,7 +127,7 @@ class Guard(private val activity: FragmentActivity, val state: GuardState) {
 		// The names in it (a process's, a computer's) come from afar, and the unlock prompt is the system's:
 		// nothing in them may turn the words around.
 		val ask = asked.copy(prompt = asked.prompt.withoutControls(), question = asked.question.withoutControls(), body = asked.body?.withoutControls(keepLineBreaks = true))
-		val g = gate(ask.kind, ask.confirmable, Settings.get(activity).current, hasScreenLock(activity), SystemClock.elapsedRealtime(), Unlocked.memory)
+		val g = gate(ask.kind, ask.confirm, ask.unlock, ask.grace, hasScreenLock(activity), SystemClock.elapsedRealtime(), Unlocked.memory)
 		val p = Pending(ask, action, afterAsking, g.noLockScreen)
 		when (g.before) {
 			Before.Nothing -> action()

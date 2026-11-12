@@ -28,23 +28,22 @@ class CompatTest {
 
 	@Test
 	fun appTooOld() {
-		assertEquals(Compat.UpdateApp, compatibility("0.5.0", elamondApi = 2, elamondVersion = "1.0.0", minApp = null))
-		assertEquals(Compat.UpdateApp, compatibility("0.5.0", elamondApi = 1, elamondVersion = "0.6.0", minApp = "0.6.0"))
-		// Both out of date: the app comes first, it's the one that can't read everything.
-		assertEquals(Compat.UpdateApp, compatibility("0.2.0", elamondApi = 1, elamondVersion = "0.3.0", minApp = "0.3.0"))
+		assertEquals(Compat.UpdateApp, compatibility("0.6.0", elamondApi = 3, elamondVersion = "1.0.0", minApp = null))
+		assertEquals(Compat.UpdateApp, compatibility("0.6.0", elamondApi = 2, elamondVersion = "0.7.0", minApp = "0.7.0"))
 	}
 
 	@Test
 	fun elamondTooOld() {
-		assertEquals(Compat.UpdateElamond, compatibility("0.5.0", elamondApi = 1, elamondVersion = "0.3.0", minApp = null))
-		assertEquals(Compat.UpdateElamond, compatibility("0.5.0", elamondApi = 1, elamondVersion = "0.2.1", minApp = null))
-		// Roles, renewed certificates and keys of its own need MIN_ELAMOND.
-		assertEquals(Compat.UpdateElamond, compatibility("0.5.0", elamondApi = 1, elamondVersion = "0.3.9", minApp = "0.3.0"))
+		// API 1, elamond 0.5 and before: nothing of it is read, whatever else it says.
+		assertEquals(Compat.UpdateElamond, compatibility("0.6.0", elamondApi = 1, elamondVersion = "0.5.0", minApp = "0.5.0"))
+		assertEquals(Compat.UpdateElamond, compatibility("0.6.0", elamondApi = 1, elamondVersion = "0.6.0", minApp = null))
+		assertEquals(Compat.UpdateElamond, compatibility("0.6.0", elamondApi = 2, elamondVersion = "0.5.9", minApp = null))
+		assertEquals("0.6.0", MIN_ELAMOND)
 	}
 
 	@Test
 	fun inStep() {
-		assertEquals(Compat.Ok, compatibility("0.5.0", elamondApi = 1, elamondVersion = MIN_ELAMOND, minApp = "0.5.0"))
-		assertEquals(Compat.Ok, compatibility("0.5.0", elamondApi = 1, elamondVersion = "0.5.2", minApp = "0.5"))
+		assertEquals(Compat.Ok, compatibility("0.6.0", elamondApi = 2, elamondVersion = MIN_ELAMOND, minApp = "0.6.0"))
+		assertEquals(Compat.Ok, compatibility("0.6.1", elamondApi = 2, elamondVersion = "0.6.2", minApp = "0.6"))
 	}
 }

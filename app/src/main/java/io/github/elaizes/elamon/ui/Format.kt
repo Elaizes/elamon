@@ -5,33 +5,117 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.platform.LocalResources
 import java.math.BigDecimal
+import java.math.RoundingMode
+import java.text.DateFormat
+import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
-import kotlin.math.roundToInt
-import kotlin.math.sqrt
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
 import io.github.elaizes.elamon.R
 
-/** Numbers as people read them. Unit symbols read the same in every language and live here; words come from strings.xml. */
+/**
+ * Numbers as people read them, by the service's formats (docs/config.md, "Formats"):
+ * `elamond/fixtures/formats.json` holds the cases both sides are tested against. Halves round away
+ * from zero; a unit follows its number after a space, but %, °C and °F follow it directly. Unit
+ * symbols, and the few words a format writes, read as the service writes them and live here.
+ */
 object Fmt {
-	private fun num(v: Double, decimals: Int): String = String.format(Locale.US, "%.${decimals}f", v)
-
 	// ---- unit symbols ----------------------------------------------------------------------
 
 	private val BYTE_UNITS = listOf("B", "KiB", "MiB", "GiB", "TiB")
 	private val BIT_UNITS = listOf("bit", "kbit", "Mbit", "Gbit", "Tbit")
 	private const val PER_SECOND = "/s"
+	private const val BITS_PER_SECOND = "bit/s"
 	const val PERCENT = "%"
 	const val CELSIUS = "°C"
 	const val FAHRENHEIT = "°F"
 	private const val MHZ = "MHz"
 	private const val GHZ = "GHz"
-	private const val HZ = "Hz"
 	private const val WATT = "W"
 	private const val WATT_HOUR = "Wh"
-	private const val INCH = "″"
-	private const val CM = "cm"
 	private const val RPM = "RPM"
-	private const val MBIT_PER_SECOND = "Mbit/s"
+
+	/** Units written right after their number. */
+	private val ATTACHED = setOf(PERCENT, CELSIUS, FAHRENHEIT)
+
+	/** What `bool` writes, and `duration`'s units: as the service writes them into strings. */
+	private const val YES = "yes"
+	private const val NO = "no"
+	private const val DAYS = "d"
+	private const val HOURS = "h"
+	private const val MINUTES = "min"
+
+	private const val KILO = 1000.0
+	private const val KIBI = 1024.0
+	private const val SECONDS_PER_DAY = 86_400L
+	private const val SECONDS_PER_HOUR = 3_600L
+	private const val SECONDS_PER_MINUTE = 60L
+	private const val MS_PER_SECOND = 1000L
+
+	/** `{:.2}`: that many decimals. */
+	private val PATTERN = Regex("""^\{:\.(\d)}$""")
+
+	/** [v] with [decimals] decimals, halves away from zero, as the shortest text of the number reads. */
+	fun round(v: Double, decimals: Int): String {
+		if (!v.isFinite()) return v.toString()
+		val s = BigDecimal(v.toString()).setScale(decimals, RoundingMode.HALF_UP).toPlainString()
+		// No "-0": a figure rounded to nothing has no sign.
+		return if (s.startsWith("-") && s.all { it == '-' || it == '0' || it == '.' }) s.drop(1) else s
+	}
+
+	/** [number] and its [unit], with a space unless the unit follows it directly. */
+	fun withUnit(number: String, unit: String?): String = when {
+		unit.isNullOrEmpty() -> number
+		unit in ATTACHED -> number + unit
+		else -> "$number $unit"
+	}
+
+	/**
+	 * [v] by [format] and [unit]; [field] is the table field it comes from, for `time` (`t` is in
+	 * milliseconds). A string is shown as it is, a bool as yes or no; null when the value is missing.
+	 */
+	fun format(v: JsonElement?, format: String?, unit: String?, field: String? = null): String? {
+		val p = v as? JsonPrimitive ?: return null
+		if (p is JsonNull) return null
+		if (p.isString) return p.content
+		p.booleanOrNull?.let { return bool(it) }
+		val n = p.doubleOrNull ?: return p.content
+		return number(n, format, unit, field)
+	}
+
+	fun bool(b: Boolean): String = if (b) YES else NO
+
+	/** A number by [format] and [unit]. */
+	fun number(v: Double, format: String?, unit: String?, field: String? = null): String {
+		val (n, u) = parts(v, format, unit, field)
+		return withUnit(n, u)
+	}
+
+	/** A number by [format] and [unit], the figure and its unit apart, for layouts that set the unit smaller. */
+	fun parts(v: Double, format: String?, unit: String?, field: String? = null): Pair<String, String?> {
+		PATTERN.matchEntire(format.orEmpty())?.let { m -> return round(v, m.groupValues[1].toInt()) to unit }
+		return when (format) {
+			"integer" -> round(v, 0) to unit
+			"percent" -> round(v, 0) to PERCENT
+			"bytes" -> bytesParts(v)
+			"rate" -> rateParts(v, bits = unit == BITS_PER_SECOND)
+			"temp" -> round(v, 0) to (unit?.ifEmpty { null } ?: CELSIUS)
+			"mhz" -> mhzParts(v)
+			"watts" -> round(v, 1) to (unit?.ifEmpty { null } ?: WATT)
+			"wh" -> round(v, 1) to (unit?.ifEmpty { null } ?: WATT_HOUR)
+			"rpm" -> round(v, 0) to (unit?.ifEmpty { null } ?: RPM)
+			"load" -> round(v, 2) to unit
+			"duration" -> duration(v.toLong()) to null
+			"time" -> time(v, millis = field == "t") to null
+			"bool" -> bool(v != 0.0) to null
+			// "number", "text" and any other: up to one decimal.
+			else -> round(v, 1).removeSuffix(".0") to unit
+		}
+	}
 
 	/**
 	 * [value] in the largest of [units] (each [base] times the one before) that keeps it at or above 1,
@@ -45,16 +129,16 @@ object Fmt {
 			v /= base
 			i++
 		}
-		var text = num(v, decimals(i, v))
+		var text = round(v, decimals(i, v))
 		val rounded = text.toDouble()
 		if (rounded >= base && i < units.lastIndex) {
 			v /= base
 			i++
-			text = num(v, decimals(i, v))
+			text = round(v, decimals(i, v))
 		} else if (decimals(i, rounded) != decimals(i, v)) {
-			text = num(v, decimals(i, rounded))
+			text = round(v, decimals(i, rounded))
 		}
-		return text to units[i]
+		return (if (value < 0 && text.any { it in '1'..'9' }) "-$text" else text) to units[i]
 	}
 
 	private fun decimals(unit: Int, v: Double): Int = when {
@@ -64,85 +148,58 @@ object Fmt {
 		else -> 0
 	}
 
-	/** Value and unit apart, for layouts that set the unit smaller. */
-	fun bytesParts(b: Double): Pair<String, String> = scaled(b, 1024.0, BYTE_UNITS)
+	fun bytesParts(b: Double): Pair<String, String> = scaled(b, KIBI, BYTE_UNITS)
 
 	fun bytes(b: Double): String = bytesParts(b).let { "${it.first} ${it.second}" }
-	fun bytes(b: Long): String = bytes(b.toDouble())
 
-	/** Network speed in bytes or, as providers state it, in decimal bits. */
-	fun rateParts(bytesPerSecond: Double, bits: Boolean): Pair<String, String> {
-		val (v, unit) = if (bits) scaled(bytesPerSecond * 8, 1000.0, BIT_UNITS) else bytesParts(bytesPerSecond)
+	/** A rate in bytes per second, or in bits (by 1000) where the service sends bits. */
+	fun rateParts(perSecond: Double, bits: Boolean): Pair<String, String> {
+		val (v, unit) = if (bits) scaled(perSecond, KILO, BIT_UNITS) else bytesParts(perSecond)
 		return v to "$unit$PER_SECOND"
 	}
 
-	fun rate(bytesPerSecond: Double, bits: Boolean = false): String =
-		rateParts(bytesPerSecond, bits).let { "${it.first} ${it.second}" }
+	private fun mhzParts(mhz: Double): Pair<String, String> =
+		if (round(mhz, 0).toDouble() >= KILO) round(mhz / KILO, 2) to GHZ else round(mhz, 0) to MHZ
 
-	/** A network link's speed, which the kernel gives in Mbit/s. */
-	fun linkSpeed(mbit: Long): String = "$mbit $MBIT_PER_SECOND"
+	fun percent(p: Double): String = round(p, 0) + PERCENT
 
-	fun percent(p: Float, decimals: Int = 0): String = "${num(p.toDouble(), decimals)}$PERCENT"
+	/** "3 d 4 h", "4 h 12 min", "12 min"; a moment over nothing is a minute. */
+	fun duration(seconds: Long): String {
+		val d = seconds / SECONDS_PER_DAY
+		val h = seconds % SECONDS_PER_DAY / SECONDS_PER_HOUR
+		val m = seconds % SECONDS_PER_HOUR / SECONDS_PER_MINUTE
+		return when {
+			d > 0 -> "$d $DAYS $h $HOURS"
+			h > 0 -> "$h $HOURS $m $MINUTES"
+			else -> "${m.coerceAtLeast(if (seconds > 0) 1 else 0)} $MINUTES"
+		}
+	}
 
-	fun temp(c: Float, fahrenheit: Boolean = false): String =
-		if (fahrenheit) "${(c * 9 / 5 + 32).roundToInt()}$FAHRENHEIT" else "${c.roundToInt()}$CELSIUS"
-
-	fun mhz(mhz: Int): String = if (mhz >= 1000) "${num(mhz / 1000.0, 2)} $GHZ" else "$mhz $MHZ"
-
-	fun watts(w: Float): String = "${num(w.toDouble(), 1)} $WATT"
-
-	/** Battery energy. */
-	fun wattHours(wh: Float): String = "${num(wh.toDouble(), 1)} $WATT_HOUR"
-
-	/** A load average, as uptime and top print it. */
-	fun load(v: Float): String = num(v.toDouble(), 2)
-
-	fun hz(hz: Float): String {
-		val whole = hz.roundToInt()
-		return if (abs(hz - whole) < 0.05f) "$whole $HZ" else "${num(hz.toDouble(), 2)} $HZ"
+	/** A moment, the phone's way: from Unix seconds, or milliseconds. */
+	fun time(v: Double, millis: Boolean): String {
+		val ms = if (millis) v.toLong() else (v * MS_PER_SECOND).toLong()
+		return DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(ms))
 	}
 
 	/** Milliseconds as plain seconds, without trailing zeros: "1", "0.25", "1.5". */
 	fun seconds(ms: Int): String = BigDecimal(ms).movePointLeft(3).stripTrailingZeros().toPlainString()
 
-	/** "3:07" or "1:02:45". */
-	fun clock(micros: Long): String {
-		val s = (micros / 1_000_000).coerceAtLeast(0)
-		val h = s / 3600
-		val m = s % 3600 / 60
-		val sec = s % 60
+	/** A track's place, from seconds: "3:07" or "1:02:45". */
+	fun clock(seconds: Double): String {
+		val s = seconds.toLong().coerceAtLeast(0)
+		val h = s / SECONDS_PER_HOUR
+		val m = s % SECONDS_PER_HOUR / SECONDS_PER_MINUTE
+		val sec = s % SECONDS_PER_MINUTE
 		return if (h > 0) String.format(Locale.US, "%d:%02d:%02d", h, m, sec) else String.format(Locale.US, "%d:%02d", m, sec)
 	}
 
-	fun inches(widthMm: Int, heightMm: Int): String {
-		val d = sqrt((widthMm * widthMm + heightMm * heightMm).toDouble()) / 25.4
-		return "${num(d, 1)}$INCH"
-	}
-
-	/** A screen's width and height in whole centimetres: "53 × 30 cm". */
-	fun centimetres(widthMm: Int, heightMm: Int): String = "${widthMm / 10} × ${heightMm / 10} $CM"
-
-	fun rpm(rpm: Int) = "$rpm $RPM"
-
 	// ---- words, from resources --------------------------------------------------------------
-
-	/** "3 d 4 h", "4 h 12 min", "12 min". */
-	fun duration(res: Resources, seconds: Long): String {
-		val d = seconds / 86_400
-		val h = seconds % 86_400 / 3600
-		val m = seconds % 3600 / 60
-		return when {
-			d > 0 -> res.getString(R.string.duration_days_hours, d, h)
-			h > 0 -> res.getString(R.string.duration_hours_minutes, h, m)
-			else -> res.getString(R.string.duration_minutes, m.coerceAtLeast(if (seconds > 0) 1 else 0))
-		}
-	}
 
 	/** "now", "30 s ago", "4 min ago". */
 	fun ago(res: Resources, seconds: Long): String = when {
 		seconds < 2 -> res.getString(R.string.ago_now)
-		seconds < 60 -> res.getQuantityString(R.plurals.ago_seconds, seconds.toInt(), seconds)
-		else -> (seconds / 60).let { res.getQuantityString(R.plurals.ago_minutes, it.toInt(), it) }
+		seconds < SECONDS_PER_MINUTE -> res.getQuantityString(R.plurals.ago_seconds, seconds.toInt(), seconds)
+		else -> (seconds / SECONDS_PER_MINUTE).let { res.getQuantityString(R.plurals.ago_minutes, it.toInt(), it) }
 	}
 }
 

@@ -1,18 +1,45 @@
 package io.github.elaizes.elamon.ui
 
+import java.io.File
 import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 class FormatTest {
+	private val fixtures = File(System.getProperty("elamon.fixtures") ?: error("elamon.fixtures isn't set; run the tests through Gradle"))
+
+	/** elamond/fixtures/formats.json: what the service writes into strings, the app writes the same. */
 	@Test
-	fun bytes() {
-		assertEquals("0 B", Fmt.bytes(0L))
-		assertEquals("1023 B", Fmt.bytes(1023L))
-		assertEquals("1.00 KiB", Fmt.bytes(1024L))
-		assertEquals("1.50 KiB", Fmt.bytes(1536L))
-		assertEquals("16.0 GiB", Fmt.bytes(16L shl 30))
+	fun everyCaseTheServiceIsTestedAgainst() {
+		val cases = Json.parseToJsonElement(File(fixtures, "formats.json").readText()).jsonArray
+		assertTrue(cases.isNotEmpty())
+		val wrong = cases.mapNotNull { c ->
+			val o = c.jsonObject
+			val format = o.getValue("format").jsonPrimitive.content
+			val unit = o.getValue("unit").jsonPrimitive.content
+			val expected = o.getValue("text").jsonPrimitive.content
+			val got = Fmt.format(o.getValue("value"), format, unit)
+			if (got == expected) null else "$format $unit ${o["value"]}: \"$got\", not \"$expected\""
+		}
+		assertTrue(wrong.isEmpty(), wrong.joinToString("\n"))
+	}
+
+	@Test
+	fun halvesRoundAwayFromZero() {
+		assertEquals("13%", Fmt.format(JsonPrimitive(12.5), "percent", "%"))
+		assertEquals("-13%", Fmt.format(JsonPrimitive(-12.5), "percent", "%"))
+		assertEquals("3", Fmt.round(2.5, 0))
+		assertEquals("0.13", Fmt.round(0.125, 2))
+		// Nothing left reads without a sign.
+		assertEquals("0", Fmt.round(-0.4, 0))
 	}
 
 	@Test
@@ -28,63 +55,46 @@ class FormatTest {
 	}
 
 	@Test
-	fun bytesParts() {
-		assertEquals("512" to "MiB", Fmt.bytesParts(512.0 * 1024 * 1024))
+	fun partsForLargeFigures() {
+		assertEquals("512" to "MiB", Fmt.parts(512.0 * 1024 * 1024, "bytes", "B"))
+		assertEquals("42" to "%", Fmt.parts(42.4, "percent", "%"))
+		assertEquals("56" to "°C", Fmt.parts(55.5, "temp", "°C"))
+		assertEquals("132" to "°F", Fmt.parts(131.9, "temp", "°F"))
+		assertEquals("1.47" to "KiB/s", Fmt.parts(1500.5, "rate", "B/s"))
+		assertEquals("12.0" to "Mbit/s", Fmt.parts(12_000_000.0, "rate", "bit/s"))
+		assertEquals("3.10" to "GHz", Fmt.parts(3100.0, "mhz", "MHz"))
+		assertEquals("4 h 12 min" to null, Fmt.parts(15120.0, "duration", "s"))
+		assertEquals("12.3" to "W", Fmt.parts(12.25, null, "W"))
 	}
 
 	@Test
-	fun rates() {
-		assertEquals("1.00 KiB/s", Fmt.rate(1024.0))
-		assertEquals("0 bit/s", Fmt.rate(0.0, bits = true))
-		assertEquals("800 bit/s", Fmt.rate(100.0, bits = true))
-		assertEquals("10.0 Mbit/s", Fmt.rate(1_250_000.0, bits = true))
-		assertEquals("Mbit/s", Fmt.rateParts(1_250_000.0, bits = true).second)
+	fun whatIsNotANumber() {
+		assertNull(Fmt.format(null, "percent", "%"))
+		assertNull(Fmt.format(JsonNull, "bytes", "B"))
+		assertEquals("On battery", Fmt.format(JsonPrimitive("On battery"), "percent", "%"))
+		assertEquals("yes", Fmt.format(JsonPrimitive(true), null, null))
+		assertEquals("no", Fmt.format(JsonPrimitive(false), "text", null))
+		// No format: up to one decimal, with the unit.
+		assertEquals("12.5 W", Fmt.format(JsonPrimitive(12.5), null, "W"))
+		assertEquals("7", Fmt.format(JsonPrimitive(7), null, null))
 	}
 
 	@Test
-	fun ratesJustBelowABoundary() {
-		assertEquals("1.00 kbit/s", Fmt.rate(124.96, bits = true))
-		assertEquals("1.00 Mbit/s", Fmt.rate(124_996.0, bits = true))
-		assertEquals("1.00 MiB/s", Fmt.rate(1024.0 * 1024 - 10))
+	fun timesFromSecondsOrTheLogsMilliseconds() {
+		assertEquals(Fmt.time(1_700_000_100.0, millis = false), Fmt.format(JsonPrimitive(1_700_000_100), "time", "s", "start"))
+		assertEquals(Fmt.time(1_700_000_100_000.0, millis = true), Fmt.format(JsonPrimitive(1_700_000_100_000), "time", null, "t"))
+		assertEquals(Fmt.time(1_700_000_100.0, millis = false), Fmt.time(1_700_000_100_000.0, millis = true))
 	}
 
 	@Test
-	fun percentAndTemperature() {
-		assertEquals("100%", Fmt.percent(99.6f))
-		assertEquals("12.5%", Fmt.percent(12.5f, 1))
-		assertEquals("37°C", Fmt.temp(36.6f))
-		assertEquals("212°F", Fmt.temp(100f, fahrenheit = true))
-		assertEquals("32°F", Fmt.temp(0f, fahrenheit = true))
-	}
-
-	@Test
-	fun clocksAndFrequencies() {
-		assertEquals("999 MHz", Fmt.mhz(999))
-		assertEquals("1.00 GHz", Fmt.mhz(1000))
-		assertEquals("3.10 GHz", Fmt.mhz(3100))
-		assertEquals("60 Hz", Fmt.hz(59.96f))
-		assertEquals("59.94 Hz", Fmt.hz(59.94f))
-		assertEquals("144 Hz", Fmt.hz(144f))
-	}
-
-	@Test
-	fun times() {
-		assertEquals("0:00", Fmt.clock(0))
-		assertEquals("3:07", Fmt.clock(187_000_000))
-		assertEquals("1:02:45", Fmt.clock(3_765_000_000))
+	fun clocksAndSeconds() {
+		assertEquals("0:00", Fmt.clock(0.0))
+		assertEquals("3:07", Fmt.clock(187.4))
+		assertEquals("1:02:45", Fmt.clock(3765.0))
 		assertEquals("1", Fmt.seconds(1000))
 		assertEquals("0.25", Fmt.seconds(250))
 		assertEquals("1.5", Fmt.seconds(1500))
 		assertEquals("60", Fmt.seconds(60_000))
-	}
-
-	@Test
-	fun other() {
-		assertEquals("12.3 W", Fmt.watts(12.34f))
-		assertEquals("24.0″", Fmt.inches(530, 300))
-		assertEquals("53 × 30 cm", Fmt.centimetres(530, 300))
-		assertEquals("2500 RPM", Fmt.rpm(2500))
-		assertEquals("1000 Mbit/s", Fmt.linkSpeed(1000))
 	}
 
 	@Test
@@ -93,9 +103,10 @@ class FormatTest {
 		try {
 			Locale.setDefault(Locale.GERMANY)
 			// Next to figures that always use a point, a comma here would read as a different kind of number.
-			assertEquals("52.4 Wh", Fmt.wattHours(52.4f))
-			assertEquals("0.52", Fmt.load(0.523f))
-			assertEquals("12.3 W", Fmt.watts(12.34f))
+			assertEquals("52.4 Wh", Fmt.number(52.4, "wh", "Wh"))
+			assertEquals("0.52", Fmt.number(0.523, "load", ""))
+			assertEquals("12.3 W", Fmt.number(12.34, "watts", "W"))
+			assertEquals("1.50 KiB", Fmt.number(1536.0, "bytes", "B"))
 		} finally {
 			Locale.setDefault(before)
 		}

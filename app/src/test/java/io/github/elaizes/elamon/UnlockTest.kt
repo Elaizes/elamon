@@ -8,74 +8,71 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+/**
+ * What an action waits for: its own `confirm` and `unlock` as the service sends them (the profile's
+ * `confirm_actions` and `unlock.for` applied there), within the profile's `unlock.grace`.
+ */
 class UnlockTest {
 	private val minute = UnlockGrace.OneMinute.ms
 
 	private fun gateFor(
 		kind: Guarded,
-		confirmable: Boolean = true,
-		prefs: Prefs = Prefs(),
+		confirm: Boolean = true,
+		unlock: Boolean = false,
+		grace: UnlockGrace = UnlockGrace.EveryTime,
 		lockScreen: Boolean = true,
 		now: Long = 10 * minute,
 		memory: UnlockMemory = UnlockMemory(),
-	) = gate(kind, confirmable, prefs, lockScreen, now, memory)
+	) = gate(kind, confirm, unlock, grace, lockScreen, now, memory)
 
 	/** Unlocked for [kind] at [at]. */
 	private fun unlockedFor(kind: Guarded, at: Long) = UnlockMemory().unlocked(kind, at)
 
 	@Test
-	fun defaultsAskForPowerEndingProcessesActionsAndPairings() {
-		assertEquals(setOf(Guarded.Power, Guarded.Processes, Guarded.Actions, Guarded.Transfer), Prefs().unlockFor)
-		assertEquals(UnlockGrace.EveryTime, Prefs().unlockGrace)
-		for (kind in Guarded.entries) {
-			val expected = if (kind.byDefault) Before.Unlock else Before.Confirm
-			assertEquals(Gate(expected), gateFor(kind), "$kind")
-		}
+	fun theActionSays() {
+		assertEquals(Gate(Before.Nothing), gateFor(Guarded.Media, confirm = false, unlock = false))
+		assertEquals(Gate(Before.Confirm), gateFor(Guarded.Actions, confirm = true, unlock = false))
+		// Unlocking takes the confirmation's place, whatever confirm says.
+		assertEquals(Gate(Before.Unlock), gateFor(Guarded.Power, confirm = true, unlock = true))
+		assertEquals(Gate(Before.Unlock), gateFor(Guarded.Units, confirm = false, unlock = true))
 	}
 
 	@Test
-	fun unlockingReplacesTheConfirmationWhateverConfirmActionsSays() {
-		for (confirm in listOf(true, false)) for (confirmable in listOf(true, false)) {
-			assertEquals(Gate(Before.Unlock), gateFor(Guarded.Power, confirmable, Prefs(confirmActions = confirm)))
-		}
-	}
-
-	@Test
-	fun withoutUnlockingConfirmActionsDecidesAsBefore() {
-		val none = Prefs(unlockFor = emptySet())
-		for (kind in Guarded.entries.filterNot { it.fixed }) {
-			assertEquals(Gate(Before.Confirm), gateFor(kind, true, none))
-			assertEquals(Gate(Before.Nothing), gateFor(kind, false, none))
-			assertEquals(Gate(Before.Nothing), gateFor(kind, true, none.copy(confirmActions = false)))
-		}
-	}
-
-	@Test
-	fun eachKindAsksOnlyWhenTurnedOn() {
-		val prefs = Prefs(unlockFor = setOf(Guarded.Media), confirmActions = false)
-		assertEquals(Gate(Before.Unlock), gateFor(Guarded.Media, false, prefs))
-		for (kind in Guarded.entries - Guarded.Media - Guarded.Transfer) assertEquals(Gate(Before.Nothing), gateFor(kind, false, prefs))
+	fun kindsByTheServicesNames() {
+		assertEquals(Guarded.Power, Guarded.of("power"))
+		assertEquals(Guarded.Processes, Guarded.of("signal"))
+		assertEquals(Guarded.Actions, Guarded.of("actions"))
+		assertEquals(Guarded.Units, Guarded.of("units"))
+		assertEquals(Guarded.Profile, Guarded.of("profile"))
+		assertEquals(Guarded.Media, Guarded.of("media"))
+		// A newer service's kind counts as the settings' actions; the app's own is never a computer's.
+		assertEquals(Guarded.Actions, Guarded.of("lights"))
+		assertEquals(Guarded.Actions, Guarded.of("transfer"))
+		assertEquals(UnlockGrace.OneMinute, UnlockGrace.of("1m"))
+		assertEquals(UnlockGrace.FiveMinutes, UnlockGrace.of("5m"))
+		assertEquals(UnlockGrace.EveryTime, UnlockGrace.of("every_time"))
+		assertEquals(UnlockGrace.EveryTime, UnlockGrace.of("1h"))
 	}
 
 	@Test
 	fun exportAndImportAlwaysAskEveryTime() {
 		val transfer = Guarded.entries.single { it.fixed }
 		assertEquals(Guarded.Transfer, transfer)
-		// Turned off in the settings, or never in them: asked all the same.
-		val off = Prefs(unlockFor = emptySet(), confirmActions = false, unlockGrace = UnlockGrace.FiveMinutes)
-		assertEquals(Gate(Before.Unlock), gateFor(Guarded.Transfer, false, off))
+		// Never said to unlock, a long grace: asked all the same.
+		assertEquals(Gate(Before.Unlock), gateFor(Guarded.Transfer, confirm = false, unlock = false, grace = UnlockGrace.FiveMinutes))
 		// No grace covers it, not even its own, a moment ago.
 		val at = 10 * minute
 		for (kind in Guarded.entries) {
-			assertEquals(Gate(Before.Unlock), gateFor(Guarded.Transfer, true, off, now = at + 1, memory = unlockedFor(kind, at)), "$kind")
+			assertEquals(Gate(Before.Unlock), gateFor(Guarded.Transfer, grace = UnlockGrace.FiveMinutes, now = at + 1, memory = unlockedFor(kind, at)), "$kind")
 		}
 		// Without a screen lock: a confirmation, as elsewhere, saying why the first time.
-		assertEquals(Gate(Before.Confirm, noLockScreen = true), gateFor(Guarded.Transfer, false, off, lockScreen = false))
-		assertEquals(Gate(Before.Confirm), gateFor(Guarded.Transfer, false, off, lockScreen = false, memory = UnlockMemory(explained = true)))
+		assertEquals(Gate(Before.Confirm, noLockScreen = true), gateFor(Guarded.Transfer, confirm = false, lockScreen = false))
+		assertEquals(Gate(Before.Confirm), gateFor(Guarded.Transfer, confirm = false, lockScreen = false, memory = UnlockMemory(explained = true)))
 	}
 
 	@Test
 	fun kindsAreOrderedByWhatTheyCanDo() {
+		// power, signal, actions, units, profile, media: an unlock covers those after it.
 		val order = listOf(Guarded.Media, Guarded.Profile, Guarded.Units, Guarded.Actions, Guarded.Processes, Guarded.Power, Guarded.Transfer)
 		assertEquals(order, Guarded.entries.sortedBy { it.level })
 		assertEquals(Guarded.entries.size, Guarded.entries.map { it.level }.toSet().size)
@@ -83,52 +80,51 @@ class UnlockTest {
 
 	@Test
 	fun graceWindowAfterAnUnlock() {
-		val prefs = Prefs(unlockGrace = UnlockGrace.OneMinute)
 		val at = 10 * minute
 		val power = unlockedFor(Guarded.Power, at)
-		// Within the minute the action is as if unlocking weren't asked: Confirm actions decides.
-		assertEquals(Gate(Before.Confirm), gateFor(Guarded.Power, true, prefs, now = at + minute - 1, memory = power))
-		assertEquals(Gate(Before.Nothing), gateFor(Guarded.Actions, false, prefs, now = at, memory = power))
+		// Within the minute the action is as if unlocking weren't asked: its confirm decides.
+		assertEquals(Gate(Before.Confirm), gateFor(Guarded.Power, unlock = true, grace = UnlockGrace.OneMinute, now = at + minute - 1, memory = power))
+		assertEquals(Gate(Before.Nothing), gateFor(Guarded.Actions, confirm = false, unlock = true, grace = UnlockGrace.OneMinute, now = at, memory = power))
 		// After it, unlocking again.
-		assertEquals(Gate(Before.Unlock), gateFor(Guarded.Power, true, prefs, now = at + minute, memory = power))
+		assertEquals(Gate(Before.Unlock), gateFor(Guarded.Power, unlock = true, grace = UnlockGrace.OneMinute, now = at + minute, memory = power))
 		// Five minutes last five.
-		val five = Prefs(unlockGrace = UnlockGrace.FiveMinutes)
-		assertEquals(Gate(Before.Confirm), gateFor(Guarded.Power, true, five, now = at + 5 * minute - 1, memory = power))
-		assertEquals(Gate(Before.Unlock), gateFor(Guarded.Power, true, five, now = at + 5 * minute, memory = power))
+		assertEquals(Gate(Before.Confirm), gateFor(Guarded.Power, unlock = true, grace = UnlockGrace.FiveMinutes, now = at + 5 * minute - 1, memory = power))
+		assertEquals(Gate(Before.Unlock), gateFor(Guarded.Power, unlock = true, grace = UnlockGrace.FiveMinutes, now = at + 5 * minute, memory = power))
 	}
 
 	@Test
 	fun aGraceCoversOnlyKindsAtOrBelowTheOneUnlocked() {
-		val all = Prefs(unlockFor = Guarded.entries.toSet(), unlockGrace = UnlockGrace.FiveMinutes, confirmActions = false)
 		val at = 10 * minute
 		for (unlocked in Guarded.entries) for (kind in Guarded.entries) {
 			val expected = if (!kind.fixed && kind.level <= unlocked.level) Before.Nothing else Before.Unlock
-			assertEquals(Gate(expected), gateFor(kind, false, all, now = at + minute, memory = unlockedFor(unlocked, at)), "$kind after $unlocked")
+			val g = gateFor(kind, confirm = false, unlock = true, grace = UnlockGrace.FiveMinutes, now = at + minute, memory = unlockedFor(unlocked, at))
+			assertEquals(Gate(expected), g, "$kind after $unlocked")
 		}
 		// Unlocked for the volume: ending a process asks; then, unlocked for that, the volume is covered too.
 		val media = unlockedFor(Guarded.Media, at)
-		assertEquals(Gate(Before.Unlock), gateFor(Guarded.Processes, false, all, now = at + 1, memory = media))
+		assertEquals(Gate(Before.Unlock), gateFor(Guarded.Processes, confirm = false, unlock = true, grace = UnlockGrace.FiveMinutes, now = at + 1, memory = media))
 		val processes = media.unlocked(Guarded.Processes, at + 2)
-		assertEquals(Gate(Before.Nothing), gateFor(Guarded.Media, false, all, now = at + 3, memory = processes))
-		assertEquals(Gate(Before.Unlock), gateFor(Guarded.Power, false, all, now = at + 3, memory = processes))
+		assertEquals(Gate(Before.Nothing), gateFor(Guarded.Media, confirm = false, unlock = true, grace = UnlockGrace.FiveMinutes, now = at + 3, memory = processes))
+		assertEquals(Gate(Before.Unlock), gateFor(Guarded.Power, confirm = false, unlock = true, grace = UnlockGrace.FiveMinutes, now = at + 3, memory = processes))
 	}
 
 	@Test
 	fun theScreenGoingOffOrTheAppLeavingEndsTheGrace() {
-		val all = Prefs(unlockFor = Guarded.entries.toSet(), unlockGrace = UnlockGrace.FiveMinutes, confirmActions = false)
 		val at = 10 * minute
 		val unlocked = unlockedFor(Guarded.Power, at).copy(explained = true)
-		assertEquals(Gate(Before.Nothing), gateFor(Guarded.Media, false, all, now = at + 1, memory = unlocked))
+		assertEquals(Gate(Before.Nothing), gateFor(Guarded.Media, confirm = false, unlock = true, grace = UnlockGrace.FiveMinutes, now = at + 1, memory = unlocked))
 		val forgotten = unlocked.forgotten()
 		assertEquals(UnlockMemory(explained = true), forgotten)
-		for (kind in Guarded.entries) assertEquals(Gate(Before.Unlock), gateFor(kind, false, all, now = at + 1, memory = forgotten), "$kind")
+		for (kind in Guarded.entries) {
+			assertEquals(Gate(Before.Unlock), gateFor(kind, confirm = false, unlock = true, grace = UnlockGrace.FiveMinutes, now = at + 1, memory = forgotten), "$kind")
+		}
 		assertFalse(covered(Guarded.Media, UnlockGrace.FiveMinutes, at + 1, forgotten))
 	}
 
 	@Test
 	fun everyTimeHasNoGrace() {
 		val at = 10 * minute
-		assertEquals(Gate(Before.Unlock), gateFor(Guarded.Power, now = at, memory = unlockedFor(Guarded.Power, at)))
+		assertEquals(Gate(Before.Unlock), gateFor(Guarded.Power, unlock = true, now = at, memory = unlockedFor(Guarded.Power, at)))
 		assertFalse(withinGrace(UnlockGrace.EveryTime, at, at))
 	}
 
@@ -143,27 +139,12 @@ class UnlockTest {
 
 	@Test
 	fun noScreenLockConfirmsInsteadAndSaysWhyOnce() {
-		// Confirmed even where Confirm actions is off, or the action isn't one it covers.
-		val off = Prefs(confirmActions = false)
-		assertEquals(Gate(Before.Confirm, noLockScreen = true), gateFor(Guarded.Power, false, off, lockScreen = false))
-		assertEquals(Gate(Before.Confirm, noLockScreen = false), gateFor(Guarded.Power, false, off, lockScreen = false, memory = UnlockMemory(explained = true)))
+		// Confirmed even where the action itself wouldn't be.
+		assertEquals(Gate(Before.Confirm, noLockScreen = true), gateFor(Guarded.Power, confirm = false, unlock = true, lockScreen = false))
+		assertEquals(Gate(Before.Confirm, noLockScreen = false), gateFor(Guarded.Power, confirm = false, unlock = true, lockScreen = false, memory = UnlockMemory(explained = true)))
 		// What doesn't ask to unlock is as before.
-		assertEquals(Gate(Before.Nothing), gateFor(Guarded.Media, false, off, lockScreen = false))
-		assertEquals(Gate(Before.Confirm), gateFor(Guarded.Units, true, Prefs(), lockScreen = false))
-	}
-
-	@Test
-	fun askingLessIsTold() {
-		val p = Prefs(unlockGrace = UnlockGrace.OneMinute)
-		// A kind turned off, or a longer grace: less.
-		assertTrue(asksLess(p, p.copy(unlockFor = p.unlockFor - Guarded.Power)))
-		assertTrue(asksLess(p, p.copy(unlockGrace = UnlockGrace.FiveMinutes)))
-		assertTrue(asksLess(p, p.copy(unlockFor = p.unlockFor - Guarded.Power + Guarded.Media)))
-		// A kind turned on, a shorter grace, or anything else: not.
-		assertFalse(asksLess(p, p.copy(unlockFor = p.unlockFor + Guarded.Media)))
-		assertFalse(asksLess(p, p.copy(unlockGrace = UnlockGrace.EveryTime)))
-		assertFalse(asksLess(p, p.copy(theme = ThemeMode.Dark, confirmActions = false)))
-		assertFalse(asksLess(p, p))
+		assertEquals(Gate(Before.Nothing), gateFor(Guarded.Media, confirm = false, lockScreen = false))
+		assertEquals(Gate(Before.Confirm), gateFor(Guarded.Units, confirm = true, lockScreen = false))
 	}
 
 	@Test

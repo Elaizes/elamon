@@ -16,15 +16,11 @@ private val CODE_MESSAGES = mapOf(
 	"not_found" to R.string.err_not_found,
 	"no_such_process" to R.string.err_no_such_process,
 	"no_such_action" to R.string.err_no_such_action,
-	"no_such_link" to R.string.err_no_such_link,
+	"no_such_dashboard" to R.string.err_no_such_dashboard,
+	"no_such_stream" to R.string.err_no_such_stream,
 	"no_art" to R.string.err_no_art,
 	"unknown_signal" to R.string.err_unknown_signal,
-	"empty_command" to R.string.err_empty_command,
-	"no_unit" to R.string.err_no_unit,
-	"bad_name" to R.string.err_bad_name,
-	"bad_url" to R.string.err_bad_url,
-	"bad_unit" to R.string.err_bad_unit,
-	"bad_scope" to R.string.err_bad_scope,
+	"bad_sort" to R.string.err_bad_sort,
 	"storage" to R.string.err_storage,
 	"not_allowed" to R.string.err_not_allowed,
 	"too_many_requests" to R.string.err_too_many_requests,
@@ -32,6 +28,14 @@ private val CODE_MESSAGES = mapOf(
 	// Pairing, or a key of the phone's own, past the phones the computer takes; a token that gave one already.
 	"too_many_phones" to R.string.err_too_many_phones,
 	"rekey_refused" to R.string.err_rekey_refused,
+	// Codes of the links editor elamond 0.5 had; errors.json lists them until the service's 0.6 list replaces it.
+	"no_such_link" to R.string.err_no_such_link,
+	"empty_command" to R.string.err_empty_command,
+	"no_unit" to R.string.err_no_unit,
+	"bad_name" to R.string.err_bad_name,
+	"bad_url" to R.string.err_bad_url,
+	"bad_unit" to R.string.err_bad_unit,
+	"bad_scope" to R.string.err_bad_scope,
 )
 
 /** What to tell about a failed request: the computer's own words for a failed command, else one of the app's strings. */
@@ -39,6 +43,8 @@ fun messageFor(e: Throwable): Message {
 	if (e is CancellationException) return Message.Res(R.string.err_unknown)
 	val a = e as? ElamondException ?: return Message.Res(R.string.err_unknown)
 	if (a.code == "failed") return a.message?.takeIf { it.isNotBlank() }?.let(Message::Text) ?: Message.Res(R.string.err_failed)
+	// The parameter the computer didn't take, by its name.
+	if (a.code == "bad_param") return Message.Res(R.string.err_bad_param, listOf(a.detail?.takeIf { it.isNotBlank() } ?: "?"))
 	a.code?.let { code -> CODE_MESSAGES[code]?.let { return Message.Res(it) } }
 	return when (a.kind) {
 		Kind.Unreachable -> Message.Res(R.string.err_unreachable)

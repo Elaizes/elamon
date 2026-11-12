@@ -30,6 +30,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.serialization.serializer
 
 class ElamondException(
 	val kind: Kind,
@@ -39,6 +40,8 @@ class ElamondException(
 	val code: String? = null,
 	/** The HTTP status, when the service answered at all. */
 	val status: Int = 0,
+	/** What the service said beside its code: the parameter of a `bad_param`, what `failed`. */
+	val detail: String? = null,
 ) : IOException(message, cause) {
 	/** The service doesn't let this phone do that: its role on the computer is too low. */
 	val notAllowed: Boolean get() = kind == Kind.NotAllowed
@@ -77,7 +80,7 @@ class ElamondException(
 			}
 			// A failed command carries the computer's own words; anything else is known by its code.
 			val text = if (error == "failed") message else error ?: "HTTP $status"
-			return ElamondException(kind, text, code = error, status = status)
+			return ElamondException(kind, text, code = error, status = status, detail = message)
 		}
 	}
 }
@@ -237,7 +240,7 @@ class ElamondClient(
 	}
 
 	suspend inline fun <reified T> get(path: String, maxBytes: Int = Limits.BODY_MAX): T =
-		ProtocolJson.decodeFromString(request("GET", path, maxBytes = maxBytes))
+		decode(request("GET", path, maxBytes = maxBytes))
 
 	suspend inline fun <reified B, reified T> post(
 		path: String,
@@ -245,7 +248,13 @@ class ElamondClient(
 		timeoutMs: Int = Limits.REQUEST_TIMEOUT_MS,
 		finishOnCancel: Boolean = false,
 		maxBytes: Int = Limits.BODY_MAX,
-	): T = ProtocolJson.decodeFromString(request("POST", path, ProtocolJson.encodeToString(body), timeoutMs, finishOnCancel, maxBytes))
+	): T = decode(request("POST", path, ProtocolJson.encodeToString(body), timeoutMs, finishOnCancel, maxBytes))
+
+	/**
+	 * An answer read as [T], off the main thread whoever asks (a `ui` or a snapshot with a table of
+	 * processes is large), as [decodeChecked] reads it: broken or nested too deep, a protocol error.
+	 */
+	suspend inline fun <reified T> decode(text: String): T = withContext(Dispatchers.Default) { decodeChecked(serializer<T>(), text) }
 
 	suspend fun delete(path: String) {
 		request("DELETE", path)
@@ -284,22 +293,43 @@ class ElamondClient(
 	suspend fun rekey(device: String): PairResponse =
 		post<RekeyRequest, PairResponse>(REKEY_PATH, RekeyRequest(device), maxBytes = Limits.SMALL_BODY_MAX)
 
-	/** Info, then optionally history, then a sample every [intervalMs] until cancelled. */
-	fun stream(intervalMs: Int, procs: Int, sort: String, history: Boolean, media: Boolean = false): Flow<StreamMessage> = flow {
-		val query = "interval=$intervalMs&procs=$procs&sort=$sort&history=${if (history) 1 else 0}&media=${if (media) 1 else 0}"
-		// A silent service is a dead connection after a few missed samples.
-		val c = call { open("/api/v1/stream?$query", Limits.streamReadTimeoutMs(intervalMs)) }
+	/** What this phone shows here, described with the widget types it draws ([WIDGET_TYPES]). */
+	suspend fun ui(): UiDoc = get("$UI_PATH?widgets=" + WIDGET_TYPES.joinToString(","))
+
+	/** One reading of [dashboard], with its graphs' history, after the service has waited for one that has everything. */
+	suspend fun snapshot(dashboard: String): DataLine = get("$SNAPSHOT_PATH?dashboard=" + query(dashboard))
+
+	/** Changes what the open stream [stream] sends, from its next line, without reconnecting. */
+	suspend fun subscribe(stream: String, change: Subscribe) {
+		post<Subscribe, Ok>("$STREAM_PATH/" + query(stream), change, maxBytes = Limits.SMALL_BODY_MAX)
+	}
+
+	/**
+	 * Runs the action [id] with [params]. The service kills an action whose request goes away, so
+	 * leaving the screen lets it finish.
+	 */
+	suspend fun action(id: String, params: kotlinx.serialization.json.JsonObject): ActionResult =
+		post<ActionRequest, ActionResult>("$ACTIONS_PATH/" + query(id), ActionRequest(params), timeoutMs = Limits.ACTION_TIMEOUT_MS, finishOnCancel = true)
+
+	/**
+	 * The stream of [dashboard] (null: the first tab), a line every [intervalMs]: open first, then
+	 * data, and ui whenever what this phone is shown changes; until cancelled.
+	 */
+	fun stream(dashboard: String?, intervalMs: Int): Flow<StreamLine> = flow {
+		val query = listOfNotNull(dashboard?.let { "dashboard=" + query(it) }, "interval=$intervalMs").joinToString("&")
+		// A silent service is a dead connection after a few missed lines.
+		val c = call { open("$STREAM_PATH?$query", Limits.streamReadTimeoutMs(intervalMs)) }
 		// Socket reads ignore coroutine cancellation; closing the connection ends a blocked one, and
 		// the failed read that follows is that cancellation, not a lost computer.
 		closeOnCancel(close = { c.disconnect() }) {
 			call { checkStatus(c) }
-			// Line by line, none longer than the largest sample the service sends.
+			// Line by line, none longer than the largest the service sends.
 			val reader = call { LineReader(c.inputStream, Limits.STREAM_LINE_MAX) }
 			while (true) {
 				currentCoroutineContext().ensureActive()
 				val line = call { reader.readLine() } ?: throw ElamondException(ElamondException.Kind.Unreachable, "closed")
 				if (line.isBlank()) continue
-				// A kind of message from a newer service is skipped; a broken one ends the stream.
+				// A kind of line from a newer service is skipped; a broken one ends the stream.
 				val msg = call { decodeStreamLine(line) } ?: continue
 				emit(msg)
 			}
@@ -307,6 +337,9 @@ class ElamondClient(
 	}.flowOn(Dispatchers.IO)
 
 	companion object {
+		/** A path's or a query's part, as the service reads it back. */
+		fun query(s: String): String = java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
+
 		fun sha256Hex(data: ByteArray): String =
 			MessageDigest.getInstance("SHA-256").digest(data).joinToString("") { "%02x".format(it) }
 
@@ -365,8 +398,20 @@ class ElamondClient(
 /** Where a phone asks for a key of its own. */
 const val REKEY_PATH = "/api/v1/rekey"
 
-/** Where links are added, changed and started. */
-const val LINKS_PATH = "/api/v1/links"
+const val UI_PATH = "/api/v1/ui"
+const val STREAM_PATH = "/api/v1/stream"
+const val SNAPSHOT_PATH = "/api/v1/snapshot"
+const val ACTIONS_PATH = "/api/v1/actions"
+const val ART_PATH = "/api/v1/media/art"
+
+/**
+ * The widget types this app draws, as it tells the service (`GET /api/v1/ui?widgets=`): it
+ * describes the dashboards with these alone, replacing any other by the nearest of them.
+ */
+val WIDGET_TYPES = listOf(
+	"value", "gauge", "meter", "status", "graph", "bars", "list", "table",
+	"button", "toggle", "select", "slider", "text", "group", "media",
+)
 
 /**
  * Runs [probe] on all of [hosts] at once and returns the first answer that isn't null, or null when

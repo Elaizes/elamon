@@ -49,27 +49,6 @@ fun Level.color(good: Color, warn: Color, hot: Color): Color = when (band) {
 	Band.Hot -> hot
 }
 
-/** Green to amber to red as a temperature nears its limit: the sensor's own [high] and [crit] when it has them. */
-@Composable
-fun tempColor(value: Float, high: Float? = null, crit: Float? = null): Color {
-	val c = Metric.colors
-	return tempLevel(value, high, crit).color(c.good, c.warn, c.hot)
-}
-
-/** A load's colour: [base] until it nears full, then amber to red. */
-@Composable
-fun loadColor(fraction: Float, base: Color = MaterialTheme.colorScheme.primary): Color {
-	val c = Metric.colors
-	return loadLevel(fraction).color(base, c.warn, c.hot)
-}
-
-/** A battery's colour by its charge in %. */
-@Composable
-fun batteryColor(percent: Float): Color {
-	val c = Metric.colors
-	return batteryLevel(percent).color(c.good, c.warn, c.hot)
-}
-
 @OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
 private fun inter(weight: Int) = Font(
 	R.font.inter,

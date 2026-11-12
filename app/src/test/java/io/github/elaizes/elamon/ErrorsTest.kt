@@ -35,10 +35,10 @@ class ErrorsTest {
 		assertEquals(Kind.TooManyRequests, answer(429, "too_many_requests").kind)
 		assertEquals(Kind.TooManyRequests, ElamondException.fromResponse(429, "").kind)
 		assertEquals(Kind.Conflict, answer(409, "process_changed").kind)
-		for (code in listOf("not_found", "no_such_process", "no_such_action", "no_such_link", "no_art")) {
+		for (code in listOf("not_found", "no_such_process", "no_such_action", "no_such_link", "no_art", "no_such_dashboard", "no_such_stream")) {
 			assertEquals(Kind.NotFound, answer(404, code).kind, code)
 		}
-		for (code in listOf("unknown_signal", "empty_command", "no_unit", "bad_name", "bad_url", "bad_unit", "bad_scope")) {
+		for (code in listOf("unknown_signal", "bad_param", "bad_sort", "empty_command", "no_unit", "bad_name", "bad_url", "bad_unit", "bad_scope")) {
 			assertEquals(Kind.BadRequest, answer(400, code).kind, code)
 		}
 		assertEquals(Kind.Failed, answer(500, "storage").kind)
@@ -84,6 +84,9 @@ class ErrorsTest {
 			(409 to "process_changed") to R.string.err_process_changed,
 			(403 to "too_many_phones") to R.string.err_too_many_phones,
 			(403 to "rekey_refused") to R.string.err_rekey_refused,
+			(404 to "no_such_dashboard") to R.string.err_no_such_dashboard,
+			(404 to "no_such_stream") to R.string.err_no_such_stream,
+			(400 to "bad_sort") to R.string.err_bad_sort,
 		)
 		for ((sent, id) in expected) {
 			assertEquals(Message.Res(id), messageFor(answer(sent.first, sent.second)), sent.second)
@@ -113,6 +116,14 @@ class ErrorsTest {
 		assertEquals(Message.Text("unit not found"), messageFor(answer(502, "failed", "unit not found")))
 		assertEquals(Message.Res(R.string.err_failed), messageFor(answer(502, "failed")))
 		assertEquals(Message.Res(R.string.err_failed), messageFor(answer(502, "failed", " ")))
+	}
+
+	@Test
+	fun aBadParameterIsNamed() {
+		// The service says which parameter it didn't take.
+		assertEquals(Message.Res(R.string.err_bad_param, listOf("speed")), messageFor(answer(400, "bad_param", "speed")))
+		assertEquals("speed", answer(400, "bad_param", "speed").detail)
+		assertEquals(Message.Res(R.string.err_bad_param, listOf("?")), messageFor(answer(400, "bad_param")))
 	}
 
 	@Test

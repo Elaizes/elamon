@@ -23,18 +23,7 @@ class LimitsTest {
 		assertEquals("abc", "abc".takeCodePoints(64))
 		// An emoji is one character to the service, two to Kotlin: never split in half.
 		assertEquals("a😀", "a😀b".takeCodePoints(2))
-		assertEquals("я".repeat(64), "я".repeat(100).takeCodePoints(Limits.LINK_NAME_MAX))
+		assertEquals("я".repeat(64), "я".repeat(100).takeCodePoints(Limits.NAME_MAX))
 		assertEquals("", "abc".takeCodePoints(0))
-	}
-
-	@Test
-	fun addressesAreCutByUtf8Bytes() {
-		assertEquals("abc", "abcdef".takeUtf8Bytes(3))
-		// "я" is two bytes: three of them don't fit in five.
-		assertEquals("яя", "яяя".takeUtf8Bytes(5))
-		assertEquals("a", "a😀".takeUtf8Bytes(4))
-		assertEquals("a😀", "a😀".takeUtf8Bytes(5))
-		val long = "x".repeat(600)
-		assertEquals(Limits.LINK_URL_MAX, long.takeUtf8Bytes(Limits.LINK_URL_MAX).length)
 	}
 }

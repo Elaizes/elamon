@@ -73,9 +73,30 @@ class ChartMathTest {
 		assertEquals(100f, chartScale(80f, null, 60f, binary = false))
 		assertEquals(50f, chartScale(30f, null, 50f, binary = false))
 		assertEquals(2048f, chartScale(1000f, null, 64f, binary = true))
-		// A temperature sparkline: 100 °C unless the data runs hotter, then the data itself.
-		assertEquals(100f, chartScale(80f, null, Thresholds.TEMP_BAR_TOP, binary = false, round = false))
-		assertEquals(110f * Thresholds.CHART_HEADROOM, chartScale(110f, null, Thresholds.TEMP_BAR_TOP, binary = false, round = false))
+		// Unrounded: the floor unless the data runs higher, then the data itself.
+		assertEquals(100f, chartScale(80f, null, 100f, binary = false, round = false))
+		assertEquals(110f * Thresholds.CHART_HEADROOM, chartScale(110f, null, 100f, binary = false, round = false))
+	}
+
+	@Test(timeout = 1000)
+	fun scalesPastWhatAFloatHoldsEnd() {
+		// A JSON number over 3.4e38 is infinite as a Float: rounding it used to go round for ever.
+		assertEquals(Float.MAX_VALUE, niceCeiling(Float.POSITIVE_INFINITY))
+		assertEquals(Float.MAX_VALUE, niceBinary(Float.POSITIVE_INFINITY))
+		assertEquals(1f, niceCeiling(Float.NaN))
+		assertEquals(1f, niceCeiling(Float.NEGATIVE_INFINITY))
+		// Near the top, a round number would be past it.
+		assertTrue(niceCeiling(3e38f).isFinite())
+		assertTrue(niceBinary(3e38f).isFinite())
+		assertEquals(Float.MIN_VALUE, niceCeiling(Float.MIN_VALUE))
+		// The data, the floor or the fixed top past a Float: the chart still gets a number it can divide by.
+		assertEquals(Float.MAX_VALUE, chartScale(Float.POSITIVE_INFINITY, null, 1f, binary = false))
+		assertEquals(Float.MAX_VALUE, chartScale(10f, null, Float.POSITIVE_INFINITY, binary = false))
+		assertEquals(Float.MAX_VALUE, chartScale(10f, null, Float.POSITIVE_INFINITY, binary = true))
+		assertEquals(Float.MAX_VALUE, chartScale(10f, null, Float.POSITIVE_INFINITY, binary = false, round = false))
+		assertEquals(20f, chartScale(10f, Float.POSITIVE_INFINITY, 1f, binary = false))
+		assertEquals(20f, chartScale(10f, 0f, 1f, binary = false))
+		assertEquals(1f, chartScale(0f, null, 0f, binary = false, round = false))
 	}
 
 	private class Values(private val times: LongArray, private val values: FloatArray) : Points {

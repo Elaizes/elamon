@@ -3,7 +3,6 @@ package io.github.elaizes.elamon
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.os.SystemClock
 import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
@@ -15,14 +14,12 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -31,60 +28,99 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
+import io.github.elaizes.elamon.data.APP_API
+import io.github.elaizes.elamon.data.Action
 import io.github.elaizes.elamon.data.ActionResult
+import io.github.elaizes.elamon.data.ART_PATH
+import io.github.elaizes.elamon.data.DataLine
 import io.github.elaizes.elamon.data.ElamondClient
 import io.github.elaizes.elamon.data.ElamondException
-import io.github.elaizes.elamon.data.ControlInfo
-import io.github.elaizes.elamon.data.History
-import io.github.elaizes.elamon.data.Info
-import io.github.elaizes.elamon.data.Limits
-import io.github.elaizes.elamon.data.Listener
-import io.github.elaizes.elamon.data.LogEntry
-import io.github.elaizes.elamon.data.Proc
-import io.github.elaizes.elamon.data.Sample
+import io.github.elaizes.elamon.data.Hello
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.OwnKeys
-import io.github.elaizes.elamon.data.LinkDef
-import io.github.elaizes.elamon.data.LINKS_PATH
-import io.github.elaizes.elamon.data.StreamMessage
-import io.github.elaizes.elamon.data.UnitInfo
-import io.github.elaizes.elamon.data.reachPaired
+import io.github.elaizes.elamon.data.StreamOpen
+import io.github.elaizes.elamon.data.Subscribe
+import io.github.elaizes.elamon.data.UiCache
+import io.github.elaizes.elamon.data.UiChanged
+import io.github.elaizes.elamon.data.UiDoc
+import io.github.elaizes.elamon.data.Widget
+import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.data.cleanName
-import io.github.elaizes.elamon.data.withoutControls
+import io.github.elaizes.elamon.data.reachPaired
+import io.github.elaizes.elamon.data.text
 
-enum class Conn { Connecting, Live, Reconnecting, Offline, Unauthorized, CertificateChanged, Refused }
+enum class Conn { Connecting, Live, Reconnecting, Offline, Unauthorized, CertificateChanged, Refused, Incompatible }
 
 data class MachineState(
 	val conn: Conn = Conn.Connecting,
 	val host: String? = null,
-	val info: Info? = null,
-	val sample: Sample? = null,
-	/** The same buffers throughout; [histVersion] tells their changes apart. */
-	val hist: Hist = Hist(),
+	/** What the computer shows this phone: as last kept until the computer is reached, then its own. */
+	val ui: UiDoc? = null,
+	/** [ui] is the one kept from before, not yet confirmed by the computer. */
+	val uiKept: Boolean = true,
+	/** The last data line of each dashboard, by its id. */
+	val data: Map<String, DataLine> = emptyMap(),
+	/** Counts changes to the graphs' points, which live in the view model, for a redraw. */
 	val histVersion: Long = 0,
-	val processes: List<Proc>? = null,
-	val processCount: Int = 0,
-	/** When the last sample arrived, for extrapolating media positions. */
+	/** When the last data line arrived (wall clock), for moving a track's position on between lines. */
 	val receivedAt: Long = 0,
 	/** Why the computer turned the stream away, with [Conn.Refused]. */
 	val refused: Message? = null,
 	/** With [Conn.Unauthorized]: this phone can't read its own token any more, rather than the computer refusing it. */
 	val keyLost: Boolean = false,
+	/** What the computer said it is, when it was reached; with [Conn.Incompatible], why there are no dashboards. */
+	val hello: Hello? = null,
+	val compat: Compat = Compat.Ok,
 )
 
-/** What a list of processes needs from the service: the order, and how many of the heaviest. */
-data class ProcRequest(val sort: String, val count: Int) {
-	companion object {
-		/** A detail page's top list, the Processes tab's, and every process for searching or grouping. */
-		const val TOP = Limits.PROCESSES_TOP
-		const val LIST = Limits.PROCESSES_LIST
-		const val ALL = Limits.PROCESSES_ALL
-	}
+/** What the stream is asked for: the dashboard on screen, how often, and the tables asked for another order than their own. */
+data class Want(val dashboard: String?, val intervalMs: Int, val sorts: Map<String, String> = emptyMap()) {
+	/** With [table] in the order of [field]: one of its `sorts`, or its own order back. */
+	fun sorted(table: Widget, field: String): Want =
+		copy(sorts = if (field == table.sort?.field) sorts - table.id else sorts + (table.id to field))
 }
 
-/** What the stream is opened with; a change reopens it on the same address. */
-private data class StreamParams(val intervalMs: Int, val procs: Int, val sort: String, val media: Boolean)
+/** What an open stream needs, to send what is wanted: see [tell]. */
+sealed interface Tell {
+	/** It sends that already. */
+	data object Already : Tell
+
+	/** `POST /api/v1/stream/{id}` with this. */
+	data class Change(val change: Subscribe) : Tell
+
+	/** Only a stream opened anew does. */
+	data object Reopen : Tell
+}
+
+/**
+ * What a stream opened to wait [readTimeoutMs] for a line, and told [sent] since, needs to send
+ * [want]; [ui] has the tables. Opened anew when a line every `want.intervalMs` needs the
+ * connection to wait another time ([Limits.streamReadTimeoutMs]), and when a table goes back to
+ * its own order where that can't be asked for by name: a stream is told another order (largest
+ * first), never to drop one, so a table's own order that is smallest first and also one of its
+ * `sorts` comes back only with a new stream.
+ */
+fun tell(sent: Want, want: Want, ui: UiDoc?, readTimeoutMs: Int): Tell {
+	if (Limits.streamReadTimeoutMs(want.intervalMs) != readTimeoutMs) return Tell.Reopen
+	val sorts = want.sorts.filter { (k, v) -> sent.sorts[k] != v }.toMutableMap()
+	for ((k, asked) in sent.sorts) {
+		if (k in want.sorts) continue
+		val table = ui?.let { findWidget(it, k) } ?: continue
+		val listed = table.sorts.orEmpty()
+		// An order the table no longer lists, the service doesn't keep to either.
+		if (asked !in listed) continue
+		val own = table.sort
+		// Asked for by name, its own order comes as it is: largest first, or not one of the others.
+		if (own != null && (own.desc || own.field !in listed)) sorts[k] = own.field else return Tell.Reopen
+	}
+	val change = Subscribe(
+		dashboard = want.dashboard?.takeIf { it != sent.dashboard },
+		interval = want.intervalMs.takeIf { it != sent.intervalMs },
+		sort = sorts.ifEmpty { null },
+	)
+	return if (change == Subscribe()) Tell.Already else Tell.Change(change)
+}
 
 /** A line for the snackbar: one of the app's strings, or what the computer said, as it said it. */
 sealed interface Message {
@@ -92,22 +128,15 @@ sealed interface Message {
 	data class Text(val text: String) : Message
 }
 
-/** The actions panel: the one running, and what each printed last time. */
+/** Actions running now, by their key, and what each command printed last time. */
 data class ActionsState(
-	val running: String? = null,
+	val running: Set<String> = emptySet(),
 	val results: Map<String, ActionResult> = emptyMap(),
 	/** The action whose output is on screen. */
 	val shown: String? = null,
 )
 
-/** The activity log as last read: null until it is; [error] when reading it failed. */
-data class ActivityState(
-	val entries: List<LogEntry>? = null,
-	val loading: Boolean = false,
-	val error: Message? = null,
-)
-
-/** The first value at once, then each one that stays for [ms]: quick to start, calm while settings change. */
+/** The first value at once, then each one that stays for [ms]: quick to start, calm while things change. */
 @OptIn(FlowPreview::class)
 fun <T> Flow<T>.settle(ms: Long): Flow<T> {
 	var first = true
@@ -139,39 +168,34 @@ private fun decodeArt(bytes: ByteArray, sizePx: Int): Bitmap? {
 	return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
 }
 
+/** Every widget of [widgets], those in groups included, depth first. */
+fun allWidgets(widgets: List<Widget>): List<Widget> = widgets.flatMap { listOf(it) + allWidgets(it.widgets.orEmpty()) }
+
+/** The widget [id] of any of [ui]'s dashboards. */
+fun findWidget(ui: UiDoc, id: String): Widget? = ui.dashboards.firstNotNullOfOrNull { d -> allWidgets(d.widgets).find { it.id == id } }
+
+/**
+ * One computer's screen: one stream for it, told which dashboard is on screen (`POST
+ * /api/v1/stream/{id}`) instead of opened again; the `ui` document, fetched again when the stream
+ * says it changed and kept on the phone ([UiCache]); the graphs' points; the actions run.
+ */
 class MachineViewModel(app: Application, private val machineId: String) : AndroidViewModel(app) {
 	private val store = MachineStore.get(app)
 	private val ownKeys = OwnKeys.get(app)
+	private val cache = UiCache.get(app)
+
+	/** What this screen keeps of the computer is kept only while it isn't forgotten (or paired again under another id). */
+	private val ticket = cache.ticket(machineId)
 	private val settings = Settings.get(app)
-	private val hist = Hist()
-	private val _state = MutableStateFlow(MachineState(hist = hist))
+	private val _state = MutableStateFlow(MachineState())
 	val state: StateFlow<MachineState> = _state.asStateFlow()
 
-	private val _control = MutableStateFlow<ControlInfo?>(null)
-	val control: StateFlow<ControlInfo?> = _control.asStateFlow()
-
-	private val _permissions = MutableStateFlow(Permissions.before(store.get(machineId)?.role))
-
-	/** What this phone may do here: as the control panel says once read, as its last known role allows before. */
-	val permissions: StateFlow<Permissions> = _permissions.asStateFlow()
-
-	private val _controlError = MutableStateFlow<Message?>(null)
-
-	/** Why the control panel couldn't be read, until it can. */
-	val controlError: StateFlow<Message?> = _controlError.asStateFlow()
+	/** The graphs' and sparks' points, by widget id. */
+	private val hists = HashMap<String, Hist>()
+	private var histCount = 0L
 
 	private val _actions = MutableStateFlow(ActionsState())
 	val actions: StateFlow<ActionsState> = _actions.asStateFlow()
-
-	private val _activity = MutableStateFlow(ActivityState())
-
-	/** What phones asked the computer to do, newest first, once the activity page has asked for it. */
-	val activity: StateFlow<ActivityState> = _activity.asStateFlow()
-
-	private val _compatDismissed = MutableStateFlow(false)
-
-	/** The banner about versions, closed for as long as this screen lives. */
-	val compatDismissed: StateFlow<Boolean> = _compatDismissed.asStateFlow()
 
 	// Kept until the screen collects them, even across a rotation.
 	private val _messages = Channel<Message>(capacity = Limits.MESSAGES_KEPT, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -179,29 +203,27 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	/** One-line results and errors for a snackbar. */
 	val messages: Flow<Message> = _messages.receiveAsFlow()
 
-	private var procRequest: ProcRequest? = null
-	private var wantMedia = false
-	private val wanted = MutableStateFlow(params())
-	private var current = wanted.value
+	private val wanted = MutableStateFlow(Want(settings.lastTab(machineId), Intervals.DEFAULT_MS))
+
+	/** The dashboard the screen shows: a tab, or a page a widget opened. */
+	val dashboard: StateFlow<Want> = wanted.asStateFlow()
 
 	private var job: Job? = null
 	private var stopping: Job? = null
 	private var visible = false
 
-	/** Reads the control panel again now and then while the screen is shown. */
-	private var controlTicker: Job? = null
-	private var controlReading: Job? = null
-
-	/** When a sample last made the control panel be read again (elapsed realtime). */
-	private var lastRoleHint: Long? = null
-
-	/** The address the stream last worked on: a new set of parameters goes straight there. */
+	/** The address the stream last worked on: a new stream goes straight there. */
 	private var workingHost: String? = null
 	private var attempt = 0
 
 	init {
-		// A new update interval takes a new stream, on the same address.
-		viewModelScope.launch { settings.state.collect { wanted.value = params() } }
+		// What was kept starts the screen at once; whatever the computer says replaces it.
+		viewModelScope.launch {
+			val ui = cache.ui(machineId)
+			val data = cache.data(machineId)
+			if (ui != null && _state.value.uiKept && _state.value.ui == null) applyUi(ui, fresh = false)
+			if (data.isNotEmpty()) _state.update { it.copy(data = data + it.data) }
+		}
 		// Paired again while this screen stays open (the pairing screen was left before the computer
 		// answered): the stream starts over with the new token instead of staying turned away.
 		viewModelScope.launch {
@@ -217,22 +239,13 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	private fun credentialsChanged() {
 		job?.cancel()
 		job = null
-		// A new pairing may come with another role; the panel is read again once the stream is live.
-		_control.value = null
-		_permissions.value = Permissions.before(store.get(machineId)?.role)
 		if (visible) start()
 	}
 
-	private fun params() = StreamParams(
-		intervalMs = settings.intervalMs,
-		procs = procRequest?.count ?: 0,
-		sort = procRequest?.sort ?: "cpu",
-		media = wantMedia,
-	)
-
 	/**
 	 * The screen is shown: stream while it is. When it stops, the stream stays for a few seconds,
-	 * so turning the phone doesn't cost a reconnection; then it ends until the screen is back.
+	 * so turning the phone doesn't cost a reconnection; then it ends until the screen is back, and
+	 * the last readings are kept for next time.
 	 */
 	fun setVisible(v: Boolean) {
 		visible = v
@@ -240,45 +253,38 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 			stopping?.cancel()
 			stopping = null
 			if (job?.isActive != true) start()
-			if (controlTicker?.isActive != true) controlTicker = viewModelScope.launch { rereadControl() }
-		} else {
-			controlTicker?.cancel()
-			controlTicker = null
-			if (job?.isActive == true && stopping == null) {
-				stopping = viewModelScope.launch {
-					delay(Limits.STOP_GRACE_MS)
-					job?.cancel()
-					job = null
-					stopping = null
-					// What's on screen when it comes back is old until the stream is.
-					_state.update { if (it.conn == Conn.Live) it.copy(conn = Conn.Reconnecting) else it }
-				}
+		} else if (job?.isActive == true && stopping == null) {
+			stopping = viewModelScope.launch {
+				delay(Limits.STOP_GRACE_MS)
+				job?.cancel()
+				job = null
+				stopping = null
+				keepData()
+				// What's on screen when it comes back is old until the stream is.
+				_state.update { if (it.conn == Conn.Live) it.copy(conn = Conn.Reconnecting) else it }
 			}
 		}
 	}
 
-	/** Reads the control panel every so often until cancelled: a role or control changed on the computer shows without reopening. */
-	private suspend fun rereadControl(): Nothing {
-		while (true) {
-			delay(Limits.CONTROL_REFRESH_MS)
-			refreshControl()
-		}
+	private fun keepData() {
+		val data = _state.value.data
+		// Written apart from this screen, which may be going away.
+		if (data.isNotEmpty()) cache.keep(machineId, data, ticket)
 	}
 
-	/** Null when no list of processes is on screen, so the service doesn't collect it. */
-	fun setProcesses(request: ProcRequest?) {
-		if (procRequest == request) return
-		procRequest = request
-		if (request == null) _state.update { it.copy(processes = null) }
-		wanted.value = params()
+	/** Shows [dashboard]: the stream is told, and sends its values from its next line. */
+	fun show(dashboard: String) {
+		wanted.update { it.copy(dashboard = dashboard) }
+		if (_state.value.ui?.tabs?.contains(dashboard) == true) settings.setLastTab(machineId, dashboard)
 	}
 
-	/** Media players ride the stream only while the control panel shows them. */
-	fun setMedia(want: Boolean) {
-		if (wantMedia == want) return
-		wantMedia = want
-		wanted.value = params()
+	/** [table] in the order of [field]: one of its `sorts`, largest first, or its own. */
+	fun sort(table: Widget, field: String) {
+		wanted.update { it.sorted(table, field) }
 	}
+
+	/** The points of the graph or spark [widget]; null until it has any. */
+	fun hist(widget: String): Hist? = hists[widget]
 
 	fun retry() {
 		if (!visible) return
@@ -290,7 +296,10 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	private fun start() {
 		attempt = 0
 		workingHost = null
-		_state.update { if (it.conn == Conn.Live) it else it.copy(conn = if (it.sample == null) Conn.Connecting else Conn.Reconnecting, refused = null, keyLost = false) }
+		_state.update {
+			if (it.conn == Conn.Live) it
+			else it.copy(conn = if (it.data.isEmpty()) Conn.Connecting else Conn.Reconnecting, refused = null, keyLost = false)
+		}
 		job = viewModelScope.launch { loop() }
 	}
 
@@ -303,31 +312,38 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 				_state.update { it.copy(conn = Conn.Unauthorized, keyLost = true) }
 				return
 			}
-			val host = workingHost ?: run {
-				_state.update { it.copy(conn = if (it.sample == null) Conn.Connecting else Conn.Reconnecting) }
+			if (workingHost == null) {
+				_state.update { it.copy(conn = if (it.data.isEmpty() && it.conn != Conn.Live) Conn.Connecting else Conn.Reconnecting) }
 				val reached = try {
 					reachPaired(machine) { from, to -> renewed(from, to) }
 				} catch (e: ElamondException) {
 					_state.update { it.copy(conn = Conn.CertificateChanged) }
 					return
 				}
-				if (reached == null) null else reached.first.host.also {
-					workingHost = it
-					if (it != machine.lastHost) store.update(machineId) { s -> s.copy(lastHost = it) }
+				if (reached == null) {
+					_state.update { it.copy(conn = Conn.Offline) }
+					delay(Limits.backoffMs(attempt++))
+					continue
 				}
+				val hello = reached.second
+				val compat = compatibility(BuildConfig.VERSION_NAME, hello.api, hello.version, hello.minApp)
+				_state.update { it.copy(hello = hello, compat = compat) }
+				// Only API 2 is read: with any other there is nothing to show but what to update.
+				if (hello.api != APP_API) {
+					_state.update { it.copy(conn = Conn.Incompatible) }
+					return
+				}
+				workingHost = reached.first.host.also { if (it != machine.lastHost) store.update(machineId) { s -> s.copy(lastHost = it) } }
 			}
-			if (host == null) {
-				_state.update { it.copy(conn = Conn.Offline) }
-				delay(Limits.backoffMs(attempt++))
-				continue
-			}
+			val host = workingHost ?: continue
 			// Imported from another phone: the computer answers, so it can give this phone a key of its own.
 			val pin = (store.get(machineId) ?: machine).fingerprint
 			val own = ownKeys.renew(machineId, deviceName(getApplication())) { ElamondClient(host, machine.port, pin, token).rekey(it) }
 			// The stream opens with the new key, so revoking the old phone doesn't end it.
 			if (own != null) continue
 
-			val e = streamOn(host, ElamondClient(host, machine.port, machine.fingerprint, token))
+			// Opened anew at once, on the same address, when only a new stream sends what is wanted.
+			val e = streamOn(host, ElamondClient(host, machine.port, pin, token)) ?: continue
 			when {
 				e.kind == ElamondException.Kind.Unauthorized -> {
 					_state.update { it.copy(conn = Conn.Unauthorized, keyLost = false) }
@@ -348,81 +364,150 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	}
 
 	/**
-	 * Streams from [host] until the connection fails, and returns why. Changed parameters reopen
-	 * the stream there at once, without asking every address and without leaving Live.
+	 * Streams from [host] until the connection fails, and returns why; null when it is to be opened
+	 * anew at once ([Tell.Reopen]). What the screen shows changes by telling the stream, where it can.
 	 */
-	private suspend fun streamOn(host: String, client: ElamondClient): ElamondException = try {
-		// A change undone within the settling time (a tab left and come back to) reopens nothing.
-		wanted.settle(Limits.PARAMS_SETTLE_MS).distinctUntilChanged().collectLatest { p ->
-			current = p
-			hist.stepHintMs = Intervals.effective(p.intervalMs, _state.value.info?.intervalMs).toLong()
-			// History on every connection: it fills whatever the app missed meanwhile.
-			client.stream(p.intervalMs, p.procs, p.sort, history = true, media = p.media).collect { msg ->
-				attempt = 0
-				handle(msg, host)
+	private suspend fun streamOn(host: String, client: ElamondClient): ElamondException? = try {
+		coroutineScope {
+			val opening = wanted.value
+			// The connection waits for a line as long as the interval it opens with asks.
+			val timeout = Limits.streamReadTimeoutMs(opening.intervalMs)
+			// A new stream has its tables in their own order: those wanted in another are told once it is open.
+			var sent = opening.copy(sorts = emptyMap())
+			var streamId: String? = null
+			// Changes to what is wanted, told to the open stream once it has said its id.
+			val subscriber = launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+				wanted.settle(Limits.PARAMS_SETTLE_MS).collect { w ->
+					val id = streamId ?: return@collect
+					var target = w
+					// Twice at most: what a refusal of one part leaves out is told once more.
+					repeat(2) {
+						val change = when (val t = tell(sent, target, _state.value.ui, timeout)) {
+							Tell.Already -> return@collect
+							Tell.Reopen -> throw ReopenStream()
+							is Tell.Change -> t.change
+						}
+						try {
+							client.subscribe(id, change)
+							sent = target
+							return@collect
+						} catch (e: ElamondException) {
+							when (e.code) {
+								// The dashboard went from this phone's ui on the computer: the ui is read again,
+								// and the screen and the stream follow it.
+								"no_such_dashboard" -> {
+									applyUi(client.ui(), fresh = true)
+									target = wanted.value
+									// Still there as the computer says: not asked for again.
+									if (target.dashboard == change.dashboard) sent = sent.copy(dashboard = target.dashboard)
+								}
+								// Orders the computer's tables don't have (its settings changed): dropped, the rest told again.
+								"bad_sort" -> {
+									val asked = change.sort.orEmpty().keys
+									val bad = e.detail?.takeIf { it in asked }?.let(::setOf) ?: asked
+									wanted.update { it.copy(sorts = it.sorts - bad) }
+									sent = sent.copy(sorts = sent.sorts - bad)
+									target = target.copy(sorts = target.sorts - bad)
+									say(messageFor(e))
+								}
+								// The stream ended, or something else: opened again.
+								else -> throw e
+							}
+						}
+					}
+				}
 			}
-			// Replaced by newer parameters, this block is cancelled: that is no reason to look for the computer again.
-			currentCoroutineContext().ensureActive()
+			client.stream(opening.dashboard, opening.intervalMs).collect { line ->
+				attempt = 0
+				when (line) {
+					is StreamOpen -> {
+						streamId = line.stream
+						val ui = _state.value.ui
+						if (ui == null || ui.version != line.ui || _state.value.uiKept) applyUi(client.ui(), fresh = true)
+						// Opened without a dashboard, the stream sends the first tab's.
+						if (opening.dashboard == null) sent = sent.copy(dashboard = _state.value.ui?.tabs?.firstOrNull())
+						subscriber.start()
+					}
+					is DataLine -> handleData(line, host)
+					is UiChanged -> if (line.ui != _state.value.ui?.version) applyUi(client.ui(), fresh = true)
+				}
+			}
 			throw ElamondException(ElamondException.Kind.Unreachable, "closed")
 		}
-		ElamondException(ElamondException.Kind.Unreachable, "closed")
 	} catch (e: CancellationException) {
 		throw e
+	} catch (e: ReopenStream) {
+		null
 	} catch (e: ElamondException) {
 		e
 	} catch (e: Exception) {
 		ElamondException(ElamondException.Kind.Protocol, e.message, e)
 	}
 
-	private fun handle(received: StreamMessage, host: String) {
+	/** Ends a stream that only a new one replaces: see [Tell.Reopen]. */
+	private class ReopenStream : Exception()
+
+	/**
+	 * Takes [ui] as what the computer shows this phone: kept on the phone when [fresh] from the
+	 * computer, its interval and tabs what the stream is asked for.
+	 */
+	private fun applyUi(ui: UiDoc, fresh: Boolean) {
 		// The computer's name is shown and kept: one that can't pass for another, or reorder what follows it.
-		val msg = if (received is Info) received.copy(name = cleanName(received.name)) else received
-		when (msg) {
-			is Info -> {
-				hist.windowMs = msg.historySeconds * 1000L
-				hist.stepHintMs = Intervals.effective(current.intervalMs, msg.intervalMs).toLong()
-				settings.noteElamondInterval(msg.intervalMs)
-				_state.update { it.copy(info = msg, histVersion = hist.version) }
-				// Every reopened stream starts with info; the store is written only when it says something new.
-				val saved = store.get(machineId)
-				if (saved != null && (msg.name.isNotEmpty() || msg.os.isNotEmpty())) {
-					val name = msg.name.ifEmpty { saved.name }
-					if (name != saved.name || msg.os != saved.os) store.update(machineId) { it.copy(name = name, os = msg.os) }
-				}
-			}
-			is History -> {
-				hist.replace(msg)
-				_state.update { it.copy(histVersion = hist.version) }
-			}
-			is Sample -> {
-				hist.append(msg)
-				val wasLive = _state.value.conn == Conn.Live
-				_state.update {
-					it.copy(
-						conn = Conn.Live,
-						host = host,
-						sample = msg.copy(processes = null),
-						histVersion = hist.version,
-						processes = if (procRequest != null) msg.processes ?: it.processes else null,
-						processCount = msg.processCount ?: it.processCount,
-						receivedAt = System.currentTimeMillis(),
-						refused = null,
-					)
-				}
-				// Only now is there an address known to work for everything else.
-				if (!wasLive) refreshControl() else if (_permissions.value.outgrownBy(msg)) roleWentUp()
-			}
+		val clean = ui.copy(service = ui.service.copy(name = cleanName(ui.service.name)))
+		_state.update { it.copy(ui = clean, uiKept = !fresh) }
+		val interval = Intervals.effective(clean.profile.intervalMs, clean.service.intervalMs)
+		wanted.update { w ->
+			val d = w.dashboard?.takeIf { clean.dashboard(it) != null } ?: clean.tabs.firstOrNull()
+			// A table's order asked for stays only while the table has it among its sorts.
+			val sorts = w.sorts.filter { (id, f) -> clean.dashboards.any { dash -> allWidgets(dash.widgets).any { it.id == id && f in it.sorts.orEmpty() } } }
+			w.copy(dashboard = d, intervalMs = interval, sorts = sorts)
+		}
+		for (h in hists.values) h.stepHintMs = interval.toLong()
+		if (!fresh) return
+		viewModelScope.launch { cache.putUi(machineId, clean, ticket) }
+		val saved = store.get(machineId) ?: return
+		val name = clean.service.name.ifEmpty { saved.name }
+		if (name != saved.name || (clean.role != null && clean.role != saved.role)) {
+			store.update(machineId) { it.copy(name = name, role = clean.role ?: it.role) }
 		}
 	}
 
-	/** This phone's id in the computer's list of paired phones, for the commands that change its role; null while it isn't known. */
-	val clientId: String? get() = store.get(machineId)?.clientId
-
-	fun dismissCompat() {
-		_compatDismissed.value = true
+	private fun handleData(line: DataLine, host: String) {
+		val ui = _state.value.ui
+		val dash = ui?.dashboard(line.dashboard)
+		if (ui != null && dash != null) {
+			for (w in allWidgets(dash.widgets)) {
+				val graph = w.type == "graph"
+				if (!graph && !(w.type == "value" && w.spark == true)) continue
+				val count = if (graph) w.series?.size?.coerceAtLeast(1) ?: 1 else 1
+				// A spark reaches as far back as the service keeps.
+				val window = (if (graph) w.range else null)?.takeIf { it > 0 }?.let { it * MS_PER_SECOND } ?: ui.service.historySeconds * MS_PER_SECOND
+				val h = hists[w.id]?.takeIf { it.seriesCount == count } ?: Hist(count, window).also { hists[w.id] = it }
+				h.windowMs = window
+				h.stepHintMs = wanted.value.intervalMs.toLong()
+				val s = line.widgets[w.id]
+				h.take(line.t, if (graph) s?.numbers.orEmpty() else listOf(s?.number), line.history?.get(w.id))
+			}
+		}
+		histCount++
+		// The header's pills come with every line, whatever dashboard it is for.
+		val header = ui?.let { headerData(it, line) }?.let { it.dashboard to it }
+		_state.update {
+			it.copy(
+				conn = Conn.Live,
+				host = host,
+				data = it.data + (line.dashboard to line.copy(history = null)) + listOfNotNull(header),
+				histVersion = histCount,
+				receivedAt = System.currentTimeMillis(),
+				refused = null,
+			)
+		}
 	}
 
-	// ---- control --------------------------------------------------------------------
+	/** This phone's id in the computer's list of paired phones, for the commands that change its role or profile; null while it isn't known. */
+	val clientId: String? get() = store.get(machineId)?.clientId
+
+	// ---- actions --------------------------------------------------------------------
 
 	/** A client for one-off requests, on the address the stream found. */
 	private fun client(): ElamondClient? {
@@ -432,48 +517,9 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	}
 
 	/**
-	 * Reads the control panel, and with it what this phone may do; before the stream is live it waits
-	 * for the first sample, which calls it. A newer reading replaces one still on its way.
-	 */
-	fun refreshControl() {
-		if (_state.value.conn != Conn.Live) return
-		controlReading?.cancel()
-		controlReading = viewModelScope.launch {
-			val c = client() ?: return@launch
-			try {
-				val info = c.get<ControlInfo>("/api/v1/control")
-				_control.value = info
-				_permissions.value = Permissions.of(info)
-				_controlError.value = null
-				// Kept, so the screen opens with the right tabs next time.
-				if (info.role != null && store.get(machineId)?.role != info.role) store.update(machineId) { it.copy(role = info.role) }
-			} catch (e: CancellationException) {
-				throw e
-			} catch (e: Exception) {
-				_controlError.value = messageFor(e)
-			}
-		}
-	}
-
-	/** A sample held what this phone wasn't known to see: its role went up, so read what it may do now, now and then at most. */
-	private fun roleWentUp() {
-		val now = SystemClock.elapsedRealtime()
-		val last = lastRoleHint
-		if (last != null && now - last < Limits.ROLE_HINT_MIN_MS) return
-		lastRoleHint = now
-		refreshControl()
-	}
-
-	/** Refused for this phone's role, which changed on the computer since the panel was read: read it again. */
-	private fun noteRefusal(e: Throwable) {
-		if ((e as? ElamondException)?.notAllowed == true) refreshControl()
-	}
-
-	/**
 	 * The computer renewed its certificate (`elamond rotate-cert`) and the steps from the one pinned
-	 * check out: pinned from now on, which starts the stream over with it, and said once. Only while
-	 * the computer is still pinned to [from], the certificate followed: paired again meanwhile, it
-	 * keeps the new pairing's.
+	 * check out: pinned from now on, and said once. Only while the computer is still pinned to
+	 * [from], the certificate followed: paired again meanwhile, it keeps the new pairing's.
 	 */
 	private fun renewed(from: String, to: String) {
 		if (store.repin(machineId, from, to)) say(Message.Res(R.string.machine_cert_renewed))
@@ -483,106 +529,45 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		_messages.trySend(m)
 	}
 
-	/** Runs a control request; [done] gets told on success. */
-	private fun act(@StringRes done: Int? = null, refresh: Boolean = false, block: suspend (ElamondClient) -> Unit) {
+	/** Reads the `ui` again: the role, control or the actions changed on the computer since it was read. */
+	private fun refreshUi() {
 		viewModelScope.launch {
-			val c = client() ?: return@launch say(Message.Res(R.string.err_unreachable))
+			val c = client() ?: return@launch
 			try {
-				block(c)
-				done?.let { say(Message.Res(it)) }
-				if (refresh) refreshControl()
+				applyUi(c.ui(), fresh = true)
 			} catch (e: CancellationException) {
 				throw e
 			} catch (e: Exception) {
-				say(messageFor(e))
-				noteRefusal(e)
-				if ((e as? ElamondException)?.code == "process_changed") refreshProcesses()
+				// The stream says `ui` when it changes; this was only a shortcut.
 			}
 		}
-	}
-
-	@Serializable private data class PowerReq(val action: String)
-	@Serializable private data class ProfileReq(val profile: String)
-	@Serializable private data class SignalReq(val pid: Int, val signal: String, val start: Long? = null)
-	@Serializable private data class ActionReq(val id: String)
-	@Serializable private data class MediaReq(val player: String, val op: String, val value: Double? = null)
-	@Serializable private data class VolumeReq(val level: Float? = null, val muted: Boolean? = null)
-	@Serializable private data class UnitReq(val op: String)
-	@Serializable private data class Ok(val ok: Boolean = true)
-
-	fun power(action: String) = act(
-		done = when (action) {
-			"lock" -> R.string.done_locked
-			"poweroff" -> R.string.done_shutting_down
-			"reboot" -> R.string.done_restarting
-			"suspend" -> R.string.done_going_to_sleep
-			else -> null
-		},
-	) { it.post<PowerReq, Ok>("/api/v1/control/power", PowerReq(action)) }
-
-	fun setProfile(profile: String) = act(refresh = true) {
-		it.post<ProfileReq, Ok>("/api/v1/control/profile", ProfileReq(profile))
 	}
 
 	/**
-	 * Sends [signal] to the process [pid] that started at [start] (Unix s, as samples give it): the
-	 * service refuses it, process_changed, when the pid has gone to another process since. Without a
-	 * start (0) whatever has the pid gets it.
+	 * Runs [action] with [params], once the screen has asked what it needs to. [key] tells this run
+	 * apart from others of the same action (a row's), for what shows it running.
 	 */
-	fun signal(pid: Int, start: Long, signal: String) = act(done = if (signal == "kill") R.string.done_killed else R.string.done_asked_to_quit) {
-		it.post<SignalReq, Ok>("/api/v1/control/signal", SignalReq(pid, signal, start.takeIf { s -> s > 0 }))
-	}
-
-	/** The list of processes on screen read at once, rather than at the next sample, which may be a while. */
-	private fun refreshProcesses() {
-		val r = procRequest ?: return
-		viewModelScope.launch {
-			val s = client()?.let { c -> orNull { c.get<Sample>("/api/v1/snapshot?procs=${r.count}&sort=${r.sort}") } } ?: return@launch
-			val procs = s.processes ?: return@launch
-			// Only if the same list is still wanted.
-			if (procRequest == r) _state.update { it.copy(processes = procs, processCount = s.processCount ?: it.processCount) }
-		}
-	}
-
-	/** Runs an action; its output opens when it's done, here or whenever the panel is next shown. */
-	fun runAction(id: String) {
-		if (_actions.value.running != null) return
-		_actions.update { it.copy(running = id) }
+	fun run(action: Action, params: JsonObject, key: String = action.id) {
+		if (key in _actions.value.running) return
+		_actions.update { it.copy(running = it.running + key) }
 		viewModelScope.launch {
 			try {
 				val c = client() ?: throw ElamondException(ElamondException.Kind.Unreachable)
-				// The service kills an action whose request goes away: leaving the screen lets it finish.
-				val r = c.post<ActionReq, ActionResult>("/api/v1/control/action", ActionReq(id), timeoutMs = Limits.ACTION_TIMEOUT_MS, finishOnCancel = true)
-				_actions.update { it.copy(results = it.results + (id to r), shown = id) }
+				val r = c.action(action.id, params)
+				// A command of the settings' own: how it ended, and its output, open once it's done.
+				if (r.exitCode != null || r.output != null || r.timedOut) {
+					_actions.update { it.copy(results = it.results + (action.id to r), shown = action.id) }
+				} else {
+					done(action, params)?.let(::say)
+				}
 			} catch (e: CancellationException) {
 				throw e
 			} catch (e: Exception) {
 				say(messageFor(e))
-				noteRefusal(e)
-				// Ids come from what an action runs: one changed on the computer has a new id.
-				if ((e as? ElamondException)?.code == "no_such_action") refreshControl()
+				// The role, control or the action changed on the computer since the ui was read.
+				if ((e as? ElamondException)?.code in REREAD) refreshUi()
 			} finally {
-				_actions.update { it.copy(running = null) }
-			}
-		}
-	}
-
-	/** Reads the activity log again; what was read before stays on screen meanwhile. */
-	fun refreshActivity() {
-		if (_activity.value.loading) return
-		_activity.update { it.copy(loading = true) }
-		viewModelScope.launch {
-			try {
-				val c = client() ?: throw ElamondException(ElamondException.Kind.Unreachable)
-				val entries = c.get<List<LogEntry>>("/api/v1/control/log?limit=${Limits.ACTIVITY_SHOWN}").map { it.cleaned() }
-				_activity.update { it.copy(entries = entries, error = null) }
-			} catch (e: CancellationException) {
-				throw e
-			} catch (e: Exception) {
-				_activity.update { it.copy(error = messageFor(e)) }
-				noteRefusal(e)
-			} finally {
-				_activity.update { it.copy(loading = false) }
+				_actions.update { it.copy(running = it.running - key) }
 			}
 		}
 	}
@@ -592,68 +577,71 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		_actions.update { it.copy(shown = id) }
 	}
 
-	fun media(player: String, op: String, value: Double? = null) = act {
-		it.post<MediaReq, Ok>("/api/v1/media", MediaReq(player, op, value))
-	}
-
-	fun volume(level: Float? = null, muted: Boolean? = null) = act {
-		it.post<VolumeReq, Ok>("/api/v1/media/volume", VolumeReq(level, muted))
-	}
-
 	/** A player's cover, decoded off the main thread at about [sizePx] square; null when there's none to show. */
 	suspend fun art(player: String, sizePx: Int): Bitmap? {
 		val c = client() ?: return null
 		val bytes = try {
-			c.bytes("/api/v1/media/art?player=" + java.net.URLEncoder.encode(player, "UTF-8"))
+			c.bytes("$ART_PATH?player=" + ElamondClient.query(player))
 		} catch (e: CancellationException) {
 			throw e
-		} catch (e: ElamondException) {
-			// Covers need the role: refused, it changed since the panel was read.
-			if (e.notAllowed) refreshControl()
-			return null
 		} catch (e: Exception) {
 			return null
 		}
 		return withContext(Dispatchers.Default) { orNull { decodeArt(bytes, sizePx) } }
 	}
 
-	fun saveLink(def: LinkDef) = act(done = R.string.done_saved) {
-		it.post<LinkDef, LinkDef>(LINKS_PATH, def)
-	}
-
-	fun deleteLink(id: String) = act(done = R.string.done_removed) { it.delete("$LINKS_PATH/$id") }
-
-	fun unit(linkId: String, op: String) = act(
-		done = when (op) {
-			"start" -> R.string.done_started
-			"stop" -> R.string.done_stopped
-			else -> R.string.done_restarted
-		},
-	) { it.post<UnitReq, Ok>("$LINKS_PATH/$linkId/unit", UnitReq(op)) }
-
-	suspend fun detected(): List<Listener> = quietly { it.get<List<Listener>>("$LINKS_PATH/detected") }.orEmpty()
-
-	suspend fun units(scope: String): List<UnitInfo> = quietly { it.get<List<UnitInfo>>("/api/v1/units?scope=$scope") }.orEmpty()
-
-	/** A suggestion read without a word on failure; null then. A refusal for the role still reads the panel again. */
-	private suspend fun <T> quietly(block: suspend (ElamondClient) -> T): T? {
-		val c = client() ?: return null
-		return try {
-			block(c)
-		} catch (e: CancellationException) {
-			throw e
-		} catch (e: Exception) {
-			noteRefusal(e)
-			null
-		}
+	override fun onCleared() {
+		keepData()
 	}
 
 	class Factory(private val app: Application, private val id: String) : ViewModelProvider.Factory {
 		@Suppress("UNCHECKED_CAST")
 		override fun <T : ViewModel> create(modelClass: Class<T>): T = MachineViewModel(app, id) as T
 	}
+
+	private companion object {
+		const val MS_PER_SECOND = 1000L
+
+		/** Refusals after which the ui is read again: what this phone may do changed on the computer. */
+		val REREAD = setOf("not_allowed", "control_disabled", "no_such_action")
+	}
 }
 
-/** An entry of the activity log as shown: the phone's name is whatever that phone called itself, so cleaned as any name from afar. */
-private fun LogEntry.cleaned(): LogEntry =
-	copy(phone = cleanName(phone), what = what.withoutControls(), message = message?.withoutControls(keepLineBreaks = true))
+/** What to say once a built-in action is done, as 0.5 said it; null for those whose effect shows by itself. */
+fun done(action: Action, params: JsonObject): Message? {
+	val id = when (action.id) {
+		"power.lock" -> R.string.done_locked
+		"power.poweroff" -> R.string.done_shutting_down
+		"power.reboot" -> R.string.done_restarting
+		"power.suspend" -> R.string.done_going_to_sleep
+		"process.signal" -> if (params["signal"].text() == "kill") R.string.done_killed else R.string.done_asked_to_quit
+		"unit.start" -> R.string.done_started
+		"unit.stop" -> R.string.done_stopped
+		"unit.restart" -> R.string.done_restarted
+		// Playback, the volume and the power profile show by themselves.
+		else -> return if (action.kind == "actions") Message.Res(R.string.done_ran, listOf(action.name)) else null
+	}
+	return Message.Res(id)
+}
+
+/**
+ * The states of the header's widgets (the pills under the computer's name) that [line] carries
+ * beside those of its own dashboard, as a line of the header dashboard; null when there are none.
+ */
+fun headerData(ui: UiDoc, line: DataLine): DataLine? {
+	val id = ui.header?.takeIf { it != line.dashboard } ?: return null
+	val ids = ui.dashboard(id)?.widgets?.let(::allWidgets)?.map { it.id }?.toSet().orEmpty()
+	val states = line.widgets.filterKeys { it in ids }
+	return if (states.isEmpty()) null else DataLine(line.t, id, states)
+}
+
+/**
+ * Whether the readings of [dashboard] are as live as the stream: its last line no more than
+ * [Limits.LIVE_LINES] lines behind the newest of any dashboard. Kept from an earlier look, or from
+ * before the app was closed, they aren't until the stream sends the dashboard's own.
+ */
+fun readingsLive(data: Map<String, DataLine>, dashboard: String, intervalMs: Int): Boolean {
+	val line = data[dashboard] ?: return false
+	val newest = data.values.maxOf { it.t }
+	return newest - line.t <= Limits.LIVE_LINES * intervalMs.toLong()
+}
