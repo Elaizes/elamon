@@ -27,14 +27,16 @@ appId: io.github.elaizes.elamon.debug
     timeout: 30000
 - takeScreenshot: 08-control-actions
 - tapOn: "Say hello"
-# Actions ask to unlock the phone first, which a flow can't; an emulator without a screen lock
-# confirms instead.
+# The default profile asks to unlock the phone for actions, which a flow can't; an emulator without
+# a screen lock confirms instead.
 - runFlow:
     when:
-      visible: "Run Say hello\\?"
+      visible: "Say hello\\?"
     commands:
       - takeScreenshot: 08b-action-no-screen-lock
-      - tapOn: "Run"
+      - tapOn:
+          text: "Say hello"
+          rightOf: "Cancel"
 - extendedWaitUntil:
     visible: ".*hello from the test service.*"
     timeout: 15000
@@ -55,3 +57,27 @@ appId: io.github.elaizes.elamon.debug
     end: 80%, 30%
     duration: 2000
 - takeScreenshot: 11-cpu-chart-touch
+# The settings' own dashboard: a choice for an action with a parameter.
+- back
+- tapOn: "Test"
+- extendedWaitUntil:
+    visible: "Test load"
+    timeout: 10000
+- takeScreenshot: 12-own-dashboard
+- tapOn: "Mode"
+- waitForAnimationToEnd
+- takeScreenshot: 13-own-choice
+- tapOn: "Fast"
+# The action asks first ("Mode: Fast?"; it would unlock the phone, which an emulator without a
+# screen lock can't): its button, named as the action, is right of Cancel.
+- extendedWaitUntil:
+    visible: "Mode: Fast\\?"
+    timeout: 10000
+- takeScreenshot: 13b-own-choice-confirm
+- tapOn:
+    text: "Mode"
+    rightOf: "Cancel"
+- extendedWaitUntil:
+    visible: ".*mode fast.*"
+    timeout: 15000
+- takeScreenshot: 14-own-choice-output

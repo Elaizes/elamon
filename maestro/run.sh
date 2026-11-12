@@ -2,7 +2,8 @@
 # End-to-end run on an emulator that adb sees: builds nothing, starts a throwaway elamond from
 # elamond/target/release on 127.0.0.1 (the emulator reaches it as 10.0.2.2), installs the debug APK
 # (io.github.elaizes.elamon.debug, beside the real app and never in its place), pairs, walks every
-# screen, makes the phone a glance one and an admin again with elamond clients role, and leaves the
+# screen and the settings' own dashboard with an action's choice, makes the phone a glance one and an
+# admin again with elamond clients role, switches its profile and back, and leaves the
 # screenshots in $OUT.
 #   cargo build --release (in elamond/) and ./gradlew :app:assembleDebug first.
 #   ELAMOND=path/to/elamond   another build of the service than elamond/target/release/elamond.
@@ -80,11 +81,38 @@ params.mode = { choices = ["quiet", "fast"], labels = { quiet = "Quiet", fast = 
 name = "Local web"
 url = "http://{host}:$((PORT + 1))"
 
-# The profile the phone pairs with.
+# A dashboard of the settings' own: a choice for the action above and a reading.
+[dashboards.test]
+title = "Test"
+icon = "rocket"
+
+[[dashboards.test.widgets]]
+id = "mode"
+type = "select"
+action = "mode"
+param = "mode"
+label = "Mode"
+icon = "leaf"
+span = 4
+
+[[dashboards.test.widgets]]
+id = "load"
+type = "value"
+value = "cpu.usage"
+label = "Test load"
+icon = "chip"
+spark = true
+
+# The profile the phone pairs with, and a leaner one elamond clients profile switches it to.
 [profiles.phone]
 name = "Phone"
 theme = "dark"
-dashboards = ["overview", "processes", "sensors", "control"]
+dashboards = ["overview", "processes", "sensors", "control", "test"]
+
+[profiles.lean]
+use = "phone"
+name = "Lean"
+dashboards = ["overview", "test"]
 TOML
 # Always started in the background: exec makes $! elamond itself, so the trap can stop it. No
 # system bus: power, units and the rest of this computer stay out of the test's reach.
@@ -116,4 +144,9 @@ flow -e NAME="$NAME" maestro/glance.yaml
 # Admin again while the computer's screen stays open: the app notices without being reopened.
 (run_elamond clients role all admin)
 flow maestro/admin-again.yaml
+# Another profile, and back: the phone's tabs follow with the screen open.
+(run_elamond clients profile all lean)
+flow maestro/profile.yaml
+(run_elamond clients profile all phone)
+flow maestro/profile-back.yaml
 echo "screenshots: $OUT"

@@ -1,15 +1,17 @@
-# Right after glance.yaml, with the computer's screen still open on the Control tab, run.sh made
-# the phone an admin again. Not reopened, the app notices: samples bring links again, which makes
-# it read the control panel, and it reads it every minute anyway.
+# Right after glance.yaml, with the computer's screen still open, run.sh made the phone an admin
+# again. Not reopened, the app hears it on its stream (a ui line) and shows the tabs at once.
 appId: io.github.elaizes.elamon.debug
 ---
 - extendedWaitUntil:
     visible: "Processes"
-    timeout: 90000
-- takeScreenshot: 14-admin-again
+    timeout: 30000
+- extendedWaitUntil:
+    visible: "Control"
+    timeout: 10000
+- takeScreenshot: 17-admin-again
 - tapOn: "Processes"
 - waitForAnimationToEnd
 - extendedWaitUntil:
     visible: "This phone's role: Admin.*"
     timeout: 10000
-- takeScreenshot: 15-processes-again
+- takeScreenshot: 18-processes-again

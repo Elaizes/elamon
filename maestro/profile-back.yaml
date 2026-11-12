@@ -1,0 +1,9 @@
+# And back to the profile "phone": its five tabs again, without reopening.
+appId: io.github.elaizes.elamon.debug
+---
+- extendedWaitUntil:
+    visible: "Sensors"
+    timeout: 30000
+- assertVisible: "Processes"
+- assertVisible: "Control"
+- takeScreenshot: 20-profile-phone

@@ -1,0 +1,11 @@
+# run.sh gave the phone the profile "lean" (elamond clients profile all lean) with the screen open:
+# its tabs are Overview and Test only. Then "phone" again: all five come back.
+appId: io.github.elaizes.elamon.debug
+---
+- extendedWaitUntil:
+    notVisible: "Sensors"
+    timeout: 30000
+- assertVisible: "Overview"
+- assertVisible: "Test"
+- assertNotVisible: "Processes"
+- takeScreenshot: 19-profile-lean
