@@ -2123,7 +2123,13 @@ label = "{item.nmae}"
 	/// docs/config.md names everything the settings take, so the reference can't fall behind them.
 	#[test]
 	fn the_reference_names_every_key_type_action_and_value() {
-		let doc = include_str!("../../docs/config.md");
+		// Read where the repository has it; a build of the service alone (Nix builds elamond/ by
+		// itself) has no docs to check.
+		let Ok(doc) = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/config.md")) else {
+			eprintln!("docs/config.md isn't beside elamond/ here; not checked");
+			return;
+		};
+		let doc = doc.as_str();
 		// Every word in `…`, so a key listed as `{ field, desc }` counts.
 		let words: BTreeSet<&str> = doc
 			.split('`')
