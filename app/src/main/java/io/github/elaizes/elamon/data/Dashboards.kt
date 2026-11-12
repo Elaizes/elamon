@@ -29,7 +29,9 @@ object Grid {
 
 	/**
 	 * The widgets of [spans], in order, row by row: each as wide as its span in [columns], one that
-	 * doesn't fit beside the one before starting a row. Each cell is (index into [spans], span).
+	 * doesn't fit beside the one before starting a row, and the last of a row taking the columns
+	 * left free, so no row ends in a hole (a lone temperature tile under two GPUs is as wide as the
+	 * screen, as in 0.5). Each cell is (index into [spans], span).
 	 */
 	fun place(spans: List<Int>, columns: Int): List<List<Pair<Int, Int>>> {
 		val rows = mutableListOf<MutableList<Pair<Int, Int>>>()
@@ -42,6 +44,10 @@ object Grid {
 			}
 			rows.last() += i to s
 			used += s
+		}
+		for (row in rows) {
+			val free = columns - row.sumOf { it.second }
+			if (free > 0) row[row.lastIndex] = row.last().let { (i, s) -> i to s + free }
 		}
 		return rows
 	}

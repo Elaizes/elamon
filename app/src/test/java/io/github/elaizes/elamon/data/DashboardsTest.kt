@@ -45,8 +45,9 @@ class DashboardsTest {
 			listOf(listOf(0 to 2, 1 to 2), listOf(2 to 4), listOf(3 to 1, 4 to 1, 5 to 2), listOf(6 to 3, 7 to 1), listOf(8 to 4)),
 			Grid.place(listOf(2, 2, 4, 1, 1, 2, 3, 1, 4), 4),
 		)
-		// 3 then 2 doesn't fit: a row of its own.
-		assertEquals(listOf(listOf(0 to 3), listOf(1 to 2)), Grid.place(listOf(3, 2), 4))
+		// 3 then 2 doesn't fit: a row of its own, and each takes its row's free columns.
+		assertEquals(listOf(listOf(0 to 4), listOf(1 to 4)), Grid.place(listOf(3, 2), 4))
+		assertEquals(listOf(listOf(0 to 1, 1 to 3)), Grid.place(listOf(1, 1), 4))
 		assertEquals(emptyList(), Grid.place(emptyList(), 4))
 	}
 
@@ -59,6 +60,11 @@ class DashboardsTest {
 			Grid.place(overview, 2),
 		)
 		assertEquals(listOf(listOf(0 to 1, 1 to 1), listOf(2 to 1, 3 to 1)), Grid.place(listOf(1, 1, 1, 1), 2))
+		// Two GPUs: the temperature below them alone, as wide as the screen.
+		assertEquals(
+			listOf(listOf(0 to 1, 1 to 1), listOf(2 to 1, 3 to 1), listOf(4 to 2), listOf(5 to 2)),
+			Grid.place(listOf(2, 2, 2, 2, 2, 4), 2),
+		)
 		// On a wide screen the four power buttons share a row.
 		assertEquals(listOf(listOf(0 to 1, 1 to 1, 2 to 1, 3 to 1)), Grid.place(listOf(1, 1, 1, 1), 4))
 	}
@@ -69,7 +75,7 @@ class DashboardsTest {
 		val rows = Grid.place(home.map { it.span }, 2)
 		// Every widget placed once, in order.
 		assertEquals(home.indices.toList(), rows.flatten().map { it.first })
-		assertTrue(rows.all { r -> r.sumOf { it.second } <= 2 })
+		assertTrue(rows.all { r -> r.sumOf { it.second } == 2 })
 	}
 
 	@Test
