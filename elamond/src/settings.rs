@@ -1993,4 +1993,169 @@ label = "{item.nmae}"
 		assert_eq!(join("map", "true"), "map.true");
 		assert_eq!(join("map", "a b"), "map.\"a b\"");
 	}
+
+	/// Whether `v` is valid against `schema`, as far as the JSON Schema `json_schema` writes goes.
+	fn valid(schema: &Value, v: &Value, root: &Value) -> bool {
+		let s = |k: &str| schema.get(k);
+		if let Some(r) = s("$ref").and_then(Value::as_str) {
+			let def = &root["$defs"][r.trim_start_matches("#/$defs/")];
+			return valid(def, v, root);
+		}
+		let type_ok = |t: &str| match t {
+			"string" => v.is_string(),
+			"boolean" => v.is_boolean(),
+			"integer" => v.is_i64() || v.is_u64(),
+			"number" => v.is_number(),
+			"array" => v.is_array(),
+			"object" => v.is_object(),
+			_ => false,
+		};
+		match s("type") {
+			Some(Value::String(t)) if !type_ok(t) => return false,
+			Some(Value::Array(ts)) if !ts.iter().filter_map(Value::as_str).any(type_ok) => return false,
+			_ => {}
+		}
+		if s("enum").and_then(Value::as_array).is_some_and(|e| !e.contains(v)) || s("const").is_some_and(|c| c != v) {
+			return false;
+		}
+		if let (Some(p), Some(text)) = (s("pattern").and_then(Value::as_str), v.as_str()) {
+			let ok = match p {
+				ID_PATTERN => is_id(text),
+				"\\{" => text.contains('{'),
+				"^\\{:\\.[0-6]\\}$" => format::is_format(text) && text.starts_with('{'),
+				other => panic!("a pattern the test doesn't know: {other}"),
+			};
+			if !ok {
+				return false;
+			}
+		}
+		if let Some(n) = v.as_f64()
+			&& (s("minimum").and_then(Value::as_f64).is_some_and(|m| n < m) || s("maximum").and_then(Value::as_f64).is_some_and(|m| n > m))
+		{
+			return false;
+		}
+		if let (Some(items), Some(a)) = (s("items"), v.as_array())
+			&& !a.iter().all(|e| valid(items, e, root))
+		{
+			return false;
+		}
+		if let Some(o) = v.as_object() {
+			let props = s("properties").and_then(Value::as_object);
+			for (k, e) in o {
+				let ok = match (props.and_then(|p| p.get(k)), s("additionalProperties")) {
+					(Some(p), _) => valid(p, e, root),
+					(None, Some(Value::Bool(false))) => false,
+					(None, Some(a)) => valid(a, e, root),
+					(None, None) => true,
+				};
+				if !ok || s("propertyNames").is_some_and(|n| !valid(n, &Value::String(k.clone()), root)) {
+					return false;
+				}
+			}
+			if s("required").and_then(Value::as_array).is_some_and(|r| r.iter().filter_map(Value::as_str).any(|k| !o.contains_key(k))) {
+				return false;
+			}
+		}
+		if s("anyOf").and_then(Value::as_array).is_some_and(|a| !a.iter().any(|x| valid(x, v, root))) {
+			return false;
+		}
+		if s("allOf").and_then(Value::as_array).is_some_and(|a| !a.iter().all(|x| valid(x, v, root))) {
+			return false;
+		}
+		if let (Some(cond), Some(then)) = (s("if"), s("then"))
+			&& valid(cond, v, root)
+			&& !valid(then, v, root)
+		{
+			return false;
+		}
+		true
+	}
+
+	fn as_json(toml_text: &str) -> Value {
+		serde_json::to_value(toml_text.parse::<toml::Table>().unwrap()).unwrap()
+	}
+
+	#[test]
+	fn the_json_schema_takes_the_settings_and_refuses_mistakes() {
+		let schema = json_schema();
+		assert_eq!(schema["$schema"], "https://json-schema.org/draft/2020-12/schema");
+		for text in [DEFAULTS, include_str!("../fixtures/ui-source.toml")] {
+			assert!(valid(&schema, &as_json(text), &schema));
+		}
+		for bad in [
+			"[[dashboards.a.widgets]]\ntype = \"guage\"\n",
+			"[[dashboards.a.widgets]]\ntype = \"text\"\nspark = true\n",
+			"[[dashboards.a.widgets]]\ntype = \"bars\"\nlabels = [\"a\"]\n",
+			"[[dashboards.a.widgets]]\ntype = \"gauge\"\nspan = 5\n",
+			"[links.Bad]\nname = \"x\"\nurl = \"y\"\n",
+			"[profiles.p]\ntheme = \"blue\"\n",
+			"[actions.a]\nname = \"a\"\ncommand = [\"a\"]\nrole = \"glance\"\n",
+			"pages = 1\n",
+		] {
+			assert!(!valid(&schema, &as_json(bad), &schema), "{bad}");
+		}
+		assert!(valid(&schema, &as_json("[[dashboards.a.widgets]]\ntype = \"graph\"\nlabels = [\"a\"]\nicon = \"{item.icon}\"\n"), &schema));
+	}
+
+	/// docs/config.md names everything the settings take, so the reference can't fall behind them.
+	#[test]
+	fn the_reference_names_every_key_type_action_and_value() {
+		let doc = include_str!("../../docs/config.md");
+		// Every word in `…`, so a key listed as `{ field, desc }` counts.
+		let words: BTreeSet<&str> = doc
+			.split('`')
+			.skip(1)
+			.step_by(2)
+			.flat_map(|span| span.split(|c: char| !(c.is_ascii_alphanumeric() || "_.<>-{}:".contains(c))))
+			.collect();
+		let named = |s: &str| words.contains(s) || doc.contains(&format!("`{s}`"));
+		let mut missing = Vec::new();
+		let mut want = |what: &str, s: String, ok: bool| {
+			if !ok {
+				missing.push(format!("{what} {s}"));
+			}
+		};
+		for t in WIDGET_TYPES {
+			want("widget type", t.into(), named(t));
+		}
+		for k in widget_keys(None) {
+			want("widget key", k.name.into(), named(k.name));
+		}
+		for r in ["item", "column", "expand", "bar", "sort", "row_action", "link", "action", "param", "dashboard"] {
+			for k in record(r) {
+				want(r, k.name.into(), named(k.name));
+			}
+		}
+		for k in record("settings") {
+			want("top-level key", k.name.into(), named(k.name));
+		}
+		for k in record("profile").iter().chain(&record("unlock")).chain(&record("android")) {
+			let ok = named(k.name) || doc.contains(&format!("`unlock.{}`", k.name));
+			want("profile key", k.name.into(), ok);
+		}
+		for (id, ..) in actions::BUILT_IN {
+			want("built-in action", id.into(), named(id));
+		}
+		for kind in actions::KINDS {
+			want("action kind", kind.into(), named(kind));
+		}
+		let prefixes: BTreeSet<&str> = values::ADDRESSES.iter().filter_map(|a| a.pattern.split('.').next()).collect();
+		for p in prefixes {
+			want("address prefix", p.into(), doc.contains(&format!("`{p}.")));
+		}
+		for a in values::ADDRESSES.iter().filter(|a| !a.pattern.contains('<')) {
+			let last = a.pattern.rsplit('.').next().unwrap_or("");
+			want("address", a.pattern.into(), named(a.pattern) || doc.contains(&format!("`.{last}`")));
+		}
+		for c in values::COLLECTIONS {
+			want("collection", c.name.into(), named(c.name));
+			for (f, ..) in c.fields {
+				want(&format!("field of {}", c.name), f.to_string(), named(f));
+			}
+		}
+		for f in format::FORMATS.iter().chain(&ICONS).chain(&COLORS).chain(&THEMES).chain(&GRACES).chain(&HEIGHTS) {
+			want("word", f.to_string(), named(f));
+		}
+		assert!(missing.is_empty(), "docs/config.md doesn't name: {}", missing.join(", "));
+	}
 }
