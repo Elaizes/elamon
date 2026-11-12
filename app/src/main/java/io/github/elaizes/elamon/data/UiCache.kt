@@ -45,13 +45,13 @@ class UiCache(private val dir: File) {
 	/** The `ui` document last kept for the computer [id]; null when there's none, or it no longer reads. */
 	suspend fun ui(id: String): UiDoc? = withContext(Dispatchers.IO) {
 		val f = file(id, UI) ?: return@withContext null
-		runCatching { ProtocolJson.decodeFromString(UiDoc.serializer(), f.readText()) }.getOrNull()
+		runCatching { decodeChecked(UiDoc.serializer(), f.readText()) }.getOrNull()
 	}
 
 	/** The last data line of each of its dashboards, by the dashboard's id. */
 	suspend fun data(id: String): Map<String, DataLine> = withContext(Dispatchers.IO) {
 		val f = file(id, DATA) ?: return@withContext emptyMap()
-		runCatching { ProtocolJson.decodeFromString(DATA_LINES, f.readText()) }.getOrDefault(emptyMap())
+		runCatching { decodeChecked(DATA_LINES, f.readText()) }.getOrDefault(emptyMap())
 	}
 
 	suspend fun putUi(id: String, ui: UiDoc) {

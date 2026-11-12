@@ -2,10 +2,12 @@
 
 package io.github.elaizes.elamon.data
 
+import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -379,10 +381,58 @@ private val STREAM_TYPES = setOf("open", "data", "ui")
 private val TYPE_PREFIX = Regex("""^\s*\{\s*"type"\s*:\s*"([^"]*)"""")
 
 /**
+ * How deep [text] nests, as JSON: objects and arrays inside each other, what strings hold not
+ * counted. One pass, without recursion; it stops counting past [stopAt].
+ */
+fun jsonDepth(text: String, stopAt: Int = Int.MAX_VALUE): Int {
+	var depth = 0
+	var deepest = 0
+	var inString = false
+	var escaped = false
+	for (c in text) {
+		when {
+			escaped -> escaped = false
+			inString -> when (c) {
+				'\\' -> escaped = true
+				'"' -> inString = false
+			}
+			c == '"' -> inString = true
+			c == '{' || c == '[' -> {
+				depth++
+				if (depth > deepest) deepest = depth
+				if (deepest > stopAt) return deepest
+			}
+			c == '}' || c == ']' -> depth--
+		}
+	}
+	return deepest
+}
+
+/**
+ * [text] read as [deserializer] says, or a [ElamondException.Kind.Protocol] error: refused before
+ * it is read when it nests deeper than anything the service sends ([Limits.JSON_DEPTH_MAX]), as
+ * a stack overflow is no Exception that a screen catches.
+ */
+fun <T> decodeChecked(deserializer: DeserializationStrategy<T>, text: String, json: Json = ProtocolJson): T {
+	if (jsonDepth(text, Limits.JSON_DEPTH_MAX) > Limits.JSON_DEPTH_MAX) throw ElamondException(ElamondException.Kind.Protocol, TOO_DEEP)
+	return try {
+		json.decodeFromString(deserializer, text)
+	} catch (e: IllegalArgumentException) {
+		// SerializationException is one.
+		throw ElamondException(ElamondException.Kind.Protocol, e.message, e)
+	} catch (e: StackOverflowError) {
+		throw ElamondException(ElamondException.Kind.Protocol, TOO_DEEP, e)
+	}
+}
+
+private const val TOO_DEEP = "nested too deep"
+
+/**
  * One line of the stream. Null for a kind of line this app doesn't know, which a newer service
  * may send; a known kind that doesn't decode throws, so a broken line isn't read as zeros.
  */
 fun decodeStreamLine(line: String, json: Json = ProtocolJson): StreamLine? {
+	if (jsonDepth(line, Limits.JSON_DEPTH_MAX) > Limits.JSON_DEPTH_MAX) throw SerializationException(TOO_DEEP)
 	// The service puts the type first; reading it there saves parsing a whole line twice.
 	val type = TYPE_PREFIX.find(line)?.groupValues?.get(1)
 		?: json.parseToJsonElement(line).jsonObject["type"]?.jsonPrimitive?.content

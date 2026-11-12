@@ -52,6 +52,13 @@ object Limits {
 	 */
 	const val STREAM_LINE_MAX = BODY_MAX
 
+	/**
+	 * Objects and arrays inside each other in anything the service sends. Its deepest, a `ui` with
+	 * groups in groups, is under 10; this takes some 30 groups inside each other. Reading JSON
+	 * into the app's types is recursive: a document much deeper would overflow the stack.
+	 */
+	const val JSON_DEPTH_MAX = 64
+
 	// ---- retrying ---------------------------------------------------------------------------------
 
 	/** The first wait before looking for a lost computer again; it doubles this many times, never past the cap. */

@@ -30,6 +30,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.serialization.serializer
 
 class ElamondException(
 	val kind: Kind,
@@ -239,7 +240,7 @@ class ElamondClient(
 	}
 
 	suspend inline fun <reified T> get(path: String, maxBytes: Int = Limits.BODY_MAX): T =
-		ProtocolJson.decodeFromString(request("GET", path, maxBytes = maxBytes))
+		decode(request("GET", path, maxBytes = maxBytes))
 
 	suspend inline fun <reified B, reified T> post(
 		path: String,
@@ -247,7 +248,13 @@ class ElamondClient(
 		timeoutMs: Int = Limits.REQUEST_TIMEOUT_MS,
 		finishOnCancel: Boolean = false,
 		maxBytes: Int = Limits.BODY_MAX,
-	): T = ProtocolJson.decodeFromString(request("POST", path, ProtocolJson.encodeToString(body), timeoutMs, finishOnCancel, maxBytes))
+	): T = decode(request("POST", path, ProtocolJson.encodeToString(body), timeoutMs, finishOnCancel, maxBytes))
+
+	/**
+	 * An answer read as [T], off the main thread whoever asks (a `ui` or a snapshot with a table of
+	 * processes is large), as [decodeChecked] reads it: broken or nested too deep, a protocol error.
+	 */
+	suspend inline fun <reified T> decode(text: String): T = withContext(Dispatchers.Default) { decodeChecked(serializer<T>(), text) }
 
 	suspend fun delete(path: String) {
 		request("DELETE", path)
