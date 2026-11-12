@@ -48,8 +48,6 @@ data class Hello(
 	@SerialName("min_app") val minApp: String? = null,
 	/** The version of the dictionary of widget types and their keys. */
 	val widgets: Int? = null,
-	/** What this computer can offer at all, whatever a client's role. */
-	val features: List<String> = emptyList(),
 )
 
 /** `POST /api/v1/rekey`: a key of this phone's own, named [device] in the computer's list of phones. */
@@ -104,6 +102,8 @@ data class ServiceInfo(
 	@SerialName("interval_ms") val intervalMs: Int = DEFAULT_INTERVAL_MS,
 	/** How far back history reaches. */
 	@SerialName("history_seconds") val historySeconds: Int = DEFAULT_HISTORY_SECONDS,
+	/** What this computer can offer at all, whatever this phone's role: told only to paired phones. */
+	val features: List<String> = emptyList(),
 )
 
 @Serializable

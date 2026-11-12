@@ -336,14 +336,14 @@ class ProtocolContractTest {
 
 	@Test
 	fun optionalFieldsTakeTheirDefaults() {
-		val hello = ProtocolJson.decodeFromJsonElement(Hello.serializer(), JsonObject(dropping("hello", "min_app").jsonObject - "features" - "widgets"))
+		val hello = ProtocolJson.decodeFromJsonElement(Hello.serializer(), JsonObject(dropping("hello", "min_app").jsonObject - "widgets"))
 		assertNull(hello.minApp)
 		assertNull(hello.widgets)
-		assertEquals(emptyList(), hello.features)
 		assertNull(ProtocolJson.decodeFromJsonElement(PairResponse.serializer(), dropping("pair", "profile")).profile)
 		// A ui that says little: the default profile, no tabs, control off.
 		val bare = ProtocolJson.decodeFromString(UiDoc.serializer(), """{"version":"v","service":{"id":"0123456789abcdef0123456789abcdef"}}""")
 		assertEquals(Profile(), bare.profile)
+		assertEquals(emptyList(), bare.service.features)
 		assertEquals(false, bare.control.enabled)
 		assertNull(bare.header)
 		assertEquals(DEFAULT_INTERVAL_MS, bare.service.intervalMs)
