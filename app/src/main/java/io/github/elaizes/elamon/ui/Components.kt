@@ -185,7 +185,7 @@ fun StatRow(label: String, value: String, modifier: Modifier = Modifier, valueCo
 }
 
 /**
- * A small rounded tag, like "Charging" or "Sleeping": tinted by [color], its text in [color] too,
+ * A small rounded tag, like "Charging" or "Asleep": tinted by [color], its text in [color] too,
  * darkened (lightened on dark themes) where that alone wouldn't read on the tint.
  */
 @Composable

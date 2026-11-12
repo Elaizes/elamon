@@ -417,7 +417,7 @@ private fun SetupGuide(onHelp: () -> Unit) {
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 			Step(1, stringResource(R.string.home_setup_install), null)
-			Step(2, stringResource(R.string.home_setup_start), "systemctl --user enable --now elamond")
+			Step(2, stringResource(R.string.home_setup_start), Project.INSTALL)
 			Step(3, stringResource(R.string.home_setup_pair), "elamond pair")
 			Step(4, stringResource(R.string.home_setup_scan), null)
 			FilledTonalButton(onClick = onHelp, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.home_setup_guide)) }
