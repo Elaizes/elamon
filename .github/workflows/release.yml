@@ -1,0 +1,106 @@
+# Ready-made elamond for every distribution: on a tag v*, the service built for x86_64 and
+# aarch64 Linux against glibc 2.28 (elamond/dist/build-release.sh), each archive with its SHA-256,
+# run on both architectures, then attached to a draft release to look over and publish by hand.
+# Run by hand (workflow_dispatch), it builds and checks them without releasing anything.
+#
+# Every action is pinned to a commit, its release in the comment beside it, and the Python
+# packages that bring zig and cargo-zigbuild to their hashes. To update an action:
+# git ls-remote https://github.com/OWNER/REPO refs/tags/TAG (the ^{} line for an annotated tag);
+# a package's hashes: https://pypi.org/pypi/NAME/VERSION/json.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The tag names the version in Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' elamond/Cargo.toml | head -n 1)
+          test "$GITHUB_REF_NAME" = "v$version" || { echo "tag $GITHUB_REF_NAME, Cargo.toml $version" >&2; exit 1; }
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
+      - name: zig and cargo-zigbuild
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zig"
+          cat > "$RUNNER_TEMP/zig.txt" << 'EOF'
+          ziglang==0.17.1 --hash=sha256:ea6cc5d87b033cf0aedfbc8f9549a908cae6c50ac31f1698188fa48a74524b54
+          cargo-zigbuild==0.24.1 --hash=sha256:238a1ab54a95053a4eadc34775c81f795a8ad75f80bfed63f3f445f518102375
+          EOF
+          "$RUNNER_TEMP/zig/bin/pip" install --quiet --no-deps --require-hashes -r "$RUNNER_TEMP/zig.txt"
+          echo "$RUNNER_TEMP/zig/bin" >> "$GITHUB_PATH"
+      # build-release.sh only adds the targets when rustup is there, as it is here; the toolchain
+      # is the one the step above installed.
+      - run: elamond/dist/build-release.sh "$RUNNER_TEMP/dist"
+        env:
+          RUSTUP_TOOLCHAIN: stable
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: elamond-release
+          path: ${{ runner.temp }}/dist/
+          if-no-files-found: error
+
+  # Each archive on its own architecture, on the oldest Ubuntu runner there is.
+  run:
+    needs: build
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: elamond-release
+          path: dist
+      - name: The archive, its checksum and the binary run
+        working-directory: dist
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          archive=$(echo elamond-*-"$ARCH"-linux.tar.gz)
+          sha256sum -c "$archive.sha256"
+          tar -xzf "$archive"
+          ls -l "${archive%.tar.gz}"
+          "${archive%.tar.gz}/elamond" --version
+          "${archive%.tar.gz}/elamond" setup --print
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, run]
+    runs-on: ubuntu-latest
+    # The only job that may write: it makes the release.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: elamond-release
+          path: dist
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+              --title "Elamon ${TAG#v}" \
+              --notes "elamond for x86_64 and aarch64 Linux, glibc 2.28 or newer. Check an archive with sha256sum -c, then: section 1 of the user guide."
+          fi

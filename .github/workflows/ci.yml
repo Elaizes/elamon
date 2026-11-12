@@ -1,5 +1,6 @@
-# elamond's lints and tests (with the protocol fixtures), the app's unit tests, lint and
-# release build, and the NixOS module in a VM.
+# elamond's lints and tests (with the protocol fixtures), and its tests built on each distribution
+# the guide names, with that distribution's compiler; `elamond setup` with a real systemd user
+# manager; the app's unit tests, lint and release build; and the NixOS module in a VM.
 #
 # Every action is pinned to a commit, its release in the comment beside it: a tag can be moved,
 # a commit can't. To update one: git ls-remote https://github.com/OWNER/REPO refs/tags/TAG
@@ -33,6 +34,82 @@ jobs:
           workspaces: elamond
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
+
+  # elamond built and tested on each distribution the guide names, as someone building it there
+  # from source would: Fedora, Arch and openSUSE with their own Rust, Debian and Ubuntu with
+  # rustup's, theirs being older than 1.88. A C compiler is all the crates need besides.
+  distros:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: debian:stable
+            tools: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gcc libc6-dev git
+            rustup: true
+          - image: ubuntu:24.04
+            tools: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gcc libc6-dev git
+            rustup: true
+          - image: fedora:latest
+            tools: dnf install -y cargo gcc git
+          - image: archlinux:latest
+            tools: pacman -Syu --noconfirm --needed rust gcc git
+          - image: opensuse/tumbleweed
+            tools: zypper --non-interactive install cargo gcc git tar gzip
+    container: ${{ matrix.image }}
+    steps:
+      - name: Build tools
+        run: ${{ matrix.tools }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: matrix.rustup
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - run: cargo --version && cargo test --locked
+        working-directory: elamond
+
+  # `elamond setup` as a person runs it, under a real systemd user manager: the service installed,
+  # started and answering, `setup --check` content, and a second run changing nothing.
+  setup:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: elamond
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: elamond
+      - run: cargo build --locked
+      - name: A user manager for the runner's user
+        run: |
+          sudo loginctl enable-linger "$USER"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          for _ in $(seq 60); do
+            XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user show --property=Version > /dev/null 2>&1 && exit 0
+            sleep 1
+          done
+          echo "no user manager" >&2
+          exit 1
+      - name: elamond setup
+        run: |
+          install -Dm755 target/debug/elamond ~/.local/bin/elamond
+          ~/.local/bin/elamond setup | tee "$RUNNER_TEMP/setup.txt"
+          grep -q 'OK  the service answers on port 47823' "$RUNNER_TEMP/setup.txt"
+          test -f ~/.config/elamon/elamond.toml
+          grep -q '^ExecStart=/home/.*/\.local/bin/elamond serve$' ~/.config/systemd/user/elamond.service
+      - name: The service answers
+        run: |
+          curl -sSk --retry 10 --retry-connrefused https://127.0.0.1:47823/api/v1/hello | tee "$RUNNER_TEMP/hello.json"
+          grep -q '"app":"elamon"' "$RUNNER_TEMP/hello.json"
+      - run: ~/.local/bin/elamond setup --check
+      - name: Run again, it changes nothing
+        run: ~/.local/bin/elamond setup | tee /dev/stderr | grep -q 'elamond.service is up to date'
+      - if: failure()
+        run: journalctl --user -u elamond --no-pager || systemctl --user status elamond --no-pager
 
   app:
     runs-on: ubuntu-latest

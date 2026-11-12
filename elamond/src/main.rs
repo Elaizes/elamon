@@ -25,6 +25,7 @@ mod model;
 mod names;
 mod server;
 mod settings;
+mod setup;
 #[allow(dead_code)] // the server uses it from API 2 on
 mod states;
 mod store;
@@ -75,6 +76,10 @@ Usage:
   elamond schema                       print the JSON Schema of the settings, for editors
   elamond defaults                     print the built-in dashboards and profile, to start from
   elamond values                       list the values this computer has now, and the collections
+  elamond setup                        install the service for this user (systemd user unit, starter
+                                       settings) and print what needs root: lingering, the firewall,
+                                       the polkit rule (--print: only show it; --no-start)
+  elamond setup --check                tell whether the service, and what it uses, works here
   elamond --version
 
 Roles, each allowing what the one before does and more:
@@ -113,6 +118,7 @@ fn main() {
 		"schema" => commands::schema(),
 		"defaults" => commands::defaults(),
 		"values" => commands::values(),
+		"setup" => setup::run(&args[1..]),
 		"-V" | "--version" | "version" => {
 			println!("elamond {}", env!("CARGO_PKG_VERSION"));
 			Ok(())
