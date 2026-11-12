@@ -12,27 +12,6 @@
 	<string name="settings">Settings</string>
 	<string name="loading">Loading…</string>
 	<string name="offline">Offline</string>
-	<!-- An amount out of a whole: "3.2 GiB of 16 GiB", "1.20 GHz of 2.40 GHz". -->
-	<string name="of_total">%1$s of %2$s</string>
-	<string name="cpu">CPU</string>
-	<string name="gpu">GPU</string>
-	<string name="ram">RAM</string>
-	<string name="memory">Memory</string>
-	<string name="temperature">Temperature</string>
-	<string name="model">Model</string>
-	<string name="details">Details</string>
-	<!-- Parts of the computer: tiles, detail pages and groups of sensors. -->
-	<string name="processor">Processor</string>
-	<string name="graphics">Graphics</string>
-	<string name="network">Network</string>
-	<string name="storage">Storage</string>
-	<string name="battery">Battery</string>
-	<string name="temperatures">Temperatures</string>
-	<!-- A reading in a chart's touch label: "CPU 54°C", "GPU 12%". -->
-	<string name="cpu_value">CPU %1$s</string>
-	<string name="gpu_value">GPU %1$s</string>
-	<!-- A graphics card powered down while nothing uses it: its tile and its page. -->
-	<string name="gpu_asleep">Asleep</string>
 
 	<!-- Home -->
 	<string name="home_subtitle_empty">Watch your computers from here</string>
@@ -44,7 +23,6 @@
 	<string name="home_found_tap">%1$s · tap to pair</string>
 	<string name="home_add_computer">Add computer</string>
 	<string name="home_online">Online</string>
-	<string name="home_temp">Temp</string>
 	<string name="home_setup_title">Watch a computer</string>
 	<string name="home_setup_intro">Elamon shows a computer\'s load, temperatures, memory, processes and monitors live, and controls its links, media and power. The computer runs a small service, elamond, that only paired phones can reach.</string>
 	<string name="home_setup_install">Install the Elamon service, elamond, on the computer (Linux).</string>
@@ -95,10 +73,6 @@
 	<string name="pair_link_invalid">This pairing link is incomplete or damaged. Run elamond pair on the computer and scan the new code.</string>
 
 	<!-- Computer: tabs, menu, connection -->
-	<string name="tab_overview">Overview</string>
-	<string name="tab_processes">Processes</string>
-	<string name="tab_sensors">Sensors</string>
-	<string name="tab_control">Control</string>
 	<string name="machine_more">More</string>
 	<string name="machine_forget">Forget computer</string>
 	<string name="machine_forget_title">Forget %1$s?</string>
@@ -128,16 +102,6 @@
 	<string name="compat_update_app">This computer\'s Elamon service is newer than this app. Update Elamon to see everything it sends.</string>
 	<string name="compat_update_elamond">This computer runs elamond %1$s. Update it to %2$s or newer: some readings need it.</string>
 	<string name="compat_dismiss">Dismiss</string>
-	<string name="machine_uptime">Up %1$s</string>
-	<string name="machine_on_ac">On AC power</string>
-	<string name="machine_on_battery">On battery</string>
-	<!-- Power profiles, as power-profiles-daemon and tuned name them. -->
-	<string name="profile_power_saver">Power saver</string>
-	<string name="profile_cool">Cool</string>
-	<string name="profile_quiet">Quiet</string>
-	<string name="profile_balanced">Balanced</string>
-	<string name="profile_balanced_performance">Balanced performance</string>
-	<string name="profile_performance">Performance</string>
 	<!-- This phone's role on the computer, by the names elamond clients role takes: a pill under the computer's name. -->
 	<string name="role_glance">Glance</string>
 	<string name="role_monitor">Monitor</string>
@@ -152,234 +116,17 @@
 	<string name="a11y_role">This phone\'s role: %1$s, %2$s</string>
 	<string name="a11y_role_unknown">This phone\'s role: %1$s</string>
 
-	<!-- Overview tab -->
-	<string name="overview_cpu_load">load</string>
-	<string name="overview_memory_used">used</string>
-	<string name="overview_gpu_powered_down">Powered down, left alone</string>
-	<string name="overview_gpu_active">Active</string>
-	<string name="overview_gpu_idle">Idle</string>
-	<string name="overview_gpu_up_to">up to %1$s</string>
-	<string name="overview_gpu_no_readings">No readings</string>
-	<plurals name="overview_fans">
-		<item quantity="one">%1$d fan</item>
-		<item quantity="other">%1$d fans</item>
-	</plurals>
-	<string name="overview_fans_stopped">Fans stopped</string>
-	<plurals name="overview_sensors">
-		<item quantity="one">%1$d sensor</item>
-		<item quantity="other">%1$d sensors</item>
-	</plurals>
-	<string name="overview_download">↓ Download</string>
-	<string name="overview_upload">↑ Upload</string>
-	<string name="overview_disk_free">%1$s free</string>
-	<string name="overview_disk_io">Read %1$s · Write %2$s</string>
-	<string name="overview_battery_full_in">full in %1$s</string>
-	<string name="overview_battery_left">%1$s left</string>
-	<string name="overview_battery_health">health %1$s</string>
-	<string name="battery_charging">Charging</string>
-	<string name="battery_discharging">Discharging</string>
-	<string name="battery_full">Full</string>
-	<string name="battery_not_charging">Not charging</string>
-	<string name="battery_unknown">Unknown</string>
-
-	<!-- Detail pages -->
-	<string name="details_load">Load</string>
-	<string name="details_cores">Cores</string>
-	<plurals name="details_cores_physical">
-		<item quantity="one">%1$d physical</item>
-		<item quantity="other">%1$d physical</item>
-	</plurals>
-	<plurals name="details_threads">
-		<item quantity="one">%1$d thread</item>
-		<item quantity="other">%1$d threads</item>
-	</plurals>
-	<string name="details_core">Core %1$d</string>
-	<string name="details_clock_average_top">Clock, average / top</string>
-	<string name="details_load_average">Load average 1 · 5 · 15 min</string>
-	<string name="details_uptime">Up</string>
-	<string name="details_memory_use">Use</string>
-	<string name="details_chart_ram">RAM %1$s</string>
-	<string name="details_chart_swap">swap %1$s</string>
-	<string name="details_swap">Swap</string>
-	<string name="details_used">Used</string>
-	<string name="details_available">Available</string>
-	<string name="details_gpu_asleep_body">Powered down because nothing uses it. Elamon doesn\'t wake it to read it; it shows here when a program starts using it.</string>
-	<!-- Chart legends with the unit: "Load, %", "Temperature, °C". -->
-	<string name="details_legend_load">Load, %1$s</string>
-	<string name="details_legend_temperature">Temperature, %1$s</string>
-	<string name="details_gpu_intel">Intel graphics don\'t report their load without extra privileges; the clock shows how hard it works.</string>
-	<string name="details_driver">Driver</string>
-	<string name="details_pci_slot">PCI slot</string>
-	<string name="details_clock">Clock</string>
-	<string name="details_clock_idle">idle</string>
-	<string name="details_memory_clock">Memory clock</string>
-	<string name="details_power">Power</string>
-	<string name="details_fan">Fan</string>
-	<string name="details_video_memory">Video memory</string>
-	<string name="details_traffic">Traffic</string>
-	<string name="details_download">Download</string>
-	<string name="details_upload">Upload</string>
-	<string name="details_net_cable">Cable</string>
-	<string name="details_net_wifi">Wi-Fi</string>
-	<string name="details_net_vpn">VPN</string>
-	<string name="details_net_virtual">Virtual</string>
-	<string name="details_rx_now">↓ Now</string>
-	<string name="details_tx_now">↑ Now</string>
-	<string name="details_received">Received since boot</string>
-	<string name="details_sent">Sent since boot</string>
-	<string name="details_link_speed">Link speed</string>
-	<string name="details_addresses">Addresses</string>
-	<string name="details_throughput">Throughput</string>
-	<string name="details_chart_read">read %1$s</string>
-	<string name="details_chart_write">write %1$s</string>
-	<string name="details_read">Read</string>
-	<string name="details_write">Write</string>
-	<string name="details_free">Free</string>
-	<string name="details_device">Device</string>
-	<string name="details_power_draw">Power draw</string>
-	<string name="details_charge">Charge</string>
-	<string name="details_battery_state">State</string>
-	<string name="details_until_full">Until full</string>
-	<string name="details_left">Left</string>
-	<string name="details_energy_now">Energy now</string>
-	<string name="details_full_charge">Full charge</string>
-	<string name="details_design_capacity">Design capacity</string>
-	<string name="details_health">Health</string>
-	<string name="details_charge_cycles">Charge cycles</string>
-	<string name="details_top">Using the most</string>
-	<string name="details_top_none">Nothing uses it right now.</string>
-
-	<!-- Processes tab -->
-	<string name="processes_search">Search by name, command or PID</string>
+	<!-- Tables: a row's sheet, and ending a process -->
 	<string name="processes_clear">Clear</string>
-	<string name="processes_sort_disk">Disk</string>
-	<string name="processes_sort_name">Name</string>
-	<string name="processes_by_app">By app</string>
-	<plurals name="processes_count">
-		<item quantity="one">%1$d process</item>
-		<item quantity="other">%1$d processes</item>
-	</plurals>
-	<plurals name="processes_cpu_share">
-		<item quantity="one">CPU shown as share of %1$d thread</item>
-		<item quantity="other">CPU shown as share of all %1$d threads</item>
-	</plurals>
-	<string name="processes_pid">PID %1$d</string>
-	<string name="processes_parent_pid">Parent PID</string>
-	<string name="processes_state">State</string>
-	<string name="processes_started">Started</string>
-	<string name="processes_disk_read">Disk read</string>
-	<string name="processes_disk_write">Disk write</string>
-	<string name="processes_gpu_memory">GPU memory</string>
-	<string name="processes_command">Command</string>
-	<string name="processes_gone">No longer in the list: it ended or isn\'t among the busiest any more. These are its last readings.</string>
-	<string name="processes_quit">Quit</string>
-	<string name="processes_force_kill">Force kill</string>
-	<string name="processes_quit_title">Quit %1$s?</string>
-	<string name="processes_force_kill_title">Force kill %1$s?</string>
 	<string name="processes_quit_body">It\'s asked to close, the way a window\'s close button would. Most programs save and exit.</string>
 	<string name="processes_force_kill_body">It ends at once, without saving anything.</string>
-	<!-- Process states, as the kernel reports them. -->
-	<string name="process_running">running</string>
-	<string name="process_sleeping">sleeping</string>
-	<string name="process_idle">idle</string>
-	<string name="process_zombie">zombie</string>
-	<string name="process_stopped">stopped</string>
-	<string name="process_disk_sleep">waiting for disk</string>
 
-	<!-- Sensors tab -->
-	<string name="sensors_drive">Drive</string>
-	<string name="sensors_wireless">Wireless</string>
-	<string name="sensors_board">Board</string>
-	<string name="sensors_other">Other</string>
-	<string name="sensors_fans">Fans</string>
-	<string name="sensors_fan_stopped">stopped</string>
-	<string name="sensors_limit">limit %1$s</string>
-	<string name="sensors_none">No sensors</string>
-	<string name="sensors_none_body">The computer reports no temperature or fan sensors. Some need a kernel module, often loaded by lm-sensors.</string>
-
-	<!-- Control: displays -->
-	<string name="displays_title">Displays</string>
-	<!-- Under the title while the section is closed: "2 connected · 1 on", the second counting those that show a picture. -->
-	<plurals name="displays_count_connected">
-		<item quantity="one">%1$d connected</item>
-		<item quantity="other">%1$d connected</item>
-	</plurals>
-	<plurals name="displays_count_on">
-		<item quantity="one">%1$d on</item>
-		<item quantity="other">%1$d on</item>
-	</plurals>
-	<string name="displays_arrangement">Arrangement</string>
-	<string name="displays_none">No monitors connected</string>
-	<string name="displays_none_body">The computer runs without a screen, or its graphics driver doesn\'t report monitors.</string>
-	<string name="displays_free_ports">Free ports: %1$s</string>
-	<string name="displays_on">On</string>
-	<string name="displays_off">Off</string>
-	<string name="displays_not_in_use">Not in use</string>
-	<string name="displays_port">Port</string>
-	<string name="displays_size">Size</string>
-	<string name="displays_native_mode">Native mode</string>
-	<string name="displays_highest_refresh">Highest refresh</string>
-	<string name="displays_position">Position</string>
-	<string name="displays_made_in">Made in</string>
-
-	<!-- Control tab -->
+	<!-- Control, links and media -->
 	<string name="control_off">Control is off</string>
-	<string name="control_error_title">Can\'t read the control panel</string>
-	<string name="control_off_body">This computer only lets the app watch. To also control power, links, processes and media from here, turn it on in the service\'s settings and restart it:</string>
+	<string name="control_off_body">This computer only lets the app watch. To also control power, links, processes and media from here, turn it on in the service\'s settings:</string>
 	<string name="control_off_where">in ~/.config/elamon/elamond.toml, or services.elamond.settings.control = true on NixOS.</string>
-	<string name="control_links">Links</string>
 	<string name="link_refused">Only web pages (http or https) are opened from the app.</string>
-	<string name="control_add_link">Add link</string>
-	<string name="control_links_empty">No links yet</string>
-	<string name="control_links_empty_body">Add the web pages this computer hosts — a media server, a dashboard, a download manager — to open them from here and start or stop them.</string>
-	<string name="control_links_empty_watch">The web pages this computer hosts show up here once they\'re added on the computer or from a phone that may add them.</string>
-	<!-- What a phone's role leaves out of the Control tab, and how the computer's owner changes it. -->
-	<string name="control_glance_title">The basics only</string>
-	<string name="control_glance_body">This phone can only watch the basics: load, memory, temperatures, disks, network and battery. To let it see processes, monitors and links too, or control the computer, its owner runs this there:</string>
-	<string name="control_monitor_title">Watching only</string>
-	<string name="control_monitor_body">This phone can see everything here but change nothing. To let it also add links and start what they run, play media, switch the power profile and run actions, its owner runs this on the computer:</string>
-	<string name="control_role_where">elamond clients lists the paired phones with their IDs. The roles are glance, monitor, operate and admin, each allowing more than the one before; admin adds power and ending processes.</string>
-	<string name="control_link_menu">Actions</string>
-	<string name="control_local_only_title">Only on the computer</string>
-	<string name="control_local_only_body">%1$s listens on the computer\'s own address (127.0.0.1), so other devices can\'t open it. Set it to listen on all addresses, or reach it through an SSH tunnel.</string>
-	<string name="control_open_anyway">Open anyway</string>
-	<!-- A link's state on its tile. -->
-	<string name="link_failed">Failed</string>
-	<string name="link_no_unit">No such unit</string>
-	<string name="link_starting">Starting</string>
-	<string name="link_stopping">Stopping</string>
-	<string name="link_local_only">Local only</string>
-	<string name="link_running">Running</string>
-	<string name="link_stopped">Stopped</string>
-	<string name="link_unknown">Unknown</string>
-	<string name="control_unit">Unit</string>
-	<string name="control_unit_state">Unit state</string>
-	<string name="control_port">Port</string>
-	<string name="control_port_computer_only">%1$d, computer only</string>
 	<string name="control_open">Open</string>
-	<string name="control_start">Start</string>
-	<string name="control_stop">Stop</string>
-	<string name="control_restart">Restart</string>
-	<string name="control_needs_control">Starting and stopping needs control turned on for this computer.</string>
-	<string name="control_edit">Edit</string>
-	<string name="control_remove">Remove</string>
-	<string name="control_set_on_computer">Set in the service\'s settings on the computer.</string>
-	<string name="control_remove_title">Remove %1$s?</string>
-	<string name="control_remove_body">It disappears from every phone paired with this computer. What it links to keeps running.</string>
-	<string name="control_restart_title">Restart %1$s?</string>
-	<string name="control_restart_body">It stops for a moment; whoever uses it gets disconnected.</string>
-	<string name="control_add_title">Add a link</string>
-	<string name="control_edit_title">Edit %1$s</string>
-	<string name="control_listening">Listening on this computer</string>
-	<!-- A port found listening that only the computer itself can reach: ":8096 jellyfin · local". -->
-	<string name="control_listening_local">%1$s · local</string>
-	<string name="control_name">Name</string>
-	<string name="control_address">Address</string>
-	<string name="control_address_hint">{host} becomes the address the phone reaches the computer at</string>
-	<string name="control_unit_optional">systemd unit (optional)</string>
-	<string name="control_scope_user">User</string>
-	<string name="control_scope_system">System</string>
-	<string name="control_save">Save</string>
 	<string name="control_media">Media</string>
 	<string name="control_nothing_playing">Nothing playing</string>
 	<string name="control_unknown_track">Unknown track</string>
@@ -389,81 +136,28 @@
 	<string name="control_next">Next</string>
 	<string name="control_mute">Mute</string>
 	<string name="control_unmute">Unmute</string>
-	<string name="control_power_profile">Power profile</string>
-	<string name="control_actions">Actions</string>
-	<string name="control_run_title">Run %1$s?</string>
-	<string name="control_run">Run</string>
 	<string name="control_timed_out">Timed out</string>
 	<string name="control_done">Done</string>
 	<string name="control_exit_code">Exit %1$s</string>
 	<string name="control_no_output">(no output)</string>
-	<string name="control_power">Power</string>
-	<string name="power_lock">Lock</string>
 	<string name="power_lock_ask">Lock the screen?</string>
 	<string name="power_lock_explain">Every session of this user is locked.</string>
-	<string name="power_sleep">Sleep</string>
 	<string name="power_sleep_ask">Put it to sleep?</string>
 	<string name="power_sleep_explain">Elamon loses the connection until the computer wakes up.</string>
-	<string name="power_restart">Restart</string>
 	<string name="power_restart_ask">Restart the computer?</string>
 	<string name="power_restart_explain">Unsaved work in open programs is lost.</string>
-	<string name="power_shut_down">Shut down</string>
 	<string name="power_shut_down_ask">Shut down the computer?</string>
 	<string name="power_shut_down_explain">Unsaved work is lost, and only someone at the computer can turn it back on.</string>
-	<string name="power_needs_permission">needs permission</string>
-	<string name="power_needs_permission_title">%1$s needs permission</string>
-	<string name="power_needs_permission_body">The Elamon service runs outside a login session, so the system asks for a password it can\'t give. Allow it with a polkit rule: on NixOS, services.elamond.control.users = [ \"you\" ]; elsewhere, a rule that permits org.freedesktop.login1 power actions for your user.</string>
-	<string name="power_try_anyway">Try anyway</string>
 
 	<!-- Unlocking the phone before an action: the prompt's title names the action and the computer, "Restart Test computer". -->
 	<string name="unlock_lock">Lock %1$s</string>
 	<string name="unlock_sleep">Put %1$s to sleep</string>
 	<string name="unlock_restart">Restart %1$s</string>
 	<string name="unlock_shut_down">Shut down %1$s</string>
-	<!-- A process, a link or an action, then the computer: "Force kill firefox on Test computer". -->
-	<string name="unlock_quit">Quit %1$s on %2$s</string>
-	<string name="unlock_force_kill">Force kill %1$s on %2$s</string>
-	<string name="unlock_run">Run %1$s on %2$s</string>
-	<string name="unlock_start">Start %1$s on %2$s</string>
-	<string name="unlock_stop">Stop %1$s on %2$s</string>
-	<string name="unlock_restart_unit">Restart %1$s on %2$s</string>
-	<!-- The computer, then the profile: "Switch Test computer to Performance". -->
-	<string name="unlock_profile">Switch %1$s to %2$s</string>
-	<string name="unlock_media">Control playback on %1$s</string>
-	<string name="unlock_volume">Change the volume on %1$s</string>
 	<!-- Confirmations for what isn't confirmed otherwise, asked instead of unlocking a phone that has no screen lock. -->
-	<string name="control_start_title">Start %1$s?</string>
-	<string name="control_stop_title">Stop %1$s?</string>
-	<string name="control_profile_title">Switch to %1$s?</string>
-	<string name="control_switch">Switch</string>
-	<string name="control_media_title">Control playback on %1$s?</string>
-	<string name="control_volume_title">Change the volume on %1$s?</string>
 	<string name="control_continue">Continue</string>
 	<!-- Under the first such confirmation in a run of the app. -->
 	<string name="unlock_no_lock_screen">This phone has no screen lock, so Elamon can\'t ask to unlock it first. Set one in the phone\'s settings to be asked.</string>
-
-	<!-- The activity log: what phones asked the computer to do, let through or refused, newest first. -->
-	<string name="activity_title">Activity</string>
-	<string name="activity_summary">What phones asked this computer to do</string>
-	<string name="activity_refresh">Refresh</string>
-	<string name="activity_empty">Nothing yet</string>
-	<string name="activity_empty_body">Each time a phone asks this computer to do something, let through or refused, it shows up here.</string>
-	<string name="activity_error_title">Can\'t read the activity</string>
-	<!-- How a request ended, on its tag. -->
-	<string name="log_ok">Done</string>
-	<string name="log_not_allowed">Not allowed</string>
-	<string name="log_control_off">Control off</string>
-	<string name="log_too_often">Too often</string>
-	<string name="log_system_refused">Refused by the system</string>
-	<string name="log_failed">Failed</string>
-	<string name="log_process_changed">Process replaced</string>
-	<string name="log_not_saved">Not saved</string>
-	<string name="log_gone">Gone</string>
-	<string name="log_invalid">Invalid request</string>
-	<string name="log_too_many_phones">Too many phones</string>
-	<string name="log_key_refused">Key refused</string>
-	<!-- An error code from a newer service, as it is: "Error: rate_limited". -->
-	<string name="log_other">Error: %1$s</string>
 
 	<!-- What became of a control request, shown in a snackbar -->
 	<string name="done_locked">Locked</string>
@@ -472,8 +166,6 @@
 	<string name="done_going_to_sleep">Going to sleep</string>
 	<string name="done_killed">Killed</string>
 	<string name="done_asked_to_quit">Asked to quit</string>
-	<string name="done_saved">Saved</string>
-	<string name="done_removed">Removed</string>
 	<string name="done_started">Started</string>
 	<string name="done_stopped">Stopped</string>
 	<string name="done_restarted">Restarted</string>
@@ -520,60 +212,34 @@
 	<string name="settings_theme_light">Light</string>
 	<string name="settings_theme_dark">Dark</string>
 	<string name="settings_pure_black">Pure black</string>
-	<string name="settings_pure_black_summary">Black instead of dark grey in dark mode; saves power on OLED screens</string>
 	<string name="settings_wallpaper_colours">Wallpaper colours</string>
-	<string name="settings_wallpaper_colours_summary">Take the app\'s colours from the wallpaper</string>
 	<string name="settings_needs_android_12">Needs Android 12</string>
 	<string name="settings_blur">Blur</string>
-	<string name="settings_blur_summary">Frosted glass behind bars and dialogs</string>
 	<string name="settings_animations">Animations</string>
-	<string name="settings_animations_summary">Rolling numbers and moving gauges</string>
 	<string name="settings_data">Data</string>
 	<string name="settings_interval">Update every</string>
 	<!-- Seconds, maybe with decimals: "1 s", "0.25 s". -->
 	<string name="settings_interval_seconds">%1$s s</string>
-	<string name="settings_interval_custom">Custom</string>
-	<string name="settings_interval_custom_label">Seconds</string>
-	<string name="settings_interval_custom_range">From %1$s s to %2$s s</string>
-	<string name="settings_save">Save</string>
 	<string name="settings_temperature">Temperature</string>
 	<string name="settings_network_speed">Network speed</string>
 	<string name="settings_bytes">Bytes</string>
 	<string name="settings_bits">Bits</string>
 	<string name="settings_keep_screen_on">Keep screen on</string>
-	<string name="settings_keep_screen_on_summary">While a computer is open, as a dashboard</string>
 	<string name="settings_control">Control</string>
 	<string name="settings_confirm_actions">Confirm actions</string>
-	<string name="settings_confirm_actions_summary">Ask before power, kill, restart and commands</string>
 	<string name="settings_haptics">Haptic feedback</string>
-	<string name="settings_haptics_summary">A tick on long presses</string>
 	<!-- Which actions need the phone unlocked first, with a fingerprint, the face or the screen lock, in place of the confirmation. -->
 	<string name="settings_unlock">Ask to unlock before</string>
 	<string name="settings_unlock_power">Power</string>
-	<string name="settings_unlock_power_summary">Shut down, restart, sleep and lock</string>
 	<string name="settings_unlock_processes">Ending processes</string>
-	<string name="settings_unlock_processes_summary">Quit and force kill</string>
 	<string name="settings_unlock_actions">Actions</string>
-	<string name="settings_unlock_actions_summary">Commands from the computer\'s settings</string>
 	<string name="settings_unlock_units">Units</string>
-	<string name="settings_unlock_units_summary">Starting, stopping and restarting what a link runs</string>
 	<string name="settings_unlock_profile">Power profile</string>
-	<string name="settings_unlock_profile_summary">Switching to another profile</string>
 	<string name="settings_unlock_media">Media and volume</string>
-	<string name="settings_unlock_media_summary">Playing, skipping, seeking and the volume</string>
 	<string name="settings_unlock_transfer">Pairings and these settings</string>
-	<string name="settings_unlock_transfer_summary">Export, import, and asking less here: always, every time</string>
-	<!-- Asking less is asked for itself: the unlock prompt's title, then the confirmation's. -->
-	<string name="unlock_stop_asking">Stop asking to unlock for “%1$s”</string>
-	<string name="settings_stop_asking_title">Stop asking to unlock for “%1$s”?</string>
-	<string name="settings_stop_asking">Stop asking</string>
 	<!-- "5 min" -->
-	<string name="unlock_grace">Ask again only after %1$s</string>
-	<string name="settings_grace_title">Ask again only after %1$s?</string>
-	<string name="settings_grace_change">Change</string>
 	<string name="settings_unlock_grace">Ask again after</string>
 	<string name="settings_unlock_every_time">Every time</string>
-	<string name="settings_unlock_no_lock">This phone has no screen lock, so these actions are confirmed instead. Set one in the phone\'s settings to be asked to unlock.</string>
 	<string name="settings_about">About</string>
 	<string name="settings_help_summary">Installing the service, the firewall, pairing, troubleshooting</string>
 	<string name="settings_source">Source code</string>
@@ -646,10 +312,7 @@
 	<string name="transfer_not_saved">The pairings couldn\'t be saved on this phone. Nothing was imported.</string>
 	<string name="transfer_no_picker">This phone has no app to choose files with.</string>
 
-	<!-- Times in numbers (Fmt.duration, Fmt.ago, the activity log's agoWords); the unit symbols of other numbers stay in Format.kt -->
-	<string name="duration_days_hours">%1$d d %2$d h</string>
-	<string name="duration_hours_minutes">%1$d h %2$d min</string>
-	<string name="duration_minutes">%1$d min</string>
+	<!-- How long ago, in a chart's touch label (Fmt.ago); the unit symbols of numbers stay in Format.kt -->
 	<string name="ago_now">now</string>
 	<plurals name="ago_seconds">
 		<item quantity="one">%1$d s ago</item>
@@ -659,21 +322,13 @@
 		<item quantity="one">%1$d min ago</item>
 		<item quantity="other">%1$d min ago</item>
 	</plurals>
-	<plurals name="ago_hours">
-		<item quantity="one">%1$d h ago</item>
-		<item quantity="other">%1$d h ago</item>
-	</plurals>
-	<plurals name="ago_days">
-		<item quantity="one">%1$d d ago</item>
-		<item quantity="other">%1$d d ago</item>
-	</plurals>
 
 	<!-- Help -->
 	<string name="help_screen_title">Help</string>
 	<string name="troubleshooting_button">Troubleshooting</string>
 	<string name="copy">Copy</string>
 	<string name="copied">Copied</string>
-	<string name="help_intro">Elamon has two parts: this app, and elamond, a small service on the computer you want to watch. It reads the computer\'s own counters and sends them only to phones you paired with it. If you allow it, it also lets them control the computer. It needs no root and runs as your user.</string>
+	<string name="help_intro">Elamon has two parts: this app, and elamond, a small service on the computer you want to watch. It reads the computer\'s own counters and sends them only to phones you paired with it; if you allow it, it also lets them control the computer. It needs no root and runs as your user. Everything is set on the computer, in elamond.toml: the dashboards, what a phone may run, and how the app looks and behaves on each phone. The app only draws what the service describes.</string>
 	<string name="help_install">1. Install the service</string>
 	<string name="help_pick_system">Pick the computer\'s system:</string>
 	<string name="help_other_system">Other</string>
@@ -728,13 +383,13 @@
 	<string name="faq_new_computer_a">Back up the service before; it asks for a passphrase:</string>
 	<string name="faq_new_computer_a2">On the new or reinstalled system, install the service, then stop it, restore the backup and start it again. The phones connect as before, without pairing again:</string>
 	<string name="faq_new_computer_a3">To bring back elamond.toml and the files in elamond.d too, restore with:</string>
-	<string name="help_control">4. Control panel</string>
-	<string name="help_control_intro">The Control tab opens links and starts what\'s behind them, plays music, switches the power profile, runs commands and powers the computer off. It\'s off until you allow it on the computer:</string>
-	<string name="help_control_nixos">On NixOS, in the service\'s settings. control.users also lets power actions, the power profile and the listed system units through without a password:</string>
-	<string name="help_control_links">Links to the web pages the computer hosts show up in the Control tab with their state; tap one to open it, hold it for start, stop and restart. Add them in the app, or on the computer:</string>
-	<string name="help_control_actions">Commands are defined only on the computer, so a phone can\'t run anything else. Each becomes a button in the app; its output comes back:</string>
+	<string name="help_control">5. Control panel</string>
+	<string name="help_control_intro">The Control tab opens links and starts what\'s behind them, plays music, switches the power profile, runs commands and powers the computer off. It\'s off until you allow it on the computer; then each phone may do what its role allows (elamond clients role):</string>
+	<string name="help_control_nixos">On NixOS, in the service\'s settings. control.users also lets power actions and the power profile through without a password:</string>
+	<string name="help_control_links">Links to the web pages the computer hosts show up in the Control tab with their state: tap one to open it, hold it for its details and to start, stop or restart its unit. They are set on the computer only:</string>
+	<string name="help_control_actions">Commands are defined only on the computer, so a phone can\'t run anything else; a phone chooses only among the values a parameter allows. Each becomes a button in the app, and its output comes back:</string>
 	<string name="help_control_polkit">Elsewhere, power actions and system units need a polkit rule, because the service runs outside a login session. Without it the app marks them \"needs permission\". Save this as /etc/polkit-1/rules.d/50-elamon.rules, with your user name:</string>
-	<string name="help_control_unlock">Before power, ending processes and the computer\'s actions, the app asks to unlock the phone with a fingerprint, the face or the screen lock. Settings, under Ask to unlock before, chooses which actions ask and how long an unlock lasts.</string>
+	<string name="help_control_unlock">Before power, ending processes, units and the computer\'s actions, the app asks to unlock the phone with a fingerprint, the face or the screen lock. The phone\'s profile on the computer chooses which actions ask (unlock.for) and how long an unlock lasts (unlock.grace); an action\'s own unlock = true always asks.</string>
 	<string name="help_commands">Service commands</string>
 	<string name="cmd_pair">pair a phone: shows a QR code and a code</string>
 	<string name="cmd_clients">list paired phones with their IDs</string>
@@ -748,7 +403,7 @@
 	<string name="cmd_snapshot">print one reading, to see what the service finds</string>
 	<string name="cmd_version">the service\'s version</string>
 	<string name="help_settings">Service settings</string>
-	<string name="help_settings_where">Optional, in ~/.config/elamon/elamond.toml. Restart the service after a change. The defaults:</string>
+	<string name="help_settings_where">Optional, at the top of ~/.config/elamon/elamond.toml; elamond check says what is wrong in it. Where the service listens and how often it reads, with their defaults:</string>
 	<string name="set_port">the TCP port the app connects to</string>
 	<string name="set_listen">the addresses or interfaces to listen on, one or a list such as [\"tailscale0\", \"192.168.200.10\"]; \"::\" covers every address, IPv4 and IPv6</string>
 	<string name="set_name">the name shown in the app; the host name when empty</string>
@@ -761,7 +416,6 @@
 	<string name="help_version">Elamon %1$s · GPL-3.0-or-later</string>
 	<string name="help_source">Source code</string>
 
-	<!-- What a screen reader says for charts, gauges and other drawn things -->
 	<!-- A chart: the time it spans ("10 min"), then each line: "Last 10 min: CPU 34%, peak 80%". -->
 	<string name="a11y_chart">Last %1$s: %2$s</string>
 	<!-- One line of a chart: its name, its newest value and its highest: "CPU 34%, peak 80%". -->
@@ -769,14 +423,6 @@
 	<string name="a11y_chart_series_empty">%1$s, no readings yet</string>
 	<!-- Between the lines of a chart, or a header's title and the parts of its summary, read aloud. -->
 	<string name="a11y_list_separator">"; "</string>
-	<!-- The ring on the CPU and memory tiles. -->
-	<string name="a11y_gauge_load">Load %1$s</string>
-	<string name="a11y_gauge_used">Used %1$s</string>
-	<!-- The bars of the CPU cores: how many, their average and the busiest. -->
-	<plurals name="a11y_cores">
-		<item quantity="one">%1$d core, average %2$s, busiest %3$s</item>
-		<item quantity="other">%1$d cores, average %2$s, busiest %3$s</item>
-	</plurals>
 	<!-- A question in the guide, the Displays section or a monitor in it, open or closed. -->
 	<string name="a11y_expanded">Expanded</string>
 	<string name="a11y_collapsed">Collapsed</string>
@@ -830,4 +476,15 @@
 	<string name="settings_off">Off</string>
 	<string name="settings_unlock_none">Nothing</string>
 	<string name="settings_unlock_minutes">%1$d min</string>
+	<string name="help_dashboards">4. Dashboards and profiles</string>
+	<string name="help_dashboards_intro">What the app shows is set on the computer. The service has standard dashboards built in (the overview, processes, sensors, control, and the pages their tiles open) and a default profile. To see them, as a starting point for your own:</string>
+	<string name="help_dashboards_files">Settings go in ~/.config/elamon/elamond.toml, or in files of their own in ~/.config/elamon/elamond.d. A dashboard, an action or a profile with the id of a built-in one changes only the keys it gives. A dashboard of your own, and a profile that makes it a tab:</string>
+	<string name="help_dashboards_check">Check the settings before the service reads them; elamond edit opens the file in your editor and keeps it only once it reads. elamond values lists what this computer can show:</string>
+	<string name="help_dashboards_profile">A profile says how the app looks and behaves on a phone: theme, colours, animations, how often it asks, what it confirms and unlocks for, and which dashboards are its tabs. Give a phone its profile by the phone\'s ID from elamond clients; it applies at once:</string>
+	<string name="help_dashboards_app">The app\'s Settings show what applies on each computer, and the key each line comes from.</string>
+	<string name="cmd_defaults">print the built-in dashboards and profile</string>
+	<string name="cmd_check">check the settings, naming the file and line of each mistake</string>
+	<string name="cmd_edit">edit the settings, keeping them only when they read</string>
+	<string name="cmd_values">list the values this computer has, for widgets</string>
+	<string name="cmd_clients_profile">give a phone a profile; all instead of an ID gives it to every phone</string>
 </resources>

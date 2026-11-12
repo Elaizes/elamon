@@ -80,7 +80,7 @@ object HelpTopic {
 }
 
 /** The guide's parts in the order they show; a part's ordinal is its place in the list. */
-private enum class HelpItem { Intro, Install, Firewall, Pair, Control, Faq, Commands, Settings, Privacy }
+private enum class HelpItem { Intro, Install, Firewall, Pair, Dashboards, Control, Faq, Commands, Settings, Privacy }
 
 private sealed interface Block {
 	/** A paragraph; [args] fill its placeholders. */
@@ -214,21 +214,37 @@ private const val CONTROL_NIXOS = """services.elamond = {
   openFirewall = true;
   settings.control = true;
   control.users = [ "YOUR_USER" ];
-  control.units = [ "SERVICE.service" ];
 };"""
 
-private const val CONTROL_LINKS = """[[links]]
+private const val CONTROL_LINKS = """[links.media]
 name = "Media server"
 url = "http://{host}:8096"
 unit = "SERVICE.service"
 scope = "system"   # or "user""""
 
-private const val CONTROL_ACTIONS = """[[actions]]
+private const val CONTROL_ACTIONS = """[actions.backup]
 name = "Back up now"
-command = ["/path/to/backup-script", "--now"]
-confirm = true
+command = ["/path/to/backup-script", "{mode}"]
+params.mode = { choices = ["quick", "full"], default = "quick" }
 timeout = 600"""
 
+/** A dashboard of one's own, a tab once a profile names it, and that profile given to a phone. */
+private const val DASHBOARD = """[dashboards.power]
+title = "Power"
+icon = "battery"
+
+[[dashboards.power.widgets]]
+type = "status"
+value = "battery.status_text"
+label = "Battery"
+
+[profiles.phone]
+use = "default"
+theme = "dark"
+dashboards = ["overview", "power", "processes", "control"]
+
+[profiles.phone.android]
+blur = false"""
 private const val CONTROL_POLKIT = """polkit.addRule(function (action, subject) {
   if (subject.user != "YOUR_USER") return polkit.Result.NOT_HANDLED;
   var id = action.id;
@@ -278,9 +294,14 @@ private val COMMANDS = listOf(
 	"elamond pair" to R.string.cmd_pair,
 	"elamond clients" to R.string.cmd_clients,
 	"elamond clients role ID ROLE" to R.string.cmd_clients_role,
+	"elamond clients profile ID PROFILE" to R.string.cmd_clients_profile,
 	"elamond revoke ID" to R.string.cmd_revoke,
 	"elamond revoke all" to R.string.cmd_revoke_all,
 	"elamond control off" to R.string.cmd_control_off,
+	"elamond defaults" to R.string.cmd_defaults,
+	"elamond check" to R.string.cmd_check,
+	"elamond edit" to R.string.cmd_edit,
+	"elamond values" to R.string.cmd_values,
 	"elamond rotate-cert" to R.string.cmd_rotate_cert,
 	"elamond backup FILE" to R.string.cmd_backup,
 	"elamond restore FILE" to R.string.cmd_restore,
@@ -376,6 +397,23 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 					HelpItem.Pair -> {
 						Section(stringResource(R.string.help_pair), ElIcons.Qr) {
 							Blocks(listOf(t(R.string.help_pair_run), c("elamond pair"), t(R.string.help_pair_scan), t(R.string.help_pair_code)))
+						}
+					}
+					HelpItem.Dashboards -> {
+						Section(stringResource(R.string.help_dashboards), ElIcons.Overview) {
+							Blocks(
+								listOf(
+									t(R.string.help_dashboards_intro),
+									c("elamond defaults"),
+									t(R.string.help_dashboards_files),
+									c(DASHBOARD),
+									t(R.string.help_dashboards_check),
+									c("elamond check\nelamond values"),
+									t(R.string.help_dashboards_profile),
+									c("elamond clients\nelamond clients profile ID phone"),
+									t(R.string.help_dashboards_app),
+								)
+							)
 						}
 					}
 					HelpItem.Control -> {
