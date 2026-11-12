@@ -75,8 +75,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 	setup(&init, &opts)
 }
 
-const HELP: &str = "\
-  --no-start            install and enable the service, but don't start it now
+const HELP: &str = "  --no-start            install and enable the service, but don't start it now
   --print               show what it would write and run, and do nothing
   --multiple-sessions   the polkit rule also allows powering off, restarting and sleeping while
                         other users are logged in, ending their sessions
