@@ -224,6 +224,11 @@ class DashboardsTest {
 		assertEquals(JsonPrimitive(0L), Params.initial(ui.action("volume.set")!!.params.first { it.id == "level" }.copy(default = null)))
 		assertEquals(JsonPrimitive(false), Params.initial(Param("x", "bool")))
 		assertNull(Params.initial(Param("x", "string")))
+		// "Mode" under the title "Mode" isn't said twice; with another parameter beside it, it is.
+		val asked = Params.asked(ui.action("mode")!!, JsonObject(emptyMap()))
+		assertTrue(Params.namedByTitle(asked, mode, "Mode"))
+		assertFalse(Params.namedByTitle(asked, mode, "Switch the mode"))
+		assertFalse(Params.namedByTitle(asked + Param("x", "bool"), mode, "Mode"))
 	}
 
 	@Test

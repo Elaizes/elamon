@@ -175,6 +175,10 @@ object Params {
 	/** The parameters of [action] the form asks for: those [fixed] leaves open that must be given (a default prefills them). */
 	fun asked(action: Action, fixed: JsonObject): List<Param> = action.params.filter { it.id !in fixed && !it.optional }
 
+	/** Whether [p] is the one parameter [asked] and is called what the form's [title] says, so its own name would repeat it. */
+	fun namedByTitle(asked: List<Param>, p: Param, title: String): Boolean =
+		asked.size == 1 && (p.label ?: p.id).trim().equals(title.trim(), ignoreCase = true)
+
 	/** What the form starts with for [p]: its default, else the first choice, the range's start, or off. */
 	fun initial(p: Param): JsonElement? = p.default?.takeIf { it !is JsonNull } ?: when (p.kind) {
 		"choice" -> p.choices?.firstOrNull()?.let { JsonPrimitive(it.value) }

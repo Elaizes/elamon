@@ -444,9 +444,10 @@ fun ParamForm(req: FormRequest, onDismiss: () -> Unit, onDone: (JsonObject) -> U
 		for (p in asked) values[p.id]?.takeIf { it !is JsonNull }?.let { put(p.id, it) }
 	}
 	val ok = Params.complete(req.action, params)
+	val title = req.action.name.ifEmpty { req.phrase }
 	GlassDialog(
 		onDismiss = onDismiss,
-		title = req.action.name.ifEmpty { req.phrase },
+		title = title,
 		icon = icon(req.action.icon),
 		text = {
 			Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
@@ -454,7 +455,8 @@ fun ParamForm(req: FormRequest, onDismiss: () -> Unit, onDone: (JsonObject) -> U
 					val name = p.label ?: p.id
 					when (p.kind) {
 						"choice" -> {
-							Text(name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+							// The one choice asked, named as the action is ("Mode" under "Mode"): the title says it.
+							if (!Params.namedByTitle(asked, p, title)) Text(name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
 							FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 								for (c in p.choices.orEmpty()) {
 									FilterChip(selected = values[p.id]?.text() == c.value, onClick = { values[p.id] = JsonPrimitive(c.value) }, label = { Text(c.label ?: c.value) })
