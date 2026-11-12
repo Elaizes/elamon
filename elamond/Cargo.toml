@@ -32,6 +32,8 @@ sha2 = "0.11.1"
 sysinfo = "0.40.1"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal", "fs", "process", "io-util"] }
 toml = "1.2.1"
+# Already among the build's (proc-macro-crate); writes settings files keeping their comments.
+toml_edit = "0.25.19"
 # Already among axum's; puts each connection's place among the limits into its requests.
 tower = { version = "0.5.3", default-features = false }
 zbus ={ version = "5.19.0", default-features = false, features = ["tokio"] }

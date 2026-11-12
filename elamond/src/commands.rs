@@ -1,19 +1,29 @@
 //! The commands about the settings: `elamond check`, `edit`, `schema`, `defaults` and `values`.
 
+use std::fmt;
 use std::fs;
 use std::io::{self, IsTerminal, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
-use crate::settings::{self, Mistake, Source};
-use crate::{collect, store, values};
+use serde_json::{Map, Value};
 
-/// The settings files as the service reads them, with `file` taking its place among them: in
-/// place of the one it is, as a drop-in when it is in a folder named elamond.d, else in place of
-/// the main file. Its text comes from `text` when given (an edited copy), from the file otherwise.
-fn sources_with(file: Option<&Path>, text: Option<String>) -> Result<Vec<Source>, Vec<Mistake>> {
-	let mut files = store::config_files();
-	let Some(file) = file else { return settings::read_files(&files) };
+use crate::migrate;
+use crate::settings::{self, Mistake, Source, DEFAULTS};
+use crate::store::{self, Place};
+use crate::{collect, values};
+
+/// The settings files of `place` as the service reads them, with `file` taking its place among
+/// them: in place of the one it is, as a drop-in when it is in a folder named elamond.d, else in
+/// place of the main file. Its text comes from `text` when given (an edited copy), from the file
+/// otherwise. With whether the first is the main file, which may not be there.
+fn sources_with(place: &Place, file: Option<&Path>, text: Option<String>) -> Result<(Vec<Source>, bool), Vec<Mistake>> {
+	let mut files = place.files();
+	let Some(file) = file else {
+		let sources = settings::read_files(&files)?;
+		let main = settings::main_in(&files, &sources);
+		return Ok((sources, main));
+	};
 	let same = |a: &Path| a == file || fs::canonicalize(a).ok().zip(fs::canonicalize(file).ok()).is_some_and(|(x, y)| x == y);
 	let dropin = file.parent().and_then(Path::file_name).is_some_and(|d| d == store::DROPIN_DIR);
 	match files.iter().position(|f| same(f)) {
@@ -41,11 +51,8 @@ fn sources_with(file: Option<&Path>, text: Option<String>) -> Result<Vec<Source>
 			return Err(vec![Mistake { file: Some(name), line: None, path: String::new(), message: "there is no such file".into() }]);
 		}
 	}
-	Ok(sources)
-}
-
-fn files_main() -> PathBuf {
-	store::config_files().remove(0)
+	let main = settings::main_in(&files, &sources);
+	Ok((sources, main))
 }
 
 /// "1 link", "2 links".
@@ -68,11 +75,17 @@ pub fn check(args: &[String]) -> Result<(), String> {
 		[f] if !f.starts_with('-') => Some(PathBuf::from(f)),
 		_ => return Err("usage: elamond check [FILE]".into()),
 	};
-	let sources = sources_with(file.as_deref(), None).inspect_err(|m| tell(m)).map_err(|_| "the settings can't be read".to_string())?;
-	match settings::read_sources(&sources) {
+	let place = Place::here();
+	let (sources, main) = sources_with(&place, file.as_deref(), None).inspect_err(|m| tell(m)).map_err(|_| "the settings can't be read".to_string())?;
+	match settings::read_settings(&sources, main) {
 		Ok(c) => {
 			let read: Vec<&str> = sources.iter().map(|s| s.name.as_str()).collect();
-			let from = if read.is_empty() { "the built-in defaults alone".to_string() } else { format!("the built-in defaults, {}", read.join(", ")) };
+			let old = settings::over_defaults(sources.first().filter(|_| main));
+			let from = match (read.is_empty(), old) {
+				(true, _) => "no file at all".to_string(),
+				(false, true) => format!("the defaults under {}", read.join(", ")),
+				(false, false) => read.join(", "),
+			};
 			println!(
 				"The settings are sound: {}, {}, {}, {}, from {from}.",
 				count(c.dashboards.len(), "dashboard"),
@@ -80,6 +93,27 @@ pub fn check(args: &[String]) -> Result<(), String> {
 				count(c.links.len(), "link"),
 				count(c.profiles.len(), "profile")
 			);
+			let mut warn = settings::warnings(&c);
+			if old {
+				let first = sources[0].name.as_str();
+				warn.push(match migrate::movable(&place) {
+					Ok(()) if file.is_none() => format!(
+						"{first} has no schema: a file of elamond 0.6.0, read over the defaults; it moves to schema 3 at the service's next start, the file before kept beside it as {}",
+						migrate::KEPT
+					),
+					_ => format!("{first} has no schema: a file of elamond 0.6.0, read over the defaults as 0.6.0 read it"),
+				});
+			}
+			if !main && place.named.is_none() && file.is_none() {
+				warn.push(format!(
+					"there is no {} yet: the service writes the settings elamond starts with there at its next start",
+					store::shown(&place.main())
+				));
+			}
+			warn.extend(migrate::not_read(&place));
+			for w in warn {
+				println!("  ! {w}");
+			}
 			Ok(())
 		}
 		Err(m) => {
@@ -93,8 +127,9 @@ pub fn check(args: &[String]) -> Result<(), String> {
 /// settings are checked with it in its place. Sound, it replaces the file and the running service
 /// takes it up by itself; broken, it is kept out, and the editor opens again if wanted.
 pub fn edit(args: &[String]) -> Result<(), String> {
+	let place = Place::here();
 	let target = match args {
-		[] => files_main(),
+		[] => place.main(),
 		[f] if !f.starts_with('-') => PathBuf::from(f),
 		_ => return Err("usage: elamond edit [FILE]".into()),
 	};
@@ -107,7 +142,7 @@ pub fn edit(args: &[String]) -> Result<(), String> {
 	};
 	// A file Nix or Home Manager put there is theirs: replacing their link would be undone, or
 	// stop the next switch.
-	if fs::symlink_metadata(&target).is_ok_and(|m| m.file_type().is_symlink()) && fs::canonicalize(&target).is_ok_and(|p| p.starts_with("/nix/store")) {
+	if store::from_nix_store(&target) {
 		return Err(format!("{} comes from the Nix store; change it where it is made, or put your own settings in a drop-in in {}/", target.display(), store::DROPIN_DIR));
 	}
 	let dir = target.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
@@ -118,15 +153,20 @@ pub fn edit(args: &[String]) -> Result<(), String> {
 	let base = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).filter(|d| d.is_absolute() && d.is_dir()).unwrap_or_else(std::env::temp_dir);
 	let scratch = scratch_dir(&base).map_err(|e| format!("can't make a folder to edit in, in {}: {e}", base.display()))?;
 	let copy = scratch.join(target.file_name().unwrap_or("elamond.toml".as_ref()));
+	// A new main file starts as the service would write it; a new drop-in, empty but for a word.
 	let start = original.clone().unwrap_or_else(|| {
-		"# elamond's settings (docs/config.md). `elamond defaults` prints the built-in dashboards and\n# profile; a table here with the same id changes them key by key.\n\n".into()
+		if target == place.main() {
+			DEFAULTS.to_string()
+		} else {
+			"# A drop-in of elamond's settings (docs/config.md): its tables add to those of elamond.toml\n# with the same id, key by key.\n\n".into()
+		}
 	});
-	let result = edit_loop(&editor, &target, &copy, &start, original.as_deref());
+	let result = edit_loop(&place, &editor, &target, &copy, &start, original.as_deref());
 	let _ = fs::remove_dir_all(&scratch);
 	result
 }
 
-fn edit_loop(editor: &str, target: &Path, copy: &Path, start: &str, original: Option<&str>) -> Result<(), String> {
+fn edit_loop(place: &Place, editor: &str, target: &Path, copy: &Path, start: &str, original: Option<&str>) -> Result<(), String> {
 	fs::write(copy, start).map_err(|e| format!("can't write {}: {e}", copy.display()))?;
 	loop {
 		let mut words = editor.split_whitespace();
@@ -140,7 +180,7 @@ fn edit_loop(editor: &str, target: &Path, copy: &Path, start: &str, original: Op
 			println!("No change.");
 			return Ok(());
 		}
-		let checked = sources_with(Some(target), Some(text.clone())).and_then(|s| settings::read_sources(&s));
+		let checked = sources_with(place, Some(target), Some(text.clone())).and_then(|(s, main)| settings::read_settings(&s, main));
 		match checked {
 			Ok(_) => {
 				save(target, &text).map_err(|e| format!("can't write {}: {e}", target.display()))?;
@@ -177,41 +217,20 @@ fn scratch_dir(base: &Path) -> io::Result<PathBuf> {
 /// The permissions settings written for `path` get: its own, or only its owner's for a new file
 /// (a link may hold a password, a command a token).
 fn mode_for(path: &Path) -> u32 {
-	fs::metadata(path).map(|m| m.permissions().mode() & 0o777).unwrap_or(0o600)
+	store::mode_of(path, 0o600)
 }
 
 /// Replaces `path` with `text` in one step, keeping its permissions (only its owner's for a new
 /// file). The text is never in a file others may read where the settings themselves aren't.
 fn save(path: &Path, text: &str) -> io::Result<()> {
-	replace_as(path, text, mode_for(path))
+	store::replace_as(path, text.as_bytes(), mode_for(path))
 }
 
 /// Keeps an edit the settings refused beside `target`, as `<name>.broken`, as private as it.
 fn keep_broken(target: &Path, text: &str) -> io::Result<PathBuf> {
 	let kept = target.with_file_name(format!("{}.broken", target.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()));
-	replace_as(&kept, text, mode_for(target))?;
+	store::replace_as(&kept, text.as_bytes(), mode_for(target))?;
 	Ok(kept)
-}
-
-/// Writes `text` to `path` in one step, the file having `mode`: through a new file beside it of a
-/// name of its own, made with that mode, renamed over `path`.
-fn replace_as(path: &Path, text: &str, mode: u32) -> io::Result<()> {
-	let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
-	let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-	let tag = data_encoding::HEXLOWER.encode(&store::random_bytes::<4>());
-	let tmp = dir.join(format!(".{name}.{}.{tag}.saving", std::process::id()));
-	let written = (|| {
-		let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(mode).open(&tmp)?;
-		f.write_all(text.as_bytes())?;
-		// The umask may have taken some of the mode away: the file is to have it whole.
-		f.set_permissions(fs::Permissions::from_mode(mode))?;
-		f.sync_all()?;
-		fs::rename(&tmp, path)
-	})();
-	if written.is_err() {
-		let _ = fs::remove_file(&tmp);
-	}
-	written
 }
 
 /// `elamond schema`: the JSON Schema of a settings file.
@@ -220,10 +239,208 @@ pub fn schema() -> Result<(), String> {
 	Ok(())
 }
 
-/// `elamond defaults`: the built-in dashboards and profile.
-pub fn defaults() -> Result<(), String> {
-	print!("{}", settings::DEFAULTS);
-	Ok(())
+/// `elamond defaults`: the settings elamond starts with; `--diff`, where the settings differ from
+/// them and how they changed since the version before; `TABLE`, one table of them to copy.
+pub fn defaults(args: &[String]) -> Result<(), String> {
+	match args {
+		[] => {
+			print!("{DEFAULTS}");
+			Ok(())
+		}
+		[d] if d == "--diff" => {
+			print!("{}", defaults_diff(&Place::here(), env!("CARGO_PKG_VERSION"))?);
+			Ok(())
+		}
+		[t] if !t.starts_with('-') => {
+			print!("{}", defaults_table(t)?);
+			Ok(())
+		}
+		_ => Err("usage: elamond defaults [--diff | TABLE]".into()),
+	}
+}
+
+/// The tables with ids, in the order `elamond defaults --diff` lists them: as the starter file
+/// has them, then those it has only as examples.
+pub const SECTIONS: [&str; 5] = ["profiles", "dashboards", "templates", "links", "actions"];
+
+/// How a part of the settings differs from the same part of others.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Kind {
+	Changed,
+	Added,
+	Removed,
+}
+
+impl Kind {
+	fn word(self) -> &'static str {
+		match self {
+			Kind::Changed => "changed",
+			Kind::Added => "added",
+			Kind::Removed => "removed",
+		}
+	}
+}
+
+/// A part of the settings, `(top level)` or a table with an id (`dashboards.sensors`), that
+/// differs, and in which of its keys when it is in both.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Change {
+	pub kind: Kind,
+	pub unit: String,
+	pub keys: Vec<String>,
+}
+
+impl fmt::Display for Change {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "{} {}", self.kind.word(), self.unit)?;
+		if !self.keys.is_empty() {
+			write!(f, " ({})", self.keys.join(", "))?;
+		}
+		Ok(())
+	}
+}
+
+/// The keys whose values differ between `a` and `b`, of those `keep` keeps, sorted.
+fn keys_differing(a: &Map<String, Value>, b: &Map<String, Value>, keep: impl Fn(&str) -> bool) -> Vec<String> {
+	let mut keys: Vec<String> = a.keys().chain(b.keys()).filter(|k| keep(k) && a.get(*k) != b.get(*k)).cloned().collect();
+	keys.sort();
+	keys.dedup();
+	keys
+}
+
+/// Where the settings `yours` differ from `base`, both as merged from their files: the top-level
+/// keys (but `schema`), then each table with an id, added, changed (and in which keys) or removed.
+pub fn diff(yours: &Map<String, Value>, base: &Map<String, Value>) -> Vec<Change> {
+	let mut out = Vec::new();
+	let top = keys_differing(yours, base, |k| k != "schema" && !SECTIONS.contains(&k));
+	if !top.is_empty() {
+		out.push(Change { kind: Kind::Changed, unit: "(top level)".into(), keys: top });
+	}
+	let empty = Map::new();
+	let mut tables = Vec::new();
+	for section in SECTIONS {
+		let of = |m: &'_ Map<String, Value>| m.get(section).and_then(Value::as_object).cloned().unwrap_or_default();
+		let (mine, theirs) = (of(yours), of(base));
+		let mut ids: Vec<&String> = mine.keys().chain(theirs.keys()).collect();
+		ids.sort();
+		ids.dedup();
+		for id in ids {
+			let unit = format!("{section}.{id}");
+			let change = match (mine.get(id), theirs.get(id)) {
+				(Some(_), None) => Change { kind: Kind::Added, unit, keys: Vec::new() },
+				(None, Some(_)) => Change { kind: Kind::Removed, unit, keys: Vec::new() },
+				(Some(a), Some(b)) if a != b => {
+					let keys = keys_differing(a.as_object().unwrap_or(&empty), b.as_object().unwrap_or(&empty), |_| true);
+					Change { kind: Kind::Changed, unit, keys }
+				}
+				_ => continue,
+			};
+			tables.push(change);
+		}
+	}
+	// Changed, then added, then removed, each in the order of the sections.
+	tables.sort_by_key(|c| c.kind);
+	out.extend(tables);
+	out
+}
+
+/// A settings file as JSON, its tables as they are: one file needs no merging.
+fn as_json(text: &str) -> Result<Map<String, Value>, String> {
+	let t: toml::Table = text.parse().map_err(|e: toml::de::Error| e.message().trim().to_string())?;
+	match serde_json::to_value(t) {
+		Ok(Value::Object(o)) => Ok(o),
+		_ => Err("isn't a table".into()),
+	}
+}
+
+/// The lines of `changes`, the keys in a column of their own.
+fn lines_of(changes: &[Change]) -> String {
+	let width = changes.iter().filter(|c| !c.keys.is_empty()).map(|c| c.unit.chars().count()).max().unwrap_or(0).max(19);
+	let mut out = String::new();
+	for c in changes {
+		let line = format!("  {:<7}  {:<width$}  {}", c.kind.word(), c.unit, c.keys.join(", "));
+		out.push_str(line.trim_end());
+		out.push('\n');
+	}
+	out
+}
+
+/// `elamond defaults --diff`: where the settings of `place` differ from those elamond `version`
+/// starts with, and what changed in those since the version whose defaults.toml.old is there.
+fn defaults_diff(place: &Place, version: &str) -> Result<String, String> {
+	let files = place.files();
+	let sources = settings::read_files(&files).map_err(|m| settings::join_mistakes(&m))?;
+	let (_, yours) = settings::read_merged(&sources, settings::main_in(&files, &sources))
+		.map_err(|m| format!("{}\nthe settings have mistakes; elamond check names them", settings::join_mistakes(&m)))?;
+	let defaults = as_json(DEFAULTS)?;
+	let mut out = String::new();
+	let mine = diff(&yours, &defaults);
+	if mine.is_empty() {
+		out.push_str(&format!("Your settings are the defaults of elamond {version}.\n"));
+	} else {
+		out.push_str(&format!("Your settings beside the defaults of elamond {version}:\n{}", lines_of(&mine)));
+	}
+	out.push('\n');
+	let old_path = place.dir.join(migrate::DEFAULTS_OLD);
+	let since = match fs::read_to_string(&old_path) {
+		Ok(text) => {
+			let before = migrate::version_of(&text).unwrap_or("the version before").to_string();
+			let old = as_json(&text).map_err(|e| format!("{} doesn't parse: {e}", store::shown(&old_path)))?;
+			let changed = diff(&defaults, &old);
+			if changed.is_empty() {
+				out.push_str(&format!("The defaults are the same as those of elamond {before} ({}).\n", migrate::DEFAULTS_OLD));
+			} else {
+				out.push_str(&format!("What changed in the defaults since elamond {before} ({}):\n{}", migrate::DEFAULTS_OLD, lines_of(&changed)));
+			}
+			changed
+		}
+		Err(_) => {
+			out.push_str(&format!(
+				"There is no {} yet: nothing to compare the defaults of elamond {version} with until another version starts here.\n",
+				migrate::DEFAULTS_OLD
+			));
+			Vec::new()
+		}
+	};
+	// A table worth a look: one the defaults changed or added, or one of the defaults yours changed.
+	let worth = since
+		.iter()
+		.find(|c| c.kind != Kind::Removed && c.unit.contains('.'))
+		.or_else(|| mine.iter().find(|c| c.kind != Kind::Added && c.unit.contains('.')));
+	if let Some(c) = worth {
+		out.push_str(&format!("\nCopy a table to start from: elamond defaults {}\n", c.unit));
+	}
+	Ok(out)
+}
+
+/// `elamond defaults TABLE`: the table `name` (`dashboards.sensors`) of the settings elamond starts
+/// with, as TOML to copy into the settings, its lists of tables and comments with it.
+fn defaults_table(name: &str) -> Result<String, String> {
+	let doc: toml_edit::DocumentMut = DEFAULTS.parse().map_err(|e| format!("the defaults don't parse: {e}"))?;
+	let found = name.split_once('.').filter(|(s, _)| SECTIONS.contains(s)).and_then(|(section, id)| {
+		let s = doc.get(section)?.as_table()?;
+		Some((section, s.key(id)?.clone(), s.get(id)?.clone()))
+	});
+	let Some((section, key, mut item)) = found else {
+		let mut all = Vec::new();
+		for section in SECTIONS {
+			if let Some(t) = doc.get(section).and_then(toml_edit::Item::as_table) {
+				all.extend(t.iter().map(|(id, _)| format!("{section}.{id}")));
+			}
+		}
+		return Err(format!("no table \"{name}\" in the defaults; they have {}", all.join(", ")));
+	};
+	// Its own comment, not the heading of the part of the file it is in.
+	if let Some(t) = item.as_table_mut() {
+		let prefix = t.decor().prefix().and_then(|p| p.as_str()).unwrap_or("").to_string();
+		t.decor_mut().set_prefix(crate::phones::split_own(&prefix).1.to_string());
+	}
+	let mut holder = toml_edit::Table::new();
+	holder.set_implicit(true);
+	holder.insert_formatted(&key, item);
+	let mut out = toml_edit::DocumentMut::new();
+	out.insert(section, toml_edit::Item::Table(holder));
+	Ok(out.to_string())
 }
 
 /// `elamond values`: every address this computer has now, with its value, unit and format; then
@@ -273,6 +490,7 @@ pub fn values() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::os::unix::fs::PermissionsExt;
 
 	#[test]
 	fn a_file_stands_in_its_place() {
@@ -283,12 +501,86 @@ mod tests {
 		fs::write(d.join("x.toml"), "port = 2\n").unwrap();
 		let other = dir.join("other.toml");
 		fs::write(&other, "port = 3\n").unwrap();
-		let s = sources_with(Some(&d.join("x.toml")), None).unwrap();
-		assert!(s.iter().any(|s| s.name.ends_with("x.toml") && s.text == "port = 2\n"));
-		let s = sources_with(Some(&other), Some("port = 4\n".into())).unwrap();
-		assert!(s.iter().any(|s| s.name.ends_with("other.toml") && s.text == "port = 4\n"));
-		assert!(sources_with(Some(&dir.join("missing.toml")), None).is_err());
+		let place = Place { dir: dir.join("config"), named: None };
+		let (s, main) = sources_with(&place, Some(&d.join("x.toml")), None).unwrap();
+		assert!(s.iter().any(|s| s.name.ends_with("x.toml") && s.text == "port = 2\n") && !main);
+		let (s, main) = sources_with(&place, Some(&other), Some("port = 4\n".into())).unwrap();
+		assert!(s.iter().any(|s| s.name.ends_with("other.toml") && s.text == "port = 4\n") && main);
+		assert!(sources_with(&place, Some(&dir.join("missing.toml")), None).is_err());
 		fs::remove_dir_all(dir).unwrap();
+	}
+
+	/// Settings with no main file are the drop-ins alone; with one of 0.6.0, the defaults under it.
+	#[test]
+	fn the_main_file_says_what_is_under_the_drop_ins() {
+		let dir = std::env::temp_dir().join(format!("elamond-main-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
+		let place = Place { dir: dir.clone(), named: None };
+		fs::create_dir_all(place.dropins()).unwrap();
+		fs::write(place.dropins().join("a.toml"), "[profiles.mine]\nname = \"Mine\"\n").unwrap();
+		let read = || {
+			let (s, main) = sources_with(&place, None, None).unwrap();
+			settings::read_settings(&s, main).unwrap()
+		};
+		// No elamond.toml: nothing under the drop-in, though it says no schema.
+		let c = read();
+		assert!(c.dashboards.is_empty() && c.profiles.keys().eq(["mine"]));
+		assert!(settings::warnings(&c).iter().any(|w| w.starts_with("there are no dashboards")));
+		assert!(settings::warnings(&c).iter().any(|w| w.starts_with("default_profile \"default\" is none of the profiles (the profiles are mine)")));
+		// One of 0.6.0: the defaults under it.
+		fs::write(place.main(), "control = true\n").unwrap();
+		let c = read();
+		assert!(c.control && c.dashboards.contains_key("overview") && c.profiles.contains_key("mine"));
+		// One of schema 3: nothing under it.
+		fs::write(place.main(), "schema = 3\n").unwrap();
+		assert!(read().dashboards.is_empty());
+		fs::remove_dir_all(dir).unwrap();
+	}
+
+	#[test]
+	fn the_defaults_beside_the_settings() {
+		let dir = std::env::temp_dir().join(format!("elamond-diff-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
+		let place = Place { dir: dir.clone(), named: None };
+		fs::create_dir_all(place.dropins()).unwrap();
+		fs::write(place.main(), DEFAULTS.replace("control = false", "control = true").replace("theme = \"system\"", "theme = \"dark\"")).unwrap();
+		fs::write(place.dropins().join("mine.toml"), "listen = [\"eno1\"]\n[profiles.owner]\nuse = \"default\"\n").unwrap();
+		let out = defaults_diff(&place, "0.6.1").unwrap();
+		assert_eq!(
+			out,
+			"Your settings beside the defaults of elamond 0.6.1:\n\
+			 \x20 changed  (top level)          control, listen\n\
+			 \x20 changed  profiles.default     theme\n\
+			 \x20 added    profiles.owner\n\
+			 \n\
+			 There is no defaults.toml.old yet: nothing to compare the defaults of elamond 0.6.1 with until another version starts here.\n\
+			 \n\
+			 Copy a table to start from: elamond defaults profiles.default\n"
+		);
+		// The version before had other sensors, and a dashboard this one hasn't.
+		let before = DEFAULTS.replace("label = \"Wireless\"", "label = \"Wi-Fi\"") + "\n[dashboards.extra]\ntitle = \"Extra\"\n";
+		fs::write(place.dir.join(migrate::DEFAULTS_OLD), migrate::defaults_header("0.6.0") + &before).unwrap();
+		let out = defaults_diff(&place, "0.6.1").unwrap();
+		assert!(
+			out.contains("What changed in the defaults since elamond 0.6.0 (defaults.toml.old):\n  changed  dashboards.sensors   widgets\n  removed  dashboards.extra\n\nCopy a table to start from: elamond defaults dashboards.sensors\n"),
+			"{out}"
+		);
+		fs::remove_dir_all(dir).unwrap();
+	}
+
+	#[test]
+	fn a_table_of_the_defaults_to_copy() {
+		let sensors = defaults_table("dashboards.sensors").unwrap();
+		assert!(sensors.starts_with("[dashboards.sensors]\ntitle = \"Sensors\"\n"), "{sensors}");
+		assert_eq!(sensors.matches("[[dashboards.sensors.widgets]]").count(), 8);
+		assert!(!sensors.contains("templates") && !sensors.contains("# ----"), "{sensors}");
+		let profile = defaults_table("profiles.default").unwrap();
+		assert!(profile.starts_with("[profiles.default]\n") && profile.contains("\n[profiles.default.android]\n"), "{profile}");
+		let template = defaults_table("templates.sensor_table").unwrap();
+		assert!(template.starts_with("[templates.sensor_table]\ntype = \"table\"\n"), "{template}");
+		// Each reads as settings, beside the template it uses.
+		let text = format!("schema = 3\n{template}\n{sensors}");
+		settings::read_sources(&[Source::new("a.toml", text)]).unwrap();
+		let e = defaults_table("dashboards.nope").unwrap_err();
+		assert!(e.starts_with("no table \"dashboards.nope\" in the defaults; they have profiles.default, dashboards.header, dashboards.overview"), "{e}");
 	}
 
 	#[test]

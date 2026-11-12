@@ -382,42 +382,6 @@ fn merge(into: &mut toml::Table, from: toml::Table) {
 	}
 }
 
-/// The settings file setup writes where there is none.
-const STARTER: &str = r#"# Settings of the Elamon service (elamond). Every key is optional; all of them are in
-# docs/config.md (https://github.com/Elaizes/elamon/blob/main/docs/config.md).
-# The service rereads this file when it changes. Files in elamond.d/*.toml beside it add to it.
-# Keep a secret (a password in a link, a token among a command's arguments) in a file only you
-# can read: chmod 600.
-
-# Let paired phones act on this computer (power, the power profile, units, media, the actions
-# below), each as far as its role allows.
-control = false
-
-# port = 47823
-# listen = ["eno1", "tailscale0"]      # addresses or interfaces; every address by default
-# names = ["deskpc.example.net"]       # names that reach this computer, for the pairing code
-
-# A web page this computer hosts, and the system unit behind it that phones may start and
-# stop. Run `elamond setup` again after adding one: the polkit rule it prints names the unit.
-# [links.jellyfin]
-# name = "Jellyfin"
-# url = "http://{host}:8096"
-# unit = "jellyfin.service"
-# scope = "system"
-
-# A command phones may run, with a choice for whoever runs it.
-# [actions.brightness]
-# name = "Screen brightness"
-# command = ["brightnessctl", "set", "{level}"]
-# params.level = { choices = ["10%", "50%", "100%"], labels = { "10%" = "Dim", "50%" = "Half", "100%" = "Full" }, default = "50%" }
-# role = "operate"
-
-# How phones look that have no profile of their own.
-# [profiles.default]
-# theme = "dark"
-# dashboards = ["overview", "processes", "sensors", "control"]
-"#;
-
 // ---- polkit and the firewall --------------------------------------------------------------
 
 /// The polkit rule that lets `user` do without a password what phones may ask the service for,
@@ -729,13 +693,26 @@ fn install(init: &dyn InitSystem, opts: &Opts, exe: &str, settings: &Settings) -
 	} else {
 		done(&format!("{} is up to date", short(&path)));
 	}
-	let config = store::config_files().into_iter().next().filter(|_| std::env::var_os("ELAMON_CONFIG").is_none());
+	// The settings elamond starts with, where there are none of the user's own; and those, beside
+	// them, for reference, as the service writes them at its start.
+	let place = store::Place::here();
+	let config = place.named.is_none().then(|| place.main());
 	if let Some(config) = config.filter(|p| fs::symlink_metadata(p).is_err()) {
 		if print {
-			println!("Would write {}, settings to start from:\n\n{}", short(&config), indent(STARTER));
+			println!("Would write {}: the settings elamond starts with, control off (elamond defaults prints them)", short(&config));
 		} else {
-			write_new(&config, STARTER).map_err(|e| format!("can't write {}: {e}", config.display()))?;
-			done(&format!("wrote {}, settings to start from (control is off)", short(&config)));
+			crate::migrate::write_starter(&config).map_err(|e| format!("can't write {}: {e}", config.display()))?;
+			done(&format!("wrote {}, the settings elamond starts with (control is off)", short(&config)));
+		}
+	}
+	let version = env!("CARGO_PKG_VERSION");
+	if print {
+		println!("Would write {} unless elamond {version} wrote it: those settings, for reference", short(&place.dir.join(crate::migrate::DEFAULTS_FILE)));
+	} else if let Some(note) = crate::migrate::write_defaults(&place.dir, version) {
+		if note.starts_with("wrote") {
+			done(&note);
+		} else {
+			println!("  !   {note}");
 		}
 	}
 	let commands = init.activate(start);
@@ -891,15 +868,6 @@ fn write_file(path: &Path, text: &str, mode: u32) -> io::Result<()> {
 		let _ = fs::remove_file(&tmp);
 	}
 	written
-}
-
-/// Writes a file only its owner reads, never over one that is there.
-fn write_new(path: &Path, text: &str) -> io::Result<()> {
-	if let Some(dir) = path.parent() {
-		fs::create_dir_all(dir)?;
-	}
-	let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
-	f.write_all(text.as_bytes())
 }
 
 fn run_command(c: &[String]) -> Result<(), String> {
@@ -1264,13 +1232,16 @@ mod tests {
 		text.parse().unwrap()
 	}
 
-	/// The starter's examples, uncommented.
+	/// The starter with its examples uncommented, as a person would take them up: each line of
+	/// TOML after a `# `, a table's or a key's.
 	fn starter_uncommented() -> String {
-		STARTER
+		let toml_line = |l: &str| l.starts_with('[') || l.split_once(" = ").is_some_and(|(k, _)| !k.is_empty() && k.bytes().all(|b| b.is_ascii_lowercase() || b == b'_' || b == b'.'));
+		crate::settings::DEFAULTS
 			.lines()
-			.filter_map(|l| l.strip_prefix("# "))
-			.filter(|l| l.starts_with('[') || l.contains(" = "))
-			.filter(|l| !l.starts_with("port") && !l.starts_with("listen") && !l.starts_with("names"))
+			.map(|l| match l.strip_prefix("# ") {
+				Some(rest) if toml_line(rest) => rest,
+				_ => l,
+			})
 			.collect::<Vec<_>>()
 			.join("\n")
 	}
@@ -1380,23 +1351,24 @@ mod tests {
 
 	#[test]
 	fn the_starter_settings_parse_and_so_do_their_examples() {
-		let t = table(STARTER);
-		assert_eq!(t.get("control"), Some(&toml::Value::Boolean(false)));
-		assert_eq!(t.len(), 1, "only control is set");
+		let starter = crate::settings::DEFAULTS;
+		let t = table(starter);
+		assert_eq!((t.get("schema"), t.get("control")), (Some(&toml::Value::Integer(3)), Some(&toml::Value::Boolean(false))));
 		// The service reads it as it is, checks and all, and its examples once uncommented too.
 		let read = |text: &str| crate::settings::read_sources(&[crate::settings::Source::new("elamond.toml", text)]);
-		read(STARTER).unwrap_or_else(|m| panic!("the starter settings: {}", crate::settings::join_mistakes(&m)));
-		let config = read(&starter_uncommented()).unwrap_or_else(|m| panic!("the starter's examples: {}", crate::settings::join_mistakes(&m)));
+		read(starter).unwrap_or_else(|m| panic!("the starter settings: {}", crate::settings::join_mistakes(&m)));
+		let uncommented = starter_uncommented();
+		let config = read(&uncommented).unwrap_or_else(|m| panic!("the starter's examples: {}", crate::settings::join_mistakes(&m)));
 		assert!(config.links.contains_key("jellyfin") && config.actions.contains_key("brightness"));
+		assert_eq!((config.name.as_str(), config.names.as_slice()), ("Desk", ["desk.example.net".to_string()].as_slice()));
 
-		let examples = table(&starter_uncommented());
+		let examples = table(&uncommented);
 		let link = &examples["links"]["jellyfin"];
 		assert_eq!(link["scope"].as_str(), Some("system"));
 		let action = &examples["actions"]["brightness"];
 		assert_eq!(action["command"][2].as_str(), Some("{level}"));
 		assert_eq!(action["params"]["level"]["choices"].as_array().map(Vec::len), Some(3));
 		assert_eq!(action["params"]["level"]["labels"]["50%"].as_str(), Some("Half"));
-		assert_eq!(examples["profiles"]["default"]["theme"].as_str(), Some("dark"));
 		assert_eq!(Settings::of(&examples).system_units, Ok(vec!["jellyfin.service".into()]));
 	}
 

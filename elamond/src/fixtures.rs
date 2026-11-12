@@ -32,15 +32,20 @@ fn check_compact(name: &str, value: &crate::ui::J) {
 }
 
 fn write_or_compare(name: &str, text: String) {
+	check_text(&format!("{name}.json"), &text);
+}
+
+/// The fixture `file` is `text`, or is written as it with `ELAMON_BLESS=1`.
+pub fn check_text(file: &str, text: &str) {
 	let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
-	let path = dir.join(format!("{name}.json"));
+	let path = dir.join(file);
 	if std::env::var_os("ELAMON_BLESS").is_some() {
 		std::fs::create_dir_all(&dir).unwrap();
-		std::fs::write(&path, &text).unwrap();
+		std::fs::write(&path, text).unwrap();
 		return;
 	}
 	let kept = std::fs::read_to_string(&path).unwrap_or_default();
-	assert!(kept == text, "elamond/fixtures/{name}.json is out of date: run `ELAMON_BLESS=1 cargo test` and commit it");
+	assert!(kept == text, "elamond/fixtures/{file} is out of date: run `ELAMON_BLESS=1 cargo test` and commit it");
 }
 
 /// `v` on one line: `{ "a": 1, "b": [1, 2] }`.
@@ -452,6 +457,30 @@ fn stream_open_and_ui() {
 	let operate = ui_for(&config, &values, Role::Operate, "owner");
 	assert_ne!(operate.version, ui.version);
 	check_compact("stream-ui", &crate::ui::J::Obj(crate::stream::ui_line(&operate.version, &endpoints())));
+}
+
+/// An elamond.toml of 0.6.0 and the whole one of schema 3 the service moves it to show phones the
+/// same, for every role, with the default profile and the owner's. Only where a profile is written
+/// (`profile.source`, its line) moved, and with it the document's version.
+#[test]
+fn settings_moved_from_0_6_0_show_the_same() {
+	let read = |text: &str| crate::settings::read_sources(&[crate::settings::Source::new("elamond.toml", text)]).unwrap();
+	let old = read(include_str!("../fixtures/settings-0.6.0.toml"));
+	let moved = read(include_str!("../fixtures/settings-0.6.0-moved.toml"));
+	assert!(crate::settings::has_schema(include_str!("../fixtures/settings-0.6.0-moved.toml")));
+	let doc = |config: &crate::settings::Config, role: Role, profile: &str| {
+		let mut v = ui_for(config, &values(config), role, profile).doc.to_value();
+		v.as_object_mut().unwrap().remove("version");
+		if let Some(p) = v["profile"].as_object_mut() {
+			p.remove("source");
+		}
+		v
+	};
+	for role in Role::ALL {
+		for profile in ["default", "owner"] {
+			assert_eq!(doc(&old, role, profile), doc(&moved, role, profile), "{role:?}, {profile}");
+		}
+	}
 }
 
 /// The requests the app sends read as the service reads them, and ask for what `ui.json` has.
