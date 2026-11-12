@@ -7,7 +7,7 @@ machine.wait_for_unit("multi-user.target")
 APP = "-H 'Elamon-Client: android/0.6.0'"
 
 # The settings the module writes, which login shells name for the commands; systemd-run's don't.
-ELAMON_CONFIG = machine.succeed(". /etc/set-environment; echo $ELAMON_CONFIG").strip()
+ELAMON_CONFIG = machine.succeed("grep -oh '/nix/store/[a-z0-9]*-elamond.toml' /etc/set-environment /etc/systemd/user/elamond.service | head -1").strip()
 assert ELAMON_CONFIG.startswith("/nix/store/"), ELAMON_CONFIG
 AS_ALICE = f"--uid=alice -p Environment=HOME=/home/alice -p Environment=ELAMON_CONFIG={ELAMON_CONFIG}"
 
