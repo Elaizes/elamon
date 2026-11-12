@@ -28,7 +28,7 @@ class StreamTellTest {
 	@Test
 	fun nothingWhileItSendsWhatIsWanted() {
 		val w = Want("p", 1000, mapOf("p/table" to "mem"))
-		assertEquals(Tell.Nothing, tell(w, w, ui, open))
+		assertEquals(Tell.Already, tell(w, w, ui, open))
 	}
 
 	@Test
@@ -55,7 +55,7 @@ class StreamTellTest {
 		assertEquals(Tell.Reopen, tell(sent, sent.copy(intervalMs = 30_000), ui, open))
 		// Opened for them, it is told nothing more.
 		val slow = Want("p", 30_000)
-		assertEquals(Tell.Nothing, tell(slow, slow, ui, Limits.streamReadTimeoutMs(30_000)))
+		assertEquals(Tell.Already, tell(slow, slow, ui, Limits.streamReadTimeoutMs(30_000)))
 		// And one opened for 30 s that is to send every second waits for that again.
 		assertEquals(Tell.Reopen, tell(slow, slow.copy(intervalMs = 1000), ui, Limits.streamReadTimeoutMs(30_000)))
 	}
@@ -83,7 +83,7 @@ class StreamTellTest {
 	fun anOrderTheComputerNoLongerKeepsToIsLeft() {
 		val sent = Want("s", 1000, mapOf("gone/table" to "mem", "s/table" to "rpm"))
 		// The table is gone from the ui, or no longer lists the order: the service doesn't keep to either.
-		assertEquals(Tell.Nothing, tell(sent, sent.copy(sorts = emptyMap()), ui, open))
+		assertEquals(Tell.Already, tell(sent, sent.copy(sorts = emptyMap()), ui, open))
 	}
 
 	@Test

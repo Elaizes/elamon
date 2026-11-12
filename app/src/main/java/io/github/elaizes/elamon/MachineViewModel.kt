@@ -84,7 +84,7 @@ data class Want(val dashboard: String?, val intervalMs: Int, val sorts: Map<Stri
 /** What an open stream needs, to send what is wanted: see [tell]. */
 sealed interface Tell {
 	/** It sends that already. */
-	data object Nothing : Tell
+	data object Already : Tell
 
 	/** `POST /api/v1/stream/{id}` with this. */
 	data class Change(val change: Subscribe) : Tell
@@ -119,7 +119,7 @@ fun tell(sent: Want, want: Want, ui: UiDoc?, readTimeoutMs: Int): Tell {
 		interval = want.intervalMs.takeIf { it != sent.intervalMs },
 		sort = sorts.ifEmpty { null },
 	)
-	return if (change == Subscribe()) Tell.Nothing else Tell.Change(change)
+	return if (change == Subscribe()) Tell.Already else Tell.Change(change)
 }
 
 /** A line for the snackbar: one of the app's strings, or what the computer said, as it said it. */
@@ -383,7 +383,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 					// Twice at most: what a refusal of one part leaves out is told once more.
 					repeat(2) {
 						val change = when (val t = tell(sent, target, _state.value.ui, timeout)) {
-							Tell.Nothing -> return@collect
+							Tell.Already -> return@collect
 							Tell.Reopen -> throw ReopenStream()
 							is Tell.Change -> t.change
 						}

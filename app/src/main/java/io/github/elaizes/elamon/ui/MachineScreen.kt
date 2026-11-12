@@ -174,7 +174,7 @@ fun MachineScreen(
 	val updating = stringResource(R.string.conn_updating)
 	// Live once the readings on screen are the stream's, not those kept from an earlier look at the dashboard.
 	val liveOn = { d: String? -> state.conn == Conn.Live && d != null && readingsLive(state.data, d, want.intervalMs) }
-	val statusOf = { d: String? -> if (state.conn == Conn.Live && !liveOn(d)) updating else connStatus }
+	val statusOf = { d: String? -> if (state.conn == Conn.Live && d != null && !liveOn(d)) updating else connStatus }
 	// Unpaired, another certificate, refused or not understood: the screen is a notice, with no
 	// tabs to switch between and no old numbers coming back.
 	val turnedAway = state.conn in setOf(Conn.Unauthorized, Conn.CertificateChanged, Conn.Refused, Conn.Incompatible)
@@ -290,7 +290,7 @@ fun MachineScreen(
 				GlassTopBar(
 					title = if (current != null && current in shownPages) ui?.dashboard(current)?.title ?: name else name,
 					// No big title on a notice: the bar says whose it is.
-					collapsed = collapsed || ui == null || turnedAway,
+					collapsed = collapsed || ui == null || turnedAway || current == null,
 					onBack = { if (shownPages.isNotEmpty()) pages = shownPages.dropLast(1) else onBack() },
 					subtitle = if (current != null && current in shownPages) name else statusOf(current),
 					actions = {
