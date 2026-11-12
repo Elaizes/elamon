@@ -112,6 +112,10 @@ class DashboardsTest {
 		// Figures aren't searched: 12.5 is no text.
 		assertEquals(emptyList(), Tables.search(procs, columns, "12.5").map { it.key })
 		assertEquals(procs, Tables.search(procs, columns, "  "))
+		// Fields the service names, numbers too, as a pid is found by its digits.
+		assertEquals(listOf("1"), Tables.searchIn(procs, listOf("mem"), "90").map { it.key })
+		assertEquals(listOf("name", "user"), Tables.searchFields(Widget("t", "table", columns = columns)))
+		assertEquals(listOf("mem"), Tables.searchFields(Widget("t", "table", columns = columns, searchFields = listOf("mem"))))
 	}
 
 	@Test

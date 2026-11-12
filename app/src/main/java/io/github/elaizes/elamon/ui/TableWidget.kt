@@ -100,7 +100,7 @@ class TableStates {
 /** The rows of [w] as shown: searched, and in the order asked for until the service sends them so. */
 fun tableRows(scope: DashScope, w: Widget): List<TableRow> {
 	val rows = scope.state(w)?.rows.orEmpty()
-	val searched = if (w.search == true) Tables.search(rows, w.columns.orEmpty(), scope.tables.query(w.id)) else rows
+	val searched = if (w.search == true) Tables.searchIn(rows, Tables.searchFields(w), scope.tables.query(w.id)) else rows
 	val asked = scope.tables.sort(w.id)
 	return if (asked != null && asked != w.sort?.field) Tables.sort(searched, asked, desc = true) else searched
 }
@@ -245,7 +245,7 @@ private fun TableControls(scope: DashScope, w: Widget, total: Int?, shown: Int) 
 
 /** What a field is called: its column's label, else its expanded field's, else its name. */
 private fun fieldLabel(w: Widget, field: String): String =
-	w.columns?.find { it.field == field }?.label ?: w.expand?.find { it.field == field }?.label ?: field.replaceFirstChar { it.uppercase() }
+	w.sortLabels?.get(field) ?: w.columns?.find { it.field == field }?.label ?: w.expand?.find { it.field == field }?.label ?: field.replaceFirstChar { it.uppercase() }
 
 /** The columns' labels over the rows, where any has one. */
 @Composable

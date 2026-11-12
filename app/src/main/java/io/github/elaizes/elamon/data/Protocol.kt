@@ -188,6 +188,10 @@ data class Widget(
 	val sort: Sort? = null,
 	val sorts: List<String>? = null,
 	val search: Boolean? = null,
+	/** The fields a search looks in; the text columns when the service doesn't say. */
+	@SerialName("search_fields") val searchFields: List<String>? = null,
+	/** What the chips that ask for another order call each field. */
+	@SerialName("sort_labels") val sortLabels: Map<String, String>? = null,
 	@SerialName("hide_empty") val hideEmpty: Boolean? = null,
 	@SerialName("row_open") val rowOpen: String? = null,
 	@SerialName("row_actions") val rowActions: List<RowAction>? = null,

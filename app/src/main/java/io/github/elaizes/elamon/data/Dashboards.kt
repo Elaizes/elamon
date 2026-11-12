@@ -58,10 +58,16 @@ object Tables {
 	fun textColumns(columns: List<Column>): List<Column> = columns.filter { it.format == null || it.format == "text" }
 
 	/** [rows] whose text columns hold [query], any case; all of them for a blank one. */
-	fun search(rows: List<Row>, columns: List<Column>, query: String): List<Row> {
+	fun search(rows: List<Row>, columns: List<Column>, query: String): List<Row> =
+		searchIn(rows, textColumns(columns).map { it.field }, query)
+
+	/** The fields [w]'s search looks in: those the service names, or its text columns. */
+	fun searchFields(w: Widget): List<String> = w.searchFields ?: textColumns(w.columns.orEmpty()).map { it.field }
+
+	/** [rows] where one of [fields], as text, holds [query], any case; all of them for a blank one. */
+	fun searchIn(rows: List<Row>, fields: List<String>, query: String): List<Row> {
 		val q = query.trim()
 		if (q.isEmpty()) return rows
-		val fields = textColumns(columns).map { it.field }
 		return rows.filter { r -> fields.any { f -> r.f[f].text()?.contains(q, ignoreCase = true) == true } }
 	}
 

@@ -36,6 +36,7 @@ class ProtocolContractTest {
 		"hello" to Hello.serializer(),
 		"pair" to PairResponse.serializer(),
 		"ui" to UiDoc.serializer(),
+		"ui-default" to UiDoc.serializer(),
 		"stream-open" to StreamLine.serializer(),
 		"stream-data" to StreamLine.serializer(),
 		"stream-data-detail" to StreamLine.serializer(),
@@ -65,14 +66,18 @@ class ProtocolContractTest {
 	private val asTheirParents = setOf("ui.dashboards[].widgets[].widgets")
 
 	/** Fixtures only checked one way, that the app reads them: another fixture of the same shape has every field. */
-	private val readOnly = mapOf("stream-data-detail" to "stream-data has every field of a data line")
+	private val readOnly = mapOf(
+		"stream-data-detail" to "stream-data has every field of a data line",
+		"ui-default" to "ui has every field of a ui document",
+	)
 
 	/**
 	 * Fields the app reads that the fixtures leave out, as "fixture.path.field" (a list's items, a
 	 * map's values as "[]"), to the reason.
 	 */
 	private val leftOut: Map<String, String> = mapOf(
-		"ui.header" to "the header dashboard is new in the contract; the service's fixtures don't have it yet",
+		"ui.dashboards[].widgets[].search_fields" to "asked of the service with sort_labels; its fixtures don't have them yet",
+		"ui.dashboards[].widgets[].sort_labels" to "asked of the service with search_fields; its fixtures don't have them yet",
 		"stream-data.widgets[].labels" to "the fixture's bars have no labels (none by default)",
 	)
 
@@ -171,7 +176,8 @@ class ProtocolContractTest {
 	fun theUiAsDescribed() {
 		val ui = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), fixture("ui"))
 		assertEquals(listOf("home"), ui.tabs)
-		assertEquals(listOf("home", "detail"), ui.dashboards.map { it.id })
+		assertEquals(listOf("home", "header", "detail"), ui.dashboards.map { it.id })
+		assertEquals("header", ui.header)
 		assertEquals("1m", ui.profile.unlock.grace)
 		assertEquals(false, ui.profile.android.dynamicColor)
 		val home = ui.dashboard("home")!!
@@ -346,24 +352,38 @@ class ProtocolContractTest {
 
 	@Test
 	fun theHeadersStatesComeWithEveryLine() {
-		// The contract's header: a dashboard whose widgets are the pills under the name, whatever is on screen.
+		// The header: a dashboard whose widgets are the pills under the name, whatever is on screen.
 		val ui = fixture("ui").jsonObject
-		val head = Json.parseToJsonElement(
-			"""{"id":"header","title":"Header","widgets":[{"id":"header/os","type":"text","span":1},{"id":"header/power","type":"status","span":1,"format":"text"}]}""",
-		)
-		val withHeader = JsonObject(ui + ("header" to JsonPrimitive("header")) + ("dashboards" to JsonArray(ui.getValue("dashboards").jsonArray + head)))
-		val doc = strict.decodeFromJsonElement(UiDoc.serializer(), withHeader)
+		val doc = strict.decodeFromJsonElement(UiDoc.serializer(), ui)
 		assertEquals("header", doc.header)
-		val line = """{"type":"data","t":5,"dashboard":"home","widgets":{"home/cpu":{"v":1.0},""" +
-			""""header/os":{"text":"Some OS","level":"normal"},"header/power":{"v":true,"text":"On AC power","level":"normal"}}}"""
-		val data = assertIs<DataLine>(decodeStreamLine(line))
+		val data = assertIs<DataLine>(decodeStreamLine(line("stream-data")))
 		val header = headerData(doc, data)!!
 		assertEquals("header", header.dashboard)
-		assertEquals(5, header.t)
-		assertEquals(setOf("header/os", "header/power"), header.widgets.keys)
-		assertEquals("On AC power", header.widgets.getValue("header/power").text)
+		assertEquals(data.t, header.t)
+		assertEquals(setOf("header/power"), header.widgets.keys)
+		assertEquals("On battery", header.widgets.getValue("header/power").text)
+		// The detail page's lines carry it too.
+		val detail = assertIs<DataLine>(decodeStreamLine(line("stream-data-detail")))
+		assertEquals(setOf("header/power"), headerData(doc, detail)!!.widgets.keys)
 		// No header, or a line without its widgets: nothing.
-		assertNull(headerData(ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), ui), data))
+		val bare = JsonObject(ui - "header" + ("dashboards" to JsonArray(ui.getValue("dashboards").jsonArray.filter { it.jsonObject["id"] != JsonPrimitive("header") })))
+		assertNull(headerData(ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), bare), data))
 		assertNull(headerData(doc, data.copy(widgets = mapOf("home/cpu" to WidgetState()))))
+	}
+
+
+	@Test
+	fun theStandardDashboardsAreAllDrawn() {
+		// The service's built-in dashboards, as an admin of the default profile gets them: the 0.5 tabs,
+		// the header and the pages their tiles open, with no widget the app can't draw.
+		val ui = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), fixture("ui-default"))
+		assertEquals(listOf("overview", "processes", "sensors", "control"), ui.tabs)
+		assertEquals("header", ui.header)
+		val ids = ui.dashboards.map { it.id }
+		for (page in listOf("cpu", "memory", "network", "storage", "battery", "activity")) assertTrue(page in ids, "no $page page")
+		assertTrue(ids.any { it.startsWith("gpu.") }, "no GPU page")
+		fun all(ws: List<Widget>): List<Widget> = ws.flatMap { listOf(it) + all(it.widgets.orEmpty()) }
+		val types = ui.dashboards.flatMap { all(it.widgets) }.map { it.type }.toSet()
+		assertTrue(types.all { it in WIDGET_TYPES }, "types the app doesn't draw: ${types - WIDGET_TYPES.toSet()}")
 	}
 }
