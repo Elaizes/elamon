@@ -44,23 +44,31 @@ fun isGap(previous: Long, t: Long, gapMs: Long): Boolean = t - previous > gapMs
 fun tooltipLeft(x: Float, boxWidth: Float, width: Float): Float =
 	(x - boxWidth / 2).coerceIn(0f, max(0f, width - boxWidth))
 
-/** 1, 2, 2.5, 5, 10… so the scale label reads as a round number. */
+/**
+ * 1, 2, 2.5, 5, 10… so the scale label reads as a round number. Past what a Float holds (a JSON
+ * number over 3.4e38 is infinite here) it is the largest one, so the loops end.
+ */
 fun niceCeiling(v: Float): Float {
-	if (v <= 0f) return 1f
+	if (v.isNaN() || v <= 0f) return 1f
+	if (v.isInfinite()) return Float.MAX_VALUE
 	var p = 1f
 	while (p * 10 <= v) p *= 10
 	while (p > v) p /= 10
-	for (m in NICE_STEPS) if (p * m >= v) return p * m
-	return p * 10
+	// Under a Float's smallest step there is nothing to round to.
+	if (p == 0f) return v
+	for (m in NICE_STEPS) if (p * m >= v) return finiteOrMax(p * m)
+	return finiteOrMax(p * 10)
 }
+
+private fun finiteOrMax(v: Float): Float = if (v.isInfinite()) Float.MAX_VALUE else v
 
 private val NICE_STEPS = floatArrayOf(1f, 2f, 2.5f, 5f, 10f)
 
-/** The next power of two at or above [v]: 512 KiB, 1 MiB, 2 MiB… */
+/** The next power of two at or above [v]: 512 KiB, 1 MiB, 2 MiB…; the largest Float past them. */
 fun niceBinary(v: Float): Float {
 	var p = 1f
-	while (p < v) p *= 2
-	return p
+	while (p < v && p.isFinite()) p *= 2
+	return finiteOrMax(p)
 }
 
 /**
@@ -68,13 +76,15 @@ fun niceBinary(v: Float): Float {
  * headroom, never under [minScale], and rounded up ([binary] for bytes) unless [round] is off.
  */
 fun chartScale(top: Float, maxValue: Float?, minScale: Float, binary: Boolean, round: Boolean = true): Float {
-	if (maxValue != null) return maxValue
+	// A fixed top the chart can divide by; one it can't (0, or past what a Float holds) leaves it to the data.
+	if (maxValue != null && maxValue.isFinite() && maxValue > 0f) return maxValue
 	val wanted = max(top * Thresholds.CHART_HEADROOM, minScale)
-	return when {
+	val scale = when {
 		!round -> wanted
 		binary -> niceBinary(wanted)
 		else -> niceCeiling(wanted)
 	}
+	return if (scale.isNaN() || scale <= 0f) 1f else finiteOrMax(scale)
 }
 
 /** The newest value that isn't missing, or NaN when there is none. */

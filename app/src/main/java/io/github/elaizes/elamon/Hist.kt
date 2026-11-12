@@ -91,7 +91,7 @@ class Hist(val seriesCount: Int, windowMs: Long = DEFAULT_HISTORY_SECONDS * 1000
 		for (i in h.t.indices) {
 			if (size > 0 && h.t[i] <= lastTime) continue
 			val s = push(h.t[i])
-			for (k in 0 until seriesCount) columns[k][s] = h.v.getOrNull(k)?.getOrNull(i)?.toFloat() ?: Float.NaN
+			for (k in 0 until seriesCount) columns[k][s] = point(h.v.getOrNull(k)?.getOrNull(i))
 		}
 		prune()
 		version++
@@ -105,11 +105,14 @@ class Hist(val seriesCount: Int, windowMs: Long = DEFAULT_HISTORY_SECONDS * 1000
 			clear()
 		}
 		val s = push(t)
-		for (k in 0 until seriesCount) columns[k][s] = values.getOrNull(k)?.toFloat() ?: Float.NaN
+		for (k in 0 until seriesCount) columns[k][s] = point(values.getOrNull(k))
 		prune()
 		version++
 		return true
 	}
+
+	/** A value as a point: NaN where it is missing, or past what a Float holds (no chart scales to it). */
+	private fun point(v: Double?): Float = v?.toFloat()?.takeIf { it.isFinite() } ?: Float.NaN
 
 	/** Room for one more point at the end, its time set and every value NaN; returns its slot. */
 	private fun push(t: Long): Int {

@@ -101,6 +101,20 @@ class HistTest {
 	}
 
 	@Test
+	fun valuesPastAFloatAreMissing() {
+		// 1e39 is infinite as a Float: no chart scales to it, so it is a gap like a missing value.
+		val h = Hist(2)
+		h.replace(HistoryEntry(t = listOf(1000, 2000), v = listOf(listOf(1e39, 1.0), listOf(-1e39, Double.NaN))))
+		h.add(3000, Double.POSITIVE_INFINITY, 2.0)
+		assertTrue(h.points(0).v(0).isNaN())
+		assertEquals(1f, h.points(0).v(1))
+		assertTrue(h.points(0).v(2).isNaN())
+		assertTrue(h.points(1).v(0).isNaN())
+		assertTrue(h.points(1).v(1).isNaN())
+		assertEquals(2f, h.points(1).v(2))
+	}
+
+	@Test
 	fun theFixturesHistoryReads() {
 		// stream-data.json: the network graph's two series, the temperature's spark with a gap.
 		val h = Hist(1)
