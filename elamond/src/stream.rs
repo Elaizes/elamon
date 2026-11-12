@@ -247,8 +247,9 @@ impl Run {
 		let mut frames = self.hub.frame.clone();
 		frames.borrow_and_update();
 		let mut end = ctl.end.subscribe();
-		// The first line goes at once, from the reading there is, as the opening line's follow-up.
-		let mut opening = true;
+		// The first line goes at once, from the reading there is, as the opening line's follow-up;
+		// once every half interval for a phone that opens one stream after another.
+		let mut opening = self.hub.first_at_once(&self.log.who.id, self.interval / 2);
 		loop {
 			let mut quick = false;
 			if !std::mem::take(&mut opening) {

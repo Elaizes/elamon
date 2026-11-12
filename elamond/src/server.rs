@@ -554,6 +554,20 @@ impl Hub {
 		true
 	}
 
+	/// Whether a stream of the phone `id` may send its first line at once, from the reading there
+	/// is, rather than with the next: once every `gap` for the phone, so opening stream after stream
+	/// costs no more than a line a reading.
+	pub(crate) fn first_at_once(&self, id: &str, gap: Duration) -> bool {
+		let now = Instant::now();
+		let mut map = self.stream_notes.lock().unwrap_or_else(|p| p.into_inner());
+		let n = map.entry(id.to_string()).or_default();
+		if n.at_once.is_some_and(|t| now.duration_since(t) < gap) {
+			return false;
+		}
+		n.at_once = Some(now);
+		true
+	}
+
 	pub(crate) fn stream_closed(&self, who: &Caller, logged: bool, lasted: Duration, why: &str) {
 		let mut map = self.stream_notes.lock().unwrap_or_else(|p| p.into_inner());
 		let n = map.entry(who.id.clone()).or_default();
@@ -589,6 +603,8 @@ struct StreamNotes {
 	logged: Option<Instant>,
 	opened: u32,
 	closed: u32,
+	/// When a stream of the phone's last sent its first line at once.
+	at_once: Option<Instant>,
 }
 
 impl StreamNotes {
@@ -619,7 +635,8 @@ impl StreamNotes {
 
 	/// Nothing to tell and nothing to hold back: the phone can be forgotten.
 	fn idle(&self, now: Instant) -> bool {
-		self.opened + self.closed == 0 && self.logged.is_none_or(|t| now.duration_since(t) >= cadence::STREAM_LOG_QUIET)
+		let past = |t: Option<Instant>, d: Duration| t.is_none_or(|t| now.duration_since(t) >= d);
+		self.opened + self.closed == 0 && past(self.logged, cadence::STREAM_LOG_QUIET) && past(self.at_once, cadence::STREAM_INTERVAL_MAX)
 	}
 }
 
@@ -1894,6 +1911,25 @@ dashboards = ["overview", "control"]
 		// Then at the interval again.
 		tx.send_replace(reading(5, true));
 		assert!(tokio::time::timeout(Duration::from_millis(300), lines.0.next()).await.is_err());
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
+	async fn a_phone_that_opens_stream_after_stream_gets_a_first_line_at_once_now_and_then() {
+		let (hub, tx) = hub(true);
+		let mut first = Lines::open(&hub, "/api/v1/stream?interval=2000", "t-admin").await;
+		first.next().await.unwrap();
+		assert!(first.next().await.unwrap()["history"].is_object());
+		// Another at once after: its first line with the next reading.
+		let mut second = Lines::open(&hub, "/api/v1/stream?interval=2000", "t-admin").await;
+		second.next().await.unwrap();
+		assert!(tokio::time::timeout(Duration::from_millis(300), second.0.next()).await.is_err());
+		tick(&hub, &tx);
+		assert!(second.next().await.unwrap()["history"].is_object());
+		// Another phone's isn't held up.
+		let mut other = Lines::open(&hub, "/api/v1/stream?interval=2000", "t-operate").await;
+		other.next().await.unwrap();
+		assert_eq!(other.next().await.unwrap()["type"], "data");
 		std::fs::remove_dir_all(&hub.dir).unwrap();
 	}
 

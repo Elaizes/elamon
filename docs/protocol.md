@@ -367,7 +367,8 @@ Lines:
    the state of each widget of the dashboard by its id, nested groups included, and of the
    header's widgets (`header/os`…) whatever dashboard is on screen. The first after opening, or
    after the dashboard changed, also has `history`: the graphs' points so far. It comes at once,
-   from the reading there is: a widget whose source isn't read yet (the processes, monitors, media
+   from the reading there is (with the next reading for a client that opened another stream within
+   half the interval): a widget whose source isn't read yet (the processes, monitors, media
    players, the volume, NVIDIA GPUs or the links, read only while a client shows them) has no state
    in a line until it is; a client shows it loading. The first reading that has them sends a line
    at once.
