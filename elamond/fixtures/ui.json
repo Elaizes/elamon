@@ -1,5 +1,5 @@
 {
-  "version": "a60211bf3c989731",
+  "version": "c80e39d0e4308db1",
   "service": {
     "id": "0123456789abcdef0123456789abcdef",
     "name": "fixture",
@@ -233,7 +233,9 @@
           ],
           "sort": { "field": "cpu", "desc": true },
           "sorts": ["cpu", "mem", "gpu", "io"],
+          "sort_labels": { "cpu": "CPU", "io": "Disk", "mem": "Memory" },
           "search": true,
+          "search_fields": ["name", "cmd"],
           "hide_empty": false,
           "row_actions": [
             { "action": "process.signal", "label": "Quit", "params": { "pid": "{pid}", "signal": "term", "start": "{start}" } }

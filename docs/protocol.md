@@ -322,7 +322,7 @@ reads, beside `id`, `type`, `span`, `label`, `icon`, `color` and `open`:
 | `bars` | `unit`, `format`, `max` |
 | `graph` | `series: [{ label, color, unit, format }]`, `range` (s), `height`, `min`, `max`, `floor` |
 | `list` | `items: [{ label, unit, format }]` |
-| `table` | `source`, `columns: [{ field, label, format, unit, bar: { max }, grow }]` (`max` a number, a field or `"top"`), `sort: { field, desc }`, `sorts`, `search`, `hide_empty`, `row_open`, `row_actions: [{ action, label, params }]`, `expand: [{ field, label, format, unit }]` |
+| `table` | `source`, `columns: [{ field, label, format, unit, bar: { max }, grow }]` (`max` a number, a field or `"top"`), `sort: { field, desc }`, `sorts`, `sort_labels` (field → the label of its chip; a field without one, its column's label or the field), `search` (bool), `search_fields` (the fields a client searches, when `search`: rows carry them), `hide_empty`, `row_open`, `row_actions: [{ action, label, params }]`, `expand: [{ field, label, format, unit }]` |
 | `button` | `action`, `params`, `open` |
 | `toggle` | `action`, `param`, `on`, `off` |
 | `select`, `slider` | `action`, `param` |

@@ -271,6 +271,7 @@ search = true
 limit = 100
 sort = { field = "cpu", desc = true }
 sorts = ["cpu", "mem", "gpu", "io"]
+sort_labels = { cpu = "CPU", mem = "Memory", io = "Disk" }
 columns = [
   { field = "name", grow = true },
   { field = "cpu", label = "CPU", bar = { max = 25 } },

@@ -257,7 +257,9 @@ pub struct Widget {
 	pub columns: Option<Vec<Column>>,
 	pub sort: Option<Sort>,
 	pub sorts: Option<Vec<String>>,
-	pub search: Option<bool>,
+	/// What the chips that pick another sort say, by field.
+	pub sort_labels: Option<BTreeMap<String, String>>,
+	pub search: Option<Search>,
 	pub limit: Option<u64>,
 	pub filter: Option<Map<String, Value>>,
 	pub hide_empty: Option<bool>,
@@ -272,6 +274,14 @@ pub struct Widget {
 	pub text: Option<String>,
 	pub level: Option<String>,
 	pub widgets: Option<Vec<WidgetDef>>,
+}
+
+/// A table's search: on or off, or the fields it searches.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(untagged)]
+pub enum Search {
+	On(bool),
+	Fields(Vec<String>),
 }
 
 /// A number, or an address (or, for a column's bar, a field or `top`).
@@ -915,7 +925,8 @@ pub fn type_keys(kind: &str) -> Vec<Key> {
 			k("columns", list(Ty::Rec("column"))),
 			k("sort", Ty::Rec("sort")),
 			k("sorts", list(Ty::Str)),
-			k("search", Ty::Bool),
+			k("sort_labels", map(Ty::Str)),
+			k("search", Ty::Any(vec![Ty::Bool, list(Ty::Str)])),
 			k("limit", Ty::Int(1, 10_000)),
 			k("filter", map(Ty::Scalar)),
 			k("hide_empty", Ty::Bool),
@@ -1711,6 +1722,18 @@ fn check_source(c: &Config, source: &str, w: &Widget, kind: &str, path: &str, pu
 	}
 	for (i, s) in w.sorts.iter().flatten().enumerate() {
 		named.push((s, format!("{}[{i}]", join(path, "sorts"))));
+	}
+	for f in w.sort_labels.iter().flat_map(|l| l.keys()) {
+		let sorted = w.sorts.iter().flatten().any(|s| s == f) || w.sort.as_ref().is_some_and(|s| &s.field == f);
+		if !sorted {
+			push(join(&join(path, "sort_labels"), f), format!("\"{f}\" isn't one of the table's sorts"));
+		}
+		named.push((f, join(&join(path, "sort_labels"), f)));
+	}
+	if let Some(Search::Fields(fields)) = &w.search {
+		for (i, f) in fields.iter().enumerate() {
+			named.push((f, format!("{}[{i}]", join(path, "search"))));
+		}
 	}
 	for f in w.filter.iter().flat_map(|f| f.keys()) {
 		named.push((f, join(&join(path, "filter"), f)));

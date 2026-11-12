@@ -279,7 +279,8 @@ A `table`:
 | `columns` | list of `{ field, label, format, unit, bar, grow, map }` | `bar = { max = … }` draws the cell as a bar, full at a number, at a field of the row (`"crit"`), or at `"top"`, a quarter above the largest in the column; `grow` takes the room left; a column without `label` has no heading |
 | `sort` | `{ field, desc }` | the order rows come in |
 | `sorts` | list of fields | other orders a client may ask for |
-| `search` | bool | a search field, over the text columns (the client's own) |
+| `sort_labels` | table, field → label | what the chips that pick one of `sorts` say (`{ cpu = "CPU", mem = "Memory" }`); the field's column label, or the field, otherwise |
+| `search` | bool, or list of fields | a search field: `true` searches the text columns and the text fields of `expand`, a list those fields; the client searches the rows it has |
 | `limit` | integer, at most 10 000 | rows sent at most (500) |
 | `filter` | table, field → value | only rows whose fields have those values (a string, number or bool) |
 | `hide_empty` | bool | hidden while it has no rows |

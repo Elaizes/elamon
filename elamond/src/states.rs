@@ -278,6 +278,11 @@ fn table_state(w: &UiWidget, s: &States, o: &mut Obj) {
 	if let Some(f) = &d.row_open {
 		need(&mut fields, f, None);
 	}
+	// The client searches these itself.
+	let searched = crate::ui::search_fields(d);
+	for f in &searched {
+		need(&mut fields, f, None);
+	}
 	let placeholders: Vec<String> = d
 		.row_actions
 		.iter()

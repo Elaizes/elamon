@@ -811,6 +811,33 @@ pub fn addresses(w: &Widget) -> Vec<&str> {
 	out
 }
 
+/// The fields a table's search looks in: those it names, or with `search = true` its text columns
+/// and the text fields it shows when a row opens, each once; none without a search.
+pub fn search_fields(d: &Widget) -> Vec<String> {
+	let source = d.source.as_deref().unwrap_or("");
+	let mut out: Vec<String> = Vec::new();
+	match &d.search {
+		Some(settings::Search::Fields(f)) => out.extend(f.iter().cloned()),
+		Some(settings::Search::On(true)) => {
+			for c in d.columns.iter().flatten().chain(d.expand.iter().flatten()) {
+				let mapped = c.map.as_ref().is_some_and(|m| !m.is_empty());
+				let format = if mapped {
+					"text".to_string()
+				} else {
+					c.format.clone().unwrap_or_else(|| values::field_def(source, &c.field).map_or("text", |f| f.2).to_string())
+				};
+				if format == "text" {
+					out.push(c.field.clone());
+				}
+			}
+		}
+		_ => {}
+	}
+	let mut seen = HashSet::new();
+	out.retain(|f| seen.insert(f.clone()));
+	out
+}
+
 /// Drops `open` to a dashboard the client doesn't get, and a button left with nothing to do.
 fn prune(widgets: &mut Vec<UiWidget>, visible: &HashSet<String>) {
 	for w in widgets.iter_mut() {
@@ -1209,7 +1236,18 @@ impl Ctx<'_> {
 			o.put("sort", so);
 		}
 		o.put("sorts", J::Arr(d.sorts.iter().flatten().map(J::from).collect()));
-		o.put("search", d.search.unwrap_or(false));
+		if let Some(labels) = d.sort_labels.as_ref().filter(|l| !l.is_empty()) {
+			let mut l = Obj::new();
+			for (field, label) in labels {
+				l.put(field, label.as_str());
+			}
+			o.put("sort_labels", l);
+		}
+		let fields = search_fields(d);
+		o.put("search", !fields.is_empty());
+		if !fields.is_empty() {
+			o.put("search_fields", J::Arr(fields.iter().map(J::from).collect()));
+		}
 		o.put("hide_empty", d.hide_empty.unwrap_or(false));
 		o.opt("row_open", d.row_open.as_deref());
 		if let Some(ra) = d.row_actions.as_ref().filter(|r| !r.is_empty()) {
@@ -1408,6 +1446,27 @@ label = "{item.label} at {item.rpm}"
 		// After the tabs, before what they open.
 		let order: Vec<&str> = monitor.dashboards.iter().map(|d| d.id.as_str()).collect();
 		assert_eq!(&order[..5], ["overview", "processes", "sensors", "control", "header"]);
+	}
+
+	#[test]
+	fn a_table_searches_the_fields_it_names_or_its_text_columns() {
+		let table = |extra: &str| {
+			let text = format!("[dashboards.t]\ntitle = \"T\"\n[[dashboards.t.widgets]]\ntype = \"table\"\nsource = \"processes\"\ncolumns = [{{ field = \"name\" }}, {{ field = \"cpu\" }}, {{ field = \"status\", map = {{ R = \"Running\" }} }}]\nexpand = [{{ field = \"cmd\" }}, {{ field = \"name\" }}]\nsorts = [\"cpu\", \"mem\"]\n{extra}");
+			settings::read_sources(&[settings::Source::new("a.toml", text)])
+		};
+		let fields = |extra: &str| {
+			let config = table(extra).unwrap();
+			let w: Widget = serde_json::from_value(Value::Object(config.dashboards["t"].widgets[0].clone())).unwrap();
+			search_fields(&w)
+		};
+		assert_eq!(fields("search = true"), ["name", "status", "cmd"]);
+		assert_eq!(fields("search = [\"pid\", \"user\"]"), ["pid", "user"]);
+		assert!(fields("search = false").is_empty() && fields("").is_empty());
+		// Fields the collection hasn't, and labels for orders the table doesn't take, are mistakes.
+		let mistakes = |extra: &str| settings::join_mistakes(&table(extra).unwrap_err());
+		assert!(mistakes("search = [\"nope\"]").contains("no field \"nope\" in processes"));
+		assert!(mistakes("sort_labels = { name = \"Name\" }").contains("isn't one of the table's sorts"));
+		assert!(table("sort_labels = { cpu = \"CPU\", mem = \"Memory\" }").is_ok());
 	}
 
 	#[test]

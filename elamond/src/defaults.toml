@@ -156,10 +156,11 @@ role = "monitor"
 id = "table"
 type = "table"
 source = "processes"
-search = true
+search = ["name", "cmd", "user", "pid"]
 limit = 500
 sort = { field = "cpu", desc = true }
 sorts = ["cpu", "mem", "gpu", "io"]
+sort_labels = { cpu = "CPU", mem = "Memory", gpu = "GPU", io = "Disk" }
 columns = [
   { field = "name", grow = true },
   { field = "cpu", label = "CPU", format = "percent", bar = { max = 25 } },

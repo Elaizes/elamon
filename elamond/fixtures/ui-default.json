@@ -1,5 +1,5 @@
 {
-  "version": "ca6e404a39ad02f0",
+  "version": "d7da14757105f30d",
   "service": {
     "id": "0123456789abcdef0123456789abcdef",
     "name": "fixture",
@@ -153,7 +153,9 @@
           ],
           "sort": { "field": "cpu", "desc": true },
           "sorts": ["cpu", "mem", "gpu", "io"],
+          "sort_labels": { "cpu": "CPU", "gpu": "GPU", "io": "Disk", "mem": "Memory" },
           "search": true,
+          "search_fields": ["name", "cmd", "user", "pid"],
           "hide_empty": false,
           "row_actions": [
             { "action": "process.signal", "label": "Quit", "params": { "pid": "{pid}", "signal": "term", "start": "{start}" } },
@@ -806,6 +808,7 @@
           "sort": { "field": "t", "desc": true },
           "sorts": [],
           "search": true,
+          "search_fields": ["what", "result", "phone", "message"],
           "hide_empty": false,
           "expand": [{ "field": "phone", "label": "Phone", "format": "text" }, { "field": "message", "label": "Message", "format": "text" }]
         }
