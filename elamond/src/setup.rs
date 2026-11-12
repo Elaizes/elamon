@@ -627,6 +627,12 @@ fn setup(init: &dyn InitSystem, opts: &Opts) -> Result<(), String> {
 			this_exe().unwrap_or_else(|_| "elamond".into())
 		));
 	}
+	// SAFETY: geteuid only reads the process's user id.
+	if unsafe { libc::geteuid() } == 0 {
+		return Err("run elamond setup as the user the service is for, not root: the service runs as that user, \
+			 and setup prints the few commands that need root"
+			.into());
+	}
 	let user = user_name().ok_or("can't tell which user this is")?;
 	let settings = Settings::read(&store::config_files());
 	let exe = this_exe()?;
