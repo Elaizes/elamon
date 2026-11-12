@@ -40,7 +40,7 @@ with subtest("the listed user's service takes the port, and says it speaks API 2
 
 with subtest("a phone pairs with the profile the settings in Nix give, and gets their dashboard and action"):
 	code = pair_code("pair", "--profile", "vm")
-	machine.succeed("journalctl -u pair -o cat | grep -Eq 'Profile: +vm — VM'")
+	machine.wait_until_succeeds("journalctl -u pair -o cat | grep -Eq 'Profile: +vm — VM'", timeout=30)
 	status, paired = call("POST", "/api/v1/pair", body={"code": code, "device": "Test phone"})
 	assert status == 200 and paired["role"] == "admin" and paired["profile"] == "vm", paired
 	auth = f"-H 'Authorization: Bearer {paired['token']}'"
@@ -64,7 +64,8 @@ machine.succeed("loginctl enable-linger alice")
 
 with subtest("the stream sends open, then the dashboard on screen"):
 	out = machine.succeed(f"curl -sNk --max-time 4 {APP} {auth} 'https://localhost:47823/api/v1/stream?dashboard=vm' || true")
-	lines = [json.loads(l) for l in out.splitlines() if l.strip()]
+	# The last line may be cut where the time ran out.
+	lines = [json.loads(l) for l in out.splitlines()[:-1]]
 	assert lines[0]["type"] == "open" and lines[0]["ui"] == doc["version"], lines[0]
 	data = [l for l in lines if l["type"] == "data"]
 	assert data and data[0]["dashboard"] == "vm" and "history" in data[0], lines
@@ -128,6 +129,7 @@ with subtest("elamond clients profile changes what ui says, and an open stream h
 	machine.wait_until_succeeds(f"grep '\"type\":\"data\"' /tmp/stream.out | tail -1 | jq -e '.dashboard == \"{doc['tabs'][0]}\"'", timeout=30)
 	assert re.search(rf"^{test_id}\s+admin\s+default\s+Test phone\s+android 0\.6\.0\s+\(paired ", machine.succeed("su - alice -c 'elamond clients'"), re.M)
 	assert "no profile \"nope\"" in machine.fail(f"su - alice -c 'elamond clients profile {test_id} nope' 2>&1")
+	machine.succeed("systemctl stop stream-watch || true")
 
 with subtest("elamond pair asks before a phone is let in: no turns it away, yes lets it in, and nothing to ask on stops it"):
 	# Under systemd-run its input is /dev/null: nobody can answer, so it doesn't pair at all.
@@ -165,7 +167,7 @@ chmod 755 /tmp/answer.sh""")
 
 with subtest("a phone paired as glance sees the basics and may run nothing"):
 	code = pair_code("pair-glance", "--role", "glance")
-	machine.succeed("journalctl -u pair-glance -o cat | grep -q 'Role: *glance'")
+	machine.wait_until_succeeds("journalctl -u pair-glance -o cat | grep -q 'Role: *glance'", timeout=30)
 	status, paired = call("POST", "/api/v1/pair", body={"code": code, "device": "Glance phone"})
 	assert status == 200 and paired["role"] == "glance", paired
 	glance, glance_id = f"-H 'Authorization: Bearer {paired['token']}'", paired["client_id"]
@@ -208,8 +210,9 @@ with subtest("elamond clients role takes effect at once, and the log shows what 
 	machine.succeed("journalctl _UID=1000 -o cat | grep -q '\"Glance phone\" (.*) is now monitor'")
 
 with subtest("streams are in the journal: which phone, from where, for what, for how long"):
-	machine.succeed(f"curl -sk --max-time 3 {APP} {auth} 'https://localhost:47823/api/v1/stream?dashboard=processes' >/dev/null || true")
-	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -Eq 'stream: \"Test phone\" \\(admin\\) opened from [0-9a-f:.]+: dashboard processes, every [0-9]+ ms, processes'", timeout=30)
+	# One stream of a phone is logged in ten seconds; those in between are only counted.
+	opened = "journalctl _UID=1000 -o cat | grep -Eq 'stream: \"Test phone\" \\(admin\\) opened from [0-9a-f:.]+: dashboard processes, every [0-9]+ ms, processes'"
+	machine.wait_until_succeeds(f"curl -sk --max-time 3 {APP} {auth} 'https://localhost:47823/api/v1/stream?dashboard=processes' >/dev/null; {opened}", timeout=60)
 	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -q 'stream: \"Test phone\" closed after [0-9]* s: connection closed'", timeout=30)
 
 with subtest("five wrong codes from one address shut it out of that code"):
