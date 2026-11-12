@@ -231,7 +231,7 @@ with subtest("elamond clients role takes effect at once, and the log shows what 
 with subtest("streams are in the journal: which phone, from where, for what, for how long"):
 	# One stream of a phone is logged in ten seconds; those in between are only counted.
 	opened = "journalctl _UID=1000 -o cat | grep -Ec 'stream: \"Test phone\" \\(admin\\) opened from [0-9a-f:.]+: dashboard processes, every [0-9]+ ms, processes'"
-	machine.wait_until_succeeds(f"curl -sk --max-time 3 {APP} {auth} 'https://localhost:47823/api/v1/stream?dashboard=processes' >/dev/null; {opened}", timeout=60)
+	machine.wait_until_succeeds(f"curl -sk --max-time 3 {APP} {auth} 'https://localhost:47823/api/v1/stream?dashboard=processes' >/dev/null || true; {opened}", timeout=60)
 	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -c 'stream: \"Test phone\" closed after [0-9]* s: connection closed'", timeout=30)
 
 with subtest("five wrong codes from one address shut it out of that code"):
