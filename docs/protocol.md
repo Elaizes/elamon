@@ -408,16 +408,18 @@ Changes what an open stream of this client sends, from its next line, without re
 ```
 
 Each key is optional. `sort` asks a table, by its widget id, for another of its `sorts`
-(descending), or for its own `sort` back. A new dashboard or order comes with the next reading,
-not after an interval; a new dashboard's first line has `history`. 200 `{ "ok": true }`; 404
-`no_such_stream` when the stream has ended or isn't this client's; 404 `no_such_dashboard` for one
-not in the client's `ui`; 400 `bad_sort` with the table's id in `message`. Nothing is changed unless
-all of it is right. A body over 4 KiB is a plain-text 413.
+(descending); `null` in place of a field (`{ "processes/table": null }`) returns the table to its own
+`sort`, field and direction. A new dashboard or order comes with the next reading, not after an
+interval; a new dashboard's first line has `history`. 200 `{ "ok": true }`; 404 `no_such_stream`
+when the stream has ended or isn't this client's; 404 `no_such_dashboard` for one not in the
+client's `ui`; 400 `bad_sort` with the table's id in `message`. A refused request (400 `bad_sort`,
+404 `no_such_dashboard`) applies none of its keys: the stream goes on as it was. A body over 4 KiB
+is a plain-text 413.
 
 ## `GET /api/v1/snapshot`
 
-One `data` object (without `type`, with `history`) for `dashboard=<id>` (the first tab without
-it), after waiting a few ticks for a reading that has everything it needs; 404
+One `data` object (without `type`, with `history` unless `history=0`) for `dashboard=<id>` (the
+first tab without it), after waiting a few ticks for a reading that has everything it needs; 404
 `no_such_dashboard` for one not in the client's `ui`. `widgets` as for the stream.
 
 ## `POST /api/v1/actions/{id}`

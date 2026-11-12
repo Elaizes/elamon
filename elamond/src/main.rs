@@ -471,6 +471,7 @@ fn collect_loop(
 	let mut seq: u64 = 0;
 	// What the history ring keeps, and the settings and shape it was worked out for.
 	let mut tracked: (Option<(u64, u64)>, std::collections::BTreeSet<String>) = (None, Default::default());
+	let mut slow_said: Option<std::time::Instant> = None;
 	loop {
 		let started = std::time::Instant::now();
 		let wanted = hub.wanted();
@@ -519,7 +520,14 @@ fn collect_loop(
 		seq = seq.wrapping_add(1);
 		let frame = server::Frame { seq, values: Arc::new(values), shape, caps: Arc::new(got.caps), read, features: Arc::new(features) };
 		tx.send_replace(Arc::new(frame));
-		std::thread::sleep(hub.interval.saturating_sub(started.elapsed()));
+		// A reading that takes far longer than a tick (a D-Bus service that doesn't answer) leaves the
+		// clients' values behind; said once a minute at most.
+		let took = started.elapsed();
+		if took > (hub.interval * 3).max(Duration::from_secs(3)) && slow_said.is_none_or(|t| t.elapsed() >= Duration::from_secs(60)) {
+			eprintln!("collector: a reading took {} ms, its tick being {} ms", took.as_millis(), hub.interval.as_millis());
+			slow_said = Some(std::time::Instant::now());
+		}
+		std::thread::sleep(hub.interval.saturating_sub(took));
 	}
 }
 

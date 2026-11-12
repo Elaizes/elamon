@@ -976,6 +976,8 @@ pub(crate) fn data_of(hub: &Hub, ui: &Ui, dashboard: &ui::Dashboard, who: &Calle
 struct SnapshotQuery {
 	dashboard: Option<String>,
 	widgets: Option<String>,
+	/// `0` leaves `history` out.
+	history: Option<u8>,
 }
 
 /// One `data` object for a dashboard, with its history, once a reading has what it needs: a few
@@ -1009,7 +1011,7 @@ async fn snapshot(
 	let Some(dashboard) = dashboard_in(&ui, q.dashboard.as_deref()) else {
 		return error(ErrorCode::NoSuchDashboard);
 	};
-	let mut data = data_of(&hub, &ui, dashboard, &who, &frame, &HashMap::new(), true);
+	let mut data = data_of(&hub, &ui, dashboard, &who, &frame, &HashMap::new(), q.history != Some(0));
 	data.remove("type");
 	json_response(serde_json::to_string(&data).unwrap_or_default())
 }
@@ -1540,6 +1542,8 @@ dashboards = ["overview", "control"]
 			assert_eq!(status, StatusCode::OK, "{phone}");
 			assert_eq!(v["dashboard"], "overview", "{phone}");
 			assert!(v.get("type").is_none() && v["history"].is_object() && v["t"].is_u64(), "{phone}: {v}");
+			let (_, bare) = call(&hub, "GET", "/api/v1/snapshot?history=0", phone, "").await;
+			assert!(bare.get("history").is_none() && bare["widgets"].is_object(), "{phone}: {bare}");
 			let (status, v) = call(&hub, "GET", "/api/v1/snapshot?dashboard=processes", phone, "").await;
 			if role_of(phone) >= Role::Monitor {
 				let rows = &v["widgets"]["processes/table"]["rows"];
@@ -1621,6 +1625,11 @@ dashboards = ["overview", "control"]
 		assert_eq!(change(r#"{"dashboard":"nothing"}"#).await.1["error"], "no_such_dashboard");
 		assert_eq!(change(r#"{"sort":{"processes/table":"nothing"}}"#).await.1["error"], "bad_sort");
 		assert_eq!(change(r#"{"sort":{"overview/cpu":"cpu"}}"#).await.1["error"], "bad_sort");
+		assert_eq!(change(r#"{"sort":{"overview/cpu":null}}"#).await.1["error"], "bad_sort");
+		// A change refused in part is refused whole: the dashboard stays.
+		let (status, v) = change(r#"{"dashboard":"processes","sort":{"processes/table":"nothing"}}"#).await;
+		assert_eq!((status, v["message"].as_str()), (StatusCode::BAD_REQUEST, Some("processes/table")));
+		assert_eq!(lines.next_of("data").await.unwrap()["dashboard"], "overview");
 		let (status, v) = change(r#"{"dashboard":"processes","interval":300,"sort":{"processes/table":"mem"}}"#).await;
 		assert_eq!((status, v), (StatusCode::OK, serde_json::json!({ "ok": true })));
 		let procs = loop {
@@ -1631,6 +1640,9 @@ dashboards = ["overview", "control"]
 		};
 		assert!(procs["history"].is_object() && procs["widgets"]["processes/table"]["rows"].is_array(), "{procs}");
 		assert!(hub.wanted().is_some_and(|w| w.processes));
+		// Back to the table's own order.
+		assert_eq!(change(r#"{"sort":{"processes/table":null}}"#).await.0, StatusCode::OK);
+		assert_eq!(lines.next_of("data").await.unwrap()["dashboard"], "processes");
 		// Another phone's stream, or none, isn't there for this one.
 		let (status, v) = call(&hub, "POST", &format!("/api/v1/stream/{id}"), "admin", "{}").await;
 		assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("no_such_stream")));

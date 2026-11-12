@@ -23,6 +23,18 @@ def ui(auth):
 	assert status == 200, (status, doc)
 	return doc
 
+def activity(auth, entry):
+	"""The activity log's rows as the role of `auth` reads them, once `entry` (phone, what, result) is
+	among them: a reading is up to a tick old."""
+	for _ in range(30):
+		_, snap = call("GET", "/api/v1/snapshot?dashboard=activity", auth)
+		rows = [r["f"] for r in snap["widgets"]["activity/log"]["rows"]]
+		if entry in {(r.get("phone"), r["what"], r["result"]) for r in rows}:
+			return rows
+		machine.sleep(1)
+	now = machine.succeed("date +%s%3N").strip()
+	raise AssertionError(f"{entry} not in the activity log; the reading is of {snap['t']}, now {now}: {rows}")
+
 def pair_code(unit, *args):
 	"""Runs `elamond pair --yes` as alice in a unit of its own and returns the code it prints."""
 	machine.succeed(f"systemd-run {AS_ALICE} --unit={unit} /run/current-system/sw/bin/timeout 120 /run/current-system/sw/bin/elamond pair --yes {' '.join(args)}")
@@ -205,12 +217,11 @@ with subtest("elamond clients role takes effect at once, and the log shows what 
 	doc = ui(glance)
 	assert doc["role"] == "monitor" and doc["actions"] == [] and "processes" in doc["tabs"], doc
 	assert call("POST", "/api/v1/actions/greet", glance, {"params": {"who": "nix"}}) == (403, {"error": "not_allowed"})
-	_, snap = call("GET", "/api/v1/snapshot?dashboard=activity", glance)
-	rows = [r["f"] for r in snap["widgets"]["activity/log"]["rows"]]
+	rows = activity(glance, ("Glance phone", "action Greet nix", "not_allowed"))
 	seen = {(r.get("phone"), r["what"], r["result"]) for r in rows}
-	assert ("Glance phone", "action Greet nix", "not_allowed") in seen, rows
 	assert ("Test phone", "action Greet nix", "control_disabled") in seen, rows
 	assert ("Test phone", "action Greet nix", "ok") in seen, rows
+	assert ("Test phone", "action Greet world", "control_disabled") in seen, rows
 	assert rows[0]["t"] >= rows[-1]["t"], rows
 	machine.succeed("journalctl _UID=1000 -o cat | grep -q '\"Glance phone\" (.*) is now monitor'")
 
@@ -411,9 +422,7 @@ with subtest("a phone that came by another's token gets a key of its own, and th
 	assert "Unpaired 1 phone(s): Old phone" in out and "STILL PAIRED" in out and own["client_id"] in out, out
 	assert call("GET", "/api/v1/ui", shared) == (401, {"error": "unauthorized"})
 	assert ui(mine)["role"] == "admin"
-	_, snap = call("GET", "/api/v1/snapshot?dashboard=activity", mine)
-	rows = [r["f"] for r in snap["widgets"]["activity/log"]["rows"]]
-	assert any(r.get("phone") == "Old phone" and r["what"] == "phone added: New phone" and r["result"] == "ok" for r in rows), rows
+	activity(mine, ("Old phone", "phone added: New phone", "ok"))
 	machine.succeed("journalctl _UID=1000 -o cat | grep -q 'pairing: added \"New phone\" .* asked with the key of \"Old phone\"'")
 
 with subtest("elamond rotate-cert --no-statement: a new certificate that nothing leads to, for a key that may have leaked"):

@@ -47,8 +47,8 @@ enum Ctl {
 pub struct Change {
 	pub dashboard: Option<String>,
 	pub interval: Option<u64>,
-	/// Another of a table's `sorts`, by the table's id.
-	pub sort: BTreeMap<String, String>,
+	/// Another of a table's `sorts`, by the table's id; `null` for the table's own order back.
+	pub sort: BTreeMap<String, Option<String>>,
 }
 
 #[derive(Deserialize, Default)]
@@ -279,7 +279,12 @@ impl Run {
 			self.interval = interval_of(&self.hub, Some(ms), ms);
 		}
 		if !c.sort.is_empty() {
-			self.sorts.extend(c.sort);
+			for (table, field) in c.sort {
+				match field {
+					Some(f) => self.sorts.insert(table, f),
+					None => self.sorts.remove(&table),
+				};
+			}
 			// The new order at once, as the dashboard would come.
 			self.last = None;
 		}
@@ -319,7 +324,7 @@ pub async fn change(State(hub): State<Arc<Hub>>, Extension(who): Extension<Calle
 		return error(ErrorCode::NoSuchDashboard);
 	}
 	for (table, field) in &c.sort {
-		if !sorts_by(&ui, table, field) {
+		if !sorts_by(&ui, table, field.as_deref()) {
 			return server::error_with(ErrorCode::BadSort, table.clone());
 		}
 	}
@@ -329,9 +334,11 @@ pub async fn change(State(hub): State<Arc<Hub>>, Extension(who): Extension<Calle
 	Json(json!({ "ok": true })).into_response()
 }
 
-/// Whether the table `table` of `ui` may be sorted by `field`: one of its `sorts`, or its own sort.
-pub(crate) fn sorts_by(ui: &Ui, table: &str, field: &str) -> bool {
-	ui.dashboards.iter().flat_map(|d| d.all_widgets()).filter(|w| w.id == table && w.kind == "table").any(|w| {
-		w.def.sorts.iter().flatten().any(|s| s == field) || w.def.sort.as_ref().is_some_and(|s| s.field == field)
+/// Whether the table `table` of `ui` may be sorted by `field`: one of its `sorts`, or its own
+/// sort; `None`, its own order back, any table may.
+pub(crate) fn sorts_by(ui: &Ui, table: &str, field: Option<&str>) -> bool {
+	ui.dashboards.iter().flat_map(|d| d.all_widgets()).filter(|w| w.id == table && w.kind == "table").any(|w| match field {
+		None => true,
+		Some(f) => w.def.sorts.iter().flatten().any(|s| s == f) || w.def.sort.as_ref().is_some_and(|s| s.field == f),
 	})
 }

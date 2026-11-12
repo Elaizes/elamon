@@ -399,7 +399,9 @@ pub fn ring() -> crate::history::Ring {
 		("gpu.nvidia.usage", [Some(30.0), None]),
 		("gpu.nvidia.temp", [Some(60.0), None]),
 	];
-	for (i, t) in [1_700_000_000_000, 1_700_000_001_000].into_iter().enumerate() {
+	// The newest at the reading the data lines carry: a graph's history ends at the line's `t`.
+	let t = sample().t;
+	for (i, t) in [t - 1000, t].into_iter().enumerate() {
 		ring.push_points(t, points.iter().map(|(a, x)| (a.to_string(), x[i])));
 	}
 	ring
@@ -454,7 +456,7 @@ fn requests() {
 	assert!(ui.dashboard(change.dashboard.as_deref().unwrap()).is_some());
 	assert_eq!(change.interval, Some(2000));
 	for (table, field) in &change.sort {
-		assert!(crate::stream::sorts_by(&ui, table, field), "{table} by {field}");
+		assert!(crate::stream::sorts_by(&ui, table, field.as_deref()), "{table} by {field:?}");
 	}
 	let request: crate::control::ActionRequest = serde_json::from_slice(&read("action-request.json")).unwrap();
 	let mode = ui.actions.iter().find(|a| a.id == "mode").unwrap();
