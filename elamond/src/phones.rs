@@ -293,7 +293,8 @@ pub fn release(place: &Place, gone: &Client, remaining: &[Client], at: u64) -> O
 			Err(e) => format!("its profile {own} stays in {file}: {e}"),
 		});
 	}
-	let shown = name.unwrap_or_else(|| gone.name.clone());
+	// A name written by hand may hold anything: cleaned like a phone's, so it stays one comment line.
+	let shown = store::sanitize_name(&name.unwrap_or_else(|| gone.name.clone()));
 	let note = format!("# Unpaired {}; kept for a phone paired again (elamond pair offers it to one named \"{shown}\").\n", store::format_date(at));
 	if let Some(t) = table_mut(&mut doc, own) {
 		let prefix = prefix_of(t);

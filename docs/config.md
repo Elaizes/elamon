@@ -124,7 +124,10 @@ and `schema = 3`: what you set there overrides them key by key, a list (a dashbo
 replacing theirs whole, and a table of your own (`dashboards.desk`, `profiles.owner`) adds to them.
 `services.elamond.defaults` holds them as they are, read-only. The settings are written into the
 Nix store and `ELAMON_CONFIG` names them (Home Manager links elamond.toml to them); the drop-ins in
-~/.config/elamon/elamond.d/, phones.toml among them, are still your own to write.
+~/.config/elamon/elamond.d/, phones.toml among them, are still your own to write. Under the NixOS
+module, an elamond.toml of your own in ~/.config/elamon (one 0.6.0 read while the module's
+settings were empty) is read right after the module's, as a drop-in would be, so nothing it held is
+lost; the journal and `elamond check` say so.
 
 ## Phones
 

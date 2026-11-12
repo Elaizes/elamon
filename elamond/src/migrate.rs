@@ -45,7 +45,7 @@ pub fn at_start(place: &Place) {
 					named.display()
 				);
 			}
-			if let Some(note) = not_read(place) {
+			if let Some(note) = read_beside(place) {
 				eprintln!("settings: {note}");
 			}
 		}
@@ -63,14 +63,14 @@ pub fn reread(place: &Place) {
 	}
 }
 
-/// Why the user's own elamond.toml isn't read, when ELAMON_CONFIG names another and it is a file
-/// of theirs (not a link NixOS or Home Manager made).
-pub fn not_read(place: &Place) -> Option<String> {
+/// How the user's own elamond.toml is read, when ELAMON_CONFIG names another and it is a file of
+/// theirs (not a link NixOS or Home Manager made): after that one, as a drop-in would be.
+pub fn read_beside(place: &Place) -> Option<String> {
 	let named = place.named.as_ref()?;
 	let own = place.dir.join(store::CONFIG_FILE);
-	(fs::symlink_metadata(&own).is_ok() && !store::from_nix_store(&own) && *named != own).then(|| {
+	store::own_beside(&own, Some(named)).then(|| {
 		format!(
-			"{} isn't read: ELAMON_CONFIG names {}. Put what is yours in a drop-in, {}/*.toml",
+			"{} is read after {}, which ELAMON_CONFIG names (the NixOS module's settings), and wins over it as a drop-in would; move it into {}/ to say so",
 			store::shown(&own),
 			named.display(),
 			store::shown(&place.dropins())
@@ -261,12 +261,21 @@ fn free(dir: &Path, name: &str) -> PathBuf {
 /// permissions.
 fn keep_and_replace(main: &Path, kept: &Path, old: &str, new: &str) -> Result<(), String> {
 	let mode = store::mode_of(main, 0o600);
-	// The same file under a second name; where links can't be made, a copy as private.
-	if fs::hard_link(main, kept).is_err() {
-		let copied = fs::OpenOptions::new().write(true).create_new(true).mode(mode).open(kept).and_then(|mut f| f.write_all(old.as_bytes()));
-		if let Err(e) = copied {
-			let _ = fs::remove_file(kept);
-			return Err(format!("can't keep it as {}: {e}", store::shown(kept)));
+	// The same file under a second name; where links can't be made, a copy as private. One there
+	// already is another's (another elamond moving it at the same time): left as it is, and this one
+	// doesn't move the file.
+	let taken = |e: &std::io::Error| e.kind() == std::io::ErrorKind::AlreadyExists;
+	let there = |e: std::io::Error| format!("can't keep it as {}: {e}", store::shown(kept));
+	match fs::hard_link(main, kept) {
+		Ok(()) => {}
+		Err(e) if taken(&e) => return Err(there(e)),
+		Err(_) => {
+			let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(mode).open(kept).map_err(there)?;
+			// Made by this call, so this call may take it away again.
+			if let Err(e) = f.write_all(old.as_bytes()).and_then(|()| f.sync_all()) {
+				let _ = fs::remove_file(kept);
+				return Err(there(e));
+			}
 		}
 	}
 	store::replace_as(main, new.as_bytes(), mode).map_err(|e| {
@@ -555,6 +564,23 @@ mod tests {
 	fn merged(sources: &[(&str, &str)]) -> serde_json::Map<String, serde_json::Value> {
 		let s: Vec<settings::Source> = sources.iter().map(|(n, t)| settings::Source::new(*n, *t)).collect();
 		settings::read_merged(&s, true).unwrap_or_else(|m| panic!("{}", settings::join_mistakes(&m))).1
+	}
+
+	#[test]
+	fn a_kept_copy_another_elamond_made_stays_and_nothing_is_moved() {
+		// Two services moving the same file at once: the second finds the first's copy there.
+		let place = scratch();
+		let (main, kept) = (place.main(), place.dir.join(KEPT));
+		fs::write(&main, "control = true\n").unwrap();
+		fs::write(&kept, "the first one's\n").unwrap();
+		assert!(keep_and_replace(&main, &kept, "control = true\n", "schema = 3\n").is_err());
+		assert_eq!(fs::read_to_string(&kept).unwrap(), "the first one's\n");
+		assert_eq!(fs::read_to_string(&main).unwrap(), "control = true\n");
+		// Its own copy, made by this call, it may take away again: here it keeps it and moves the file.
+		fs::remove_file(&kept).unwrap();
+		keep_and_replace(&main, &kept, "control = true\n", "schema = 3\n").unwrap();
+		assert_eq!((fs::read_to_string(&kept).unwrap(), fs::read_to_string(&main).unwrap()), ("control = true\n".into(), "schema = 3\n".into()));
+		fs::remove_dir_all(&place.dir).unwrap();
 	}
 
 	#[test]

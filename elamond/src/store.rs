@@ -90,9 +90,14 @@ impl Place {
 	/// line.
 	pub fn load(&self) -> Result<Config, String> {
 		let mut config = crate::settings::load(&self.files()).map_err(|m| crate::settings::join_mistakes(&m))?;
-		// Where a profile is, as a person finds it: within the settings' folder, from there.
+		// Where a profile is, as a person finds it: within the settings' folder, from there; in a file
+		// Home Manager links there, the file in the Nix store, which says it is set in Nix.
 		for w in config.profile_sources.values_mut() {
-			if let Ok(within) = Path::new(&w.file).strip_prefix(&self.dir) {
+			if from_nix_store(Path::new(&w.file))
+				&& let Ok(real) = fs::canonicalize(&w.file)
+			{
+				w.file = real.display().to_string();
+			} else if let Ok(within) = Path::new(&w.file).strip_prefix(&self.dir) {
 				w.file = within.display().to_string();
 			}
 		}
@@ -118,14 +123,25 @@ impl Place {
 /// The main file is the one ELAMON_CONFIG names (the NixOS module points it into the store), or
 /// elamond.toml in the config directory `dir`. Drop-ins are always in the user's own config
 /// directory: where NixOS or Home Manager make the main file a read-only one in the store, these
-/// stay the user's to write.
+/// stay the user's to write. Where ELAMON_CONFIG names another, an elamond.toml of the user's own
+/// there (not a link into the store) is read right after it, before the drop-ins: what 0.6.0 read
+/// under the NixOS module's empty settings is never dropped by the module having them all now.
 pub fn settings_files(dir: &Path, named: Option<PathBuf>) -> Vec<PathBuf> {
+	let own = named.as_ref().map(|_| dir.join(CONFIG_FILE)).filter(|own| own_beside(own, named.as_deref()));
 	let main = named.unwrap_or_else(|| dir.join(CONFIG_FILE));
 	let mut dropins: Vec<PathBuf> = fs::read_dir(dir.join(DROPIN_DIR))
 		.map(|d| d.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "toml")).collect())
 		.unwrap_or_default();
 	dropins.sort();
-	std::iter::once(main).chain(dropins).collect()
+	std::iter::once(main).chain(own).chain(dropins).collect()
+}
+
+/// Whether `own`, elamond.toml in the config directory, is a file of the user's own beside the main
+/// file `named`: there, not a link NixOS or Home Manager made, and not that file itself.
+pub fn own_beside(own: &Path, named: Option<&Path>) -> bool {
+	let Some(named) = named else { return false };
+	let same = fs::canonicalize(own).ok().zip(fs::canonicalize(named).ok()).is_some_and(|(a, b)| a == b);
+	fs::symlink_metadata(own).is_ok() && !from_nix_store(own) && own != named && !same
 }
 
 /// Settings from elamond.toml and the drop-ins; every mistake, one to a line, each with its file
@@ -572,7 +588,7 @@ pub fn unseen(c: char) -> bool {
 			c as u32,
 			0xAD | 0x600..=0x605
 				| 0x61C | 0x6DD | 0x70F | 0x890..=0x891
-				| 0x8E2 | 0x180E | 0x200B..=0x200F
+				| 0x8E2 | 0x180E | 0x200B..=0x200F | 0x2028 | 0x2029
 				| 0x202A..=0x202E
 				| 0x2060..=0x2064
 				| 0x2066..=0x206F
@@ -916,8 +932,13 @@ mod tests {
 		let c = crate::settings::load(&files).unwrap();
 		assert_eq!((c.port, c.links.keys().map(String::as_str).collect::<Vec<_>>()), (2, vec!["a", "b", "main"]));
 
-		// ELAMON_CONFIG names the main file outright; the drop-ins stay in the config directory.
+		// ELAMON_CONFIG names the main file outright; the drop-ins stay in the config directory, and an
+		// elamond.toml of the user's own there is read right after it, as 0.6.0 read it under the module.
 		let named = dir.join("store.toml");
+		assert_eq!(settings_files(&dir, Some(named.clone()))[..3], [named.clone(), main.clone(), dir.join("elamond.d/a.toml")]);
+		// Not the named file itself, nor once it is gone.
+		assert_eq!(settings_files(&dir, Some(main.clone()))[..2], [main.clone(), dir.join("elamond.d/a.toml")]);
+		fs::remove_file(&main).unwrap();
 		assert_eq!(settings_files(&dir, Some(named.clone()))[..2], [named, dir.join("elamond.d/a.toml")]);
 		fs::remove_dir_all(dir).unwrap();
 	}

@@ -185,14 +185,14 @@ fn timing(config: &store::Config) -> (Duration, usize, Vec<String>) {
 fn serve() -> Result<(), String> {
 	let dir = store::data_dir();
 	let place = store::Place::here();
+	// Held until the service stops: `elamond restore` sees it, the identity isn't read while a
+	// restore writes it, and no other `elamond serve` moves the settings at the same time.
+	let _held = hold_data_dir(&dir)?;
 	// Links the 0.5 app added go into the settings before they are read, once.
 	links::migrate(&dir, &place.dir, &place.files());
 	// The settings to start from where there are none, 0.6.0's moved to schema 3, defaults.toml.
 	migrate::at_start(&place);
 	let config = place.load()?;
-	// Held until the service stops: `elamond restore` sees it, and the identity isn't read while
-	// a restore writes it.
-	let _held = hold_data_dir(&dir)?;
 	// Phones paired before 0.6.1 get a profile of their own, once.
 	let config = if phones::adopt(&place, &dir) { place.load()? } else { config };
 	let identity = identity::Identity::load_or_create(&dir)?;

@@ -176,9 +176,9 @@
 								mkDefault, and `schema = 3`: what you set overrides them key by key, a list (a
 								dashboard's `widgets`) replacing theirs whole, and a table of your own adds to them;
 								`lib.mkForce` on a table (`dashboards`) leaves theirs out. The services read it
-								through ELAMON_CONFIG, and so not a user's own ~/.config/elamon/elamond.toml; each
-								user's ~/.config/elamon/elamond.d/*.toml still adds to it, phones.toml among them,
-								where each phone paired has a profile of its own. `elamond check` reads it as it is
+								through ELAMON_CONFIG; a user's own ~/.config/elamon/elamond.toml, where there is one, after it
+								(so what it held under 0.6.0 still holds), then each user's ~/.config/elamon/elamond.d/*.toml,
+								phones.toml among them, where each phone paired has a profile of its own. `elamond check` reads it as it is
 								built, so a mistake fails the build with its line. A change restarts the services. It
 								lands in the Nix store, which every user can read: keep secrets (a link's URL with a
 								password in it, a token among an action's arguments) out of it, in a drop-in only its

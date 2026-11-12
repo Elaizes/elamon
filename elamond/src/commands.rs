@@ -110,7 +110,7 @@ pub fn check(args: &[String]) -> Result<(), String> {
 					store::shown(&place.main())
 				));
 			}
-			warn.extend(migrate::not_read(&place));
+			warn.extend(migrate::read_beside(&place));
 			for w in warn {
 				println!("  ! {w}");
 			}
@@ -183,6 +183,25 @@ fn edit_loop(place: &Place, editor: &str, target: &Path, copy: &Path, start: &st
 		let checked = sources_with(place, Some(target), Some(text.clone())).and_then(|(s, main)| settings::read_settings(&s, main));
 		match checked {
 			Ok(_) => {
+				// The service writes phones.toml as phones pair and are unpaired, under the paired phones'
+				// lock: held from looking at the file to saving it, so neither writes over the other.
+				let data = store::data_dir();
+				let _lock = if data.is_dir() { store::lock_clients(&data).ok() } else { None };
+				let now = match fs::read_to_string(target) {
+					Ok(t) => Some(t),
+					Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+					Err(e) => return Err(format!("can't read {}: {e}", target.display())),
+				};
+				if now.as_deref() != original {
+					return Err(match keep_beside(target, &text, "edited") {
+						Ok(kept) => format!(
+							"{} changed while you edited it (the service writes phones.toml as phones pair); it is left as it is now, and your edit is kept in {}: run elamond edit again and copy in what is yours",
+							target.display(),
+							kept.display()
+						),
+						Err(e) => format!("{} changed while you edited it; it is left as it is now, and the edit couldn't be kept beside it: {e}", target.display()),
+					});
+				}
 				save(target, &text).map_err(|e| format!("can't write {}: {e}", target.display()))?;
 				println!("Saved {}. A running service takes it up within a few seconds.", target.display());
 				return Ok(());
@@ -228,7 +247,12 @@ fn save(path: &Path, text: &str) -> io::Result<()> {
 
 /// Keeps an edit the settings refused beside `target`, as `<name>.broken`, as private as it.
 fn keep_broken(target: &Path, text: &str) -> io::Result<PathBuf> {
-	let kept = target.with_file_name(format!("{}.broken", target.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()));
+	keep_beside(target, text, "broken")
+}
+
+/// Keeps an edit beside `target` as `<name>.<what>`, as private as it.
+fn keep_beside(target: &Path, text: &str, what: &str) -> io::Result<PathBuf> {
+	let kept = target.with_file_name(format!("{}.{what}", target.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()));
 	store::replace_as(&kept, text.as_bytes(), mode_for(target))?;
 	Ok(kept)
 }
