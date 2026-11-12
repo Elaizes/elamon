@@ -209,13 +209,15 @@ help, the gear the settings.
 ### A computer
 
 The name, how fresh the data is (*Live · every 1 s*) and the computer's state sit in the big title
-at the top; scroll and they move into the bar. Four tabs along the bottom:
+at the top; scroll and they move into the bar. What the tabs are, and what is on them, the
+computer decides: they are its dashboards, as its settings describe them, and as far as the phone's
+role sees them ([section 7](#dashboards-and-widgets)). The standard four along the bottom:
 
 - **Overview** — tiles for the CPU, memory, each graphics card, temperatures, network, storage and
   battery. **Tap a tile** for its page: a large chart of the last ten minutes, details, and the
   processes using the most of it (on the CPU page also every core with its clock).
-- **Processes** — the heaviest first. **Sort** with the chips (CPU, memory, GPU, disk, name),
-  **search** by name, command or PID, **By app** adds up the processes of one program. **Tap a
+- **Processes** — the heaviest first. **Sort** with the chips (CPU, memory, GPU, disk), **search**
+  by name, command, user or PID, **By app** adds up the processes of one program. **Tap a
   process** for its details: user, state, start time, disk and GPU use, the full command, and —
   with control on and the `admin` role — **Quit** and **Force kill**.
 - **Sensors** — every temperature the computer reports, grouped by device, a chart of the CPU and
@@ -239,19 +241,30 @@ background.
 
 ### Settings
 
+How the app looks and behaves with a computer comes from that computer: the phone's *profile*,
+which the computer's settings define and `elamond pair --profile` or `elamond clients profile`
+choose ([section 7](#profiles)). The app shows which one it has; to change one, change the
+profile on the computer.
+
+| | Profile key |
+|---|---|
+| Theme | `theme`: follow the phone (`system`), or always `light` or `dark` |
+| Pure black | `pure_black`: black instead of dark grey in dark mode; saves power on OLED screens |
+| Wallpaper colours | `android.dynamic_color`: take the colours from the wallpaper (Android 12+) |
+| Blur | `android.blur`: frosted glass behind the bars and dialogs (Android 12+) |
+| Animations | `animations`: rolling numbers and moving gauges |
+| Update every | `interval_ms`: slower saves data on mobile networks |
+| Temperature | `fahrenheit`: °C or °F |
+| Network speed | `network_bits`: bytes per second, or bits per second as providers state it |
+| Keep screen on | `android.keep_screen_on`: while a computer is open, to use the phone as a dashboard |
+| Confirm actions | `confirm_actions`: ask before actions that ask |
+| Unlock first | `unlock`: the action kinds the phone is unlocked for first, and for how long an unlock holds |
+| Haptic feedback | `android.haptics`: a tick on long presses |
+
+What stays the app's own, for every computer:
+
 | | |
 |---|---|
-| Theme | follow the phone, or always light or dark |
-| Pure black | black instead of dark grey in dark mode; saves power on OLED screens |
-| Wallpaper colours | take the colours from the wallpaper (Android 12+) |
-| Blur | frosted glass behind the bars and dialogs (Android 12+) |
-| Animations | rolling numbers and moving gauges |
-| Update every | 1, 2 or 5 seconds; slower saves data on mobile networks |
-| Temperature | °C or °F |
-| Network speed | bytes per second, or bits per second as providers state it |
-| Keep screen on | while a computer is open, to use the phone as a dashboard |
-| Confirm actions | ask before power, kill, restart and commands |
-| Haptic feedback | a tick on long presses |
 | Export pairings | save every paired computer to a file encrypted with a passphrase, for a new phone ([section 8](#a-new-phone)) |
 | Import pairings | add the computers in such a file |
 
@@ -265,20 +278,22 @@ background.
 - **…open a web page the computer hosts?** Control → tap its tile. Over a VPN the link uses the
   VPN address by itself.
 - **…restart a web app that stopped answering?** Control → hold its link → *Restart*.
-- **…add a link?** Control → **+**. Pick one of the ports the computer listens on, or type the
-  address; add its systemd unit, one the computer's settings name ([section 5](#links)), to start
-  and stop it from here.
+- **…add a link?** On the computer, a `[links.<id>]` table in its settings, with its systemd unit
+  to start and stop it from here ([section 5](#links)). The app no longer adds links.
 - **…pause the music?** Control → Media: play, pause, skip, seek, and the computer's volume.
 - **…make it quieter or faster?** Control → Power profile.
-- **…run my own script from the phone?** Add it as an `[[actions]]` entry on the computer; it
-  shows up as a button under Actions.
+- **…run my own script from the phone?** Add it as an `[actions.<id>]` table on the computer, with
+  the choices it may be given ([section 5](#actions)); it shows up as a button under Actions, or
+  where a dashboard puts it.
+- **…see something the standard tabs don't show?** A dashboard of your own on the computer
+  ([section 7](#dashboards-and-widgets)), and its id in the phone's profile.
 - **…turn it off?** Control → Power → *Shut down*. Only someone at the computer can turn it on
   again, unless it wakes on LAN.
 - **…watch several computers?** Pair each one; the home screen shows them all.
 - **…keep it on screen as a dashboard?** Settings → *Keep screen on*.
 - **…let someone watch the computer without touching it?** Pair their phone with
   `elamond pair --role glance` (the basics) or `--role monitor` (everything to see, nothing to
-  change); see [section 6](#6-roles-who-may-do-what).
+  change); see [section 6](#6-roles-who-may-do-what). `--profile` gives it other tabs and looks.
 - **…stop every phone from acting, right now?** `elamond control off` on the computer;
   `elamond control on` lets them again. They still see the computer.
 - **…cut off a lost or stolen phone?** On the computer `elamond clients`, then
@@ -318,74 +333,87 @@ settings say.
 
 ### What comes from where
 
-| | Found by the service | Set on the computer | Added in the app |
-|---|---|---|---|
-| Power: lock, sleep, restart, shut down | which of them the system allows | permission (polkit, below) | — |
-| Power profile | profiles of power-profiles-daemon | permission (polkit) | — |
-| Media and volume | any MPRIS player that's running; the default output through `wpctl` or `pactl` | — | — |
-| Quitting and killing processes | — | — | — |
-| Links | ports in use, and the units the settings name, as suggestions | `[[links]]` and `units` in `elamond.toml` | the **+** button |
-| Commands | — | `[[actions]]` in `elamond.toml`, and only there | — |
+| | Found by the service | Set on the computer |
+|---|---|---|
+| Power: lock, sleep, restart, shut down | which of them the system allows | permission (polkit, below) |
+| Power profile | profiles of power-profiles-daemon | permission (polkit) |
+| Media and volume | any MPRIS player that's running; the default output through `wpctl` or `pactl` | — |
+| Quitting and killing processes | — | — |
+| Links | whether something answers on their port, their units' states | `[links.<id>]` in the settings |
+| Actions | — | `[actions.<id>]` in the settings, and only there |
+
+Each of these is an *action* to the app, with an id: the built-in `power.reboot`, `profile.set`,
+`process.signal`, `unit.restart`, `media.play_pause`, `volume.set` and the rest
+([docs/config.md](config.md#built-in-actions) lists them), and those the settings add. The service
+leaves out the ones the computer can't do, and those the phone's role may not run. The phone asks
+before an action that asks to be confirmed, and unlocks first for those its profile says.
 
 ### Links
 
-A link opens a web page the computer hosts. Each is a tile with its state: *Running*, *Stopped*,
+A link opens a web page the computer hosts. Each is a row with its state: *Running*, *Stopped*,
 *Failed*, *Local only* or *No such unit*. Tap to open it in the browser; hold it for start, stop
 and restart.
 
 ```toml
-[[links]]
+[links.media]                 # the link's id: a-z, 0-9, _ and -
 name = "Media server"
 url = "http://{host}:8096"    # {host}: the address the phone reached the computer at
 unit = "SERVICE.service"      # optional: lets the app start, stop and restart it
 scope = "system"              # or "user" (the default)
+icon = "music"                # optional; "globe" by default
 ```
 
 - `{host}` makes the link work on the local network and over a VPN alike. `localhost` and
   `127.0.0.1` in a URL are replaced the same way.
 - A link opens a web page: its URL starts with `http://` or `https://`, or is a bare host and port
-  (`{host}:3000`), opened as `http://`. Another kind (`javascript:`, `file:`, `intent:`…) isn't
-  taken, and the journal says when one in the settings or in `links.json` is left out.
+  (`{host}:3000`), opened as `http://`. Another kind (`javascript:`, `file:`, `intent:`…) is a
+  mistake in the settings.
 - *Local only* means what the link points to listens on the computer's own address (127.0.0.1):
   other devices can't open it. The app warns before trying. Make it listen on all addresses, or
   reach it through an SSH tunnel.
-- Links from `elamond.toml` are fixed in the app; change them in the file. Links added in the app
-  are stored on the computer (`~/.local/share/elamon/links.json`), so every paired phone with the
-  `monitor` role or above sees them, and those with `operate` or `admin` can change or remove them.
+- Links come from the settings alone; phones with the `monitor` role or above see them, those
+  with `operate` or `admin` start, stop and restart their units. The app doesn't add or change
+  links any more: the links the 0.5 app added are written into the settings once, as
+  `~/.config/elamon/elamond.d/links-from-app.toml`, when the 0.6 service first starts
+  (`links.json` beside its state becomes `links.json.migrated`). Change them there.
 
-A link added in the app can carry a unit only if the settings name it, so a phone can never start
-or stop what you didn't choose: either on a `[[links]]` entry, as above, or in `units`:
+A phone can only start or stop the unit a link names, so it can never touch what you didn't
+choose: only service units (`NAME.service`), each in its own scope; a template's instance
+(`podman-kube@….service`) only exactly as written. The service never starts or stops its own unit,
+and a link naming it is a mistake. System units also need polkit's leave (below).
 
-```toml
-units = [
-  "syncthing.service",                               # a user unit, as systemctl --user knows it
-  { name = "jellyfin.service", scope = "system" },   # a system unit
-]
-```
-
-Only service units (`NAME.service`), each in its own scope; a template's instance
-(`podman-kube@….service`) only exactly as written there. The service never starts or stops its own
-unit. A unit the settings don't name is refused when the link is added (*Not allowed*), and again
-when it is to be used. The app's list of units to pick from shows those the settings name. System
-units also need polkit's leave (below).
-
-### Commands
+### Actions
 
 ```toml
-[[actions]]
+[actions.backup]
 name = "Back up now"
 command = ["/path/to/backup-script", "--now"]   # run without a shell
 confirm = true      # ask in the app first (default)
 timeout = 600       # seconds before it's stopped (default 60)
+
+[actions.fan]
+name = "Fan"
+command = ["/usr/local/bin/fanctl", "set", "{speed}"]
+params.speed = { choices = ["quiet", "auto", "full"], labels = { quiet = "Quiet", auto = "Auto", full = "Full" }, default = "auto" }
+role = "admin"      # who may run it: "operate" (default) or "admin"
 ```
 
-Each becomes a button; what it prints comes back to the phone. Commands can only be defined on the
-computer, so a phone can't run anything that isn't listed. They run as your user, with the service's
-environment, whose `PATH` is the service unit's and may be shorter than your shell's: give the
-program's full path (`/usr/bin/…`, on NixOS `/run/current-system/sw/bin/…`,
-`/etc/profiles/per-user/YOUR_USER/bin/…`, or `/run/wrappers/bin/sudo`). On NixOS the module gives the
-unit a `PATH` with those directories; the volume's `wpctl` and `pactl` are looked for there in any
-case.
+Each becomes a button under Actions on the Control tab, and a dashboard can put it anywhere: a
+button, or a `select`, `toggle` or `slider` that sets one of its parameters
+([section 7](#dashboards-and-widgets)). What it prints comes back to the phone, its first 4 KiB and
+last 12 KiB.
+
+A phone never writes a command: it can only choose among the values a parameter allows. A choice
+(`choices`), a number in a range on a step (`range = [0, 100]`, `step = 5`) or a bool
+(`type = "bool"`); one without `default` must be given. An argument that is exactly `"{speed}"` is
+replaced by the value, whole: a value never becomes part of another argument or an option. The
+service checks each value before anything runs, and refuses one it doesn't allow.
+
+Commands run as your user, with the service's environment, whose `PATH` is the service unit's and
+may be shorter than your shell's: give the program's full path (`/usr/bin/…`, on NixOS
+`/run/current-system/sw/bin/…`, `/etc/profiles/per-user/YOUR_USER/bin/…`, or
+`/run/wrappers/bin/sudo`). On NixOS the module gives the unit a `PATH` with those directories; the
+volume's `wpctl` and `pactl` are looked for there in any case.
 
 ### Power, the profile and system units: polkit
 
@@ -453,10 +481,13 @@ Every paired phone has a role. Each allows what the one before it does, and more
 |---|---|---|
 | `glance` | the basics: CPU, memory, graphics cards, temperatures, fans, storage, network, battery and power, with their history | nothing |
 | `monitor` | everything: processes with their commands and users, monitors, links, media, the activity log | nothing |
-| `operate` | everything | links and the units the settings name, media and the volume, the power profile, the commands from `[[actions]]` |
-| `admin` | everything | all that, and shutting down, restarting, sleeping, locking, quitting and killing processes |
+| `operate` | everything | the links' units, media and the volume, the power profile, the actions from `[actions.<id>]` |
+| `admin` | everything | all that, and shutting down, restarting, sleeping, locking, quitting and killing processes, and the actions with `role = "admin"` |
 
-A phone with no role in the list of paired phones is `admin`.
+A phone with no role in the list of paired phones is `admin`. The role filters the values
+themselves, on the computer: a widget, a table or a whole dashboard whose values a role doesn't
+see isn't sent to that phone at all, nor are actions it may not run. A dashboard's or a widget's
+own `role` in the settings can only ask for more.
 
 ### Choosing a role
 
@@ -471,7 +502,8 @@ elamond pair --role operate    # everyday control without power or killing proce
 To make another role the default for `elamond pair`, set `default_role = "monitor"` (or any role)
 in `elamond.toml`.
 
-`elamond clients` lists each phone with its role. To change one later:
+`elamond clients` lists each phone with its role, its profile and the app it last said it is
+(`android 0.6.0`). To change a role later:
 
 ```sh
 elamond clients role ID glance    # ID from `elamond clients`
@@ -479,9 +511,16 @@ elamond clients role all monitor  # every paired phone
 elamond clients role ID glance --with-added   # and the phones that got a key of their own with its token
 ```
 
-It applies at once: the phone's next request, and the stream it has open from the next update, so
-a phone turned into `glance` stops getting processes, monitors and links within a second or two.
-The app shows only what the phone's role allows.
+It applies at once: the phone's next request, and the stream it has open hears of it within a
+second or two and fetches what it may see now, so a phone turned into `glance` stops getting
+processes, monitors and links. The app shows only what the phone's role allows.
+
+A phone's profile (its tabs, theme and the rest, [section 7](#profiles)) changes the same way:
+
+```sh
+elamond pair --profile owner            # pair with the profile `[profiles.owner]` of the settings
+elamond clients profile ID owner        # change it later; all, and --with-added, as for roles
+```
 
 ### Stopping every phone at once
 
@@ -500,11 +539,11 @@ token gave, `elamond revoke ID --with-added` ([section 8](#a-new-phone)).
 ### The activity log
 
 Everything a phone asks the computer to do is written down, carried out or refused, with how it
-ended: when, which phone, what (*power reboot*, *unit restart nginx.service*, *action Back up
-now*…) and the result. Up to 500 are kept in `~/.local/share/elamon/activity.jsonl` (one JSON
+ended: when, which phone, what (*power reboot*, *unit restart nginx.service*, *action Fan quiet*,
+the action's name and the values it was given…) and the result. Up to 500 are kept in `~/.local/share/elamon/activity.jsonl` (one JSON
 object per line; only your user can read it) and survive restarts; of them, a phone keeps 100 at
 most (with the keys of their own its token gave), so one that keeps asking pushes out only its own.
-Phones with the `monitor` role or above can read it in the app. What was carried out is also in
+Phones with the `monitor` role or above can read it in the app (Control → Activity log). What was carried out is also in
 the journal: `journalctl --user -u elamond`.
 
 A phone may ask the computer to do 10 things in a row, then one a second; more are refused for a
@@ -516,10 +555,26 @@ Seeing is never limited.
 ### `elamond.toml`
 
 `~/.config/elamon/elamond.toml`, or the file `ELAMON_CONFIG` names, then every
-`~/.config/elamon/elamond.d/*.toml` in name order. A later file adds to `[[links]]`,
-`[[actions]]` and `units` and replaces any other key it sets. Under NixOS or Home Manager, where
-`elamond.toml` comes from Nix and can't be edited, the drop-ins are where your own additions go.
-All keys are optional.
+`~/.config/elamon/elamond.d/*.toml` in name order, all after what is built into the service (the
+standard dashboards and the `default` profile). A table with an id (`[links.web]`,
+`[actions.fan]`, `[dashboards.power]`, `[profiles.owner]`) adds to the one of the same id before
+it, key by key; a list (`widgets`, `listen`, a profile's `dashboards`) replaces the one before
+whole. So a drop-in can add a dashboard, change one key of a built-in one, or replace its widgets.
+Under NixOS or Home Manager, where `elamond.toml` comes from Nix and can't be edited, the drop-ins
+are where your own additions go. All keys are optional. **The full reference, every key and
+widget and value, is [docs/config.md](config.md)**; the commands:
+
+```sh
+elamond check              # read the settings as the service would, naming the file and line of each mistake
+elamond check FILE         # the same with FILE in its place, before you put it there
+elamond edit               # edit elamond.toml in $EDITOR; a broken one isn't kept
+elamond edit ~/.config/elamon/elamond.d/power.toml   # or a drop-in
+elamond defaults           # the built-in dashboards and profile, to copy from
+elamond values             # every value this computer has now, by address, and the collections
+elamond schema > ~/.config/elamon/elamond.schema.json   # for editors that check TOML
+```
+
+The top-level keys:
 
 | Key | Default | |
 |---|---|---|
@@ -529,24 +584,95 @@ All keys are optional.
 | `name` | host name | the name shown in the app |
 | `mdns` | `true` | announce the service on the local network: only on wired and wireless interfaces it listens on, never over a VPN |
 | `interval_ms` | `1000` | time between readings, 250–10 000 |
-| `history_minutes` | `10` | history a phone gets when it connects (at most 7 200 readings) |
-| `control` | `false` | allow the control panel |
+| `history_minutes` | `10` | how far back graphs reach, 1–1 440 (at most 7 200 readings) |
+| `control` | `false` | let phones act on the computer ([section 5](#5-the-control-panel)) |
 | `default_role` | `"admin"` | the role `elamond pair` gives a phone when not told: `glance`, `monitor`, `operate` or `admin` ([section 6](#6-roles-who-may-do-what)) |
-| `[[links]]` | | `name`, `url`, `unit`, `scope` — see above |
-| `units` | `[]` | units a link added in the app may start, stop and restart: `"NAME.service"` for a user unit, `{ name = "NAME.service", scope = "system" }` for a system one ([Links](#links)) |
-| `[[actions]]` | | `name`, `command`, `confirm`, `timeout` (seconds, at most 3 600) — see above |
+| `default_profile` | `"default"` | the profile of a phone paired without `--profile`, and of one whose profile is gone |
+| `[links.<id>]` | | `name`, `url`, `unit`, `scope`, `icon` ([section 5](#links)) |
+| `[actions.<id>]` | | `name`, `command`, `params`, `role`, `confirm`, `unlock`, `timeout`, `icon` ([section 5](#actions)) |
+| `[profiles.<id>]` | | how a phone looks and behaves ([below](#profiles)) |
+| `[dashboards.<id>]` | | pages of widgets ([below](#dashboards-and-widgets)) |
+| `[templates.<id>]` | | widgets to start others from |
+
+The settings of 0.5 and before (schema 1) had `[[links]]`, `[[actions]]` and `units`; the 0.6
+service refuses them and says what replaces each: `[links.<id>]`, `[actions.<id>]`, and a unit named
+on its link ([section 8](#updating)).
 
 The service rereads the files when one of them changes, or on `systemctl --user reload elamond`. A
-file that doesn't parse is named in the log, and the settings read before stay, but control is off
-until the files parse again, so a half-finished edit can't leave phones acting on old permissions;
-`elamond control status` shows the error. At start, settings that don't parse stop the service.
-`control`, `links`, `units`, `actions`, `default_role` and `names` apply at once; `port`, `listen`,
-`name`, `mdns`, `interval_ms` and `history_minutes` after a restart.
+file that doesn't parse, or settings with a mistake, are named in the log with the file and line,
+and the settings read before stay; but control is off until they read again, so a half-finished
+edit can't leave phones acting on old permissions. `elamond control status` shows the mistake,
+`elamond check` all of them. At start, settings with a mistake stop the service. Links, actions,
+profiles, dashboards, `control`, `default_role`, `default_profile` and `names` apply at once (a
+phone's open stream fetches its new dashboards by itself); `port`, `listen`, `name`, `mdns`,
+`interval_ms` and `history_minutes` after a restart.
 
 A secret in the settings (a link's URL with a password in it, a token among an action's arguments)
 belongs in a file only you can read: `chmod 600` it. Under NixOS or Home Manager, never put one in
 `services.elamond.settings`, which goes into the Nix store where every user can read it; use a
 drop-in in `~/.config/elamon/elamond.d` instead.
+
+### Profiles
+
+How a phone looks and behaves: its tabs, the chips under the computer's name, its theme, how often
+it asks for readings, its units, which actions it confirms and unlocks for. Each paired phone has
+one; the built-in `default` is everyone's until you say otherwise.
+
+```toml
+[profiles.owner]
+use = "default"                 # start from it; the keys here win
+name = "Owner"
+theme = "dark"
+pure_black = true
+dashboards = ["overview", "power", "processes", "control"]   # the tabs, in order
+unlock = { for = ["power", "signal", "units", "actions"], grace = "1m" }
+
+[profiles.owner.android]
+keep_screen_on = true
+```
+
+`elamond pair --profile owner` pairs a phone with it, `elamond clients profile ID owner` gives it to
+one paired already, `default_profile = "owner"` makes it the one phones get without saying
+([section 6](#choosing-a-role)). Every key is in [docs/config.md](config.md#profiles).
+
+### Dashboards and widgets
+
+A dashboard is a page of widgets in a grid of four columns (two on a narrow screen): a tab when a
+profile lists it, a page a widget opens, or the chips under the computer's name (a profile's
+`header`). `elamond defaults` prints the standard ones: `overview`, `processes`, `sensors` and
+`control`, the `header`, and the pages their tiles open.
+
+```toml
+[dashboards.power]
+title = "Power"
+icon = "battery"
+
+[[dashboards.power.widgets]]
+type = "gauge"
+value = "battery.percent"       # an address: `elamond values` lists this computer's
+label = "Battery"
+
+[[dashboards.power.widgets]]
+type = "graph"
+values = ["battery.power"]
+labels = ["Draw"]
+range = 600                     # seconds
+
+[[dashboards.power.widgets]]
+type = "select"                 # one of an action's choices
+action = "fan"
+param = "speed"
+label = "Fan"
+```
+
+Then put `"power"` in a profile's `dashboards`. The widget types are `value`, `gauge`, `meter`,
+`status`, `graph`, `list`, `bars`, `table`, `button`, `toggle`, `select`, `slider`, `text`, `group`
+and `media`; a `table` shows a collection (processes, links, disks, the activity log…), sorted,
+searched, filtered, with what a row shows when opened and what it may run. Strings may hold values
+(`caption = "{mem.used:bytes} of {mem.total:bytes}"`); `for_each` repeats a widget or a dashboard
+for each GPU, disk or interface; templates (`[templates.<id>]`, `use`) save repeating yourself.
+The service decides colours and levels (*warning* above 75 %, …) the same for every phone. All of
+it is in [docs/config.md](config.md): widgets, addresses, collections, formats, icons, colours.
 
 ### Where the service listens
 
@@ -573,8 +699,8 @@ address, name or QR code.
 
 Its state lives in `~/.local/share/elamon`: its id and certificate, the certificates before it
 with their signatures (`rotations.json`, [section 10](#a-new-certificate)), the paired phones
-(only hashes of their keys, and their roles), links added in the app, a pending pairing code, the
-activity log and `elamond control off`'s mark. Deleting that folder unpairs every phone and gives
+(only hashes of their keys, their roles and profiles, and the app each last said it is), a pending
+pairing code, the activity log and `elamond control off`'s mark. Deleting that folder unpairs every phone and gives
 the service a new certificate, unless a backup of it is restored ([section 8](#backing-up-the-service)).
 
 Where these live follows `XDG_CONFIG_HOME` and `XDG_DATA_HOME`. `ELAMON_CONFIG_DIR` and
@@ -610,16 +736,39 @@ and the certificate it paired with. A drop-in's `names` replaces the one before.
 | `services.elamond.enable` | run the service for the people who log in (never for system users such as a display manager's greeter) |
 | `services.elamond.users` | only these users run it; empty means every regular user. One user's service holds the port at a time |
 | `services.elamond.package` | the service's package |
-| `services.elamond.settings` | `elamond.toml` for every user's service, as Nix; `elamond pair` and the other commands read it too. A change restarts the services. It is in the Nix store, readable by every user: no secrets |
+| `services.elamond.settings` | `elamond.toml` for every user's service, as Nix (below); `elamond pair` and the other commands read it too. `elamond check` reads it as it is built, so a mistake fails `nixos-rebuild` with its line. A change restarts the services. It is in the Nix store, readable by every user: no secrets |
 | `services.elamond.openFirewall` | open the service's port (`settings.port`, 47823 by default) and UDP 5353 (unless `settings.mdns = false`); works without `enable` |
 | `services.elamond.firewallInterfaces` | with `openFirewall`, open them on these interfaces only, UDP 5353 only on those not named like a VPN (`tailscale*`, `wg*`, `nordlynx*`, `tun*`, `tap*`, `zt*`, `ppp*`; a guess by the name, so a VPN named otherwise gets it too); empty means every interface |
 | `services.elamond.control.users` | users who may use power and the profile without a password, so their service can; polkit allows it every program of theirs, not only the service |
-| `services.elamond.control.units` | system units those users may start, stop and restart without a password; the app also needs them named in `settings` |
+| `services.elamond.control.units` | system units those users may start, stop and restart without a password, beside those `settings.links` name with `scope = "system"`, which the rule has already: list here the units of links in a user's drop-in |
 | `services.elamond.control.multipleSessions` | `false` by default; also power off, restart and sleep while other users are logged in |
 
 The module's user unit has a `PATH` with `/run/wrappers/bin` (sudo, pkexec), your profile
 (`/etc/profiles/per-user/YOUR_USER/bin`, `~/.nix-profile/bin`) and the system's
 (`/run/current-system/sw/bin`), for `wpctl` or `pactl` and for actions.
+
+The settings in Nix are the TOML of docs/config.md as attribute sets: `[dashboards.power]` is
+`dashboards.power`, `[[dashboards.power.widgets]]` a list of attribute sets:
+
+```nix
+services.elamond.settings = {
+  control = true;
+  links.jellyfin = { name = "Jellyfin"; url = "http://{host}:8096"; unit = "jellyfin.service"; scope = "system"; };
+  actions.fan = {
+    name = "Fan";
+    command = [ "${pkgs.coreutils}/bin/echo" "fan" "{speed}" ];
+    params.speed = { choices = [ "quiet" "fast" ]; default = "quiet"; };
+  };
+  dashboards.power = {
+    title = "Power";
+    widgets = [
+      { type = "gauge"; value = "battery.percent"; label = "Battery"; }
+      { type = "select"; action = "fan"; param = "speed"; label = "Fan"; }
+    ];
+  };
+  profiles.owner = { theme = "dark"; dashboards = [ "overview" "power" "processes" "control" ]; };
+};
+```
 
 ### Home Manager module
 
@@ -629,7 +778,7 @@ The module's user unit has a `PATH` with `/run/wrappers/bin` (sudo, pkexec), you
 |---|---|
 | `services.elamond.enable` | run the service for this user |
 | `services.elamond.package` | the service's package |
-| `services.elamond.settings` | written to `~/.config/elamon/elamond.toml`; a change restarts the service. Drop-ins in `elamond.d` still add to it. It is in the Nix store, readable by every user: no secrets |
+| `services.elamond.settings` | written to `~/.config/elamon/elamond.toml`, as Nix as for NixOS; checked by `elamond check` as it is built, so a mistake fails `home-manager switch`. A change restarts the service. Drop-ins in `elamond.d` still add to it. It is in the Nix store, readable by every user: no secrets |
 
 The firewall stays the system's: with a `port` of your own here, give the system the same
 (`services.elamond.settings.port` beside `openFirewall`; without `enable` it only opens that port),
@@ -637,22 +786,57 @@ or open it yourself.
 
 ## 8. Updating, moving and removing
 
-Update the app and the service together; this is a test version and they change in step.
+### Updating
 
-- **NixOS / Home Manager:** `nix flake update elamon`, then rebuild.
-- **Nix profile:** `nix profile upgrade --all`, then `systemctl --user daemon-reload` and
-  `systemctl --user restart elamond`.
-- **From source:** `git pull`, `cargo build --release` in `elamond/`, install the binary again
-  and restart the service.
+Put the new service in place and run `elamond setup` again, which sees the new binary and restarts
+the service:
 
-Pairings and links added in the app survive updates, except from 0.4 to 0.5: there each phone
-pairs again (then `elamond revoke` its old entry), and links added in the app are added again.
+- **Release binary:** unpack it and install it over the old one as in
+  [section 1](#1-install-the-service), then `elamond setup`.
+- **From source:** `git pull`, `cargo build --release` in `elamond/`, install the binary again,
+  then `elamond setup`.
+- **Nix profile:** `nix profile upgrade --all`, then `elamond setup`.
+- **NixOS / Home Manager:** `nix flake update elamon`, then rebuild; the rebuild restarts the
+  service.
+
+The app and the service of one version go together: app 0.6 and service 0.6 speak API 2, which no
+earlier app or service does, and each asks for the other to be updated when they don't match.
+Update both. Pairings stay: the phones keep their keys and roles and pair nothing again.
+
+**From 0.5 to 0.6** the settings change once (settings schema 2). The 0.6 service doesn't start
+with 0.5's `[[links]]`, `[[actions]]` and `units`; `elamond check` names each line and what
+replaces it, and `elamond edit` lets you fix them with the check before saving:
+
+```toml
+# 0.5                                   # 0.6
+units = ["syncthing.service"]           [links.syncthing]           # a unit is named on its link
+                                        name = "Syncthing"
+                                        url = "http://{host}:8384"
+                                        unit = "syncthing.service"
+
+[[links]]                               [links.jellyfin]
+name = "Jellyfin"                       name = "Jellyfin"
+url = "http://{host}:8096"              url = "http://{host}:8096"
+unit = "jellyfin.service"               unit = "jellyfin.service"
+scope = "system"                        scope = "system"
+
+[[actions]]                             [actions.backup]
+name = "Back up now"                    name = "Back up now"
+command = ["/path/to/backup"]           command = ["/path/to/backup"]
+```
+
+On NixOS and Home Manager the same in `services.elamond.settings` (`links.jellyfin = { … };`),
+which a rebuild checks. The links the 0.5 app added move into the settings by themselves
+([section 5](#links)); the app's own display settings are the computer's profiles now
+([section 7](#profiles)). From 0.4 to 0.5 each phone paired again (then `elamond revoke` its old
+entry).
 
 ### Backing up the service
 
 What makes the service the same computer to its phones is in `~/.local/share/elamon`: its id, its
-certificate and key with the rotations behind them, the paired phones (hashes of their keys, and
-their roles), the links added in the app, the activity log and `elamond control off`'s mark. Lose
+certificate and key with the rotations behind them, the paired phones (hashes of their keys, their
+roles and profiles), the activity log and `elamond control off`'s mark (and the links the 0.5 app
+added, while they haven't moved into the settings). Lose
 it, and every phone has to pair again. Keep a copy:
 
 ```sh
@@ -763,7 +947,7 @@ computer's menu.
 | *The computer's certificate changed* | The service's data was deleted or the system reinstalled; restore a backup of it ([section 8](#a-new-computer-or-reinstalling)), or forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` the app follows by itself; after `elamond rotate-cert --no-statement` every phone says this, and pairs again ([section 10](#a-new-certificate)). |
 | *Control is off* | `control = true` in `elamond.toml` or a drop-in in `elamond.d`; the service takes it up within a few seconds. If it is set, `elamond control status` tells whether `elamond control off` holds it off, or whether the settings stopped parsing, which holds it off until they parse again. |
 | Pairing ends with the phone turned away | `elamond pair` asks before it lets a phone in: answer `y` there within 90 seconds, and keep it running until the phone is paired ([section 3](#3-pair-the-phone)). |
-| *Not allowed* | The phone's role doesn't allow that: `elamond clients` shows it, `elamond clients role ID ROLE` changes it ([section 6](#6-roles-who-may-do-what)). For a link's unit: the settings don't name it; add it to `units` ([section 5](#links)). |
+| *Not allowed* | The phone's role doesn't allow that: `elamond clients` shows it, `elamond clients role ID ROLE` changes it ([section 6](#6-roles-who-may-do-what)); an action may ask for `admin` (`role` in its settings). |
 | *Too many requests* | The phone asked for more than 10 things in a row; wait a few seconds. When pairing: five wrong codes came from this address; run `elamond pair` again for a new code. |
 | The phone keeps dropping off | The journal has a line for each stream a phone opens and closes, with its address (local network or VPN), how long it lasted and why it ended: `journalctl --user -u elamond -e`. |
 | *needs permission*, or *The computer didn't allow that* | The polkit rule from section 5: `elamond setup` prints the command that installs it, `elamond setup --check` tells whether it is there. |
