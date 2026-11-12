@@ -29,6 +29,7 @@ mod stream;
 mod ui;
 mod values;
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::IsTerminal;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -258,9 +259,11 @@ fn serve() -> Result<(), String> {
 			hub,
 			stamp: identity::stamp(&dir),
 			failed: None,
+			seen: None,
+			tailscale: None,
 			dir,
 		};
-		upkeep.network(&ifaces);
+		upkeep.network(&ifaces, false).await;
 		tokio::select! {
 			_ = shutdown_signal() => {}
 			_ = upkeep.run() => {}
@@ -321,9 +324,9 @@ fn served_rotations(dir: &std::path::Path) -> Vec<identity::Rotation> {
 	})
 }
 
-/// What the service keeps in step with the computer while it runs: the addresses it listens on
-/// and where it is announced, as interfaces come and go, and the certificate it presents, after
-/// `elamond rotate-cert`.
+/// What the service keeps in step with the computer while it runs: the addresses it listens on,
+/// where it is announced and where paired phones are told it is, as interfaces come and go, and
+/// the certificate it presents, after `elamond rotate-cert`.
 struct Upkeep {
 	listeners: listen::Listeners,
 	announcer: Option<mdns::Announcer>,
@@ -334,6 +337,9 @@ struct Upkeep {
 	/// cert.der as last taken up, and as last found not to load.
 	stamp: Option<identity::Stamp>,
 	failed: Option<identity::Stamp>,
+	/// Each interface's addresses as last looked, and the computer's Tailscale name as asked then.
+	seen: Option<BTreeMap<String, BTreeSet<IpAddr>>>,
+	tailscale: Option<String>,
 }
 
 impl Upkeep {
@@ -348,25 +354,32 @@ impl Upkeep {
 					None => std::future::pending().await,
 				}
 			};
-			tokio::select! {
-				_ = tokio::time::sleep(cadence::NETWORK_POLL) => {}
-				_ = hup => {}
-			}
+			let asked = tokio::select! {
+				_ = tokio::time::sleep(cadence::NETWORK_POLL) => false,
+				_ = hup => true,
+			};
 			self.certificate();
-			self.network(&listen::interfaces());
+			self.network(&listen::interfaces(), asked).await;
 		}
 	}
 
-	fn network(&mut self, ifaces: &[listen::Iface]) {
+	/// Listens and announces where `listen` comes to with `ifaces`, and tells the phones where the
+	/// computer is now. Tailscale is asked for the computer's name only when an address came or
+	/// went (and when `asked`, by SIGHUP): `tailscale status` is a command, run off the runtime.
+	async fn network(&mut self, ifaces: &[listen::Iface], asked: bool) {
 		let plan = listen::Plan::of(&self.targets, ifaces);
 		self.listeners.update(&plan);
-		// Where paired phones find the computer now: its addresses, then the names it has.
-		let names = self.hub.config().names.clone();
-		let offered = plan.pairing_hosts(ifaces).into_iter().map(|a| a.to_string()).chain(names);
-		self.hub.set_endpoints(offered.take(consts::limit::ENDPOINTS_MAX).collect());
 		if let Some(a) = &mut self.announcer {
 			a.update(plan.mdns(ifaces));
 		}
+		let now: BTreeMap<String, BTreeSet<IpAddr>> = ifaces.iter().map(|i| (i.name.clone(), i.addrs.iter().copied().collect())).collect();
+		if asked || self.seen.as_ref() != Some(&now) {
+			self.seen = Some(now);
+			let (targets, all) = (self.targets.clone(), ifaces.to_vec());
+			let asking = tokio::task::spawn_blocking(move || names::tailscale(&listen::Plan::of(&targets, &all), &all));
+			self.tailscale = asking.await.ok().flatten();
+		}
+		self.hub.set_reach(server::Reach { addrs: plan.pairing_hosts(ifaces), tailscale: self.tailscale.clone() });
 	}
 
 	/// Presents a new certificate from the next connection on; those open keep theirs.
@@ -937,8 +950,8 @@ fn choose<'a>(clients: &'a [store::Client], which: &str, with_added: bool) -> Re
 }
 
 /// The phones as the commands list them, a line each: id, role, profile, name, the app it said it
-/// is last, and how it came. The profile is the one it gets (`default_profile` for one it has no
-/// longer), as far as the settings `config` parse.
+/// is last, how it came and the address it came from last. The profile is the one it gets
+/// (`default_profile` for one it has no longer), as far as the settings `config` parse.
 fn client_lines(clients: &[&store::Client], config: Option<&store::Config>) -> Vec<String> {
 	let profile = |c: &store::Client| -> String {
 		let Some(config) = config else { return c.profile.clone().unwrap_or_else(|| "default".into()) };
@@ -956,10 +969,13 @@ fn client_lines(clients: &[&store::Client], config: Option<&store::Config>) -> V
 		.iter()
 		.zip(&rows)
 		.map(|(c, (p, a))| {
-			let when = match &c.from {
+			let mut when = match &c.from {
 				Some(from) => format!("added {} with the key of {from}", format_date(c.created)),
 				None => format!("paired {}", format_date(c.created)),
 			};
+			if let Some(address) = &c.address {
+				when.push_str(&format!(", last from {address}"));
+			}
 			let pad = |s: &str, w: usize| format!("{s}{}", " ".repeat(w.saturating_sub(s.chars().count())));
 			format!("{}  {:<7}  {}  {}  {}  ({when})", c.id, c.role.as_str(), pad(p, pw), pad(&c.name, nw), pad(a, aw))
 		})
@@ -1288,23 +1304,28 @@ mod tests {
 	#[test]
 	fn the_phones_as_the_commands_list_them() {
 		let config = settings::read_sources(&[settings::Source::new("a.toml", "[profiles.owner]\nname = \"Owner\"\n")]).unwrap();
-		let c = |id: &str, name: &str, profile: Option<&str>, app: Option<&str>| store::Client {
+		let c = |id: &str, name: &str, profile: Option<&str>, app: Option<&str>, address: Option<&str>| store::Client {
 			id: id.into(),
 			name: name.into(),
 			created: 1_700_000_000,
 			role: Role::Monitor,
 			profile: profile.map(Into::into),
 			app: app.map(Into::into),
+			address: address.map(Into::into),
 			..Default::default()
 		};
-		let list = [c("0123abcd", "Pixel", Some("owner"), Some("android/0.6.0")), c("4567cdef", "Old tablet", Some("gone"), None), c("89ab0123", "Tab", None, None)];
+		let list = [
+			c("0123abcd", "Pixel", Some("owner"), Some("android/0.6.0"), Some("100.64.0.9")),
+			c("4567cdef", "Old tablet", Some("gone"), None, None),
+			c("89ab0123", "Tab", None, None, Some("2001:db8::9")),
+		];
 		let lines = client_lines(&list.iter().collect::<Vec<_>>(), Some(&config));
 		assert_eq!(
 			lines,
 			[
-				"0123abcd  monitor  owner                                Pixel       android 0.6.0  (paired 2023-11-14)",
+				"0123abcd  monitor  owner                                Pixel       android 0.6.0  (paired 2023-11-14, last from 100.64.0.9)",
 				"4567cdef  monitor  default (gone: not in the settings)  Old tablet  -              (paired 2023-11-14)",
-				"89ab0123  monitor  default                              Tab         -              (paired 2023-11-14)",
+				"89ab0123  monitor  default                              Tab         -              (paired 2023-11-14, last from 2001:db8::9)",
 			]
 		);
 		// Settings that don't parse: the profiles as clients.json has them.

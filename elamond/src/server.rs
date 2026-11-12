@@ -172,10 +172,10 @@ pub struct Hub {
 	uis: Mutex<HashMap<UiKey, CachedUi>>,
 	/// The open streams, by id.
 	pub(crate) streams: Mutex<HashMap<String, Open>>,
-	/// The app each client said it is last ("android/0.6.0"), and when that was written down, by
-	/// its id.
+	/// The app each client said it is last ("android/0.6.0") and the address it came from, and when
+	/// that was written down, by its id.
 	apps: Mutex<HashMap<String, AppNote>>,
-	/// A client's app is written down at most this often (`cadence::APP_NOTE`).
+	/// A client's app and address are written down at most this often (`cadence::APP_NOTE`).
 	app_note: Duration,
 	/// The widget types each client said it draws in its last `GET /api/v1/ui`, by its id and kind:
 	/// what its streams describe with.
@@ -183,14 +183,27 @@ pub struct Hub {
 	/// Where the computer is now, as paired phones are told (`endpoints`), and how often that changed.
 	endpoints: RwLock<Arc<Vec<String>>>,
 	endpoints_gen: AtomicU64,
+	/// What `endpoints` are made of besides `names` from the settings: the addresses a phone could
+	/// reach the service at, and the computer's Tailscale name, as `Upkeep` last found them.
+	reach: Mutex<Reach>,
+}
+
+/// The addresses a phone could reach the service at, the local network first, and the computer's
+/// Tailscale name: `endpoints` with the settings' `names` between them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Reach {
+	pub addrs: Vec<IpAddr>,
+	pub tailscale: Option<String>,
 }
 
 /// The widget types a client draws; `None` for all of them.
 pub type Draws = Option<BTreeSet<String>>;
 
-/// The app a client said it is last, as clients.json is to have it.
+/// The app a client said it is last and the address it came from, as clients.json is to have them;
+/// None for what isn't known.
 struct AppNote {
-	said: String,
+	said: Option<String>,
+	from: Option<String>,
 	/// When it was last written down.
 	written: Option<Instant>,
 	/// A write waits for its turn, and will write what the client said last.
@@ -246,6 +259,7 @@ impl Hub {
 			draws: Mutex::new(HashMap::new()),
 			endpoints: RwLock::new(Arc::new(Vec::new())),
 			endpoints_gen: AtomicU64::new(0),
+			reach: Mutex::new(Reach::default()),
 			dir,
 		}
 	}
@@ -270,6 +284,7 @@ impl Hub {
 								role: c.role,
 								profile: c.profile.clone(),
 								app: c.app.clone(),
+								address: c.address.clone(),
 								family,
 							};
 							(c.token_hash.clone(), who)
@@ -304,17 +319,24 @@ impl Hub {
 			.map(|(_, who)| who.clone())
 	}
 
-	/// Notes the app a client says it is; clients.json keeps the last of each, for `elamond clients`.
-	/// It is written when it changes: at once the first time, then at most once every `app_note`
-	/// for a client, one write at a time, with what the client said last. A client that keeps
-	/// saying another costs a write now and then, not one for each request.
-	fn saw(self: &Arc<Self>, who: &Caller, app: &ClientApp) {
-		let Some(label) = app.label() else { return };
+	/// Notes the app a client says it is and the address `from` it came from; clients.json keeps the
+	/// last of each, for `elamond clients`. They are written when they change: at once the first
+	/// time, then at most once every `app_note` for a client, one write at a time, with what the
+	/// client said last. A client that keeps saying another, or roams between networks, costs a
+	/// write now and then, not one for each request.
+	fn saw(self: &Arc<Self>, who: &Caller, app: &ClientApp, from: Option<IpAddr>) {
+		let (label, address) = (app.label(), from.map(|a| a.to_canonical().to_string()));
+		if label.is_none() && address.is_none() {
+			return;
+		}
 		let wait = {
 			let mut apps = self.apps.lock().unwrap_or_else(|p| p.into_inner());
-			let note = apps.entry(who.id.clone()).or_insert_with(|| AppNote { said: String::new(), written: None, pending: false });
-			note.said = label;
-			if note.pending || who.app.as_deref() == Some(note.said.as_str()) {
+			let note = apps.entry(who.id.clone()).or_insert_with(|| AppNote { said: None, from: None, written: None, pending: false });
+			// What a request doesn't tell stays as it was told before.
+			note.said = label.or(note.said.take());
+			note.from = address.or(note.from.take());
+			let kept = |noted: &Option<String>, file: &Option<String>| noted.is_none() || noted == file;
+			if note.pending || (kept(&note.said, &who.app) && kept(&note.from, &who.address)) {
 				return;
 			}
 			note.pending = true;
@@ -334,19 +356,19 @@ impl Hub {
 		}
 	}
 
-	/// Writes down what the client `id` said it is last, off the runtime.
+	/// Writes down what the client `id` said it is last and where it came from, off the runtime.
 	fn write_app(&self, id: String, name: String) -> Option<tokio::task::JoinHandle<()>> {
-		let label = {
+		let (label, address) = {
 			let mut apps = self.apps.lock().unwrap_or_else(|p| p.into_inner());
 			let note = apps.get_mut(&id)?;
 			note.pending = false;
 			note.written = Some(Instant::now());
-			note.said.clone()
+			(note.said.clone(), note.from.clone())
 		};
 		let dir = self.dir.clone();
 		Some(tokio::task::spawn_blocking(move || {
-			if let Err(e) = store::set_client_app(&dir, &id, &label) {
-				eprintln!("clients: can't note that \"{name}\" ({id}) is {label}: {e}");
+			if let Err(e) = store::note_client(&dir, &id, label.as_deref(), address.as_deref()) {
+				eprintln!("clients: can't note which app \"{name}\" ({id}) is and where it came from: {e}");
 			}
 		}))
 	}
@@ -431,8 +453,14 @@ impl Hub {
 			eprintln!("settings: phones pair as {} from now on", new.default_role.as_str());
 		}
 		let control = new.control;
+		let names_changed = old.names != new.names;
 		if let Ok(mut c) = self.config.write() {
 			*c = Arc::new(new);
+		}
+		// `names` reach the phones with the rest of the settings, in the same `ui`.
+		if names_changed {
+			let reach = self.reach.lock().unwrap_or_else(|p| p.into_inner());
+			self.set_endpoints(crate::names::endpoints(&reach.addrs, &self.config().names, reach.tailscale.as_deref()));
 		}
 		if self.settings_broken.lock().unwrap_or_else(|p| p.into_inner()).take().is_some() {
 			eprintln!("settings: they parse again; control is {} by them", if control { "on" } else { "off" });
@@ -445,6 +473,15 @@ impl Hub {
 	/// first, then names (`endpoints`).
 	pub fn endpoints(&self) -> Arc<Vec<String>> {
 		self.endpoints.read().map(|e| e.clone()).unwrap_or_else(|p| p.into_inner().clone())
+	}
+
+	/// Takes the addresses a phone could reach the service at and the computer's Tailscale name as
+	/// they are now: with `names` from the settings, the `endpoints` paired phones are told.
+	pub fn set_reach(&self, now: Reach) {
+		let mut reach = self.reach.lock().unwrap_or_else(|p| p.into_inner());
+		// Held while the settings' names are read, so a reread of them meanwhile can't be undone.
+		self.set_endpoints(crate::names::endpoints(&now.addrs, &self.config().names, now.tailscale.as_deref()));
+		*reach = now;
 	}
 
 	/// Takes where the computer is now; a change goes to the phones as a new `ui`.
@@ -735,7 +772,8 @@ async fn auth(State(hub): State<Arc<Hub>>, mut req: Request, next: Next) -> Resp
 				a.known();
 			}
 			let app = ClientApp::parse(req.headers().get(protocol::CLIENT_HEADER).and_then(|v| v.to_str().ok()));
-			hub.saw(&who, &app);
+			let from = req.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0.ip());
+			hub.saw(&who, &app, from);
 			req.extensions_mut().insert(who);
 			req.extensions_mut().insert(app);
 			req.extensions_mut().insert(TokenHash(hash));
@@ -1296,13 +1334,18 @@ dashboards = ["overview", "control"]
 
 	/// `request_as` from a client that says it is `app`.
 	fn request_from(method: &str, path: &str, token: &str, app: &str, body: &str) -> Request {
+		request_at(method, path, token, app, SocketAddr::from(([192, 0, 2, 1], 50000)), body)
+	}
+
+	/// `request_from` the address `peer`.
+	fn request_at(method: &str, path: &str, token: &str, app: &str, peer: SocketAddr, body: &str) -> Request {
 		axum::http::Request::builder()
 			.method(Method::from_bytes(method.as_bytes()).unwrap())
 			.uri(path)
 			.header(header::AUTHORIZATION, format!("Bearer {token}"))
 			.header(header::CONTENT_TYPE, "application/json")
 			.header(protocol::CLIENT_HEADER, app)
-			.extension(ConnectInfo(SocketAddr::from(([192, 0, 2, 1], 50000))))
+			.extension(ConnectInfo(peer))
 			.body(Body::from(body.to_string()))
 			.unwrap()
 	}
@@ -1521,6 +1564,88 @@ dashboards = ["overview", "control"]
 		assert!(!hub.apps.lock().unwrap()["id-glance"].pending);
 		tokio::time::sleep(Duration::from_millis(300)).await;
 		assert_eq!(store::clients_stamp_in(&hub.dir), stamp);
+		remove_test_dir(&hub.dir);
+	}
+
+	#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+	async fn where_a_phone_came_from_is_written_down_as_its_app_is() {
+		let every = Duration::from_secs(2);
+		let (hub, _tx) = hub_with(true, |h| h.app_note = every);
+		let glance = || store::load_clients_in(&hub.dir).unwrap().into_iter().find(|c| c.name == "glance").unwrap();
+		let from = |peer: &str| {
+			let peer: SocketAddr = peer.parse().unwrap();
+			router(hub.clone()).oneshot(request_at("GET", "/api/v1/ui", "t-glance", "android/0.6.1", peer, ""))
+		};
+		// The first, at once, with the app it said it is.
+		assert_eq!(from("192.0.2.7:50000").await.unwrap().status(), StatusCode::OK);
+		for _ in 0..100 {
+			if glance().address.is_some() {
+				break;
+			}
+			tokio::time::sleep(Duration::from_millis(20)).await;
+		}
+		assert_eq!((glance().address.as_deref(), glance().app.as_deref()), (Some("192.0.2.7"), Some("android/0.6.1")));
+		// A phone that roams costs one write more, of where it came from last; an IPv4 address
+		// reached over IPv6 is written as the IPv4 one it is.
+		let t0 = Instant::now();
+		let mut stamps = std::collections::HashSet::new();
+		for peer in ["[2001:db8::7]:50000", "100.64.0.9:50000", "[::ffff:192.0.2.8]:50000"].iter().cycle().take(12) {
+			assert_eq!(from(peer).await.unwrap().status(), StatusCode::OK);
+			stamps.insert(store::clients_stamp_in(&hub.dir));
+		}
+		assert!(t0.elapsed() < every, "a busy computer: {:?}", t0.elapsed());
+		assert_eq!(stamps.len(), 1, "written at once again");
+		for _ in 0..250 {
+			if glance().address.as_deref() == Some("192.0.2.8") {
+				break;
+			}
+			tokio::time::sleep(Duration::from_millis(20)).await;
+		}
+		assert_eq!((glance().address.as_deref(), glance().app.as_deref()), (Some("192.0.2.8"), Some("android/0.6.1")));
+		// From where the file says: nothing more is written.
+		let stamp = store::clients_stamp_in(&hub.dir);
+		for _ in 0..5 {
+			assert_eq!(from("192.0.2.8:50001").await.unwrap().status(), StatusCode::OK);
+		}
+		assert!(!hub.apps.lock().unwrap()["id-glance"].pending);
+		tokio::time::sleep(Duration::from_millis(300)).await;
+		assert_eq!(store::clients_stamp_in(&hub.dir), stamp);
+		remove_test_dir(&hub.dir);
+	}
+
+	#[tokio::test]
+	async fn phones_are_told_where_the_computer_is_as_that_changes() {
+		let (hub, tx) = hub(true);
+		let endpoints = async || call(&hub, "GET", "/api/v1/ui", "glance", "").await.1["service"]["endpoints"].clone();
+		assert_eq!(endpoints().await, serde_json::json!([]));
+		let mut lines = Lines::open(&hub, "/api/v1/stream", "t-glance").await;
+		lines.next_of("open").await.unwrap();
+		let _ticks = ticking(&hub, tx);
+		// An address comes, and Tailscale with it: a `ui` line says where the computer is now.
+		let reach = Reach { addrs: vec!["192.0.2.10".parse().unwrap(), "100.64.0.7".parse().unwrap()], tailscale: Some("desk.tail0000.ts.net".into()) };
+		hub.set_reach(reach.clone());
+		let line = lines.next_of("ui").await.unwrap();
+		assert_eq!(line["endpoints"], serde_json::json!(["192.0.2.10", "100.64.0.7", "desk.tail0000.ts.net"]));
+		let ui = call(&hub, "GET", "/api/v1/ui", "glance", "").await.1;
+		assert_eq!((&ui["version"], &ui["service"]["endpoints"]), (&line["ui"], &line["endpoints"]));
+		// The same again changes nothing.
+		let generation = hub.endpoints_gen.load(Ordering::SeqCst);
+		hub.set_reach(reach);
+		assert_eq!(hub.endpoints_gen.load(Ordering::SeqCst), generation);
+		// Names in the settings come after the addresses, with the settings' own `ui` line.
+		let mut config = (*hub.config()).clone();
+		config.names = vec!["desk.example.net".into()];
+		hub.set_config(config.clone());
+		let line = lines.next_of("ui").await.unwrap();
+		assert_eq!(line["endpoints"], serde_json::json!(["192.0.2.10", "100.64.0.7", "desk.example.net", "desk.tail0000.ts.net"]));
+		assert_eq!(endpoints().await, line["endpoints"]);
+		// Settings reread with the same names leave them be.
+		let generation = hub.endpoints_gen.load(Ordering::SeqCst);
+		hub.set_config(config);
+		assert_eq!(hub.endpoints_gen.load(Ordering::SeqCst), generation);
+		// Gone from every network: names alone.
+		hub.set_reach(Reach::default());
+		assert_eq!(lines.next_of("ui").await.unwrap()["endpoints"], serde_json::json!(["desk.example.net"]));
 		remove_test_dir(&hub.dir);
 	}
 

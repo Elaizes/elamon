@@ -207,6 +207,9 @@ pub struct Client {
 	/// The app it said it is last (`Elamon-Client`), "android/0.6.0".
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub app: Option<String>,
+	/// The address its requests came from last, "192.0.2.7": where the phone was, for `elamond clients`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub address: Option<String>,
 }
 
 pub const CLIENTS_FILE: &str = "clients.json";
@@ -348,20 +351,31 @@ fn push_client(
 		from: from.map(str::to_string),
 		profile: profile.map(str::to_string),
 		app: None,
+		address: None,
 	};
 	clients.push(client.clone());
 	save_clients_in(dir, &clients)?;
 	Ok((client, token))
 }
 
-/// Notes in clients.json that the phone `id` is the app `app` ("android/0.6.0"). Nothing is written
-/// when it says so already, when the phone is gone, or when the file doesn't parse.
-pub fn set_client_app(dir: &Path, id: &str, app: &str) -> io::Result<()> {
+/// Notes in clients.json that the phone `id` is the app `app` ("android/0.6.0") and came from
+/// `address` last; what is None is left as it is. Nothing is written when it says so already, when
+/// the phone is gone, or when the file doesn't parse.
+pub fn note_client(dir: &Path, id: &str, app: Option<&str>, address: Option<&str>) -> io::Result<()> {
 	let _lock = lock_clients(dir)?;
 	let mut clients = load_clients_in(dir)?;
-	match clients.iter_mut().find(|c| c.id == id) {
-		Some(c) if c.app.as_deref() != Some(app) => c.app = Some(app.to_string()),
-		_ => return Ok(()),
+	let Some(c) = clients.iter_mut().find(|c| c.id == id) else { return Ok(()) };
+	let mut changed = false;
+	for (kept, now) in [(&mut c.app, app), (&mut c.address, address)] {
+		if let Some(now) = now
+			&& kept.as_deref() != Some(now)
+		{
+			*kept = Some(now.to_string());
+			changed = true;
+		}
+	}
+	if !changed {
+		return Ok(());
 	}
 	save_clients_in(dir, &clients)
 }

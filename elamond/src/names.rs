@@ -8,7 +8,7 @@ use std::net::IpAddr;
 
 use serde::{Deserialize, Deserializer};
 
-use crate::consts::{protocol, timeout};
+use crate::consts::{limit, protocol, timeout};
 use crate::listen::{Iface, Plan};
 
 /// The longest name the DNS carries, and the longest of its labels.
@@ -80,8 +80,9 @@ fn magicdns_name(status: &str, listened: impl Fn(&IpAddr) -> bool) -> Option<Str
 	(reached && is_name(name)).then(|| name.to_ascii_lowercase())
 }
 
-/// What a pairing link offers: addresses first, so names never crowd them out, then names, at most
-/// `protocol::PAIR_HOSTS_MAX` in all.
+/// Where the computer is offered to phones: addresses first, so names never crowd them out, then
+/// names. A pairing link holds `protocol::PAIR_HOSTS_MAX` of them, `endpoints`
+/// `limit::ENDPOINTS_MAX`.
 #[derive(Debug, Default, PartialEq)]
 pub struct Offered {
 	pub addrs: Vec<String>,
@@ -91,11 +92,17 @@ pub struct Offered {
 }
 
 impl Offered {
-	/// `addrs` in their order, then `names` from the settings, then the Tailscale name; each once.
+	/// What a pairing link offers: `addrs` in their order, then `names` from the settings, then the
+	/// Tailscale name; each once, at most `protocol::PAIR_HOSTS_MAX` in all.
 	pub fn of(addrs: &[IpAddr], names: &[String], tailscale: Option<&str>) -> Offered {
+		Offered::up_to(protocol::PAIR_HOSTS_MAX, addrs, names, tailscale)
+	}
+
+	/// `addrs` in their order, then `names`, then the Tailscale name; each once, `max` at most.
+	pub fn up_to(max: usize, addrs: &[IpAddr], names: &[String], tailscale: Option<&str>) -> Offered {
 		let mut out = Offered::default();
 		let mut seen: Vec<String> = Vec::new();
-		let mut room = protocol::PAIR_HOSTS_MAX;
+		let mut room = max;
 		for a in addrs {
 			let a = a.to_string();
 			if seen.contains(&a) {
@@ -129,6 +136,13 @@ impl Offered {
 	pub fn hosts(&self) -> Vec<String> {
 		self.addrs.iter().chain(&self.names).cloned().collect()
 	}
+}
+
+/// Where paired phones find the computer now (`endpoints`): what a pairing link would offer, the
+/// addresses of `addrs` (`Plan::pairing_hosts`), then `names`, then the Tailscale name, each once,
+/// `limit::ENDPOINTS_MAX` at most.
+pub fn endpoints(addrs: &[IpAddr], names: &[String], tailscale: Option<&str>) -> Vec<String> {
+	Offered::up_to(limit::ENDPOINTS_MAX, addrs, names, tailscale).hosts()
 }
 
 #[cfg(test)]
@@ -250,5 +264,53 @@ mod tests {
 		let o = Offered::of(&lots, &names[..1], None);
 		assert_eq!((o.addrs.len(), o.names.len()), (protocol::PAIR_HOSTS_MAX, 0));
 		assert_eq!(o.left_out, ["10.0.0.9", "10.0.0.10", "deskpc.example.net"]);
+	}
+
+	/// A computer on a cable and on Wi-Fi (with only a link-local IPv4 address there), with
+	/// Tailscale, Docker, libvirt, a container's veth and loopback.
+	fn desk() -> Vec<Iface> {
+		let iface = |name: &str, kind: &'static str, addrs: &[&str]| Iface { name: name.into(), kind, addrs: addrs.iter().map(|a| ip(a)).collect() };
+		vec![
+			iface("lo", "loopback", &["127.0.0.1", "::1"]),
+			iface("eno1", "wired", &["192.0.2.10", "fe80::1", "2001:db8::10"]),
+			iface("wlan0", "wireless", &["169.254.7.7", "fe80::2", "2001:db8::20"]),
+			iface("tailscale0", "vpn", &["100.64.0.7", "fd7a:115c:a1e0::7"]),
+			iface("docker0", "virtual", &["172.17.0.1"]),
+			iface("virbr0", "virtual", &["192.168.122.1"]),
+			iface("veth1a2b3c", "virtual", &["fe80::3", "10.88.0.1"]),
+		]
+	}
+
+	#[test]
+	fn endpoints_are_where_a_phone_could_reach_the_computer() {
+		let ifaces = desk();
+		let names = ["desk.example.net".to_string(), "Desk.tail0000.ts.net".to_string(), "desk.example.net".to_string()];
+		let at = |listen: &[&str], names: &[String], tailscale: Option<&str>| {
+			let targets: Vec<Target> = listen.iter().map(|t| Target::parse(t).unwrap()).collect();
+			endpoints(&Plan::of(&targets, &ifaces).pairing_hosts(&ifaces), names, tailscale)
+		};
+		// Everywhere: the cable, Wi-Fi by its IPv6 address (its IPv4 one is link-local), then
+		// Tailscale; no bridge for containers or machines, no loopback, nothing link-local. Then the
+		// names, the Tailscale one once whatever its case.
+		assert_eq!(
+			at(&["::"], &names, Some("desk.tail0000.ts.net")),
+			["192.0.2.10", "2001:db8::20", "100.64.0.7", "desk.example.net", "Desk.tail0000.ts.net"]
+		);
+		assert_eq!(at(&["::"], &[], Some("desk.tail0000.ts.net")), ["192.0.2.10", "2001:db8::20", "100.64.0.7", "desk.tail0000.ts.net"]);
+		// Interfaces by name: the local network first whatever the order in `listen`.
+		assert_eq!(at(&["tailscale0", "eno1"], &names[..1], None), ["192.0.2.10", "100.64.0.7", "desk.example.net"]);
+		// An address alone; loopback is never one a phone could reach.
+		assert_eq!(at(&["fd7a:115c:a1e0::7"], &[], None), ["fd7a:115c:a1e0::7"]);
+		assert_eq!(at(&["127.0.0.1", "::1"], &names[..1], None), ["desk.example.net"]);
+		assert!(at(&["lo"], &[], None).is_empty());
+		// More than a phone keeps: addresses first, the names give way.
+		let many: Vec<IpAddr> = (1..=20).map(|n| ip(&format!("192.0.2.{n}"))).collect();
+		let kept = endpoints(&many, &names, Some("desk.tail0000.ts.net"));
+		assert_eq!(kept.len(), limit::ENDPOINTS_MAX);
+		assert_eq!(kept.last().map(String::as_str), Some("192.0.2.16"));
+		let few: Vec<IpAddr> = many[..14].to_vec();
+		assert_eq!(&endpoints(&few, &names, Some("desk.tail0000.ts.net"))[14..], ["desk.example.net", "Desk.tail0000.ts.net"]);
+		// The same address twice is there once.
+		assert_eq!(endpoints(&[ip("192.0.2.10"), ip("192.0.2.10")], &[], None), ["192.0.2.10"]);
 	}
 }
