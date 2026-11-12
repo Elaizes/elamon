@@ -285,7 +285,11 @@ async fn run_spec(hub: &Hub, who: &Caller, spec: &Spec, params: &BTreeMap<String
 			if protected(pid) {
 				return Err(ErrorCode::NotPermitted.into());
 			}
-			let start = params.get("start").and_then(Value::as_u64);
+			// A start time before the clock's start is none a process has: refused, not left unchecked.
+			let start = match params.get("start") {
+				Some(v) => Some(v.as_u64().ok_or(Refusal { code: ErrorCode::BadParam, message: Some("start".into()) })?),
+				None => None,
+			};
 			send_signal(pid, sig, start, hub.boot_time, || eprintln!("control: {} sent {signal} to pid {pid}", who.name))?;
 			Ok(Acted::ok())
 		}

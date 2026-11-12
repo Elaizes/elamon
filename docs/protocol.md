@@ -443,7 +443,7 @@ for one it can that the client's role may not run (so not in its `ui`), `control
 They are checked in this order: the rate, the role, control, then the parameters.
 
 `process.signal` with `start` signals only the process that started then: if the pid now belongs to
-another, 409 `process_changed`. `unit.*` act on the unit of the link given, only one the settings
+another, 409 `process_changed`; a negative `start` is 400 `bad_param`. `unit.*` act on the unit of the link given, only one the settings
 name; system units also need polkit's leave ([the guide](guide.md#power-the-profile-and-system-units-polkit)).
 
 ## `GET /api/v1/media/art?player=`

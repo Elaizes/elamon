@@ -111,7 +111,7 @@ part of another argument or an option.
 | form | kind | the value passed |
 |---|---|---|
 | `{ choices = ["a", "b"], labels = { a = "A" }, default = "a" }` | `choice` | one of `choices`, as written |
-| `{ range = [0, 100], step = 5, unit = "%", default = 50 }` | `range` | a number within the range, on a step from its start; an integer when `step` and the start are |
+| `{ range = [0, 100], step = 5, unit = "%", default = 50 }` | `range` | a number within the range, on a step from its start; written as an integer when `step` and the start are (`100`, never `100.0` or `1e2`); zero never as `-0` |
 | `{ type = "bool", default = false }` | `bool` | `true` or `false` |
 
 Each may have a `label` (what a form calls it; the parameter's id by default). A parameter

@@ -1500,6 +1500,11 @@ dashboards = ["overview", "control"]
 		let (status, v) = call(&hub, "POST", "/api/v1/actions/process.signal", "admin", &body(start + 1)).await;
 		assert_eq!((status, v["error"].as_str()), (StatusCode::CONFLICT, Some("process_changed")));
 		assert!(child.try_wait().unwrap().is_none());
+		// A start time no process has isn't one to leave unchecked.
+		let before = format!(r#"{{"params":{{"pid":{pid},"signal":"kill","start":-1}}}}"#);
+		let (status, v) = call(&hub, "POST", "/api/v1/actions/process.signal", "admin", &before).await;
+		assert_eq!((status, v["error"].as_str(), v["message"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_param"), Some("start")));
+		assert!(child.try_wait().unwrap().is_none());
 		let (status, v) = call(&hub, "POST", "/api/v1/actions/process.signal", "admin", &body(start)).await;
 		assert_eq!((status, v), (StatusCode::OK, serde_json::json!({ "ok": true })));
 		child.wait().unwrap();
