@@ -29,11 +29,17 @@ appId: io.github.elaizes.elamon.debug
     visible: "Live.*"
     timeout: 10000
 - takeScreenshot: 07-control
-- scrollUntilVisible:
-    element: "Say hello"
-    timeout: 30000
+# Links, media and the volume come a moment later and push the actions down; with a large font,
+# out of sight between the scroll and the tap. Again, then.
+- retry:
+    maxRetries: 3
+    commands:
+      - waitForAnimationToEnd
+      - scrollUntilVisible:
+          element: "Say hello"
+          timeout: 30000
+      - tapOn: "Say hello"
 - takeScreenshot: 08-control-actions
-- tapOn: "Say hello"
 # The default profile asks to unlock the phone for actions, which a flow can't; an emulator without
 # a screen lock confirms instead.
 - runFlow:
