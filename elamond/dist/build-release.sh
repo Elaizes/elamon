@@ -60,6 +60,7 @@ later; Fedora, Arch, openSUSE), and installs for your user, without root:
 \`elamond setup\` installs and starts the systemd user unit (elamond.service here is its
 template), and prints what needs root: lingering, the firewall and the polkit rule. Then pair the
 phone with \`elamond pair\`. \`elamond setup --check\` tells what works.
+\`elamond update\` installs a newer release over this one later.
 
 The user guide: https://github.com/Elaizes/elamon/blob/main/docs/guide.md
 License: GPL-3.0-or-later (LICENSE).
