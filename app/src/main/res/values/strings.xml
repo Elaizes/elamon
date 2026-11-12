@@ -90,6 +90,9 @@
 	<string name="machine_unreachable_title">Can\'t reach %1$s</string>
 	<string name="machine_unreachable_body">The computer may be off or asleep, the Elamon service not running, or the phone on another network. Elamon keeps trying.</string>
 	<string name="machine_offline_retrying">Offline · retrying</string>
+	<!-- The computer answers, but shows this phone no dashboard at all. -->
+	<string name="machine_nothing_title">Nothing to show here</string>
+	<string name="machine_nothing_body">This phone\'s role or profile on %1$s shows none of its dashboards. On the computer, elamond clients lists the phones with their IDs; elamond clients role or elamond clients profile changes what this one sees.</string>
 	<!-- The real interval in seconds, maybe with decimals: "Live · every 1 s", "Live · every 0.5 s". -->
 	<string name="conn_live">Live · every %1$s s</string>
 	<string name="conn_connecting">Connecting…</string>

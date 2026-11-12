@@ -57,6 +57,9 @@ object Grid {
 fun shown(w: Widget, state: WidgetState?): Boolean =
 	!(w.type == "table" && w.hideEmpty == true && state != null && state.rows.isNullOrEmpty())
 
+/** The tabs of [ui] there is something to show for: those its dashboards have. None, and the screen says so. */
+fun tabsShown(ui: UiDoc?): List<String> = ui?.tabs.orEmpty().filter { ui?.dashboard(it) != null }.distinct()
+
 // ---- tables ----------------------------------------------------------------------------------
 
 object Tables {

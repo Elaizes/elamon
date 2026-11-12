@@ -90,6 +90,17 @@ class DashboardsTest {
 		assertTrue(shown(links, WidgetState(rows = emptyList())))
 	}
 
+	@Test
+	fun tabsWithSomethingToShow() {
+		assertEquals(ui.tabs, tabsShown(ui))
+		assertEquals(emptyList(), tabsShown(null))
+		// Tabs naming dashboards the document doesn't have, or none at all: nothing to show, which the screen says
+		// instead of waiting for ever.
+		assertEquals(emptyList(), tabsShown(ui.copy(tabs = listOf("gone", "also-gone"))))
+		assertEquals(emptyList(), tabsShown(ui.copy(tabs = emptyList())))
+		assertEquals(listOf("home"), tabsShown(ui.copy(tabs = listOf("gone", "home", "home"))))
+	}
+
 	// ---- tables --------------------------------------------------------------------------------
 
 	private fun row(key: String, vararg f: Pair<String, Any?>) = Row(key, f = buildJsonObject {

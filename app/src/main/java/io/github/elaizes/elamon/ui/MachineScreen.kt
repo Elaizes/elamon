@@ -88,6 +88,7 @@ import io.github.elaizes.elamon.data.UiCache
 import io.github.elaizes.elamon.data.UiDoc
 import io.github.elaizes.elamon.data.Widget
 import io.github.elaizes.elamon.data.WidgetState
+import io.github.elaizes.elamon.data.tabsShown
 
 /**
  * A computer's screen: its tabs and the pages their widgets open, as the computer describes them
@@ -117,7 +118,7 @@ fun MachineScreen(
 	// The last tab shown here, as kept for this computer, until another is chosen.
 	var tab by rememberSaveable { mutableStateOf(vm.dashboard.value.dashboard) }
 	var pages by rememberSaveable { mutableStateOf(listOf<String>()) }
-	val tabs = ui?.tabs.orEmpty().filter { ui?.dashboard(it) != null }
+	val tabs = tabsShown(ui)
 	val shownTab = tab?.takeIf { it in tabs } ?: tabs.firstOrNull()
 	// A page whose dashboard is gone from the ui (the role changed) closes.
 	val shownPages = pages.filter { ui?.dashboard(it) != null }
@@ -232,6 +233,12 @@ fun MachineScreen(
 							Notice(ElIcons.Laptop, stringResource(R.string.machine_unreachable_title, name), stringResource(R.string.machine_unreachable_body)) {
 								Button(onClick = { vm.retry() }) { Text(stringResource(R.string.retry)) }
 								TextButton(onClick = { onHelp(HelpTopic.TROUBLESHOOTING) }) { Text(stringResource(R.string.troubleshooting_button)) }
+							}
+						}
+						// The computer answers, but this phone's role or profile has no tab there.
+						ui != null && current == null -> Centered {
+							Notice(ElIcons.Eye, stringResource(R.string.machine_nothing_title), stringResource(R.string.machine_nothing_body, name)) {
+								TextButton(onClick = { onHelp(null) }) { Text(stringResource(R.string.help)) }
 							}
 						}
 						ui == null || current == null || launcher == null -> Centered { CircularProgressIndicator() }
