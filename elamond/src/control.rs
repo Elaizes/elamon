@@ -290,12 +290,12 @@ async fn run_spec(hub: &Hub, who: &Caller, spec: &Spec, params: &BTreeMap<String
 			Ok(Acted::ok())
 		}
 		"media.play_pause" | "media.next" | "media.previous" => {
-			let (player, op) = (text("player"), &id["media.".len()..]);
+			let (player, op) = (player_param(params)?, &id["media.".len()..]);
 			eprintln!("control: {} asked {player} to {op}", who.name);
 			done(hub.bus.player_op(&player, op, None).await)
 		}
 		"media.seek" => {
-			let (player, position) = (text("player"), params.get("position").and_then(Value::as_f64));
+			let (player, position) = (player_param(params)?, params.get("position").and_then(Value::as_f64));
 			eprintln!("control: {} asked {player} to seek to {} s", who.name, position.unwrap_or_default());
 			done(hub.bus.player_op(&player, "seek", position).await)
 		}
@@ -336,6 +336,13 @@ async fn run_spec(hub: &Hub, who: &Caller, spec: &Spec, params: &BTreeMap<String
 			}
 		}
 	}
+}
+
+/// The `player` a media action names, once it is one's bus name: only then is it written to the
+/// journal, so what a phone sends can't add lines of its own there or reach the terminal.
+fn player_param(params: &BTreeMap<String, Value>) -> Result<String, Refusal> {
+	let player = params.get("player").and_then(Value::as_str).unwrap_or_default();
+	if crate::bus::is_player(player) { Ok(player.to_string()) } else { Err(Refusal::failed(reason::UNKNOWN_PLAYER)) }
 }
 
 /// Signals `pid`, if it is still the process that started at `start` (when given) by the
@@ -820,6 +827,17 @@ mod tests {
 		assert_eq!(run_within(&["echo", "hi"], Duration::from_secs(5)).as_deref(), Some("hi\n"));
 		assert_eq!(run_within(&["/nonexistent/echo", "hi"], Duration::from_secs(5)), None);
 		std::fs::remove_dir_all(dir).unwrap();
+	}
+
+	#[test]
+	fn a_player_is_checked_before_the_journal_names_it() {
+		let params = |p: &str| BTreeMap::from([("player".to_string(), Value::from(p))]);
+		assert_eq!(player_param(&params("org.mpris.MediaPlayer2.vlc.instance42")), Ok("org.mpris.MediaPlayer2.vlc.instance42".into()));
+		// A line of its own in the journal, a terminal's escapes, or what isn't a player at all.
+		for forged in ["x to play_pause\ncontrol: FORGED LINE \u{1b}[31mred", "org.mpris.MediaPlayer2.x\ncontrol: y", "org.mpris.MediaPlayer2.", ""] {
+			assert_eq!(player_param(&params(forged)), Err(Refusal::failed(reason::UNKNOWN_PLAYER)), "{forged:?}");
+		}
+		assert_eq!(player_param(&BTreeMap::new()), Err(Refusal::failed(reason::UNKNOWN_PLAYER)));
 	}
 
 	#[test]
