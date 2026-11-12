@@ -114,11 +114,11 @@ fun MachineScreen(
 	val actionsState by vm.actions.collectAsStateWithLifecycle()
 	val prefs = LocalPrefs.current
 	val ui = state.ui
-	// The tab is the stream's dashboard as the view model keeps it; pages open over it.
-	var tab by rememberSaveable { mutableStateOf<String?>(null) }
+	// The last tab shown here, as kept for this computer, until another is chosen.
+	var tab by rememberSaveable { mutableStateOf(vm.dashboard.value.dashboard) }
 	var pages by rememberSaveable { mutableStateOf(listOf<String>()) }
 	val tabs = ui?.tabs.orEmpty().filter { ui?.dashboard(it) != null }
-	val shownTab = tab?.takeIf { it in tabs } ?: want.dashboard?.takeIf { it in tabs } ?: tabs.firstOrNull()
+	val shownTab = tab?.takeIf { it in tabs } ?: tabs.firstOrNull()
 	// A page whose dashboard is gone from the ui (the role changed) closes.
 	val shownPages = pages.filter { ui?.dashboard(it) != null }
 	val current = shownPages.lastOrNull() ?: shownTab
