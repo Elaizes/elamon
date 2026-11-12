@@ -60,6 +60,22 @@ fun shown(w: Widget, state: WidgetState?): Boolean =
 /** The tabs of [ui] there is something to show for: those its dashboards have. None, and the screen says so. */
 fun tabsShown(ui: UiDoc?): List<String> = ui?.tabs.orEmpty().filter { ui?.dashboard(it) != null }.distinct()
 
+/**
+ * Keys for the items of a lazy list, each given once: one asked for again gets a number after it.
+ * A list given the same key twice throws, and a service may send two rows with one key, or two
+ * widgets with one id.
+ */
+class UniqueKeys {
+	private val used = HashSet<String>()
+
+	fun of(key: String): String {
+		if (used.add(key)) return key
+		var n = 2
+		while (!used.add("$key#$n")) n++
+		return "$key#$n"
+	}
+}
+
 // ---- tables ----------------------------------------------------------------------------------
 
 object Tables {

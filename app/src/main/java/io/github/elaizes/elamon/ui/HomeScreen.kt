@@ -89,6 +89,7 @@ import io.github.elaizes.elamon.data.discoverElamond
 import io.github.elaizes.elamon.data.reachPaired
 import io.github.elaizes.elamon.data.parseAddress
 import io.github.elaizes.elamon.data.tabsShown
+import io.github.elaizes.elamon.data.unpairedFound
 
 /** What the home screen knows about a paired computer. */
 internal sealed interface Live {
@@ -180,7 +181,7 @@ fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: 
 	val machines by store.machines.collectAsStateWithLifecycle()
 	val discovery = remember { discoverElamond(ctx) }
 	val found by discovery.collectAsStateWithLifecycle(initialValue = emptyList())
-	val unpaired = found.filter { f -> machines.none { it.id == f.id } }
+	val unpaired = unpairedFound(found, machines.map { it.id })
 	var addDialog by rememberSaveable { mutableStateOf(false) }
 	val live = remember { mutableStateMapOf<String, Live>() }
 	val haze = remember { HazeState() }

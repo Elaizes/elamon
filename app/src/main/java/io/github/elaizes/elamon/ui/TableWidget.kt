@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -58,6 +57,7 @@ import io.github.elaizes.elamon.data.Column as TableColumn
 import io.github.elaizes.elamon.data.Params
 import io.github.elaizes.elamon.data.Row as TableRow
 import io.github.elaizes.elamon.data.Tables
+import io.github.elaizes.elamon.data.UniqueKeys
 import io.github.elaizes.elamon.data.Widget
 import io.github.elaizes.elamon.data.linkUrl
 import io.github.elaizes.elamon.data.text
@@ -173,10 +173,10 @@ fun TableWidget(scope: DashScope, w: Widget, modifier: Modifier) {
  * A table with a search field (the processes, the activity log): its search and orders, then its
  * rows as the list's own, each a card, as 0.5's Processes tab.
  */
-fun LazyListScope.tableItems(scope: DashScope, w: Widget) {
+fun LazyListScope.tableItems(scope: DashScope, w: Widget, keys: UniqueKeys) {
 	val s = scope.state(w)
 	val rows = tableRows(scope, w)
-	item(key = "table/${w.id}") {
+	item(key = keys.of("table/${w.id}")) {
 		Column(verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
 			w.label?.let { Text(it, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = Space.xs)) }
 			captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -186,7 +186,8 @@ fun LazyListScope.tableItems(scope: DashScope, w: Widget) {
 			}
 		}
 	}
-	items(rows, key = { "table/${w.id}/${it.key}" }) { r -> TableRowView(scope, w, r, rows, card = true) }
+	val rowKeys = rows.map { keys.of("table/${w.id}/${it.key}") }
+	items(rows.size, key = { rowKeys[it] }) { i -> TableRowView(scope, w, rows[i], rows, card = true) }
 }
 
 /** The search field, the orders the service offers, and how many rows there are. */

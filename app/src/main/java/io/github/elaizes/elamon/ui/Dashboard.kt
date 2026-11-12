@@ -47,6 +47,7 @@ import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.Settings
 import io.github.elaizes.elamon.data.Grid
 import io.github.elaizes.elamon.data.Series
+import io.github.elaizes.elamon.data.UniqueKeys
 import io.github.elaizes.elamon.data.UiDoc
 import io.github.elaizes.elamon.data.Widget
 import io.github.elaizes.elamon.data.WidgetState
@@ -121,14 +122,16 @@ fun DashboardList(scope: DashScope, list: LazyListState, header: @Composable () 
 		contentPadding = listPadding(),
 		verticalArrangement = Arrangement.spacedBy(Space.m),
 	) {
-		item(key = "header") { header() }
-		if (controlOff) item(key = "control-off") { ControlOff(scope.ui.control.offReason) }
+		// Two widgets with one id, or two rows with one key, from the service are two items here too.
+		val keys = UniqueKeys()
+		item(key = keys.of("header")) { header() }
+		if (controlOff) item(key = keys.of("control-off")) { ControlOff(scope.ui.control.offReason) }
 		for (row in rows) {
 			val first = widgets[row[0].first]
 			if (row.size == 1 && first.type == "table" && first.search == true) {
-				tableItems(scope, first)
+				tableItems(scope, first, keys)
 			} else {
-				item(key = "row/" + first.id) { GridRow(scope, row.map { (i, s) -> widgets[i] to s }, columns) }
+				item(key = keys.of("row/" + first.id)) { GridRow(scope, row.map { (i, s) -> widgets[i] to s }, columns) }
 			}
 		}
 	}
