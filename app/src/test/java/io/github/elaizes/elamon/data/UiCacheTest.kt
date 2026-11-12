@@ -47,6 +47,37 @@ class UiCacheTest {
 	}
 
 	@Test
+	fun anAnswerFromBeforeTheComputerWasForgottenIsntKept() = runTest {
+		val d = dir()
+		val cache = UiCache(d)
+		// Asked before Forget computer, answered after it: the screen's ui, the readings it kept going away.
+		val before = cache.ticket(id)
+		cache.remove(id)
+		cache.putUi(id, ui, before)
+		cache.putData(id, mapOf("home" to data), before)
+		assertTrue(d.listFiles().orEmpty().isEmpty())
+		assertNull(cache.ui(id))
+		assertEquals(emptyMap(), cache.profiles.value)
+		// Paired again: what is asked from now on is kept again.
+		cache.putUi(id, ui, cache.ticket(id))
+		assertEquals(ui, cache.ui(id))
+	}
+
+	@Test
+	fun aUiIsReadFromItsFileOnce() = runTest {
+		val d = dir()
+		UiCache(d).putUi(id, ui)
+		val cache = UiCache(d)
+		val first = cache.ui(id)
+		assertEquals(ui, first)
+		// Every look after the first is the document already read, not the file decoded again.
+		File(d, "$id.ui.json").writeText("{broken")
+		assertTrue(first === cache.ui(id))
+		cache.remove(id)
+		assertNull(cache.ui(id))
+	}
+
+	@Test
 	fun whatNoLongerReadsIsAskedForAgain() = runTest {
 		val d = dir()
 		File(d, "$id.ui.json").writeText("{broken")

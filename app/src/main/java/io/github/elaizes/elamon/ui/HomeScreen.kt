@@ -75,6 +75,7 @@ import io.github.elaizes.elamon.data.APP_API
 import io.github.elaizes.elamon.data.ElamondClient
 import io.github.elaizes.elamon.data.ElamondException
 import io.github.elaizes.elamon.data.DEFAULT_PORT
+import io.github.elaizes.elamon.data.DataLine
 import io.github.elaizes.elamon.data.Found
 import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.data.PairTarget
@@ -87,17 +88,54 @@ import io.github.elaizes.elamon.data.OwnKeys
 import io.github.elaizes.elamon.data.discoverElamond
 import io.github.elaizes.elamon.data.reachPaired
 import io.github.elaizes.elamon.data.parseAddress
+import io.github.elaizes.elamon.data.tabsShown
 
 /** What the home screen knows about a paired computer. */
-private sealed interface Live {
+internal sealed interface Live {
 	data object Unknown : Live
 	data object Offline : Live
 	/** The computer turned this phone away, or the phone can't read its own token any more. */
 	data object Unpaired : Live
 	/** Its service speaks another API: it (or the app) needs updating. */
 	data object Outdated : Live
+	/** It answers; [stats] are its first tab's figures, none where it said nothing to show. */
 	data class Online(val stats: List<HomeStat>) : Live
 }
+
+/**
+ * The card of a computer that answers: the figures of the first tab of its ui as kept ([ui] with
+ * false), read with [snapshot]. A tab the computer refuses (gone from what it shows this phone:
+ * renamed, or the role or profile changed) has the ui read from the computer again (true), and the
+ * figures once more. What fails is thrown, for [cardError].
+ */
+internal suspend fun cardReading(ui: suspend (fresh: Boolean) -> UiDoc, snapshot: suspend (String) -> DataLine): Live {
+	var doc = ui(false)
+	var again = true
+	while (true) {
+		val tab = tabsShown(doc).firstOrNull() ?: return Live.Online(emptyList())
+		try {
+			return Live.Online(homeStats(doc, tab, snapshot(tab).widgets))
+		} catch (e: ElamondException) {
+			val stale = e.status in HTTP_CLIENT_ERRORS && e.kind != ElamondException.Kind.Unauthorized && e.kind != ElamondException.Kind.TooManyRequests
+			if (!stale || !again) throw e
+			again = false
+			doc = ui(true)
+		}
+	}
+}
+
+/**
+ * What a reading that failed with [e] says on the card: not paired when the computer turned the
+ * token away, offline when it couldn't be reached; anything else, it answered (online, with
+ * nothing to show).
+ */
+internal fun cardError(e: Exception): Live = when ((e as? ElamondException)?.kind) {
+	ElamondException.Kind.Unauthorized -> Live.Unpaired
+	null, ElamondException.Kind.Unreachable, ElamondException.Kind.CertificateChanged -> Live.Offline
+	else -> Live.Online(emptyList())
+}
+
+private val HTTP_CLIENT_ERRORS = 400..499
 
 /** A figure on a computer's card: one of its first tab's first gauges, meters and values. */
 data class HomeStat(
@@ -232,11 +270,13 @@ fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: 
 /**
  * One reading of [s], on whichever of its addresses answers; a computer whose token came with
  * Import pairings is asked for a key of this phone's own, named [device], first. Its `ui` is the
- * one kept on the phone, asked for once where there is none.
+ * one kept on the phone, asked for where there is none or its first tab is refused ([cardReading]).
  */
 private suspend fun reading(s: Machine, store: MachineStore, ownKeys: OwnKeys, cache: UiCache, device: String): Live {
 	// Opened by the key store off the main thread, the first time.
 	val token = withContext(Dispatchers.Default) { store.token(s) } ?: return Live.Unpaired
+	// Taken before asking: forgotten meanwhile, the computer's answer isn't kept.
+	val ticket = cache.ticket(s.id)
 	return try {
 		// A certificate the computer renewed is followed and kept here too.
 		var pin = s.fingerprint
@@ -249,13 +289,14 @@ private suspend fun reading(s: Machine, store: MachineStore, ownKeys: OwnKeys, c
 		val host = reached.first.host
 		val own = ownKeys.renew(s.id, device) { ElamondClient(host, s.port, pin, token).rekey(it) }
 		val client = ElamondClient(host, s.port, pin, own ?: token)
-		val ui = cache.ui(s.id) ?: client.ui().also { cache.putUi(s.id, it) }
-		val tab = ui.tabs.firstOrNull() ?: return Live.Online(emptyList())
-		Live.Online(homeStats(ui, tab, client.snapshot(tab).widgets))
+		cardReading(
+			ui = { fresh -> (if (fresh) null else cache.ui(s.id)) ?: client.ui().also { cache.putUi(s.id, it, ticket) } },
+			snapshot = { client.snapshot(it) },
+		)
 	} catch (e: CancellationException) {
 		throw e
 	} catch (e: Exception) {
-		if ((e as? ElamondException)?.kind == ElamondException.Kind.Unauthorized) Live.Unpaired else Live.Offline
+		cardError(e)
 	}
 }
 

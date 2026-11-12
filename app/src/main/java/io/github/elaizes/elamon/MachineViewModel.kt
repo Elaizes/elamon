@@ -183,6 +183,9 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	private val store = MachineStore.get(app)
 	private val ownKeys = OwnKeys.get(app)
 	private val cache = UiCache.get(app)
+
+	/** What this screen keeps of the computer is kept only while it isn't forgotten (or paired again under another id). */
+	private val ticket = cache.ticket(machineId)
 	private val settings = Settings.get(app)
 	private val _state = MutableStateFlow(MachineState())
 	val state: StateFlow<MachineState> = _state.asStateFlow()
@@ -266,7 +269,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	private fun keepData() {
 		val data = _state.value.data
 		// Written apart from this screen, which may be going away.
-		if (data.isNotEmpty()) cache.keep(machineId, data)
+		if (data.isNotEmpty()) cache.keep(machineId, data, ticket)
 	}
 
 	/** Shows [dashboard]: the stream is told, and sends its values from its next line. */
@@ -461,7 +464,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		}
 		for (h in hists.values) h.stepHintMs = interval.toLong()
 		if (!fresh) return
-		viewModelScope.launch { cache.putUi(machineId, clean) }
+		viewModelScope.launch { cache.putUi(machineId, clean, ticket) }
 		val saved = store.get(machineId) ?: return
 		val name = clean.service.name.ifEmpty { saved.name }
 		if (name != saved.name || (clean.role != null && clean.role != saved.role)) {
