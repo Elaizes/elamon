@@ -6,6 +6,11 @@ machine.wait_for_unit("multi-user.target")
 # Every request says which app it is, as the app does.
 APP = "-H 'Elamon-Client: android/0.6.0'"
 
+# The settings the module writes, which login shells name for the commands; systemd-run's don't.
+ELAMON_CONFIG = machine.succeed(". /etc/set-environment; echo $ELAMON_CONFIG").strip()
+assert ELAMON_CONFIG.startswith("/nix/store/"), ELAMON_CONFIG
+AS_ALICE = f"--uid=alice -p Environment=HOME=/home/alice -p Environment=ELAMON_CONFIG={ELAMON_CONFIG}"
+
 def call(method, path, auth="", body=None):
 	"""The status and the JSON body of a request to the service."""
 	data = f"-H 'Content-Type: application/json' -d '{json.dumps(body)}'" if body is not None else ""
@@ -20,7 +25,7 @@ def ui(auth):
 
 def pair_code(unit, *args):
 	"""Runs `elamond pair --yes` as alice in a unit of its own and returns the code it prints."""
-	machine.succeed(f"systemd-run --uid=alice -p Environment=HOME=/home/alice --unit={unit} /run/current-system/sw/bin/timeout 120 /run/current-system/sw/bin/elamond pair --yes {' '.join(args)}")
+	machine.succeed(f"systemd-run {AS_ALICE} --unit={unit} /run/current-system/sw/bin/timeout 120 /run/current-system/sw/bin/elamond pair --yes {' '.join(args)}")
 	pattern = "'^ +[0-9]{3} [0-9]{3} *$'"
 	machine.wait_until_succeeds(f"journalctl -u {unit} -o cat | grep -Eq {pattern}", timeout=30)
 	return machine.succeed(f"journalctl -u {unit} -o cat | grep -E {pattern} | head -1 | tr -d ' \\n'")
@@ -133,7 +138,7 @@ with subtest("elamond clients profile changes what ui says, and an open stream h
 
 with subtest("elamond pair asks before a phone is let in: no turns it away, yes lets it in, and nothing to ask on stops it"):
 	# Under systemd-run its input is /dev/null: nobody can answer, so it doesn't pair at all.
-	machine.succeed("systemd-run --uid=alice -p Environment=HOME=/home/alice --unit=pair-unasked /run/current-system/sw/bin/elamond pair")
+	machine.succeed(f"systemd-run {AS_ALICE} --unit=pair-unasked /run/current-system/sw/bin/elamond pair")
 	machine.wait_until_succeeds("journalctl -u pair-unasked -o cat | grep -q 'elamond pair --yes'", timeout=30)
 	machine.fail("journalctl -u pair-unasked -o cat | grep -Eq '^ +[0-9]{3} [0-9]{3} *$'")
 	# A person who answers once asked, through a pipe.
@@ -146,7 +151,7 @@ chmod 755 /tmp/answer.sh""")
 	codes = {}
 	for answer, device in [("n", "Stranger"), ("y", "Asked phone")]:
 		out = f"/tmp/pair-{answer}.out"
-		machine.succeed(f"systemd-run --uid=alice -p Environment=HOME=/home/alice -p Environment=PATH=/run/current-system/sw/bin --unit=pair-ask-{answer} /tmp/answer.sh {answer} {out}")
+		machine.succeed(f"systemd-run {AS_ALICE} -p Environment=PATH=/run/current-system/sw/bin --unit=pair-ask-{answer} /tmp/answer.sh {answer} {out}")
 		machine.wait_until_succeeds(f"grep -Eq '^ +[0-9]{{3}} [0-9]{{3}} *$' {out}", timeout=30)
 		code = codes[answer] = machine.succeed(f"grep -E '^ +[0-9]{{3}} [0-9]{{3}} *$' {out} | head -1 | tr -d ' \\n'")
 		status, body = call("POST", "/api/v1/pair", body={"code": code, "device": device})
