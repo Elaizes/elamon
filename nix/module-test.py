@@ -3,36 +3,86 @@ import re
 
 machine.wait_for_unit("multi-user.target")
 
+# Every request says which app it is, as the app does.
+APP = "-H 'Elamon-Client: android/0.6.0'"
+
+def call(method, path, auth="", body=None):
+	"""The status and the JSON body of a request to the service."""
+	data = f"-H 'Content-Type: application/json' -d '{json.dumps(body)}'" if body is not None else ""
+	out = machine.succeed(f"curl -sk -X {method} {APP} {auth} {data} -w '\\n%{{http_code}}' https://localhost:47823{path}")
+	text, status = out.rsplit("\n", 1)
+	return int(status), json.loads(text) if text.strip() else None
+
+def ui(auth):
+	status, doc = call("GET", "/api/v1/ui", auth)
+	assert status == 200, (status, doc)
+	return doc
+
+def pair_code(unit, *args):
+	"""Runs `elamond pair --yes` as alice in a unit of its own and returns the code it prints."""
+	machine.succeed(f"systemd-run --uid=alice -p Environment=HOME=/home/alice --unit={unit} /run/current-system/sw/bin/timeout 120 /run/current-system/sw/bin/elamond pair --yes {' '.join(args)}")
+	pattern = "'^ +[0-9]{3} [0-9]{3} *$'"
+	machine.wait_until_succeeds(f"journalctl -u {unit} -o cat | grep -Eq {pattern}", timeout=30)
+	return machine.succeed(f"journalctl -u {unit} -o cat | grep -E {pattern} | head -1 | tr -d ' \\n'")
+
 with subtest("the greeter and users not listed run no service"):
 	machine.succeed("systemctl start user@990.service user@1001.service")
 	machine.sleep(5)
 	machine.fail("ss -ltn | grep -q :47823")
 
-with subtest("the listed user's service takes the port"):
+with subtest("the listed user's service takes the port, and says it speaks API 2"):
 	machine.succeed("systemctl start user@1000.service")
 	machine.wait_until_succeeds("ss -ltnpe | grep :47823 | grep -q uid:1000", timeout=60)
 	hello = json.loads(machine.succeed("curl -sk https://localhost:47823/api/v1/hello"))
-	assert hello["app"] == "elamon" and "min_app" in hello, hello
+	assert hello["app"] == "elamon" and hello["api"] == 2 and hello["widgets"] == 1 and hello["min_app"] == "0.6.0", hello
+	assert "processes" in hello["features"] and "control" not in hello["features"], hello
+	assert hello["features"] == sorted(hello["features"]), hello
 
-with subtest("a phone pairs"):
-	machine.succeed("systemd-run --uid=alice -p Environment=HOME=/home/alice --unit=pair /run/current-system/sw/bin/timeout 120 /run/current-system/sw/bin/elamond pair --yes")
-	machine.wait_until_succeeds("journalctl -u pair -o cat | grep -Eq '^ +[0-9]{3} [0-9]{3} *$'", timeout=30)
-	code = machine.succeed("journalctl -u pair -o cat | grep -E '^ +[0-9]{3} [0-9]{3} *$' | head -1 | tr -d ' \\n'")
-	body = json.dumps({"code": code, "device": "Test phone"})
-	token = json.loads(machine.succeed(f"curl -sk -X POST -H 'Content-Type: application/json' -d '{body}' https://localhost:47823/api/v1/pair"))["token"]
-	auth = f"-H 'Authorization: Bearer {token}'"
-	info = json.loads(machine.succeed(f"curl -sk {auth} https://localhost:47823/api/v1/info"))
-	assert info["interval_ms"] > 0 and info["history_seconds"] > 0, info
-	assert info["service_version"] == hello["version"], info
+with subtest("a phone pairs with the profile the settings in Nix give, and gets their dashboard and action"):
+	code = pair_code("pair", "--profile", "vm")
+	machine.succeed("journalctl -u pair -o cat | grep -Eq 'Profile: +vm — VM'")
+	status, paired = call("POST", "/api/v1/pair", body={"code": code, "device": "Test phone"})
+	assert status == 200 and paired["role"] == "admin" and paired["profile"] == "vm", paired
+	auth = f"-H 'Authorization: Bearer {paired['token']}'"
+	test_id = paired["client_id"]
+	doc = ui(auth)
+	assert doc["service"]["interval_ms"] > 0 and doc["service"]["history_seconds"] > 0, doc["service"]
+	assert doc["service"]["version"] == hello["version"], doc["service"]
+	assert doc["profile"]["id"] == "vm" and doc["tabs"] == ["vm", "overview"], (doc["profile"], doc["tabs"])
+	vm = next(d for d in doc["dashboards"] if d["id"] == "vm")
+	kinds = {w["id"]: w["type"] for w in vm["widgets"]}
+	assert kinds == {"vm/0": "value", "vm/1": "select", "vm/2": "table"}, kinds
+	greet = next(a for a in doc["actions"] if a["id"] == "greet")
+	assert greet["kind"] == "actions" and greet["params"][0]["id"] == "who", greet
+	assert [c["value"] for c in greet["params"][0]["choices"]] == ["world", "nix"], greet
+	# It said which app it is.
+	machine.wait_until_succeeds("su - alice -c 'elamond clients' | grep -q 'android 0.6.0'", timeout=30)
 
 # alice's user manager was started by hand, so logind stops it, and the service with it, ten
 # seconds after her last session ends; each `su - alice` below ends one.
 machine.succeed("loginctl enable-linger alice")
 
+with subtest("the stream sends open, then the dashboard on screen"):
+	out = machine.succeed(f"curl -sNk --max-time 4 {APP} {auth} 'https://localhost:47823/api/v1/stream?dashboard=vm' || true")
+	lines = [json.loads(l) for l in out.splitlines() if l.strip()]
+	assert lines[0]["type"] == "open" and lines[0]["ui"] == doc["version"], lines[0]
+	data = [l for l in lines if l["type"] == "data"]
+	assert data and data[0]["dashboard"] == "vm" and "history" in data[0], lines
+	assert isinstance(data[0]["widgets"]["vm/0"]["v"], (int, float)), data[0]
+	assert data[0]["widgets"]["vm/1"]["enabled"] is False, data[0]
+
 with subtest("a drop-in turns control on without a restart"):
-	assert not json.loads(machine.succeed(f"curl -sk {auth} https://localhost:47823/api/v1/control"))["enabled"]
+	assert not ui(auth)["control"]["enabled"]
 	machine.succeed("su - alice -c 'mkdir -p ~/.config/elamon/elamond.d && echo control = true > ~/.config/elamon/elamond.d/on.toml'")
-	machine.wait_until_succeeds(f"curl -sk {auth} https://localhost:47823/api/v1/control | jq -e .enabled", timeout=30)
+	machine.wait_until_succeeds(f"curl -sk {APP} {auth} https://localhost:47823/api/v1/ui | jq -e .control.enabled", timeout=30)
+
+with subtest("the action from Nix runs with its parameter, and a value it doesn't take is refused"):
+	status, result = call("POST", "/api/v1/actions/greet", auth, {"params": {"who": "nix"}})
+	assert (status, result) == (200, {"ok": True, "exit_code": 0, "timed_out": False, "output": "hello nix\n"}), (status, result)
+	assert call("POST", "/api/v1/actions/greet", auth, {"params": {"who": "mars"}}) == (400, {"error": "bad_param", "message": "who"})
+	assert call("POST", "/api/v1/actions/greet", auth, {"params": {"who": "world", "then": "x"}}) == (400, {"error": "bad_param", "message": "then"})
+	assert call("POST", "/api/v1/actions/nothing", auth, {}) == (404, {"error": "no_such_action"})
+	machine.succeed("journalctl _UID=1000 -o cat | grep -q 'control: Test phone ran \"Greet\"'")
 
 with subtest("systemctl reload rereads the settings"):
 	# Nothing changes on disk here, so only the reload can add a reread to the log.
@@ -44,11 +94,12 @@ with subtest("systemctl reload rereads the settings"):
 
 with subtest("settings that stop parsing hold control off until they parse again"):
 	machine.succeed("su - alice -c 'echo \"control = \" > ~/.config/elamon/elamond.d/half.toml'")
-	machine.wait_until_succeeds(f"curl -sk {auth} https://localhost:47823/api/v1/control | jq -e '.enabled == false and .off_reason == \"settings_unreadable\"'", timeout=30)
+	machine.wait_until_succeeds(f"curl -sk {APP} {auth} https://localhost:47823/api/v1/ui | jq -e '.control.enabled == false and .control.off_reason == \"settings_unreadable\"'", timeout=30)
 	machine.succeed("journalctl _UID=1000 -o cat | grep -q \"settings: they don't parse\"")
 	assert "don't parse" in machine.succeed("su - alice -c 'elamond control status'")
+	assert call("POST", "/api/v1/actions/greet", auth, {"params": {"who": "nix"}}) == (403, {"error": "control_disabled"})
 	machine.succeed("su - alice -c 'rm ~/.config/elamon/elamond.d/half.toml'")
-	machine.wait_until_succeeds(f"curl -sk {auth} https://localhost:47823/api/v1/control | jq -e '.enabled and .off_reason == null'", timeout=30)
+	machine.wait_until_succeeds(f"curl -sk {APP} {auth} https://localhost:47823/api/v1/ui | jq -e '.control.enabled and .control.off_reason == null'", timeout=30)
 
 with subtest("the unit gives the service room for its connections, and a PATH with the wrappers and the profiles"):
 	pid = machine.succeed("systemctl --user -M alice@ show elamond -p MainPID --value").strip()
@@ -58,47 +109,25 @@ with subtest("the unit gives the service room for its connections, and a PATH wi
 	for d in ["/run/wrappers/bin", "/etc/profiles/per-user/alice/bin", "/run/current-system/sw/bin", "/home/alice/.nix-profile/bin"]:
 		assert d in path.split("=", 1)[1].strip().split(":"), path
 
-with subtest("a link from the app opens only a web page, and carries only a unit the settings name"):
-	def post_link(link):
-		data = json.dumps(link).replace("'", "'\\''")
-		out = machine.succeed(f"curl -sk -X POST {auth} -H 'Content-Type: application/json' -d '{data}' -w '\\n%{{http_code}}' https://localhost:47823/api/v1/links")
-		text, status = out.rsplit("\n", 1)
-		return int(status), json.loads(text)
-	assert post_link({"name": "Script", "url": "javascript:alert(1)"}) == (400, {"error": "bad_url"})
-	evil = {"name": "Evil", "url": "http://{host}:9", "unit": "podman-kube@https:--example.org-x.service"}
-	assert post_link(evil) == (403, {"error": "not_allowed"})
-	syncthing = {"name": "Syncthing", "url": "http://{host}:8384", "unit": "syncthing.service"}
-	assert post_link(syncthing) == (403, {"error": "not_allowed"})
-	machine.succeed("""su - alice -c 'echo "units = [\\"syncthing.service\\"]" > ~/.config/elamon/elamond.d/units.toml'""")
-	machine.wait_until_succeeds(f"curl -sk -X POST {auth} -H 'Content-Type: application/json' -d '{json.dumps(syncthing)}' https://localhost:47823/api/v1/links | jq -e '.unit == \"syncthing.service\"'", timeout=30)
-	links = json.loads(machine.succeed(f"curl -sk {auth} https://localhost:47823/api/v1/links"))
-	for link in links:
-		machine.succeed(f"curl -sk -X DELETE {auth} https://localhost:47823/api/v1/links/{link['id']}")
-	machine.succeed("su - alice -c 'rm ~/.config/elamon/elamond.d/units.toml'")
-
-with subtest("a link in the settings shows in the list and in samples"):
-	machine.succeed("""printf '%s\\n' '[[links]]' 'name = "Web"' 'url = "http://{host}:8080"' > /home/alice/.config/elamon/elamond.d/links.toml""")
+with subtest("a link from a drop-in shows in the links table"):
+	machine.succeed("""printf '%s\\n' '[links.web]' 'name = "Web"' 'url = "http://{host}:8080"' > /home/alice/.config/elamon/elamond.d/links.toml""")
 	machine.succeed("chown alice: /home/alice/.config/elamon/elamond.d/links.toml")
-	machine.wait_until_succeeds(f"""curl -sk {auth} https://localhost:47823/api/v1/links | jq -e '.[0].name == "Web"'""", timeout=30)
-	machine.wait_until_succeeds(f"""curl -sk {auth} https://localhost:47823/api/v1/snapshot | jq -e '[.links[].name] == ["Web"]'""", timeout=30)
+	machine.wait_until_succeeds(f"""curl -sk {APP} {auth} 'https://localhost:47823/api/v1/snapshot?dashboard=vm' | jq -e '[.widgets["vm/2"].rows[].f.name] == ["Web"]'""", timeout=30)
+	# Without a unit, no unit actions; a unit no link may have makes settings that don't parse.
+	assert not any(a["id"].startswith("unit.") for a in ui(auth)["actions"])
 
-def call(method, path, auth="", body=None):
-	"""The status and the JSON body of a request to the service."""
-	data = f"-H 'Content-Type: application/json' -d '{json.dumps(body)}'" if body is not None else ""
-	out = machine.succeed(f"curl -sk -X {method} {auth} {data} -w '\\n%{{http_code}}' https://localhost:47823{path}")
-	text, status = out.rsplit("\n", 1)
-	return int(status), json.loads(text) if text.strip() else None
-
-def pair_code(unit, *args):
-	"""Runs `elamond pair --yes` as alice in a unit of its own and returns the code it prints."""
-	machine.succeed(f"systemd-run --uid=alice -p Environment=HOME=/home/alice --unit={unit} /run/current-system/sw/bin/timeout 120 /run/current-system/sw/bin/elamond pair --yes {' '.join(args)}")
-	pattern = "'^ +[0-9]{3} [0-9]{3} *$'"
-	machine.wait_until_succeeds(f"journalctl -u {unit} -o cat | grep -Eq {pattern}", timeout=30)
-	return machine.succeed(f"journalctl -u {unit} -o cat | grep -E {pattern} | head -1 | tr -d ' \\n'")
-
-# An action no computer has: let through, it fails as unknown, and nothing is done.
-nothing = {"action": "nothing"}
-unknown = (502, {"error": "failed", "message": "unknown_action"})
+with subtest("elamond clients profile changes what ui says, and an open stream hears of it at once"):
+	machine.succeed(f"systemd-run --unit=stream-watch /bin/sh -c \"/run/current-system/sw/bin/curl -sNk --max-time 60 {APP} {auth} 'https://localhost:47823/api/v1/stream?dashboard=vm' > /tmp/stream.out\"")
+	machine.wait_until_succeeds("grep -q '\"type\":\"data\"' /tmp/stream.out", timeout=30)
+	out = machine.succeed(f"su - alice -c 'elamond clients profile {test_id} default'")
+	assert "Now with default" in out, out
+	machine.wait_until_succeeds("grep -q '\"type\":\"ui\"' /tmp/stream.out", timeout=30)
+	doc = ui(auth)
+	assert doc["profile"]["id"] == "default" and "vm" not in doc["tabs"], (doc["profile"], doc["tabs"])
+	# The dashboard it had is gone for it: the stream goes on with the first tab.
+	machine.wait_until_succeeds(f"grep '\"type\":\"data\"' /tmp/stream.out | tail -1 | jq -e '.dashboard == \"{doc['tabs'][0]}\"'", timeout=30)
+	assert re.search(rf"^{test_id}\s+admin\s+default\s+Test phone\s+android 0\.6\.0\s+\(paired ", machine.succeed("su - alice -c 'elamond clients'"), re.M)
+	assert "no profile \"nope\"" in machine.fail(f"su - alice -c 'elamond clients profile {test_id} nope' 2>&1")
 
 with subtest("elamond pair asks before a phone is let in: no turns it away, yes lets it in, and nothing to ask on stops it"):
 	# Under systemd-run its input is /dev/null: nobody can answer, so it doesn't pair at all.
@@ -128,59 +157,59 @@ chmod 755 /tmp/answer.sh""")
 			machine.wait_until_succeeds(f"grep -q 'turned away' {out}", timeout=30)
 			machine.succeed(f"journalctl _UID=1000 -o cat | grep -q 'pairing: \"{device}\" from .* not added: turned away at elamond pair'")
 		else:
-			assert status == 200 and body["role"] == "admin", (status, body)
+			assert status == 200 and body["role"] == "admin" and body["profile"] == "default", (status, body)
 			assert device in clients, clients
 			machine.wait_until_succeeds(f"grep -q 'Paired with \"{device}\"' {out}", timeout=30)
 	# The code a phone was turned away with doesn't work again.
 	assert call("POST", "/api/v1/pair", body={"code": codes["n"], "device": "Again"}) == (403, {"error": "no_pairing"})
 
-with subtest("a phone paired as glance sees the basics and may do nothing"):
+with subtest("a phone paired as glance sees the basics and may run nothing"):
 	code = pair_code("pair-glance", "--role", "glance")
 	machine.succeed("journalctl -u pair-glance -o cat | grep -q 'Role: *glance'")
 	status, paired = call("POST", "/api/v1/pair", body={"code": code, "device": "Glance phone"})
 	assert status == 200 and paired["role"] == "glance", paired
 	glance, glance_id = f"-H 'Authorization: Bearer {paired['token']}'", paired["client_id"]
-	_, sample = call("GET", "/api/v1/snapshot?procs=5&media=1", glance)
-	assert not {"processes", "process_count", "media"} & sample.keys(), sample.keys()
-	assert sample["displays"] == sample["links"] == [], sample
-	assert sample["cpu"]["cores"] and sample["memory"]["total"] > 0, sample
-	# The admin phone, asking the same, gets it all; processes take a reading or two to come.
-	machine.wait_until_succeeds(f"curl -sk {auth} 'https://localhost:47823/api/v1/snapshot?procs=5&media=1' | jq -e '(.links | length) > 0 and .process_count > 0 and has(\"media\")'", timeout=30)
-	_, control = call("GET", "/api/v1/control", glance)
-	assert control["enabled"] and control["role"] == "glance" and control["allowed"] == [], control
-	assert call("POST", "/api/v1/control/power", glance, nothing) == (403, {"error": "not_allowed"})
-	assert call("GET", "/api/v1/links", glance) == (403, {"error": "not_allowed"})
+	doc = ui(glance)
+	assert doc["role"] == "glance" and doc["actions"] == [] and "processes" not in doc["tabs"], doc
+	assert call("GET", "/api/v1/snapshot?dashboard=processes", glance) == (404, {"error": "no_such_dashboard"})
+	_, snap = call("GET", "/api/v1/snapshot", glance)
+	assert snap["dashboard"] == doc["tabs"][0] and snap["widgets"], snap
+	# The admin phone, asking the same, gets the processes; they take a reading or two to come.
+	machine.wait_until_succeeds(f"curl -sk {APP} {auth} 'https://localhost:47823/api/v1/snapshot?dashboard=processes' | jq -e '.widgets[\"processes/table\"].total > 0'", timeout=30)
+	assert call("POST", "/api/v1/actions/greet", glance, {"params": {"who": "nix"}}) == (403, {"error": "not_allowed"})
 
 with subtest("elamond control off stops every phone at once, until elamond control on"):
-	assert call("POST", "/api/v1/control/power", auth, nothing) == unknown
+	greet = {"params": {"who": "world"}}
+	assert call("POST", "/api/v1/actions/greet", auth, greet)[0] == 200
 	machine.succeed("su - alice -c 'elamond control off'")
-	assert call("POST", "/api/v1/control/power", auth, nothing) == (403, {"error": "control_disabled"})
-	_, control = call("GET", "/api/v1/control", auth)
-	assert not control["enabled"] and control["role"] == "admin" and "power" not in control["allowed"], control
+	assert call("POST", "/api/v1/actions/greet", auth, greet) == (403, {"error": "control_disabled"})
+	assert ui(auth)["control"] == {"enabled": False, "off_reason": "held_off"}
 	machine.succeed("su - alice -c 'elamond control status' | grep 'held off'")
 	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -q 'control: held off'", timeout=30)
 	machine.succeed("su - alice -c 'elamond control on'")
-	assert call("POST", "/api/v1/control/power", auth, nothing) == unknown
+	assert call("POST", "/api/v1/actions/greet", auth, greet)[0] == 200
 
 with subtest("elamond clients role takes effect at once, and the log shows what was refused"):
 	clients = machine.succeed("su - alice -c 'elamond clients'")
-	assert re.search(rf"^{glance_id}\s+glance\s+Glance phone", clients, re.M), clients
+	assert re.search(rf"^{glance_id}\s+glance\s+default\s+Glance phone\s", clients, re.M), clients
 	machine.succeed(f"su - alice -c 'elamond clients role {glance_id} monitor'")
 	# Processes take a reading or two to come.
-	machine.wait_until_succeeds(f"curl -sk {glance} 'https://localhost:47823/api/v1/snapshot?procs=5' | jq -e '(.processes | length) > 0 and (.links | length) > 0'", timeout=30)
-	_, control = call("GET", "/api/v1/control", glance)
-	assert control["role"] == "monitor" and "processes" in control["allowed"] and "power" not in control["allowed"], control
-	assert call("POST", "/api/v1/control/power", glance, nothing) == (403, {"error": "not_allowed"})
-	_, log = call("GET", "/api/v1/control/log", glance)
-	seen = {(e["client_id"], e["what"], e["result"]) for e in log}
-	assert (glance_id, "power nothing", "not_allowed") in seen, log
-	assert ("power nothing", "control_disabled") in {(e["what"], e["result"]) for e in log}, log
-	assert log[0]["t"] >= log[-1]["t"], log
+	machine.wait_until_succeeds(f"curl -sk {APP} {glance} 'https://localhost:47823/api/v1/snapshot?dashboard=processes' | jq -e '.widgets[\"processes/table\"].total > 0'", timeout=30)
+	doc = ui(glance)
+	assert doc["role"] == "monitor" and doc["actions"] == [] and "processes" in doc["tabs"], doc
+	assert call("POST", "/api/v1/actions/greet", glance, {"params": {"who": "nix"}}) == (403, {"error": "not_allowed"})
+	_, snap = call("GET", "/api/v1/snapshot?dashboard=activity", glance)
+	rows = [r["f"] for r in snap["widgets"]["activity/log"]["rows"]]
+	seen = {(r.get("phone"), r["what"], r["result"]) for r in rows}
+	assert ("Glance phone", "action Greet nix", "not_allowed") in seen, rows
+	assert ("Test phone", "action Greet nix", "control_disabled") in seen, rows
+	assert ("Test phone", "action Greet nix", "ok") in seen, rows
+	assert rows[0]["t"] >= rows[-1]["t"], rows
 	machine.succeed("journalctl _UID=1000 -o cat | grep -q '\"Glance phone\" (.*) is now monitor'")
 
-with subtest("streams are in the journal: which phone, from where, for how long"):
-	machine.succeed(f"curl -sk --max-time 3 {auth} 'https://localhost:47823/api/v1/stream?procs=5' >/dev/null || true")
-	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -Eq 'stream: \"Test phone\" \\(admin\\) opened from [0-9a-f:.]+: every [0-9]+ ms, 5 processes'", timeout=30)
+with subtest("streams are in the journal: which phone, from where, for what, for how long"):
+	machine.succeed(f"curl -sk --max-time 3 {APP} {auth} 'https://localhost:47823/api/v1/stream?dashboard=processes' >/dev/null || true")
+	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -Eq 'stream: \"Test phone\" \\(admin\\) opened from [0-9a-f:.]+: dashboard processes, every [0-9]+ ms, processes'", timeout=30)
 	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -q 'stream: \"Test phone\" closed after [0-9]* s: connection closed'", timeout=30)
 
 with subtest("five wrong codes from one address shut it out of that code"):
@@ -296,7 +325,7 @@ with subtest("elamond rotate-cert: a new certificate signed by the old key, the 
 	machine.succeed("openssl x509 -inform DER -in /tmp/old.der -pubkey -noout > /tmp/old.pem")
 	machine.succeed("openssl dgst -sha256 -verify /tmp/old.pem -signature /tmp/sig /tmp/signed")
 	# The same phone, its token unchanged, carries on.
-	assert call("GET", "/api/v1/info", auth)[0] == 200
+	assert call("GET", "/api/v1/ui", auth)[0] == 200
 	# And the chain outlives a restart.
 	machine.succeed("systemctl --user -M alice@ restart elamond")
 	machine.wait_until_succeeds("curl -sk https://localhost:47823/api/v1/identity/rotations | jq -e 'length == 1'", timeout=60)
@@ -323,7 +352,7 @@ with subtest("elamond backup and restore: a wiped service comes back as the same
 	machine.succeed("systemctl --user -M alice@ start elamond")
 	machine.wait_until_succeeds("curl -sk https://localhost:47823/api/v1/hello", timeout=60)
 	assert machine.succeed(served_fp).strip() != fp
-	assert call("GET", "/api/v1/info", kept) == (401, {"error": "unauthorized"})
+	assert call("GET", "/api/v1/ui", kept) == (401, {"error": "unauthorized"})
 	machine.succeed("systemctl --user -M alice@ stop elamond")
 	# A wrong passphrase changes nothing.
 	before = machine.succeed("ls /home/alice/.local/share/elamon")
@@ -333,6 +362,8 @@ with subtest("elamond backup and restore: a wiped service comes back as the same
 	# Restored, settings too: the same certificate, and the phones' tokens work again.
 	out = machine.succeed("su - alice -c 'elamond restore ~/b.elamond --passphrase-file ~/pass --with-settings'")
 	assert "Backup phone" in out and "Test phone" in out and "cert.der.before-restore-" in out, out
+	# The settings from Nix stay where Nix puts them.
+	assert "in the Nix store" in out, out
 	machine.succeed("grep -qx 'control = true' /home/alice/.config/elamon/elamond.d/on.toml")
 	# A phone unpaired since the backup doesn't come back unasked.
 	backup_id = paired["client_id"]
@@ -343,11 +374,11 @@ with subtest("elamond backup and restore: a wiped service comes back as the same
 	machine.succeed("systemctl --user -M alice@ start elamond")
 	machine.wait_until_succeeds("curl -sk https://localhost:47823/api/v1/hello", timeout=60)
 	assert machine.succeed(served_fp).strip() == fp
-	assert call("GET", "/api/v1/info", kept)[0] == 200
-	assert call("GET", "/api/v1/info", auth)[0] == 200
+	assert call("GET", "/api/v1/ui", kept)[0] == 200
+	assert call("GET", "/api/v1/ui", auth)[0] == 200
 	# With the rotation phones follow, and the drop-in that turned control on.
 	assert len(call("GET", "/api/v1/identity/rotations")[1]) == 1
-	assert call("GET", "/api/v1/control", kept)[1]["enabled"]
+	assert ui(kept)["control"]["enabled"]
 
 with subtest("a phone that came by another's token gets a key of its own, and the old phone is revoked alone"):
 	code = pair_code("pair-move")
@@ -356,7 +387,7 @@ with subtest("a phone that came by another's token gets a key of its own, and th
 	old_id = paired["client_id"]
 	# Import pairings on a new phone: the old phone's token, from another client.
 	shared = f"-H 'Authorization: Bearer {paired['token']}'"
-	assert call("GET", "/api/v1/info", shared)[0] == 200
+	assert call("GET", "/api/v1/ui", shared)[0] == 200
 	status, own = call("POST", "/api/v1/rekey", shared, {"device": "New phone"})
 	assert status == 200 and own["role"] == "admin" and own["client_id"] != old_id and own["token"] != paired["token"], own
 	mine = f"-H 'Authorization: Bearer {own['token']}'"
@@ -364,17 +395,17 @@ with subtest("a phone that came by another's token gets a key of its own, and th
 	assert call("POST", "/api/v1/rekey", shared, {"device": "Third phone"}) == (403, {"error": "rekey_refused"})
 	assert call("POST", "/api/v1/rekey", mine, {"device": "Third phone"}) == (403, {"error": "rekey_refused"})
 	clients = machine.succeed("su - alice -c 'elamond clients'")
-	assert re.search(rf"^{old_id}\s+admin\s+Old phone\s+\(paired ", clients, re.M), clients
-	assert re.search(rf"^{own['client_id']}\s+admin\s+New phone\s+\(added \S+ with the key of {old_id}\)", clients, re.M), clients
+	assert re.search(rf"^{old_id}\s+admin\s+default\s+Old phone\s+android 0\.6\.0\s+\(paired ", clients, re.M), clients
+	assert re.search(rf"^{own['client_id']}\s+admin\s+default\s+New phone\s+\S+(\s0\.6\.0)?\s+\(added \S+ with the key of {old_id}\)", clients, re.M), clients
 	# The old token works until it is revoked; then only the new one does.
-	assert call("GET", "/api/v1/info", shared)[0] == 200
+	assert call("GET", "/api/v1/ui", shared)[0] == 200
 	out = machine.succeed(f"su - alice -c 'elamond revoke {old_id}'")
 	assert "Unpaired 1 phone(s): Old phone" in out and "STILL PAIRED" in out and own["client_id"] in out, out
-	assert call("GET", "/api/v1/info", shared) == (401, {"error": "unauthorized"})
-	assert call("GET", "/api/v1/info", mine)[0] == 200
-	assert call("GET", "/api/v1/control", mine)[1]["role"] == "admin"
-	_, log = call("GET", "/api/v1/control/log", mine)
-	assert any(e["client_id"] == old_id and e["what"] == "phone added: New phone" and e["result"] == "ok" for e in log), log
+	assert call("GET", "/api/v1/ui", shared) == (401, {"error": "unauthorized"})
+	assert ui(mine)["role"] == "admin"
+	_, snap = call("GET", "/api/v1/snapshot?dashboard=activity", mine)
+	rows = [r["f"] for r in snap["widgets"]["activity/log"]["rows"]]
+	assert any(r.get("phone") == "Old phone" and r["what"] == "phone added: New phone" and r["result"] == "ok" for r in rows), rows
 	machine.succeed("journalctl _UID=1000 -o cat | grep -q 'pairing: added \"New phone\" .* asked with the key of \"Old phone\"'")
 
 with subtest("elamond rotate-cert --no-statement: a new certificate that nothing leads to, for a key that may have leaked"):
@@ -383,4 +414,4 @@ with subtest("elamond rotate-cert --no-statement: a new certificate that nothing
 	assert "elamond revoke all" in out and "nothing signed with it" in out, out
 	machine.wait_until_succeeds(f"test \"$({served_fp})\" != {before}", timeout=30)
 	assert call("GET", "/api/v1/identity/rotations") == (200, [])
-	assert call("GET", "/api/v1/info", mine)[0] == 200
+	assert call("GET", "/api/v1/ui", mine)[0] == 200

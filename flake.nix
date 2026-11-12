@@ -40,6 +40,52 @@
 
 			defaultPackage = pkgs: self.packages.${pkgs.stdenv.hostPlatform.system}.elamond;
 
+			# The settings a module writes, as `elamond check` reads them while they are built: a mistake
+			# in a dashboard or an action fails `nixos-rebuild`, `home-manager switch` and `nix flake
+			# check`, naming its line, rather than the service that would have read them.
+			checkedSettings = pkgs: package: settings:
+				let
+					unchecked = (pkgs.formats.toml { }).generate "elamond-unchecked.toml" settings;
+				in pkgs.runCommand "elamond.toml" { nativeBuildInputs = [ package ]; } ''
+					mkdir -p "$TMPDIR/config" "$TMPDIR/data"
+					HOME="$TMPDIR" ELAMON_CONFIG_DIR="$TMPDIR/config" ELAMON_DATA_DIR="$TMPDIR/data" \
+						elamond check ${unchecked}
+					cp ${unchecked} "$out"
+				'';
+
+			# What the settings option shows: a dashboard, an action with a parameter, a link and a
+			# profile, as docs/config.md has them in TOML.
+			settingsExample = lib: lib.literalExpression ''
+				{
+					control = true;
+					links.jellyfin = { name = "Jellyfin"; url = "http://{host}:8096"; unit = "jellyfin.service"; scope = "system"; };
+					actions.fan = {
+						name = "Fan";
+						command = [ "''${pkgs.coreutils}/bin/echo" "fan" "{speed}" ];
+						params.speed = { choices = [ "quiet" "fast" ]; labels = { quiet = "Quiet"; fast = "Fast"; }; default = "quiet"; };
+					};
+					dashboards.power = {
+						title = "Power";
+						icon = "battery";
+						widgets = [
+							{ type = "gauge"; value = "battery.percent"; label = "Battery"; }
+							{ type = "select"; action = "fan"; param = "speed"; label = "Fan"; }
+						];
+					};
+					profiles.owner = { theme = "dark"; dashboards = [ "overview" "power" "processes" "control" ]; };
+				}
+			'';
+
+			# The system units the settings' links name with `scope = "system"`: those phones may start,
+			# stop and restart, which the polkit rule lets their users do.
+			systemUnits = lib: settings:
+				let
+					links = settings.links or { };
+				in
+				lib.optionals (lib.isAttrs links) (
+					lib.mapAttrsToList (_: l: l.unit) (lib.filterAttrs (_: l: lib.isAttrs l && l ? unit && (l.scope or "user") == "system") links)
+				);
+
 			# The Android SDK only exists for x86_64 hosts.
 			dev = import nixpkgs {
 				system = "x86_64-linux";
@@ -68,15 +114,15 @@
 			#     enable = true;
 			#     openFirewall = true;
 			#     settings.control = true;
-			#     settings.units = [ { name = "jellyfin.service"; scope = "system"; } ];
+			#     settings.links.jellyfin = { name = "Jellyfin"; url = "http://{host}:8096"; unit = "jellyfin.service"; scope = "system"; };
 			#     control.users = [ "alice" ];
-			#     control.units = [ "jellyfin.service" ];
 			#   };
 			nixosModules.default = { config, lib, pkgs, ... }:
 				let
 					cfg = config.services.elamond;
 					toml = pkgs.formats.toml { };
-					configFile = toml.generate "elamond.toml" cfg.settings;
+					configFile = checkedSettings pkgs cfg.package cfg.settings;
+					units = lib.unique (cfg.control.units ++ systemUnits lib cfg.settings);
 				in {
 					options.services.elamond = {
 						enable = lib.mkEnableOption "the Elamon service (elamond) as a user unit";
@@ -98,13 +144,25 @@
 						settings = lib.mkOption {
 							type = toml.type;
 							default = { };
+							example = settingsExample lib;
 							description = ''
-								elamond.toml for every user's service; empty keeps each user's own
-								~/.config/elamon/elamond.toml. Each user's ~/.config/elamon/elamond.d/*.toml still adds
-								to it. A change restarts the services. It lands in the Nix store, which every user can
-								read: keep secrets (a link's URL with a password in it, a token among an action's
-								arguments) out of it, in a drop-in only its user can read (chmod 600).
+								elamond.toml for every user's service, settings schema 2 as docs/config.md has it in
+								TOML (`[dashboards.<id>]` is `dashboards.<id>`, `[[dashboards.<id>.widgets]]` a list
+								of attribute sets); empty keeps each user's own ~/.config/elamon/elamond.toml. Each
+								user's ~/.config/elamon/elamond.d/*.toml still adds to it. `elamond check` reads it as
+								it is built, so a mistake fails the build with its line; `elamond defaults` prints the
+								built-in dashboards to start from. A change restarts the services. It lands in the Nix
+								store, which every user can read: keep secrets (a link's URL with a password in it, a
+								token among an action's arguments) out of it, in a drop-in only its user can read
+								(chmod 600).
 							'';
+						};
+						settingsFile = lib.mkOption {
+							type = lib.types.package;
+							readOnly = true;
+							internal = true;
+							default = configFile;
+							description = "`settings` as written and checked.";
 						};
 						openFirewall = lib.mkOption {
 							type = lib.types.bool;
@@ -142,9 +200,10 @@
 								example = [ "jellyfin.service" ];
 								description = ''
 									System units those users may start, stop and restart without a password, from
-									the app or any other program of theirs. The app can only use one the service's
-									settings name too: on a `[[links]]` entry with `scope = "system"`, or in `units`
-									as `{ name = "…"; scope = "system"; }`.
+									the app or any other program of theirs, beside those `settings.links` name with
+									`scope = "system"`, which the rule has by itself. The app can only use a unit the
+									service's settings name on a link (`[links.<id>]` with `unit` and
+									`scope = "system"`): list here those of links in a user's drop-in.
 								'';
 							};
 							multipleSessions = lib.mkOption {
@@ -235,7 +294,7 @@
 										return polkit.Result.YES;
 									}
 									if (action.id == "org.freedesktop.systemd1.manage-units"
-										&& ${builtins.toJSON cfg.control.units}.indexOf(action.lookup("unit")) >= 0
+										&& ${builtins.toJSON units}.indexOf(action.lookup("unit")) >= 0
 										&& ["start", "stop", "restart"].indexOf(action.lookup("verb")) >= 0) {
 										return polkit.Result.YES;
 									}
@@ -252,7 +311,7 @@
 				let
 					cfg = config.services.elamond;
 					toml = pkgs.formats.toml { };
-					configFile = toml.generate "elamond.toml" cfg.settings;
+					configFile = checkedSettings pkgs cfg.package cfg.settings;
 				in {
 					options.services.elamond = {
 						enable = lib.mkEnableOption "the Elamon service (elamond)";
@@ -264,18 +323,14 @@
 						settings = lib.mkOption {
 							type = toml.type;
 							default = { };
-							example = lib.literalExpression ''
-								{
-									control = true;
-									links = [ { name = "Jellyfin"; url = "http://{host}:8096"; unit = "jellyfin.service"; scope = "system"; } ];
-									actions = [ { name = "Update"; command = [ "''${pkgs.nh}/bin/nh" "os" "switch" ]; timeout = 900; } ];
-								}
-							'';
+							example = settingsExample lib;
 							description = ''
-								Written to ~/.config/elamon/elamond.toml, and a change restarts the service; empty
-								leaves that file alone. It lands in the Nix store, which every user can read: keep
-								secrets (a link's URL with a password in it, a token among an action's arguments) in a
-								drop-in in ~/.config/elamon/elamond.d only you can read (chmod 600).
+								Written to ~/.config/elamon/elamond.toml, settings schema 2 as docs/config.md has it in
+								TOML; a change restarts the service; empty leaves that file alone. `elamond check`
+								reads it as it is built, so a mistake fails `home-manager switch` with its line. It
+								lands in the Nix store, which every user can read: keep secrets (a link's URL with a
+								password in it, a token among an action's arguments) in a drop-in in
+								~/.config/elamon/elamond.d only you can read (chmod 600).
 							'';
 						};
 					};
@@ -306,7 +361,7 @@
 			homeModules.default = self.homeManagerModules.default;
 
 			# `nix flake check`: the NixOS module in a VM, as on a machine with a greeter and
-			# more than one user.
+			# more than one user; and settings with a mistake failing the build.
 			checks.x86_64-linux.module = nixpkgs.legacyPackages.x86_64-linux.testers.runNixOSTest {
 				name = "elamond-module";
 				nodes.machine = { pkgs, ... }: {
@@ -317,6 +372,25 @@
 						# The test reaches the service over loopback, which the firewall always lets through.
 						firewallInterfaces = [ "eth1" "wg0" ];
 						users = [ "alice" ];
+						# A dashboard, an action with a parameter and a profile, in Nix.
+						settings = {
+							actions.greet = {
+								name = "Greet";
+								command = [ "${pkgs.coreutils}/bin/echo" "hello" "{who}" ];
+								params.who = { choices = [ "world" "nix" ]; labels = { world = "World"; nix = "Nix"; }; };
+								confirm = false;
+							};
+							dashboards.vm = {
+								title = "VM";
+								icon = "chip";
+								widgets = [
+									{ type = "value"; value = "cpu.usage"; label = "CPU"; }
+									{ type = "select"; action = "greet"; param = "who"; label = "Greet"; }
+									{ type = "table"; source = "links"; label = "Links"; columns = [ { field = "name"; } { field = "url"; } ]; }
+								];
+							};
+							profiles.vm = { name = "VM"; dashboards = [ "vm" "overview" ]; };
+						};
 					};
 					users.users.alice = { isNormalUser = true; uid = 1000; };
 					users.users.bob = { isNormalUser = true; uid = 1001; };
@@ -327,6 +401,36 @@
 				};
 				testScript = builtins.readFile ./nix/module-test.py;
 			};
+
+			# A widget with an address no computer has, in the module's settings: the settings fail to
+			# build, `elamond check` naming the line and what was meant, and no service ever reads them.
+			checks.x86_64-linux.settings-mistake =
+				let
+					pkgs = nixpkgs.legacyPackages.x86_64-linux;
+					system = nixpkgs.lib.nixosSystem {
+						system = "x86_64-linux";
+						modules = [
+							self.nixosModules.default
+							{
+								boot.isContainer = true;
+								system.stateVersion = "26.05";
+								services.elamond = {
+									enable = true;
+									settings.dashboards.broken = {
+										title = "Broken";
+										widgets = [ { type = "gauge"; value = "cpu.usge"; } ];
+									};
+								};
+							}
+						];
+					};
+					failed = pkgs.testers.testBuildFailure system.config.services.elamond.settingsFile;
+				in
+				pkgs.runCommand "elamond-settings-mistake" { } ''
+					grep -F 'dashboards.broken.widgets[0].value: no value "cpu.usge"; did you mean cpu.usage?' ${failed}/testBuildFailure.log
+					grep -qx 1 ${failed}/testBuildFailure.exit
+					touch "$out"
+				'';
 
 			devShells.x86_64-linux = {
 				default = dev.mkShell {

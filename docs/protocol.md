@@ -37,19 +37,23 @@ tests read them, so the two can't drift apart.
   "min_app": "0.6.0", "features": ["control", "media", "power", "power_profiles", "processes", "units"] }
 ```
 
-`features` says what this computer can offer at all (whatever a client's role):
-`control` (`control = true` in the settings), `power` (logind), `power_profiles`
-(power-profiles-daemon or tuned-ppd), `units` (systemd), `media` (a session bus for MPRIS),
-`processes`, `displays`, `nvml`. A client ignores those it doesn't know.
+`features` says what this computer can offer at all (whatever a client's role), sorted:
+`control` (`control = true` in the settings), `power` (logind can power off, restart, sleep or
+lock), `power_profiles` (power-profiles-daemon or tuned-ppd), `units` (systemd), `media` (a session
+bus for MPRIS), `processes`, `displays` (a GPU whose monitors DRM tells of), `nvml` (an NVIDIA GPU
+NVML can read). A client ignores those it doesn't know.
 
 ### The client says what it is
 
 Every request with a token carries `Elamon-Client: <kind>/<version>`: `android/0.6.0`, later
 `web/0.8.0`. The service shows it in `elamond clients`, and gives each client the profile's part for
-its kind. A request without it is taken as `android` of an unknown version.
+its kind. A request without it, or with one that isn't `<kind>/<version>` (a kind of `a-z`, `0-9`,
+`_` and `-`, a version of letters, digits and `.+-_`), is taken as `android` of an unknown version.
+The service writes the version down only when it changes.
 
 What widget types a client draws it says in `GET /api/v1/ui?widgets=…`; the service describes the
-dashboards with those alone ([below](#what-a-client-cant-draw)).
+dashboards with those alone ([below](#what-a-client-cant-draw)), in that `ui` and in what the
+client's streams and snapshots send from then on.
 
 ## Discovery
 
@@ -286,7 +290,8 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
 ```
 
 - `version` changes whenever anything else in the document would: the settings, the client's role
-  or profile, control turned on or off, a GPU, disk, sensor or interface that comes or goes. A
+  or profile, control turned on or off, a GPU, disk, sensor or interface that comes or goes (a
+  label or title that holds values follows them within 5 seconds). A
   client keeps the last document of each computer (a cache, not settings) to start at once and to
   show while offline, and fetches it again when a stream says `ui` with another version.
 - `profile` holds the part every client reads, and the part for this client's kind (`android`)
@@ -345,8 +350,9 @@ Newline-delimited JSON (`application/x-ndjson`), one object per line, each with 
 
 | name | default | |
 |---|---|---|
-| `dashboard` | the first tab | the dashboard on screen: values are read and sent for it alone |
+| `dashboard` | the first tab | the dashboard on screen: values are read and sent for it alone; one the client doesn't get (any more) is the first tab, and the `data` lines say which they carry |
 | `interval` | the profile's `interval_ms` | milliseconds between `data` lines, from the service's `interval_ms` up to 60 000 |
+| `widgets` | those of the client's last `GET /api/v1/ui` | the widget types it draws, as `ui` takes them |
 
 Lines:
 
@@ -401,14 +407,18 @@ Changes what an open stream of this client sends, from its next line, without re
 { "dashboard": "cpu", "interval": 2000, "sort": { "processes/table": "mem" } }
 ```
 
-Each key is optional. `sort` asks a table for another of its `sorts` (descending). 200
-`{ "ok": true }`; 404 `no_such_stream` when the stream has ended or isn't this client's;
-404 `no_such_dashboard`; 400 `bad_sort`.
+Each key is optional. `sort` asks a table, by its widget id, for another of its `sorts`
+(descending), or for its own `sort` back. A new dashboard or order comes with the next reading,
+not after an interval; a new dashboard's first line has `history`. 200 `{ "ok": true }`; 404
+`no_such_stream` when the stream has ended or isn't this client's; 404 `no_such_dashboard` for one
+not in the client's `ui`; 400 `bad_sort` with the table's id in `message`. Nothing is changed unless
+all of it is right. A body over 4 KiB is a plain-text 413.
 
 ## `GET /api/v1/snapshot`
 
-One `data` object (without `type`, with `history`) for `dashboard=<id>`, after waiting a few ticks
-for a reading that has everything it needs.
+One `data` object (without `type`, with `history`) for `dashboard=<id>` (the first tab without
+it), after waiting a few ticks for a reading that has everything it needs; 404
+`no_such_dashboard` for one not in the client's `ui`. `widgets` as for the stream.
 
 ## `POST /api/v1/actions/{id}`
 
@@ -416,13 +426,17 @@ for a reading that has everything it needs.
 { "params": { "mode": "server" } }
 ```
 
-Runs an action of `ui`'s `actions`. Each parameter is checked against the action's: a choice among
-its choices, a number in its range on its step, a bool; one missing without a default, or one the
-action hasn't, is 400 `bad_param` with the parameter's name in `message`. 200: `{ "ok": true }`,
-and for an action the settings define `{ "ok": true, "exit_code": 0, "timed_out": false,
-"output": "…" }` (its first 4 KiB and last 12 KiB, also when it timed out). 404 `no_such_action` for
-an id the client's `ui` doesn't have; 403 `not_allowed`, `control_disabled`, `not_permitted`;
-409 `process_changed`; 429 `too_many_requests`; 502 `failed` with a `message`.
+Runs an action of `ui`'s `actions`. The body may be left out when there are no parameters to
+give. Each parameter is checked against the action's: a choice among its choices, a number in its
+range on its step, an integer, a number, a string, a bool; one missing without a default, one of
+the wrong kind, or one the action hasn't, is 400 `bad_param` with the parameter's name in
+`message`. 200: `{ "ok": true }`, and for an action the settings define `{ "ok": true,
+"exit_code": 0, "timed_out": false, "output": "…" }` (its first 4 KiB and last 12 KiB, also when it
+timed out): `ok` says it ran, `exit_code` (`null` when a signal ended it) and `timed_out` how it
+ended. 404 `no_such_action` for an id the computer doesn't have or can't do now; 403 `not_allowed`
+for one it can that the client's role may not run (so not in its `ui`), `control_disabled`,
+`not_permitted`; 409 `process_changed`; 429 `too_many_requests`; 502 `failed` with a `message`.
+They are checked in this order: the rate, the role, control, then the parameters.
 
 `process.signal` with `start` signals only the process that started then: if the pid now belongs to
 another, 409 `process_changed`. `unit.*` act on the unit of the link given, only one the settings
@@ -482,8 +496,9 @@ Errors are `{ "error": "<code>" }`, some with a `message`, with these statuses (
 | 500 | `storage` |
 | 502 | `failed`, with `message` |
 
-`failed` carries a `message`: either one of `unknown_player`, `unknown_profile`, `no_value`,
-`no_track`, `no_session`, `no_system_bus`, `no_session_bus`, `no_power_profiles`, `volume_failed`,
-`mute_failed`, `timed_out`, or the system's own error text (D-Bus, a command). A request whose JSON
+`failed` carries a `message`: either one of `unknown_player`, `no_value` (`volume.set` with
+neither `level` nor `muted`), `no_track`, `no_session`, `no_system_bus`, `no_session_bus`,
+`no_power_profiles`, `volume_failed`, `mute_failed`, `timed_out`, or the system's own error text
+(D-Bus, a command). A request whose JSON
 or query the service can't read at all gets a plain-text 400, 415 or 422, and a body over its limit
 (4 KiB for `pair`, `rekey`, `actions` and `stream`) a plain-text 413.

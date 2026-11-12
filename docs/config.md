@@ -72,6 +72,11 @@ scope = "system"
 | `scope` | `user` \| `system` | `user` | the unit's |
 | `icon` | [icon](#icons) | `globe` | |
 
+The links the 0.5 app added (its links.json) the service writes into
+`elamond.d/links-from-app.toml` once, at its first start, ids made from their names; links.json
+becomes links.json.migrated. A unit no link may have is left out of them, and so is a link that
+isn't a web page's.
+
 ## Actions
 
 What a client may run on the computer. There are built-in ones, and the ones the settings add,

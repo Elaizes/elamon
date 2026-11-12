@@ -66,14 +66,25 @@ mdns = false
 name = "$NAME"
 control = true
 
-[[actions]]
+[actions.hello]
 name = "Say hello"
 command = ["echo", "hello from the test service"]
 confirm = false
 
-[[links]]
+[actions.mode]
+name = "Mode"
+command = ["echo", "mode", "{mode}"]
+params.mode = { choices = ["quiet", "fast"], labels = { quiet = "Quiet", fast = "Fast" }, default = "quiet" }
+
+[links.web]
 name = "Local web"
 url = "http://{host}:$((PORT + 1))"
+
+# The profile the phone pairs with.
+[profiles.phone]
+name = "Phone"
+theme = "dark"
+dashboards = ["overview", "processes", "sensors", "control"]
 TOML
 # Always started in the background: exec makes $! elamond itself, so the trap can stop it. No
 # system bus: power, units and the rest of this computer stay out of the test's reach.
@@ -92,7 +103,7 @@ adb install -r "${APK:-app/build/outputs/apk/debug/app-debug.apk}" > /dev/null
 adb shell settings put system font_scale "$FONT_SCALE"
 
 # --yes: the throwaway service allows the phone without asking at the computer.
-run_elamond pair --yes > "$work/pair.log" 2>&1 &
+run_elamond pair --yes --profile phone > "$work/pair.log" 2>&1 &
 pairing=$!
 sleep 3
 code=$(grep -a -E '^\s+[0-9]{3} [0-9]{3}\s*$' "$work/pair.log" | tr -d ' ')
