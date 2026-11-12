@@ -100,7 +100,8 @@ fetch() {
 	else
 		only=
 		[ "$proto" = '=https' ] && only=--https-only
-		wget --quiet --output-document="$2" --timeout=30 --tries=3 --max-redirect=5 ${only:+"$only"} \
+		# --no-config first: no /etc/wgetrc or ~/.wgetrc, which could turn the certificate check off.
+		wget --no-config --quiet --output-document="$2" --timeout=30 --tries=3 --max-redirect=5 ${only:+"$only"} \
 			--user-agent="$AGENT" --header="Accept: ${4:-*/*}" "$1" || return 1
 	fi
 	size=$(wc -c < "$2") || return 1
@@ -358,7 +359,9 @@ EOF
 	# Copied beside where it goes, checked there (it runs from there, whatever /tmp allows), then
 	# renamed over the old one, which is atomic.
 	mkdir -p "$bin_dir" || die "can't make $bin_dir"
-	if [ -d "$target" ] && [ ! -h "$target" ]; then
+	if [ -h "$target" ]; then
+		die "$target is a link; put elamond where it points yourself, or remove the link"
+	elif [ -d "$target" ]; then
 		die "$target is a folder"
 	fi
 	part=$(mktemp "$bin_dir/.elamond.XXXXXX") || die "can't write to $bin_dir"
@@ -369,8 +372,8 @@ EOF
 	mv -f "$part" "$target" || die "can't put elamond in $bin_dir"
 	part=
 	say "  OK  installed $(show "$target") (elamond $version)"
-	# Nothing in it a terminal would act on.
-	page=$(printf '%s' "$page" | tr -d '[:cntrl:]')
+	# Nothing in it a terminal would act on: the characters of a plain address alone.
+	page=$(printf '%s' "$page" | LC_ALL=C tr -cd 'A-Za-z0-9:/._~%?#=&+-')
 	case $page in
 		https://*) say "      release notes: $page" ;;
 	esac

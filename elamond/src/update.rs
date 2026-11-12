@@ -9,9 +9,11 @@
 //!   user can enter, made afresh (mkdir never takes a folder or a link someone put there first).
 //!
 //! Everything goes through curl, or wget where there is no curl, which the computer keeps up to date
-//! with its certificates and proxies: over HTTPS only (TLS 1.2 or newer, redirects only to HTTPS;
-//! curl without ~/.curlrc, which could turn checks off), within a time, and never more than a set
-//! size of each, cut off past it.
+//! with its certificates and proxies: over HTTPS only (TLS 1.2 or newer; curl's redirects only to
+//! HTTPS, which wget can't hold its redirects to, so curl is taken first; neither reads a config
+//! file of its own, ~/.curlrc or ~/.wgetrc, which could turn checks off), within a time, and never
+//! more than a set size of each, cut off past it. The archive and its checksum come only from the
+//! project's own release downloads on GitHub.
 //!
 //! What is checked before anything is replaced: the checksum file holds one SHA-256, of a file of
 //! this archive's name and no other; the archive matches it; only `elamond-V-ARCH-linux/elamond`
@@ -49,6 +51,8 @@ use crate::store;
 
 /// GitHub's list of the repository's releases, newest made first; 100 reach far enough back.
 const RELEASES: &str = "https://api.github.com/repos/Elaizes/elamon/releases?per_page=100";
+/// Where the release files are: an archive or a checksum elsewhere in the list is not taken.
+const DOWNLOADS: &str = "https://github.com/Elaizes/elamon/releases/download/";
 const ACCEPT: &str = "application/vnd.github+json";
 
 /// The most each download may be: the list of releases, an archive and its checksum; and what tar
@@ -91,7 +95,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
 	let exe = setup::this_exe()?;
 	let target = PathBuf::from(&exe);
 	let (list, loopback) = match std::env::var("ELAMON_RELEASES_URL") {
-		Ok(url) if !url.is_empty() => (url, true),
+		Ok(url) if !url.is_empty() => {
+			// For trying it out against releases of one's own: said, so it never goes unnoticed.
+			eprintln!("elamond update: the releases are read from ELAMON_RELEASES_URL, {}, not GitHub", plain(&url));
+			(url, true)
+		}
 		_ => (RELEASES.to_string(), false),
 	};
 	if !allowed(&list, loopback) {
@@ -282,6 +290,7 @@ fn newest(releases: &[Release], this: (Version, bool), arch: &str, loopback: boo
 					.iter()
 					.filter(|a| a.name.as_deref() == Some(name))
 					.find_map(|a| a.browser_download_url.clone().filter(|u| u.strip_suffix(name).is_some_and(|rest| rest.ends_with('/'))))
+					.filter(|u| loopback || u.starts_with(DOWNLOADS))
 			};
 			let archive_url = url(&archive)?;
 			let sum_url = url(&format!("{archive}.sha256"))?;
@@ -340,14 +349,17 @@ impl Fetcher {
 		let mut c = Command::new(self.program());
 		match self {
 			Fetcher::Curl => {
-				let proto = if https { "=https" } else { "=http" };
+				// Plain http only to a test server on this computer, which is followed nowhere else.
+				let (proto, redirects) = if https { ("=https", "5") } else { ("=http", "0") };
 				// -q first: no ~/.curlrc, which could turn checks off or add headers.
 				c.args(["-q", "--fail", "--silent", "--show-error", "--location", "--globoff", "--proto", proto, "--proto-redir", proto])
-					.args(["--tlsv1.2", "--max-redirs", "5", "--connect-timeout", "20", "--max-time", &DOWNLOAD_SECS.to_string()])
+					.args(["--tlsv1.2", "--max-redirs", redirects,"--connect-timeout", "20", "--max-time", &DOWNLOAD_SECS.to_string()])
 					.args(["--max-filesize", &max.to_string(), "--user-agent", &agent, "--header", &accept, "--output", "-", url]);
 			}
 			Fetcher::Wget => {
-				c.args(["--quiet", "--output-document=-", "--timeout=30", "--tries=3", "--max-redirect=5"]);
+				// --no-config first: no /etc/wgetrc or ~/.wgetrc, which could turn the certificate check off.
+				let redirects = if https { "--max-redirect=5" } else { "--max-redirect=0" };
+				c.args(["--no-config", "--quiet", "--output-document=-", "--timeout=30", "--tries=3", redirects]);
 				if https {
 					c.arg("--https-only");
 				}
@@ -977,7 +989,8 @@ mod tests {
 		let found = newest(&list(&server), this(), ARCH, true).unwrap();
 		assert_eq!(found.version, v("9.9.9"), "not the draft");
 		assert_eq!(found.page.as_deref(), Some(server.url("/tag/v9.9.9").as_str()));
-		assert_eq!(newest(&list(&server), this(), ARCH, false).unwrap().page, None, "a plain http page only when testing");
+		// Not testing, the files are taken only from the project's own downloads on GitHub.
+		assert!(newest(&list(&server), this(), ARCH, false).is_none(), "files from elsewhere only when testing");
 
 		let scratch = Scratch::under(work.path()).unwrap();
 		let new = download(fetcher(), &found, true, scratch.path()).unwrap();
