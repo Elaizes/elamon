@@ -23,11 +23,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import io.github.elaizes.elamon.data.APP_API
 import io.github.elaizes.elamon.data.Action
@@ -72,6 +74,8 @@ data class MachineState(
 	/** What the computer said it is, when it was reached; with [Conn.Incompatible], why there are no dashboards. */
 	val hello: Hello? = null,
 	val compat: Compat = Compat.Ok,
+	/** With [Conn.Offline]: the addresses and names the computer was looked for at last, in vain. */
+	val tried: List<String> = emptyList(),
 )
 
 /** What the stream is asked for: the dashboard on screen, how often, and the tables asked for another order than their own. */
@@ -216,7 +220,11 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	private var workingHost: String? = null
 	private var attempt = 0
 
+	/** [NetworkChanges.count] when the computer was last looked for: a change since, and it is looked for again at once. */
+	private var lookedAt = NetworkChanges.count.value
+
 	init {
+		NetworkChanges.watch(app)
 		// What was kept starts the screen at once; whatever the computer says replaces it.
 		viewModelScope.launch {
 			val ui = cache.ui(machineId)
@@ -314,6 +322,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 			}
 			if (workingHost == null) {
 				_state.update { it.copy(conn = if (it.data.isEmpty() && it.conn != Conn.Live) Conn.Connecting else Conn.Reconnecting) }
+				lookedAt = NetworkChanges.count.value
 				val reached = try {
 					reachPaired(machine) { from, to -> renewed(from, to) }
 				} catch (e: ElamondException) {
@@ -321,8 +330,8 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 					return
 				}
 				if (reached == null) {
-					_state.update { it.copy(conn = Conn.Offline) }
-					delay(Limits.backoffMs(attempt++))
+					_state.update { it.copy(conn = Conn.Offline, tried = machine.hostsToTry()) }
+					waitToLookAgain()
 					continue
 				}
 				val hello = reached.second
@@ -359,8 +368,19 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 			// look for the computer on every address again.
 			workingHost = null
 			_state.update { it.copy(conn = Conn.Reconnecting) }
-			delay(Limits.backoffMs(attempt++))
+			waitToLookAgain()
 		}
+	}
+
+	/**
+	 * Waits before looking for the computer again, the longer the more tries in a row came to
+	 * nothing. The phone's network changing (Wi-Fi, mobile data, a VPN) since it was last looked for
+	 * ends the wait at once, and the count starts over: every address is tried again, all at once,
+	 * from where the phone is now.
+	 */
+	private suspend fun waitToLookAgain() {
+		val changed = withTimeoutOrNull(Limits.backoffMs(attempt)) { NetworkChanges.count.first { it != lookedAt } }
+		attempt = if (changed != null) 0 else attempt + 1
 	}
 
 	/**
@@ -396,7 +416,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 								// The dashboard went from this phone's ui on the computer: the ui is read again,
 								// and the screen and the stream follow it.
 								"no_such_dashboard" -> {
-									applyUi(client.ui(), fresh = true)
+									freshUi(client)
 									target = wanted.value
 									// Still there as the computer says: not asked for again.
 									if (target.dashboard == change.dashboard) sent = sent.copy(dashboard = target.dashboard)
@@ -423,13 +443,16 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 					is StreamOpen -> {
 						streamId = line.stream
 						val ui = _state.value.ui
-						if (ui == null || ui.version != line.ui || _state.value.uiKept) applyUi(client.ui(), fresh = true)
+						if (ui == null || ui.version != line.ui || _state.value.uiKept) freshUi(client)
 						// Opened without a dashboard, the stream sends the first tab's.
 						if (opening.dashboard == null) sent = sent.copy(dashboard = _state.value.ui?.tabs?.firstOrNull())
 						subscriber.start()
 					}
 					is DataLine -> handleData(line, host)
-					is UiChanged -> if (line.ui != _state.value.ui?.version) applyUi(client.ui(), fresh = true)
+					is UiChanged -> {
+						told(client, line.endpoints)
+						if (line.ui != _state.value.ui?.version) freshUi(client)
+					}
 				}
 			}
 			throw ElamondException(ElamondException.Kind.Unreachable, "closed")
@@ -446,6 +469,23 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 
 	/** Ends a stream that only a new one replaces: see [Tell.Reopen]. */
 	private class ReopenStream : Exception()
+
+	/** Reads the `ui` from the computer over [client], and takes it, and where the computer says it is. */
+	private suspend fun freshUi(client: ElamondClient) {
+		val ui = client.ui()
+		told(client, ui.service.endpoints)
+		applyUi(ui, fresh = true)
+	}
+
+	/**
+	 * Where the computer says it is now ([endpoints]), in an answer over [client]: pinned to its
+	 * certificate and with its token, as every client here is. Kept among its addresses, so the next
+	 * look tries them too.
+	 */
+	private fun told(client: ElamondClient, endpoints: List<String>) {
+		val pin = client.pin ?: return
+		if (endpoints.isNotEmpty()) store.takeEndpoints(machineId, pin, endpoints)
+	}
 
 	/**
 	 * Takes [ui] as what the computer shows this phone: kept on the phone when [fresh] from the
@@ -534,7 +574,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		viewModelScope.launch {
 			val c = client() ?: return@launch
 			try {
-				applyUi(c.ui(), fresh = true)
+				freshUi(c)
 			} catch (e: CancellationException) {
 				throw e
 			} catch (e: Exception) {

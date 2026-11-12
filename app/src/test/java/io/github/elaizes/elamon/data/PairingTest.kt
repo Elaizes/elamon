@@ -34,6 +34,27 @@ class PairingTest {
 	}
 
 	@Test
+	fun pairingAgainProvesItIsThePhoneOnlyToTheComputerItTrusts() {
+		val here = machine(id).copy(clientId = "0123abcd")
+		val proof = PreviousPairing("0123abcd", "token")
+		// The computer it has, under the certificate pinned for it, by QR code or by code alike.
+		assertEquals(proof, previousPairing(id, fp, here, "token"))
+		assertEquals(proof, previousPairing(id, fp.uppercase(), here, "token"))
+		// A computer it doesn't have, or not that one: nothing.
+		assertNull(previousPairing(id, fp, null, "token"))
+		assertNull(previousPairing("f".repeat(32), fp, here, "token"))
+		// Another certificate, new or changed, may be another computer: never shown the token.
+		assertNull(previousPairing(id, otherFp, here, "token"))
+		// Nothing to prove it with: the entry or the token unknown, the key store lost the key.
+		assertNull(previousPairing(id, fp, here.copy(clientId = null), "token"))
+		assertNull(previousPairing(id, fp, here.copy(clientId = ""), "token"))
+		assertNull(previousPairing(id, fp, here, null))
+		assertNull(previousPairing(id, fp, here, ""))
+		// A token from Import pairings is still the other phone's, whose entry would be unpaired.
+		assertNull(previousPairing(id, fp, here.copy(tokenShared = true), "token"))
+	}
+
+	@Test
 	fun thePairingAnswerMayNotChangeTheId() {
 		assertEquals(id, pairedId(id, ""))
 		assertEquals(id, pairedId(id, id))

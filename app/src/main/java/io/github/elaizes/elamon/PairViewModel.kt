@@ -34,6 +34,8 @@ import io.github.elaizes.elamon.data.cleanName
 import io.github.elaizes.elamon.data.isServiceId
 import io.github.elaizes.elamon.data.pairCheck
 import io.github.elaizes.elamon.data.pairedId
+import io.github.elaizes.elamon.data.previousPairing
+import io.github.elaizes.elamon.data.withEndpoints
 
 /** Where the pairing screen is: finding the computer, then asking it for a token. */
 sealed interface PairStep {
@@ -143,7 +145,11 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 			try {
 				// Pinned to the certificate just seen, so it can't be swapped between the two requests.
 				val client = ElamondClient(ready.host, target.port, ready.fingerprint)
-				val resp = client.pair(digits, device)
+				// Pairing again with a computer it trusts, the phone proves it is the one paired before: the
+				// computer gives the new entry the old one's profile, and unpairs the old.
+				val existing = store.get(ready.hello.id)
+				val token = existing?.let { withContext(Dispatchers.Default) { store.token(it) } }
+				val resp = client.pair(digits, device, previousPairing(ready.hello.id, ready.fingerprint, existing, token))
 				// The answer is the computer's that said hello, or nothing of it is kept.
 				val id = pairedId(ready.hello.id, resp.id)
 				if (id == null) {
@@ -153,7 +159,8 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 				val machine = Machine(
 					id = id,
 					name = cleanName(resp.name).ifEmpty { ready.hello.name },
-					hosts = target.hostsToKeep(ready.host),
+					// Where the computer says it is now, too: a phone paired on one network finds it on another.
+					hosts = withEndpoints(target.hostsToKeep(ready.host), ready.host, resp.endpoints),
 					port = target.port,
 					fingerprint = ready.fingerprint,
 					lastHost = ready.host,

@@ -112,6 +112,12 @@ object Limits {
 	const val PAIR_LINK_MAX_HOSTS = 8
 	const val PAIR_LINK_MAX_NAME = 64
 
+	/**
+	 * The most addresses and names a computer is kept with: those pairing gave, and where the
+	 * computer says it is now (`endpoints`, as many at most themselves). Past it, the oldest go.
+	 */
+	const val MACHINE_HOSTS_MAX = 16
+
 	/** Characters in a computer's or a phone's name, as the service caps them. */
 	const val NAME_MAX = 64
 

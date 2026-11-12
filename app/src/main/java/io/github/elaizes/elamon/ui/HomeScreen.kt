@@ -292,7 +292,13 @@ private suspend fun reading(s: Machine, store: MachineStore, ownKeys: OwnKeys, c
 		val own = ownKeys.renew(s.id, device) { ElamondClient(host, s.port, pin, token).rekey(it) }
 		val client = ElamondClient(host, s.port, pin, own ?: token)
 		cardReading(
-			ui = { fresh -> (if (fresh) null else cache.ui(s.id)) ?: client.ui().also { cache.putUi(s.id, it, ticket) } },
+			ui = { fresh ->
+				(if (fresh) null else cache.ui(s.id)) ?: client.ui().also {
+					cache.putUi(s.id, it, ticket)
+					// Where the computer says it is now, over its certificate and to its token: kept with its addresses.
+					store.takeEndpoints(s.id, pin, it.service.endpoints)
+				}
+			},
 			snapshot = { client.snapshot(it) },
 		)
 	} catch (e: CancellationException) {
@@ -411,7 +417,7 @@ private fun SetupGuide(onHelp: () -> Unit) {
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 			Step(1, stringResource(R.string.home_setup_install), null)
-			Step(2, stringResource(R.string.home_setup_start), "systemctl --user enable --now elamond")
+			Step(2, stringResource(R.string.home_setup_start), Project.INSTALL)
 			Step(3, stringResource(R.string.home_setup_pair), "elamond pair")
 			Step(4, stringResource(R.string.home_setup_scan), null)
 			FilledTonalButton(onClick = onHelp, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.home_setup_guide)) }

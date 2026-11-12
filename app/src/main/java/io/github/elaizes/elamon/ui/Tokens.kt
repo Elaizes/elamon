@@ -142,7 +142,7 @@ object Sizes {
 	/** A spinner's line, inside a button or a row. */
 	val spinnerStroke = 2.dp
 
-	/** A power button's least height, so a row with "needs permission" doesn't stand out. */
+	/** A power button's least height, so the buttons of a row are as tall as each other whatever they say. */
 	val powerTileMin = 112.dp
 
 	/** The figures at the end of a process's row. */

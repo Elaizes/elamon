@@ -45,7 +45,9 @@ import io.github.elaizes.elamon.ThemeMode
 import io.github.elaizes.elamon.TransferViewModel
 import io.github.elaizes.elamon.UnlockGrace
 import io.github.elaizes.elamon.data.MachineStore
+import io.github.elaizes.elamon.data.Profile
 import io.github.elaizes.elamon.data.UiCache
+import io.github.elaizes.elamon.data.withoutControls
 
 /**
  * What applies here, and where it is set: how the app looks and behaves comes from the profile
@@ -96,6 +98,16 @@ fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
 							)
 						},
 					)
+				}
+				// Where to change it, under its name: the file and line an admin is told, or the table.
+				profile?.let { pr ->
+					item {
+						Text(
+							profilePlaceText(profilePlace(pr)),
+							style = MaterialTheme.typography.bodyMedium,
+							modifier = Modifier.padding(horizontal = Space.xl, vertical = Space.xs),
+						)
+					}
 				}
 				item {
 					Text(
@@ -229,6 +241,44 @@ fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
 		)
 	}
 }
+
+/** Where a profile is set on the computer, as a person finds it. */
+internal sealed interface ProfilePlace {
+	/** A file of the settings folder (~/.config/elamon), and the line of the profile's table there. */
+	data class InFolder(val file: String, val line: Int) : ProfilePlace
+
+	/** A file elsewhere, by its path. */
+	data class AtPath(val file: String, val line: Int) : ProfilePlace
+
+	/** Settings the NixOS or Home Manager module wrote into the Nix store: set in Nix, under [id]. */
+	data class Nix(val id: String) : ProfilePlace
+
+	/** Only its table: the computer tells admins alone where it is. */
+	data class Table(val id: String) : ProfilePlace
+}
+
+/** Where [profile] is set, from what the computer says of it (`source`, for an admin). */
+internal fun profilePlace(profile: Profile): ProfilePlace {
+	val s = profile.source ?: return ProfilePlace.Table(profile.id)
+	// Shown as it is: nothing in it may read as something else.
+	val file = s.file.withoutControls()
+	return when {
+		file.startsWith(NIX_STORE) -> ProfilePlace.Nix(profile.id)
+		file.startsWith("/") -> ProfilePlace.AtPath(file, s.line)
+		else -> ProfilePlace.InFolder(file, s.line)
+	}
+}
+
+@Composable
+private fun profilePlaceText(place: ProfilePlace): String = when (place) {
+	is ProfilePlace.InFolder -> stringResource(R.string.settings_profile_at, place.file, place.line)
+	is ProfilePlace.AtPath -> stringResource(R.string.settings_profile_at_path, place.file, place.line)
+	is ProfilePlace.Nix -> stringResource(R.string.settings_profile_nix, place.id)
+	is ProfilePlace.Table -> stringResource(R.string.settings_profile_table, place.id)
+}
+
+/** Where Nix keeps what it builds: settings there are set in Nix, not in a file to edit. */
+private const val NIX_STORE = "/nix/store/"
 
 /** A setting as it applies, and the key of elamond's settings it comes from. */
 @Composable

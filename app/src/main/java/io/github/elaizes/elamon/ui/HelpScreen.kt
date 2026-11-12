@@ -72,6 +72,12 @@ object Project {
 	const val URL = "https://github.com/Elaizes/elamon"
 	const val GIT = "$URL.git"
 	const val FLAKE = "github:Elaizes/elamon"
+
+	/** The script that installs the newest release of elamond for the user, then runs `elamond setup`. */
+	private const val INSTALL_SCRIPT = "https://raw.githubusercontent.com/Elaizes/elamon/main/install.sh"
+
+	/** The one command that installs the service, as the guide gives it. */
+	const val INSTALL = "curl -fsSL $INSTALL_SCRIPT | sh"
 }
 
 /** Help topics another screen can open the guide at. */
@@ -101,37 +107,36 @@ private val MDNS_PORT_TEXT = MDNS_PORT.toString()
 /** [label] is the system's own name, the same in every language, like the commands; null is "Other", from resources. */
 private data class Distro(val key: String, val label: String?, val install: List<Block>, val firewall: List<Block>)
 
-// Commands shared by the distributions that build elamond from source.
+// Building elamond from source, for the distributions that run systemd: elamond setup does the rest.
 private val BUILD = """
 	git clone ${Project.GIT}
 	cd elamon/elamond
 	cargo build --release
 	install -Dm755 target/release/elamond ~/.local/bin/elamond
-	install -Dm644 dist/elamond.service ~/.config/systemd/user/elamond.service
-	sed -i "s|/usr/bin/elamond|${'$'}HOME/.local/bin/elamond|" ~/.config/systemd/user/elamond.service
-	systemctl --user daemon-reload
-	systemctl --user enable --now elamond
-""".trimIndent()
-
-private val UPDATE = """
-	cd elamon
-	git pull
-	cd elamond && cargo build --release
-	install -Dm755 target/release/elamond ~/.local/bin/elamond
-	systemctl --user restart elamond
+	~/.local/bin/elamond setup
 """.trimIndent()
 
 private val FIREWALLD = "sudo firewall-cmd --permanent --add-port=$DEFAULT_PORT/tcp\nsudo firewall-cmd --permanent --add-service=mdns\nsudo firewall-cmd --reload"
 private val UFW = "sudo ufw allow $DEFAULT_PORT/tcp\nsudo ufw allow $MDNS_PORT/udp"
 
-private fun fromSource(deps: List<Block>) = deps + listOf(
-	t(R.string.help_build),
-	c(BUILD),
-	t(R.string.help_linger),
-	c("loginctl enable-linger"),
+/**
+ * The service on a distribution that runs systemd: the one command, or a release by hand, both
+ * ending in `elamond setup`; then from source, with [deps] the build tools of the distribution.
+ */
+private fun withSetup(deps: List<Block>) = listOf(
+	t(R.string.help_install_one),
+	c(Project.INSTALL),
+	t(R.string.help_install_root),
+	c("elamond setup --check"),
+	t(R.string.help_install_release),
+	c("~/.local/bin/elamond setup"),
 	t(R.string.help_path),
 	t(R.string.help_update),
-	c(UPDATE),
+	c("elamond update"),
+) + deps + listOf(
+	t(R.string.help_build),
+	c(BUILD),
+	t(R.string.help_update_source),
 )
 
 private val GENERIC_FIREWALL = listOf(
@@ -149,13 +154,13 @@ private val DISTROS = listOf(
 			t(R.string.help_nixos_input),
 			c("inputs.elamon = {\n  url = \"${Project.FLAKE}\";\n  inputs.nixpkgs.follows = \"nixpkgs\";\n};"),
 			t(R.string.help_nixos_module),
-			c("imports = [ inputs.elamon.nixosModules.default ];\n\nservices.elamond = {\n  enable = true;\n  openFirewall = true;\n};"),
+			c("imports = [ inputs.elamon.nixosModules.default ];\n\nservices.elamond = {\n  enable = true;\n  openFirewall = true;\n};\nusers.users.YOUR_USER.linger = true;"),
 			t(R.string.help_nixos_rebuild),
 			c("sudo nixos-rebuild switch"),
-			t(R.string.help_linger),
-			c("loginctl enable-linger"),
 			t(R.string.help_nixos_hm),
-			c("imports = [ inputs.elamon.homeManagerModules.default ];\n\nservices.elamond.enable = true;"),
+			c("imports = [ inputs.elamon.homeModules.default ];\n\nservices.elamond.enable = true;"),
+			t(R.string.help_update),
+			c("nix flake update elamon\nsudo nixos-rebuild switch"),
 		),
 		firewall = listOf(
 			t(R.string.help_fw_nixos),
@@ -169,8 +174,8 @@ private val DISTROS = listOf(
 			c("nix profile install ${Project.FLAKE}"),
 			t(R.string.help_nix_unit),
 			c("systemctl --user link ~/.nix-profile/lib/systemd/user/elamond.service\nsystemctl --user enable --now elamond"),
-			t(R.string.help_linger),
-			c("loginctl enable-linger"),
+			t(R.string.help_nix_setup),
+			c("elamond setup"),
 			t(R.string.help_update),
 			c("nix profile upgrade --all\nsystemctl --user daemon-reload\nsystemctl --user restart elamond"),
 		),
@@ -178,12 +183,12 @@ private val DISTROS = listOf(
 	),
 	Distro(
 		"fedora", "Fedora",
-		install = fromSource(listOf(t(R.string.help_deps), c("sudo dnf install git cargo gcc"))),
+		install = withSetup(listOf(t(R.string.help_deps), c("sudo dnf install git cargo gcc"))),
 		firewall = listOf(t(R.string.help_fw_firewalld_default), c(FIREWALLD)),
 	),
 	Distro(
 		"debian", "Debian / Ubuntu",
-		install = fromSource(
+		install = withSetup(
 			listOf(
 				t(R.string.help_deps_debian),
 				c("sudo apt install git build-essential curl\ncurl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh\nsource ~/.cargo/env"),
@@ -193,17 +198,17 @@ private val DISTROS = listOf(
 	),
 	Distro(
 		"arch", "Arch",
-		install = fromSource(listOf(t(R.string.help_deps), c("sudo pacman -S --needed git rust base-devel"))),
+		install = withSetup(listOf(t(R.string.help_deps), c("sudo pacman -S --needed git rust base-devel"))),
 		firewall = GENERIC_FIREWALL,
 	),
 	Distro(
 		"suse", "openSUSE",
-		install = fromSource(listOf(t(R.string.help_deps), c("sudo zypper install git cargo gcc"))),
+		install = withSetup(listOf(t(R.string.help_deps), c("sudo zypper install git cargo gcc"))),
 		firewall = listOf(t(R.string.help_fw_firewalld_default), c(FIREWALLD)),
 	),
 	Distro(
 		"other", null,
-		install = fromSource(listOf(t(R.string.help_deps_other))),
+		install = withSetup(listOf(t(R.string.help_deps_other))),
 		firewall = GENERIC_FIREWALL,
 	),
 )
@@ -245,17 +250,24 @@ dashboards = ["overview", "power", "processes", "control"]
 
 [profiles.phone.android]
 blur = false"""
+/** Where `elamond setup` saves the polkit rule, and where it goes: one name, so there are never two rules. */
+private const val POLKIT_RULE = "50-elamond.rules"
+private const val POLKIT_INSTALL = "sudo install -m 0644 ~/.local/share/elamon/setup/$POLKIT_RULE /etc/polkit-1/rules.d/$POLKIT_RULE"
+
+/** The rule by hand, as the guide gives it. */
 private const val CONTROL_POLKIT = """polkit.addRule(function (action, subject) {
   if (subject.user != "YOUR_USER") return polkit.Result.NOT_HANDLED;
-  var id = action.id;
-  if (id.indexOf("org.freedesktop.login1.power-off") == 0 ||
-      id.indexOf("org.freedesktop.login1.reboot") == 0 ||
-      id.indexOf("org.freedesktop.login1.suspend") == 0 ||
-      id == "org.freedesktop.UPower.PowerProfiles.switch-profile" ||
-      id == "net.hadess.PowerProfiles.switch-profile")
-    return polkit.Result.YES;
-  if (id == "org.freedesktop.systemd1.manage-units" &&
-      ["SERVICE.service"].indexOf(action.lookup("unit")) >= 0)
+  var power = [
+    "org.freedesktop.login1.power-off",
+    "org.freedesktop.login1.reboot",
+    "org.freedesktop.login1.suspend",
+    "org.freedesktop.UPower.PowerProfiles.switch-profile",
+    "net.hadess.PowerProfiles.switch-profile"
+  ];
+  if (power.indexOf(action.id) >= 0) return polkit.Result.YES;
+  if (action.id == "org.freedesktop.systemd1.manage-units" &&
+      ["SERVICE.service"].indexOf(action.lookup("unit")) >= 0 &&
+      ["start", "stop", "restart"].indexOf(action.lookup("verb")) >= 0)
     return polkit.Result.YES;
   return polkit.Result.NOT_HANDLED;
 });"""
@@ -265,9 +277,11 @@ private val FAQ = listOf(
 	Faq(R.string.faq_not_found_q, listOf(t(R.string.faq_not_found_a, MDNS_PORT_TEXT))),
 	Faq(
 		R.string.faq_no_connect_q,
-		listOf(t(R.string.faq_no_connect_a), c("systemctl --user status elamond\njournalctl --user -u elamond -e"), t(R.string.faq_no_connect_a2, ELAMOND_PORT_TEXT)),
+		listOf(t(R.string.faq_no_connect_a), c("elamond setup --check\nsystemctl --user status elamond\njournalctl --user -u elamond -e"), t(R.string.faq_no_connect_a2, ELAMOND_PORT_TEXT)),
 	),
-	Faq(R.string.faq_logout_q, listOf(t(R.string.faq_logout_a), c("loginctl enable-linger"))),
+	Faq(R.string.faq_vpn_q, listOf(t(R.string.faq_vpn_a))),
+	Faq(R.string.faq_logout_q, listOf(t(R.string.faq_logout_a), c("sudo loginctl enable-linger YOUR_USER"))),
+	Faq(R.string.faq_not_allowed_q, listOf(t(R.string.faq_not_allowed_a), c("elamond setup --check"))),
 	Faq(R.string.faq_cert_q, listOf(t(R.string.faq_cert_a))),
 	Faq(R.string.faq_sensors_q, listOf(t(R.string.faq_sensors_a), c("sudo sensors-detect\nsystemctl --user restart elamond"))),
 	Faq(R.string.faq_gpu_q, listOf(t(R.string.faq_gpu_a))),
@@ -291,6 +305,9 @@ private val FAQ = listOf(
 )
 
 private val COMMANDS = listOf(
+	"elamond setup" to R.string.cmd_setup,
+	"elamond setup --check" to R.string.cmd_setup_check,
+	"elamond update" to R.string.cmd_update,
 	"elamond pair" to R.string.cmd_pair,
 	"elamond clients" to R.string.cmd_clients,
 	"elamond clients role ID ROLE" to R.string.cmd_clients_role,
@@ -299,6 +316,7 @@ private val COMMANDS = listOf(
 	"elamond revoke all" to R.string.cmd_revoke_all,
 	"elamond control off" to R.string.cmd_control_off,
 	"elamond defaults" to R.string.cmd_defaults,
+	"elamond defaults --diff" to R.string.cmd_defaults_diff,
 	"elamond check" to R.string.cmd_check,
 	"elamond edit" to R.string.cmd_edit,
 	"elamond values" to R.string.cmd_values,
@@ -310,11 +328,12 @@ private val COMMANDS = listOf(
 )
 
 /** The service's settings with its defaults. */
-private val SETTINGS = "port = $DEFAULT_PORT\nlisten = \"::\"\nname = \"\"\nmdns = true\ninterval_ms = $DEFAULT_INTERVAL_MS\nhistory_minutes = ${DEFAULT_HISTORY_SECONDS / 60}"
+private val SETTINGS = "port = $DEFAULT_PORT\nlisten = [\"::\"]\nnames = []\nname = \"\"\nmdns = true\ninterval_ms = $DEFAULT_INTERVAL_MS\nhistory_minutes = ${DEFAULT_HISTORY_SECONDS / 60}"
 
 private val SETTING_NOTES = listOf(
 	"port" to R.string.set_port,
 	"listen" to R.string.set_listen,
+	"names" to R.string.set_names,
 	"name" to R.string.set_name,
 	"mdns" to R.string.set_mdns,
 	"interval_ms" to R.string.set_interval,
@@ -396,7 +415,17 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 					}
 					HelpItem.Pair -> {
 						Section(stringResource(R.string.help_pair), ElIcons.Qr) {
-							Blocks(listOf(t(R.string.help_pair_run), c("elamond pair"), t(R.string.help_pair_scan), t(R.string.help_pair_code)))
+							Blocks(
+								listOf(
+									t(R.string.help_pair_run),
+									c("elamond pair"),
+									t(R.string.help_pair_scan),
+									t(R.string.help_pair_code),
+									t(R.string.help_pair_allow),
+									t(R.string.help_pair_role),
+									c("elamond pair --role glance"),
+								)
+							)
 						}
 					}
 					HelpItem.Dashboards -> {
@@ -404,7 +433,7 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 							Blocks(
 								listOf(
 									t(R.string.help_dashboards_intro),
-									c("elamond defaults"),
+									c("elamond defaults\nelamond defaults --diff"),
 									t(R.string.help_dashboards_files),
 									c(DASHBOARD),
 									t(R.string.help_dashboards_check),
@@ -429,6 +458,8 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 									t(R.string.help_control_actions),
 									c(CONTROL_ACTIONS),
 									t(R.string.help_control_polkit),
+									c(POLKIT_INSTALL),
+									t(R.string.help_control_polkit_hand),
 									c(CONTROL_POLKIT),
 									t(R.string.help_control_unlock),
 								)

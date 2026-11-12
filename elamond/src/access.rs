@@ -68,6 +68,8 @@ pub struct Caller {
 	pub profile: Option<String>,
 	/// The app it said it is last, as clients.json has it ("android/0.6.0").
 	pub app: Option<String>,
+	/// The address it came from last, as clients.json has it.
+	pub address: Option<String>,
 	/// The entry its key came from (`store::family_of`), its own id for a phone paired with a
 	/// code: the rate of acting and the share of the activity log are the family's.
 	pub family: String,

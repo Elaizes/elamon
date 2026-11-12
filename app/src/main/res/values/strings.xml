@@ -26,7 +26,7 @@
 	<string name="home_setup_title">Watch a computer</string>
 	<string name="home_setup_intro">Elamon shows a computer\'s load, temperatures, memory, processes and monitors live, and controls its links, media and power. The computer runs a small service, elamond, that only paired phones can reach.</string>
 	<string name="home_setup_install">Install the Elamon service, elamond, on the computer (Linux).</string>
-	<string name="home_setup_start">Start it for your user:</string>
+	<string name="home_setup_start">In a terminal there, as yourself, not root. It installs elamond for you and starts it; then run as root what it prints:</string>
 	<string name="home_setup_pair">Run this on the computer. It shows a QR code and a six-digit code:</string>
 	<string name="home_setup_scan">Point this phone\'s camera at the QR code, or tap Add computer and enter the code.</string>
 	<string name="home_setup_guide">Step-by-step guide for your system</string>
@@ -89,6 +89,8 @@
 	<string name="machine_pair_again">Pair again</string>
 	<string name="machine_unreachable_title">Can\'t reach %1$s</string>
 	<string name="machine_unreachable_body">The computer may be off or asleep, the Elamon service not running, or the phone on another network. Elamon keeps trying.</string>
+	<!-- Over the addresses and names the computer was looked for at, in vain: "192.0.2.10, 100.64.0.7, desk.example.net". -->
+	<string name="machine_unreachable_tried">Tried at</string>
 	<string name="machine_offline_retrying">Offline · retrying</string>
 	<!-- The computer answers, but shows this phone no dashboard at all. -->
 	<string name="machine_nothing_title">Nothing to show here</string>
@@ -115,7 +117,7 @@
 	<!-- What each role allows, as a screen reader says it after the role's name. -->
 	<string name="role_glance_about">sees the basics only: load, memory, temperatures, disks, network and battery</string>
 	<string name="role_monitor_about">sees everything, changes nothing</string>
-	<string name="role_operate_about">may also add links and start their units, play media, set the power profile and run actions</string>
+	<string name="role_operate_about">may also start and stop the links\' units, play media, set the power profile and run actions</string>
 	<string name="role_admin_about">may do everything, power and ending processes included</string>
 	<!-- The role pill read aloud: "This phone's role: Admin, may do everything, power and ending processes included". -->
 	<string name="a11y_role">This phone\'s role: %1$s, %2$s</string>
@@ -333,22 +335,26 @@
 	<string name="troubleshooting_button">Troubleshooting</string>
 	<string name="copy">Copy</string>
 	<string name="copied">Copied</string>
-	<string name="help_intro">Elamon has two parts: this app, and elamond, a small service on the computer you want to watch. It reads the computer\'s own counters and sends them only to phones you paired with it; if you allow it, it also lets them control the computer. It needs no root and runs as your user. Everything is set on the computer, in elamond.toml: the dashboards, what a phone may run, and how the app looks and behaves on each phone. The app only draws what the service describes.</string>
+	<string name="help_intro">Elamon has two parts: this app, and elamond, a small service on the computer you want to watch. It reads the computer\'s own counters and sends them only to phones you paired with it; if you allow it, it also lets them control the computer. It needs no root and runs as your user. Everything is set on the computer, in its settings in ~/.config/elamon: the dashboards, what a phone may run, and how the app looks and behaves on each phone. The app only draws what the service describes.</string>
 	<string name="help_install">1. Install the service</string>
 	<string name="help_pick_system">Pick the computer\'s system:</string>
 	<string name="help_other_system">Other</string>
 	<string name="help_nixos_input">Add the project to your flake\'s inputs:</string>
-	<string name="help_nixos_module">Import its module and turn the service on. openFirewall opens the ports the app needs:</string>
+	<string name="help_nixos_module">Import its module and turn the service on. openFirewall opens the ports the app needs; linger keeps the service running while you\'re logged out:</string>
 	<string name="help_nixos_rebuild">Rebuild. The service starts for every user who logs in.</string>
-	<string name="help_linger">To keep it running while nobody is logged in:</string>
 	<string name="help_nixos_hm">With Home Manager instead, for one user. The firewall then stays in the system configuration (see below):</string>
 	<string name="help_nix_profile">Nix with flakes on another distribution: install elamond into your profile.</string>
 	<string name="help_nix_unit">The package brings its own systemd user unit. Link it and start it:</string>
+	<string name="help_nix_setup">elamond setup then prints what needs root: lingering, the firewall and the polkit rule.</string>
 	<string name="help_update">To update later:</string>
-	<string name="help_deps">Install git, a C compiler and Rust:</string>
-	<string name="help_deps_debian">Building the service takes Rust 1.88 or newer, newer than Debian and Ubuntu ship, so Rust comes from rustup:</string>
-	<string name="help_deps_other">Install git, a C compiler (gcc or clang) and Rust 1.88 or newer, from your distribution or from rustup.rs.</string>
-	<string name="help_build">Build the service and install it for your user. Nothing goes outside your home folder:</string>
+	<string name="help_install_one">One command installs the service for your user: run it as yourself, not root. It puts elamond in ~/.local/bin and runs elamond setup, which installs a systemd user unit, writes starter settings to ~/.config/elamon/elamond.toml where there are none, and starts the service:</string>
+	<string name="help_install_root">Then run, as root, the commands elamond setup prints: lingering, which keeps the service running while you\'re logged out; the firewall\'s (below); and the polkit rule that lets phones use power, the power profile and system units (Control panel, below). Its check tells whether all is well:</string>
+	<string name="help_install_release">Or download elamond from the latest release yourself (x86_64 for most PCs, aarch64 for ARM boards), put it in ~/.local/bin and run:</string>
+	<string name="help_deps">To build it from source instead, install git, a C compiler and Rust:</string>
+	<string name="help_deps_debian">To build it from source instead: that takes Rust 1.88 or newer, newer than Debian and Ubuntu ship, so Rust comes from rustup:</string>
+	<string name="help_deps_other">To build it from source instead, install git, a C compiler (gcc or clang) and Rust 1.88 or newer, from your distribution or from rustup.rs.</string>
+	<string name="help_build">Then build it and set it up. Nothing goes outside your home folder:</string>
+	<string name="help_update_source">To update a source build: git pull, build and install it again the same way, and run elamond setup, which restarts the service.</string>
 	<string name="help_path">If the shell doesn\'t find elamond afterwards, ~/.local/bin isn\'t on your PATH; run it as ~/.local/bin/elamond.</string>
 	<string name="help_firewall">2. Open the port</string>
 	<string name="help_fw_nixos">The openFirewall option above does it. Without the NixOS module, open the ports yourself:</string>
@@ -357,25 +363,31 @@
 	<string name="help_fw_generic">Without a firewall nothing needs opening. Otherwise open TCP %1$s and UDP %2$s in the one you use.</string>
 	<string name="help_fw_ufw">With ufw:</string>
 	<string name="help_fw_firewalld">With firewalld:</string>
-	<string name="help_fw_why">TCP %1$s is the Elamon service itself. UDP %2$s is mDNS, which lets the app find the computer by itself; without it, add the computer by its address. Over a VPN such as Tailscale or WireGuard only %1$s matters, and a trusted VPN interface needs nothing.</string>
+	<string name="help_fw_why">TCP %1$s is the Elamon service itself. UDP %2$s is mDNS, which lets the app find the computer by itself; without it, add the computer by its address. Over a VPN such as Tailscale or WireGuard only %1$s matters, and a trusted VPN interface needs nothing. elamond setup prints the commands for the firewall that runs, and its check tells whether the ports are open.</string>
 	<string name="help_pair">3. Pair the phone</string>
 	<string name="help_pair_run">On the computer run:</string>
-	<string name="help_pair_scan">It shows a QR code and a six-digit code, good for five minutes. Point the phone\'s camera at the QR code and open the link: that pairs in one tap. The link carries the computer\'s addresses and, after them, names that stay when addresses change: its Tailscale name, and any set as names in elamond.toml.</string>
+	<string name="help_pair_scan">It shows a QR code and a six-digit code, good for five minutes. Point the phone\'s camera at the QR code and open the link: that pairs in one tap. The link carries the computer\'s addresses and, after them, names that stay when addresses change: its Tailscale name, and any set as names in elamond.toml. Once paired, the computer tells the app where it is whenever that changes, so a phone paired on the local network finds it over a VPN too.</string>
 	<string name="help_pair_code">Or in this app tap the computer under Found on this network, or Add computer and its address or host name, and enter the code. The app first shows the computer\'s certificate digits: they must match the Certificate line on the computer.</string>
+	<string name="help_pair_allow">Then elamond pair asks on the computer whether to allow the phone: answer y if it\'s yours, and keep elamond pair running until the phone is paired.</string>
+	<string name="help_pair_role">Each phone gets a role that says what it may see and do, admin unless you give another, and a profile of its own in elamond.d/phones.toml (Dashboards and profiles, below). For someone else\'s phone, give less: glance, monitor or operate:</string>
 	<string name="help_troubleshooting">Troubleshooting</string>
 	<string name="faq_not_found_q">The computer isn\'t under Found on this network</string>
 	<string name="faq_not_found_a">The phone and the computer have to be on the same network, with UDP %1$s open on the computer. VPNs and many guest Wi-Fi networks block this kind of discovery. Add the computer by address or name instead: elamond pair shows them.</string>
 	<string name="faq_no_connect_q">The app can\'t connect</string>
 	<string name="faq_no_connect_a">Check that the service runs, and read its log:</string>
 	<string name="faq_no_connect_a2">Then check that TCP %1$s is open in the firewall and that the phone can reach the computer\'s address.</string>
+	<string name="faq_vpn_q">The computer is found at home, but not over a VPN</string>
+	<string name="faq_vpn_a">The app tries at once every address and name it knows for the computer: those pairing gave, and those the computer tells it once it is reached. Check that the VPN is on, on the phone and on the computer, and that the service listens there (listen in the settings). A phone paired by code on the local network learns the others the first time it reaches the computer there with elamond 0.6.1 or newer; with an older elamond, pair again with the QR code, which carries the VPN address and names too.</string>
 	<string name="faq_logout_q">It works only while I\'m logged in</string>
-	<string name="faq_logout_a">A user\'s services stop at logout unless lingering is on:</string>
+	<string name="faq_logout_a">A user\'s services stop at logout unless lingering is on; elamond setup prints this until it is (on NixOS: users.users.YOUR_USER.linger = true):</string>
+	<string name="faq_not_allowed_q">The app says The computer didn\'t allow that</string>
+	<string name="faq_not_allowed_a">polkit refused it: powering off, restarting, sleeping, the power profile and system units need the rule elamond setup prints (Control panel, above). This tells whether it is installed and still matches the settings:</string>
 	<string name="faq_cert_q">The app says the certificate changed</string>
 	<string name="faq_cert_a">The service made a new certificate it can\'t vouch for: its folder ~/.local/share/elamon was deleted, or the system was reinstalled. If so, restore a backup made with elamond backup, or forget the computer in the app and pair again. If not, something else may be answering at that address; check the network first. A certificate renewed with elamond rotate-cert is different: the app checks that the old one signed it and follows by itself.</string>
 	<string name="faq_sensors_q">No temperatures or fans</string>
 	<string name="faq_sensors_a">Some sensors need kernel modules. lm-sensors finds and loads them; then restart the service:</string>
 	<string name="faq_gpu_q">The graphics card shows no load</string>
-	<string name="faq_gpu_a">NVIDIA cards need NVIDIA\'s driver, whose management library the service reads. A card marked Sleeping is powered down and is left that way until a program uses it. Intel graphics don\'t report their load without extra privileges, so the app shows the clock instead.</string>
+	<string name="faq_gpu_a">NVIDIA cards need NVIDIA\'s driver, whose management library the service reads. A card marked Asleep is powered down and is left that way until a program uses it. Intel graphics don\'t report their load without extra privileges, so the app shows the clock instead.</string>
 	<string name="faq_displays_q">A monitor shows no resolution</string>
 	<string name="faq_displays_a">A monitor that is switched off or blanked has no mode. If no monitor shows one, the service can\'t open the graphics device: your user has to be logged in at the computer or be in the video group.</string>
 	<string name="faq_unpair_q">How do I unpair a phone?</string>
@@ -393,24 +405,29 @@
 	<string name="help_control_nixos">On NixOS, in the service\'s settings. control.users also lets power actions and the power profile through without a password:</string>
 	<string name="help_control_links">Links to the web pages the computer hosts show up in the Control tab with their state: tap one to open it, hold it for its details and to start, stop or restart its unit. They are set on the computer only:</string>
 	<string name="help_control_actions">Commands are defined only on the computer, so a phone can\'t run anything else; a phone chooses only among the values a parameter allows. Each becomes a button in the app, and its output comes back:</string>
-	<string name="help_control_polkit">Elsewhere, power actions and system units need a polkit rule, because the service runs outside a login session. Without it the app marks them \"needs permission\". Save this as /etc/polkit-1/rules.d/50-elamon.rules, with your user name:</string>
+	<string name="help_control_polkit">Elsewhere, powering off, restarting, sleeping, the power profile and system units need a polkit rule, because the service runs outside a login session; without it the phone says The computer didn\'t allow that. polkit can\'t tell the service from other programs you run, so allow only what you want phones to do. elamond setup writes the rule, for your user and the system units your links name, and prints the command that installs it:</string>
+	<string name="help_control_polkit_hand">By hand, save this as /etc/polkit-1/rules.d/50-elamond.rules, with your user name and units:</string>
 	<string name="help_control_unlock">Before power, ending processes, units and the computer\'s actions, the app asks to unlock the phone with a fingerprint, the face or the screen lock. The phone\'s profile on the computer chooses which actions ask (unlock.for) and how long an unlock lasts (unlock.grace); an action\'s own unlock = true always asks.</string>
 	<string name="help_commands">Service commands</string>
+	<string name="cmd_setup">install the service\'s user unit and starter settings and start it; prints what needs root</string>
+	<string name="cmd_setup_check">a line for each thing the service needs or uses, and what to do about what is wrong</string>
+	<string name="cmd_update">update the service to the newest release, and restart it</string>
 	<string name="cmd_pair">pair a phone: shows a QR code and a code</string>
-	<string name="cmd_clients">list paired phones with their IDs</string>
+	<string name="cmd_clients">list paired phones with their IDs, roles and profiles, and where each came from last</string>
 	<string name="cmd_clients_role">change what a phone may do: glance, monitor, operate or admin; all instead of an ID changes every phone</string>
 	<string name="cmd_revoke">unpair one phone</string>
 	<string name="cmd_revoke_all">unpair every phone</string>
 	<string name="cmd_control_off">hold control off for every phone at once, until elamond control on</string>
 	<string name="cmd_rotate_cert">a new certificate; paired phones check that the old one signed it and follow without pairing again</string>
-	<string name="cmd_backup">save the service\'s identity, paired phones, links and log to FILE, encrypted with a passphrase</string>
+	<string name="cmd_backup">save the service\'s identity, paired phones, activity log and settings to FILE, encrypted with a passphrase</string>
 	<string name="cmd_restore">put a backup back, here or on a new computer: the phones connect as before</string>
 	<string name="cmd_snapshot">print one reading, to see what the service finds</string>
 	<string name="cmd_version">the service\'s version</string>
 	<string name="help_settings">Service settings</string>
-	<string name="help_settings_where">Optional, at the top of ~/.config/elamon/elamond.toml; elamond check says what is wrong in it. Where the service listens and how often it reads, with their defaults:</string>
+	<string name="help_settings_where">At the top of ~/.config/elamon/elamond.toml, which elamond setup writes with a line on each; elamond check says what is wrong in it. Where the service listens and how often it reads, with their defaults:</string>
 	<string name="set_port">the TCP port the app connects to</string>
-	<string name="set_listen">the addresses or interfaces to listen on, one or a list such as [\"tailscale0\", \"192.168.200.10\"]; \"::\" covers every address, IPv4 and IPv6</string>
+	<string name="set_listen">the addresses or interfaces to listen on, such as [\"tailscale0\", \"192.0.2.10\"]; \"::\" covers every address, IPv4 and IPv6</string>
+	<string name="set_names">host names that reach this computer, offered after its addresses: in the pairing link, and to paired phones</string>
 	<string name="set_name">the name shown in the app; the host name when empty</string>
 	<string name="set_mdns">announce the service on the local network, so the app finds it</string>
 	<string name="set_interval">milliseconds between readings</string>
@@ -483,18 +500,27 @@
 	<string name="settings_from_defaults">The built-in defaults, until a computer is paired</string>
 	<string name="settings_from_unknown">As %1$s says, once it has been reached</string>
 	<string name="settings_from_profile">Profile “%1$s” on %2$s</string>
-	<string name="settings_where">How the app looks and behaves is set on the computer, in the profile it gives this phone: each line below names its key in elamond.toml. Change it there (elamond edit, then elamond check), or give this phone another profile:</string>
+	<!-- Where the profile's table is, as the computer tells an admin: a file of its settings folder and a line of it. -->
+	<string name="settings_profile_at">%1$s, line %2$d, in ~/.config/elamon on the computer</string>
+	<!-- The same, for a file outside the settings folder. -->
+	<string name="settings_profile_at_path">%1$s, line %2$d, on the computer</string>
+	<!-- The same, for settings made by the NixOS or Home Manager module. -->
+	<string name="settings_profile_nix">Set in Nix: services.elamond.settings.profiles.%1$s</string>
+	<!-- Where the profile is, for a phone the computer doesn't tell (any role but admin). -->
+	<string name="settings_profile_table">On the computer: the table [profiles.%1$s] (a phone\'s own profile is in elamond.d/phones.toml)</string>
+	<string name="settings_where">How the app looks and behaves is set on the computer, in the profile it gives this phone: each line below names its key there. Change it in the profile\'s table (elamond edit opens a file and checks it), or give this phone another profile:</string>
 	<string name="settings_on">On</string>
 	<string name="settings_off">Off</string>
 	<string name="settings_unlock_none">Nothing</string>
 	<string name="settings_unlock_minutes">%1$d min</string>
 	<string name="help_dashboards">4. Dashboards and profiles</string>
-	<string name="help_dashboards_intro">What the app shows is set on the computer. The service has standard dashboards built in (the overview, processes, sensors, control, and the pages their tiles open) and a default profile. To see them, as a starting point for your own:</string>
-	<string name="help_dashboards_files">Settings go in ~/.config/elamon/elamond.toml, or in files of their own in ~/.config/elamon/elamond.d. A dashboard, an action or a profile with the id of a built-in one changes only the keys it gives. A dashboard of your own, and a profile that makes it a tab:</string>
+	<string name="help_dashboards_intro">What the app shows is set on the computer, in ~/.config/elamon/elamond.toml. elamond setup writes it with the standard dashboards (the overview, processes, sensors, control, and the pages their tiles open) and the default profile: change what you like there. defaults.toml beside it keeps what elamond starts with; to print that, or to see where your settings differ from it:</string>
+	<string name="help_dashboards_files">Settings go in elamond.toml, or in files of their own in ~/.config/elamon/elamond.d; under NixOS or Home Manager, services.elamond.settings takes elamond.toml\'s place, and the files in elamond.d still add to it. A table with the id of one before it (a dashboard, an action, a profile) changes only the keys it gives. A dashboard of your own, and a profile that makes it a tab:</string>
 	<string name="help_dashboards_check">Check the settings before the service reads them; elamond edit opens the file in your editor and keeps it only once it reads. elamond values lists what this computer can show:</string>
-	<string name="help_dashboards_profile">A profile says how the app looks and behaves on a phone: theme, colours, animations, how often it asks, what it confirms and unlocks for, and which dashboards are its tabs. Give a phone its profile by the phone\'s ID from elamond clients; it applies at once:</string>
-	<string name="help_dashboards_app">The app\'s Settings show what applies on each computer, and the key each line comes from.</string>
-	<string name="cmd_defaults">print the built-in dashboards and profile</string>
+	<string name="help_dashboards_profile">A profile says how the app looks and behaves on a phone: theme, colours, animations, how often it asks, what it confirms and unlocks for, and which dashboards are its tabs. Each paired phone has one of its own in ~/.config/elamon/elamond.d/phones.toml, which uses default, or the profile elamond pair was told to give: add keys to a phone\'s table to change that phone, and it follows at once. To give a phone another profile instead, by the phone\'s ID from elamond clients:</string>
+	<string name="help_dashboards_app">The app\'s Settings show what applies on each computer, the key each line comes from, and where the phone\'s profile is set.</string>
+	<string name="cmd_defaults">print the settings elamond starts with, as the starter file has them</string>
+	<string name="cmd_defaults_diff">where your settings differ from those, and what changed in them since the last version</string>
 	<string name="cmd_check">check the settings, naming the file and line of each mistake</string>
 	<string name="cmd_edit">edit the settings, keeping them only when they read</string>
 	<string name="cmd_values">list the values this computer has, for widgets</string>
