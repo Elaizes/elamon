@@ -360,7 +360,12 @@ class ElamondClient(
 					val hello = client.hello()
 					if (expectId != null && hello.id != expectId) null else client to hello
 				} catch (e: ElamondException) {
-					if (e.kind == ElamondException.Kind.CertificateChanged) certificateChanged = true
+					// Another certificate counts only from the computer itself: an address it had once may
+					// belong to another computer now, another Elamon service among them. Asked unpinned,
+					// with no token, which one it says it is.
+					if (e.kind == ElamondException.Kind.CertificateChanged && (expectId == null || saysItIs(h, port, expectId))) {
+						certificateChanged = true
+					}
 					null
 				}
 			}
@@ -368,6 +373,14 @@ class ElamondClient(
 			if (result == null && certificateChanged) throw ElamondException(ElamondException.Kind.CertificateChanged)
 			return result
 		}
+
+		/** Whether the service at [host] says it is the computer [id], asked without a pin or a token. */
+		private suspend fun saysItIs(host: String, port: Int, id: String): Boolean =
+			try {
+				ElamondClient(host, port, pin = null).hello().id == id
+			} catch (e: ElamondException) {
+				false
+			}
 
 		/**
 		 * The fingerprint to pin for the computer [expectId] that presents another certificate than

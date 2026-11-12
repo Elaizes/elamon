@@ -299,7 +299,8 @@ fun withMachine(list: List<Machine>, machine: Machine, replacing: String? = null
  * when it was paired. [hosts] as they are when [endpoints] holds nothing to take.
  */
 fun withEndpoints(hosts: List<String>, lastHost: String?, endpoints: List<String>): List<String> {
-	val told = endpoints.asSequence().map { it.trim().removeSurrounding("[", "]") }.filter(Hosts::isValid).take(Limits.MACHINE_HOSTS_MAX).toList()
+	val told = endpoints.asSequence().map { it.trim().removeSurrounding("[", "]") }.filter(Hosts::isValid)
+		.distinctBy { it.lowercase() }.take(Limits.MACHINE_HOSTS_MAX).toList()
 	if (told.isEmpty()) return hosts
 	return (listOfNotNull(lastHost) + told + hosts).distinctBy { it.lowercase() }.take(Limits.MACHINE_HOSTS_MAX)
 }

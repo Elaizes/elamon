@@ -107,21 +107,30 @@ class NamesReachTest {
 		val b = service(idB, "127.0.0.1")
 		val pinA = "0".repeat(Limits.FINGERPRINT_HEX)
 		withTimeout(30_000) {
-			// From a QR code, A's certificate pinned: B's is refused, and said to be another one.
-			val e = assertFailsWith<ElamondException> { ElamondClient.firstReachable(listOf(loopbackName), b.port, pinA, idA) }
-			assertEquals(ElamondException.Kind.CertificateChanged, e.kind)
+			// From a QR code, A's certificate pinned: B's is refused, and as B says it is B, it is another
+			// computer at an address A had, not A with a certificate changed: A is just not there.
+			assertNull(ElamondClient.firstReachable(listOf(loopbackName), b.port, pinA, idA))
 			// Nothing pinned yet (found on the network, A's id known): B answers with its own id.
 			assertNull(ElamondClient.firstReachable(listOf(loopbackName), b.port, null, idA))
-			// Paired with A: B's rotations don't lead from A's certificate, and B's id isn't A's, so
-			// nothing new is pinned.
+			// Paired with A: B isn't A, so A is offline, and nothing new is pinned.
 			val machine = Machine(id = idA, name = "A", hosts = listOf(loopbackName), port = b.port, fingerprint = pinA, token = "t")
 			var repinned: String? = null
-			val gone = assertFailsWith<ElamondException> { reachPaired(machine) { _, to -> repinned = to } }
-			assertEquals(ElamondException.Kind.CertificateChanged, gone.kind)
+			assertNull(reachPaired(machine) { _, to -> repinned = to })
 			assertNull(repinned)
 			// B itself, by the same name, is B.
 			val reached = assertNotNull(ElamondClient.firstReachable(listOf(loopbackName), b.port, b.fingerprint, idB))
 			assertEquals(idB, reached.second.id)
+		}
+	}
+
+	@Test
+	fun theComputerItselfWithAnotherCertificateIsSaidToHaveChangedIt() = runBlocking {
+		// A answers as A, but with another certificate than the one pinned for it, and nothing leads to it.
+		val a = service(idA, "127.0.0.1")
+		val pinned = "0".repeat(Limits.FINGERPRINT_HEX)
+		withTimeout(30_000) {
+			val e = assertFailsWith<ElamondException> { ElamondClient.firstReachable(listOf("127.0.0.1"), a.port, pinned, idA) }
+			assertEquals(ElamondException.Kind.CertificateChanged, e.kind)
 		}
 	}
 

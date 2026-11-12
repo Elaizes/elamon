@@ -965,7 +965,7 @@ host names in the QR code, which the app keeps and tries as well:
 | `services.elamond.enable` | run the service for the people who log in (never for system users such as a display manager's greeter) |
 | `services.elamond.users` | only these users run it; empty means every regular user. One user's service holds the port at a time |
 | `services.elamond.package` | the service's package |
-| `services.elamond.settings` | `elamond.toml` for every user's service, as Nix (below). It holds the defaults already: set only what differs (a key you set wins over theirs; a list, like a dashboard's `widgets`, replaces theirs; a table of your own adds to them). `elamond pair` and the other commands read it too. It's checked as it is built, so a mistake fails `nixos-rebuild` with its line. A change restarts the services. It's in the Nix store, readable by every user: no secrets. A user's own `~/.config/elamon/elamond.toml` isn't read beside it; drop-ins in `elamond.d`, `phones.toml` among them, are |
+| `services.elamond.settings` | `elamond.toml` for every user's service, as Nix (below). It holds the defaults already: set only what differs (a key you set wins over theirs; a list, like a dashboard's `widgets`, replaces theirs; a table of your own adds to them). `elamond pair` and the other commands read it too. It's checked as it is built, so a mistake fails `nixos-rebuild` with its line. A change restarts the services. It's in the Nix store, readable by every user: no secrets. A user's own `~/.config/elamon/elamond.toml` is still read, right after it (so what it set under 0.6.0 still holds), then the drop-ins in `elamond.d`, `phones.toml` among them |
 | `services.elamond.defaults` | read-only: the settings elamond starts with, as `settings` holds them before yours |
 | `services.elamond.openFirewall` | open the service's port (`settings.port`, 47823 by default) and UDP 5353 (unless `settings.mdns = false`); works without `enable` |
 | `services.elamond.firewallInterfaces` | with `openFirewall`, open them on these interfaces only, and UDP 5353 only on those not named like a VPN (`tailscale*`, `wg*`, `nordlynx*`, `tun*`, `tap*`, `zt*`, `ppp*`; a guess by the name). Empty means every interface |
@@ -1191,6 +1191,8 @@ role, *added … with the key of* the old phone's ID.
 - One token gives one such key. So a file imported on several phones gives a key to the first of
   them only; pair the others.
 - The old phone keeps working until it's revoked, and revoking it leaves the new one paired.
+- Until the new phone has a key of its own there, don't pair the old one with that computer again:
+  pairing again ends the entry the two phones still share, and the new one is cut off with it.
 - Moving for good: forget the computers on the old phone, or reset it, then revoke its entry:
 
   ```sh

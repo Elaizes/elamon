@@ -293,7 +293,9 @@ private suspend fun reading(s: Machine, store: MachineStore, ownKeys: OwnKeys, c
 		val client = ElamondClient(host, s.port, pin, own ?: token)
 		cardReading(
 			ui = { fresh ->
-				(if (fresh) null else cache.ui(s.id)) ?: client.ui().also {
+				// The one kept came over this computer's certificate and to its token too: where it said it is
+				// then is taken as well, for a phone that never opens the computer's screen.
+				(if (fresh) null else cache.ui(s.id)?.also { store.takeEndpoints(s.id, pin, it.service.endpoints) }) ?: client.ui().also {
 					cache.putUi(s.id, it, ticket)
 					// Where the computer says it is now, over its certificate and to its token: kept with its addresses.
 					store.takeEndpoints(s.id, pin, it.service.endpoints)
@@ -416,8 +418,8 @@ private fun SetupGuide(onHelp: () -> Unit) {
 				style = MaterialTheme.typography.bodyMedium,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
-			Step(1, stringResource(R.string.home_setup_install), null)
-			Step(2, stringResource(R.string.home_setup_start), Project.INSTALL)
+			Step(1, stringResource(R.string.home_setup_install), Project.INSTALL)
+			Step(2, stringResource(R.string.home_setup_start), null)
 			Step(3, stringResource(R.string.home_setup_pair), "elamond pair")
 			Step(4, stringResource(R.string.home_setup_scan), null)
 			FilledTonalButton(onClick = onHelp, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.home_setup_guide)) }

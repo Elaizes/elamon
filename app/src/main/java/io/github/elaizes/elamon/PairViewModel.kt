@@ -142,6 +142,8 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 				delay(Limits.PAIR_APPROVAL_HINT_MS)
 				_state.update { if (it.busy) it.copy(confirmOnComputer = true) else it }
 			}
+			// Sent the proof of the pairing before: once the computer lets the phone in, that one has ended.
+			var sentPrevious = false
 			try {
 				// Pinned to the certificate just seen, so it can't be swapped between the two requests.
 				val client = ElamondClient(ready.host, target.port, ready.fingerprint)
@@ -149,7 +151,9 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 				// computer gives the new entry the old one's profile, and unpairs the old.
 				val existing = store.get(ready.hello.id)
 				val token = existing?.let { withContext(Dispatchers.Default) { store.token(it) } }
-				val resp = client.pair(digits, device, previousPairing(ready.hello.id, ready.fingerprint, existing, token))
+				val previous = previousPairing(ready.hello.id, ready.fingerprint, existing, token)
+				sentPrevious = previous != null
+				val resp = client.pair(digits, device, previous)
 				// The answer is the computer's that said hello, or nothing of it is kept.
 				val id = pairedId(ready.hello.id, resp.id)
 				if (id == null) {
@@ -182,10 +186,11 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 					ElamondException.Kind.TooManyRequests -> R.string.pair_too_many
 					ElamondException.Kind.PairDeclined -> R.string.pair_declined
 					// Paired on the computer, but the token couldn't be kept (the key store, or the disk): nothing was saved.
+					// Pairing again, the pairing before may have ended with it: then only pairing anew helps.
 					else -> when (e) {
-						is KeystoreException -> R.string.pair_keystore
-						is ElamondException -> R.string.pair_unreachable
-						else -> R.string.pair_not_saved
+						is KeystoreException -> if (sentPrevious) R.string.pair_again_not_kept else R.string.pair_keystore
+						is ElamondException -> if (sentPrevious) R.string.pair_again_unreachable else R.string.pair_unreachable
+						else -> if (sentPrevious) R.string.pair_again_not_kept else R.string.pair_not_saved
 					}
 				}
 				_state.update { it.copy(busy = false, confirmOnComputer = false, codeError = error) }

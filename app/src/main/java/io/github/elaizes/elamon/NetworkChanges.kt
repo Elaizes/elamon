@@ -26,18 +26,25 @@ object NetworkChanges {
 	fun watch(context: Context) {
 		if (!watching.compareAndSet(false, true)) return
 		val cm = context.applicationContext.getSystemService(ConnectivityManager::class.java) ?: return
-		runCatching { cm.registerDefaultNetworkCallback(Watch()) }
+		// Where the phone is as watching starts, none included: a network that comes up from none is a
+		// change, as the first a screen opened without one can wait for.
+		val active = runCatching { cm.activeNetwork }.getOrNull()
+		val caps = active?.let { runCatching { cm.getNetworkCapabilities(it) }.getOrNull() }
+		runCatching { cm.registerDefaultNetworkCallback(Watch(Seen(active, caps?.let(::transportsOf).orEmpty()))) }
 	}
 
-	/** The network in use, and what it goes over: a change of either is one. */
-	private data class Seen(val network: Network?, val transports: Set<Int>)
+	/** The network in use (none: null), and what it goes over: a change of either is one. */
+	internal data class Seen(val network: Any?, val transports: Set<Int>)
 
-	private class Watch : ConnectivityManager.NetworkCallback() {
-		private var current: Seen? = null
+	/** Whether the network went from [before] to [now]; nothing before [now] is where watching starts. */
+	internal fun isChange(before: Seen?, now: Seen): Boolean = before != null && before != now
 
+	private fun transportsOf(caps: NetworkCapabilities): Set<Int> = TRANSPORTS.filterTo(mutableSetOf()) { caps.hasTransport(it) }
+
+	private class Watch(private var current: Seen?) : ConnectivityManager.NetworkCallback() {
 		// Told after every network that comes into use, and when what it goes over changes.
 		override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-			seen(Seen(network, TRANSPORTS.filterTo(mutableSetOf()) { caps.hasTransport(it) }))
+			seen(Seen(network, transportsOf(caps)))
 		}
 
 		override fun onLost(network: Network) {
@@ -48,8 +55,7 @@ object NetworkChanges {
 		private fun seen(now: Seen) {
 			val before = current
 			current = now
-			// The first is where the phone is as watching starts, not a change.
-			if (before != null && before != now) _count.update { it + 1 }
+			if (isChange(before, now)) _count.update { it + 1 }
 		}
 	}
 

@@ -25,8 +25,8 @@
 	<string name="home_online">Online</string>
 	<string name="home_setup_title">Watch a computer</string>
 	<string name="home_setup_intro">Elamon shows a computer\'s load, temperatures, memory, processes and monitors live, and controls its links, media and power. The computer runs a small service, elamond, that only paired phones can reach.</string>
-	<string name="home_setup_install">Install the Elamon service, elamond, on the computer (Linux).</string>
-	<string name="home_setup_start">In a terminal there, as yourself, not root. It installs elamond for you and starts it; then run as root what it prints:</string>
+	<string name="home_setup_install">Install the Elamon service, elamond, on the computer (Linux). In a terminal there, as yourself, not root:</string>
+	<string name="home_setup_start">It installs elamond and starts it. Then run as root the commands it prints. On NixOS, use the module instead: Step-by-step guide below.</string>
 	<string name="home_setup_pair">Run this on the computer. It shows a QR code and a six-digit code:</string>
 	<string name="home_setup_scan">Point this phone\'s camera at the QR code, or tap Add computer and enter the code.</string>
 	<string name="home_setup_guide">Step-by-step guide for your system</string>
@@ -69,6 +69,9 @@
 	<string name="pair_too_many">Too many wrong codes from this phone. Run elamond pair on the computer again for a new code.</string>
 	<string name="pair_keystore">The computer paired this phone, but the phone\'s key store couldn\'t keep the key safe, so nothing was saved. Try again; elamond revoke on the computer removes the pairing left unused.</string>
 	<string name="pair_not_saved">The computer paired this phone, but the phone couldn\'t save the pairing, so nothing was kept. Try again; elamond revoke on the computer removes the pairing left unused.</string>
+	<!-- Pairing again with a computer the phone had: the computer unpairs the entry before as it lets the phone in. -->
+	<string name="pair_again_not_kept">The computer paired this phone again, but the phone couldn\'t keep the new key, and the pairing it had before has ended with it. Run elamond pair on the computer again and pair once more.</string>
+	<string name="pair_again_unreachable">The computer stopped answering. If it let this phone in already, the pairing it had before ended with it: run elamond pair on the computer again and pair once more.</string>
 	<string name="pair_link_newer">This pairing code is from a newer elamond than this app reads. Update the app, then scan it again.</string>
 	<string name="pair_link_invalid">This pairing link is incomplete or damaged. Run elamond pair on the computer and scan the new code.</string>
 
@@ -349,7 +352,7 @@
 	<string name="help_update">To update later:</string>
 	<string name="help_install_one">One command installs the service for your user: run it as yourself, not root. It puts elamond in ~/.local/bin and runs elamond setup, which installs a systemd user unit, writes starter settings to ~/.config/elamon/elamond.toml where there are none, and starts the service:</string>
 	<string name="help_install_root">Then run, as root, the commands elamond setup prints: lingering, which keeps the service running while you\'re logged out; the firewall\'s (below); and the polkit rule that lets phones use power, the power profile and system units (Control panel, below). Its check tells whether all is well:</string>
-	<string name="help_install_release">Or download elamond from the latest release yourself (x86_64 for most PCs, aarch64 for ARM boards), put it in ~/.local/bin and run:</string>
+	<string name="help_install_release">Or by hand: from the releases page (github.com/Elaizes/elamon/releases), the archive for your computer (x86_64 for most PCs, aarch64 for ARM boards) and its .sha256. Check it with sha256sum -c, unpack it with tar -xzf, put elamond in ~/.local/bin, and run:</string>
 	<string name="help_deps">To build it from source instead, install git, a C compiler and Rust:</string>
 	<string name="help_deps_debian">To build it from source instead: that takes Rust 1.88 or newer, newer than Debian and Ubuntu ship, so Rust comes from rustup:</string>
 	<string name="help_deps_other">To build it from source instead, install git, a C compiler (gcc or clang) and Rust 1.88 or newer, from your distribution or from rustup.rs.</string>
