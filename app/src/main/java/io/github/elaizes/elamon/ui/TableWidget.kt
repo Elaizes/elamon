@@ -52,8 +52,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import io.github.elaizes.elamon.MachineViewModel
 import io.github.elaizes.elamon.R
+import io.github.elaizes.elamon.findWidget
 import io.github.elaizes.elamon.data.Column as TableColumn
 import io.github.elaizes.elamon.data.Params
 import io.github.elaizes.elamon.data.Row as TableRow
@@ -63,12 +63,12 @@ import io.github.elaizes.elamon.data.linkUrl
 import io.github.elaizes.elamon.data.text
 
 /**
- * What the tables of a screen keep while it lives: each one's search, the order asked for, and
- * the row whose sheet is open (with its last readings, should it leave the list).
+ * What the tables of a screen keep while it lives: each one's search, and the row whose sheet is
+ * open (with its last readings, should it leave the list). The order asked for is the view
+ * model's, which the stream is told: it outlives the screen.
  */
 class TableStates {
 	private val queries = mutableStateMapOf<String, String>()
-	private val sorts = mutableStateMapOf<String, String>()
 
 	/** The table and the row whose sheet is open. */
 	var sheet by mutableStateOf<Pair<String, TableRow>?>(null)
@@ -78,14 +78,6 @@ class TableStates {
 
 	fun setQuery(table: String, q: String) {
 		queries[table] = q
-	}
-
-	/** The order asked for the table; null while it is the one the service sent. */
-	fun sort(table: String): String? = sorts[table]
-
-	fun setSort(vm: MachineViewModel, table: String, field: String) {
-		sorts[table] = field
-		vm.sort(table, field)
 	}
 
 	fun open(table: String, row: TableRow) {
@@ -101,7 +93,7 @@ class TableStates {
 fun tableRows(scope: DashScope, w: Widget): List<TableRow> {
 	val rows = scope.state(w)?.rows.orEmpty()
 	val searched = if (w.search == true) Tables.searchIn(rows, Tables.searchFields(w), scope.tables.query(w.id)) else rows
-	val asked = scope.tables.sort(w.id)
+	val asked = scope.sorts[w.id]
 	return if (asked != null && asked != w.sort?.field) Tables.sort(searched, asked, desc = true) else searched
 }
 
@@ -219,12 +211,12 @@ private fun TableControls(scope: DashScope, w: Widget, total: Int?, shown: Int) 
 		)
 		val sorts = (listOfNotNull(w.sort?.field) + w.sorts.orEmpty()).distinct()
 		if (sorts.size > 1) {
-			val current = scope.tables.sort(w.id) ?: w.sort?.field
+			val current = scope.sorts[w.id] ?: w.sort?.field
 			Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 				for (f in sorts) {
 					FilterChip(
 						selected = f == current,
-						onClick = { if (f != current) scope.tables.setSort(scope.vm, w.id, f) },
+						onClick = { if (f != current) scope.vm.sort(w, f) },
 						label = { Text(fieldLabel(w, f)) },
 						shape = PillShape,
 					)
@@ -352,7 +344,7 @@ private fun openRowLink(ctx: android.content.Context, scope: DashScope, url: Str
 @Composable
 fun TableSheet(scope: DashScope) {
 	val (table, last) = scope.tables.sheet ?: return
-	val w = scope.ui.dashboards.firstNotNullOfOrNull { d -> io.github.elaizes.elamon.allWidgets(d.widgets).find { it.id == table } } ?: return
+	val w = findWidget(scope.ui, table) ?: return
 	val state = scope.states[table]
 	val live = state?.rows?.find { it.key == last.key }
 	val row = live ?: last

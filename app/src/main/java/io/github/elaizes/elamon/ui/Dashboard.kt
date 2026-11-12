@@ -69,6 +69,8 @@ class DashScope(
 	val actions: ActionLauncher,
 	val folds: Folds,
 	val tables: TableStates,
+	/** The tables in another order than their own, as the stream was asked: the field, by the table's id. */
+	val sorts: Map<String, String>,
 ) {
 	fun state(w: Widget): WidgetState? = states[w.id]
 }

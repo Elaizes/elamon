@@ -74,8 +74,53 @@ data class MachineState(
 	val compat: Compat = Compat.Ok,
 )
 
-/** What the stream is asked for: the dashboard on screen, how often, and the order of tables that were sorted. */
-data class Want(val dashboard: String?, val intervalMs: Int, val sorts: Map<String, String> = emptyMap())
+/** What the stream is asked for: the dashboard on screen, how often, and the tables asked for another order than their own. */
+data class Want(val dashboard: String?, val intervalMs: Int, val sorts: Map<String, String> = emptyMap()) {
+	/** With [table] in the order of [field]: one of its `sorts`, or its own order back. */
+	fun sorted(table: Widget, field: String): Want =
+		copy(sorts = if (field == table.sort?.field) sorts - table.id else sorts + (table.id to field))
+}
+
+/** What an open stream needs, to send what is wanted: see [tell]. */
+sealed interface Tell {
+	/** It sends that already. */
+	data object Nothing : Tell
+
+	/** `POST /api/v1/stream/{id}` with this. */
+	data class Change(val change: Subscribe) : Tell
+
+	/** Only a stream opened anew does. */
+	data object Reopen : Tell
+}
+
+/**
+ * What a stream opened to wait [readTimeoutMs] for a line, and told [sent] since, needs to send
+ * [want]; [ui] has the tables. Opened anew when a line every `want.intervalMs` needs the
+ * connection to wait another time ([Limits.streamReadTimeoutMs]), and when a table goes back to
+ * its own order where that can't be asked for by name: a stream is told another order (largest
+ * first), never to drop one, so a table's own order that is smallest first and also one of its
+ * `sorts` comes back only with a new stream.
+ */
+fun tell(sent: Want, want: Want, ui: UiDoc?, readTimeoutMs: Int): Tell {
+	if (Limits.streamReadTimeoutMs(want.intervalMs) != readTimeoutMs) return Tell.Reopen
+	val sorts = want.sorts.filter { (k, v) -> sent.sorts[k] != v }.toMutableMap()
+	for ((k, asked) in sent.sorts) {
+		if (k in want.sorts) continue
+		val table = ui?.let { findWidget(it, k) } ?: continue
+		val listed = table.sorts.orEmpty()
+		// An order the table no longer lists, the service doesn't keep to either.
+		if (asked !in listed) continue
+		val own = table.sort
+		// Asked for by name, its own order comes as it is: largest first, or not one of the others.
+		if (own != null && (own.desc || own.field !in listed)) sorts[k] = own.field else return Tell.Reopen
+	}
+	val change = Subscribe(
+		dashboard = want.dashboard?.takeIf { it != sent.dashboard },
+		interval = want.intervalMs.takeIf { it != sent.intervalMs },
+		sort = sorts.ifEmpty { null },
+	)
+	return if (change == Subscribe()) Tell.Nothing else Tell.Change(change)
+}
 
 /** A line for the snackbar: one of the app's strings, or what the computer said, as it said it. */
 sealed interface Message {
@@ -125,6 +170,9 @@ private fun decodeArt(bytes: ByteArray, sizePx: Int): Bitmap? {
 
 /** Every widget of [widgets], those in groups included, depth first. */
 fun allWidgets(widgets: List<Widget>): List<Widget> = widgets.flatMap { listOf(it) + allWidgets(it.widgets.orEmpty()) }
+
+/** The widget [id] of any of [ui]'s dashboards. */
+fun findWidget(ui: UiDoc, id: String): Widget? = ui.dashboards.firstNotNullOfOrNull { d -> allWidgets(d.widgets).find { it.id == id } }
 
 /**
  * One computer's screen: one stream for it, told which dashboard is on screen (`POST
@@ -227,13 +275,10 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		if (_state.value.ui?.tabs?.contains(dashboard) == true) settings.setLastTab(machineId, dashboard)
 	}
 
-	/** The table [widget] in the order of [field], one of its `sorts`, largest first. */
-	fun sort(widget: String, field: String) {
-		wanted.update { it.copy(sorts = it.sorts + (widget to field)) }
+	/** [table] in the order of [field]: one of its `sorts`, largest first, or its own. */
+	fun sort(table: Widget, field: String) {
+		wanted.update { it.sorted(table, field) }
 	}
-
-	/** The order asked for the table [widget], when one was. */
-	fun sortOf(widget: String): String? = wanted.value.sorts[widget]
 
 	/** The points of the graph or spark [widget]; null until it has any. */
 	fun hist(widget: String): Hist? = hists[widget]
@@ -294,7 +339,8 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 			// The stream opens with the new key, so revoking the old phone doesn't end it.
 			if (own != null) continue
 
-			val e = streamOn(host, ElamondClient(host, machine.port, pin, token))
+			// Opened anew at once, on the same address, when only a new stream sends what is wanted.
+			val e = streamOn(host, ElamondClient(host, machine.port, pin, token)) ?: continue
 			when {
 				e.kind == ElamondException.Kind.Unauthorized -> {
 					_state.update { it.copy(conn = Conn.Unauthorized, keyLost = false) }
@@ -315,40 +361,55 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	}
 
 	/**
-	 * Streams from [host] until the connection fails, and returns why. What the screen shows
-	 * changes by telling the stream, never by opening another.
+	 * Streams from [host] until the connection fails, and returns why; null when it is to be opened
+	 * anew at once ([Tell.Reopen]). What the screen shows changes by telling the stream, where it can.
 	 */
-	private suspend fun streamOn(host: String, client: ElamondClient): ElamondException = try {
+	private suspend fun streamOn(host: String, client: ElamondClient): ElamondException? = try {
 		coroutineScope {
 			val opening = wanted.value
-			var sent = opening
+			// The connection waits for a line as long as the interval it opens with asks.
+			val timeout = Limits.streamReadTimeoutMs(opening.intervalMs)
+			// A new stream has its tables in their own order: those wanted in another are told once it is open.
+			var sent = opening.copy(sorts = emptyMap())
 			var streamId: String? = null
 			// Changes to what is wanted, told to the open stream once it has said its id.
 			val subscriber = launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
 				wanted.settle(Limits.PARAMS_SETTLE_MS).collect { w ->
 					val id = streamId ?: return@collect
-					val change = Subscribe(
-						dashboard = w.dashboard?.takeIf { it != sent.dashboard },
-						interval = w.intervalMs.takeIf { it != sent.intervalMs },
-						sort = w.sorts.filter { (k, v) -> sent.sorts[k] != v }.ifEmpty { null },
-					)
-					if (change == Subscribe()) return@collect
-					try {
-						client.subscribe(id, change)
-						sent = w
-					} catch (e: ElamondException) {
-						when (e.code) {
-							// The dashboard went from this phone's ui: back to the first tab.
-							"no_such_dashboard" -> {
-								sent = sent.copy(dashboard = w.dashboard)
-								_state.value.ui?.tabs?.firstOrNull()?.let { first -> wanted.update { it.copy(dashboard = first) } }
+					var target = w
+					// Twice at most: what a refusal of one part leaves out is told once more.
+					repeat(2) {
+						val change = when (val t = tell(sent, target, _state.value.ui, timeout)) {
+							Tell.Nothing -> return@collect
+							Tell.Reopen -> throw ReopenStream()
+							is Tell.Change -> t.change
+						}
+						try {
+							client.subscribe(id, change)
+							sent = target
+							return@collect
+						} catch (e: ElamondException) {
+							when (e.code) {
+								// The dashboard went from this phone's ui on the computer: the ui is read again,
+								// and the screen and the stream follow it.
+								"no_such_dashboard" -> {
+									applyUi(client.ui(), fresh = true)
+									target = wanted.value
+									// Still there as the computer says: not asked for again.
+									if (target.dashboard == change.dashboard) sent = sent.copy(dashboard = target.dashboard)
+								}
+								// Orders the computer's tables don't have (its settings changed): dropped, the rest told again.
+								"bad_sort" -> {
+									val asked = change.sort.orEmpty().keys
+									val bad = e.detail?.takeIf { it in asked }?.let(::setOf) ?: asked
+									wanted.update { it.copy(sorts = it.sorts - bad) }
+									sent = sent.copy(sorts = sent.sorts - bad)
+									target = target.copy(sorts = target.sorts - bad)
+									say(messageFor(e))
+								}
+								// The stream ended, or something else: opened again.
+								else -> throw e
 							}
-							"bad_sort" -> {
-								sent = sent.copy(sorts = w.sorts)
-								say(messageFor(e))
-							}
-							// The stream ended, or something else: opened again.
-							else -> throw e
 						}
 					}
 				}
@@ -372,11 +433,16 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		}
 	} catch (e: CancellationException) {
 		throw e
+	} catch (e: ReopenStream) {
+		null
 	} catch (e: ElamondException) {
 		e
 	} catch (e: Exception) {
 		ElamondException(ElamondException.Kind.Protocol, e.message, e)
 	}
+
+	/** Ends a stream that only a new one replaces: see [Tell.Reopen]. */
+	private class ReopenStream : Exception()
 
 	/**
 	 * Takes [ui] as what the computer shows this phone: kept on the phone when [fresh] from the
