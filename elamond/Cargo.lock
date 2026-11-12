@@ -533,6 +533,7 @@ dependencies = [
  "sysinfo",
  "tokio",
  "toml",
+ "toml_edit",
  "tower",
  "zbus",
  "zeroize",
@@ -1830,6 +1831,7 @@ dependencies = [
  "indexmap",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 

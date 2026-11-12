@@ -58,11 +58,25 @@ with subtest("the listed user's service takes the port, and says it speaks API 2
 	# What the computer can do is no stranger's business: only a paired phone reads it, in ui.
 	assert "features" not in hello, hello
 
-with subtest("a phone pairs with the profile the settings in Nix give, and gets their dashboard and action"):
+with subtest("the module's settings are the defaults with those in Nix over them, and the user's own files are beside"):
+	settings = machine.succeed(f"cat {ELAMON_CONFIG}")
+	assert settings.startswith("schema = 3\n") or "\nschema = 3\n" in settings, settings
+	# Under ELAMON_CONFIG the service writes no elamond.toml of the user's, but defaults.toml beside.
+	machine.fail("test -e /home/alice/.config/elamon/elamond.toml")
+	machine.succeed("test $(stat -c %a /home/alice/.config/elamon/defaults.toml) = 444")
+	machine.succeed("head -1 /home/alice/.config/elamon/defaults.toml | grep -q '^# elamond [0-9.]*: the settings it starts with'")
+
+with subtest("a phone pairs with a profile of its own that uses the one in Nix, and gets its dashboard, the standard ones and the action"):
 	code = pair_code("pair", "--profile", "vm")
-	machine.wait_until_succeeds("journalctl -u pair -o cat | grep -Ec 'Profile: +vm — VM'", timeout=30)
+	machine.wait_until_succeeds("journalctl -u pair -o cat | grep -Ec 'Profile: +its own, made in ~/.config/elamon/elamond.d/phones.toml, using vm — VM'", timeout=30)
 	status, paired = call("POST", "/api/v1/pair", body={"code": code, "device": "Test phone"})
-	assert status == 200 and paired["role"] == "admin" and paired["profile"] == "vm", paired
+	assert status == 200 and paired["role"] == "admin" and paired["profile"] == "test-phone", paired
+	# Its table, in a drop-in of alice's alone.
+	phones = "/home/alice/.config/elamon/elamond.d/phones.toml"
+	machine.succeed(f"test $(stat -c %a:%U {phones}) = 600:alice")
+	table = machine.succeed(f"cat {phones}")
+	assert re.search(r'^# Test phone, paired \d{4}-\d\d-\d\d \([0-9a-f]+\)\n\[profiles\.test-phone\]\nname = "Test phone"\nuse = "vm"\n', table, re.M), table
+	machine.wait_until_succeeds("journalctl -u pair -o cat | grep -c 'Its profile: *test-phone, in ~/.config/elamon/elamond.d/phones.toml, using vm'", timeout=30)
 	auth = f"-H 'Authorization: Bearer {paired['token']}'"
 	test_id = paired["client_id"]
 	doc = ui(auth)
@@ -70,7 +84,11 @@ with subtest("a phone pairs with the profile the settings in Nix give, and gets 
 	assert doc["service"]["version"] == hello["version"], doc["service"]
 	features = doc["service"]["features"]
 	assert "processes" in features and "control" not in features and features == sorted(features), doc["service"]
-	assert doc["profile"]["id"] == "vm" and doc["tabs"] == ["vm", "overview"], (doc["profile"], doc["tabs"])
+	assert doc["profile"]["id"] == "test-phone" and doc["profile"]["name"] == "Test phone" and doc["tabs"] == ["vm", "overview"], (doc["profile"], doc["tabs"])
+	assert doc["profile"]["source"] == {"file": "elamond.d/phones.toml", "line": 5}, doc["profile"]
+	# The dashboard from Nix, and the standard one the module's defaults give, with what its tiles open.
+	ids = {d["id"] for d in doc["dashboards"]}
+	assert {"vm", "overview", "header", "cpu", "memory"} <= ids, ids
 	vm = next(d for d in doc["dashboards"] if d["id"] == "vm")
 	kinds = {w["id"]: w["type"] for w in vm["widgets"]}
 	assert kinds == {"vm/0": "value", "vm/1": "select", "vm/2": "table"}, kinds
@@ -149,7 +167,9 @@ with subtest("elamond clients profile changes what ui says, and an open stream h
 	assert doc["profile"]["id"] == "default" and "vm" not in doc["tabs"], (doc["profile"], doc["tabs"])
 	# The dashboard it had is gone for it: the stream goes on with the first tab.
 	machine.wait_until_succeeds(f"grep '\"type\":\"data\"' /tmp/stream.out | tail -1 | jq -e '.dashboard == \"{doc['tabs'][0]}\"'", timeout=30)
-	assert re.search(rf"^{test_id}\s+admin\s+default\s+Test phone\s+android 0\.6\.0\s+\(paired ", machine.succeed("su - alice -c 'elamond clients'"), re.M)
+	# Not its own table: one others may have too; its own stays, for it to have back.
+	assert re.search(rf"^{test_id}\s+admin\s+default \(shared\)\s+Test phone\s+android 0\.6\.0\s+\(paired ", machine.succeed("su - alice -c 'elamond clients'"), re.M)
+	machine.succeed("grep -qx '\\[profiles.test-phone\\]' /home/alice/.config/elamon/elamond.d/phones.toml")
 	assert "no profile \"nope\"" in machine.fail(f"su - alice -c 'elamond clients profile {test_id} nope' 2>&1")
 	machine.succeed("systemctl stop stream-watch || true")
 
@@ -181,7 +201,7 @@ chmod 755 /tmp/answer.sh""")
 			machine.wait_until_succeeds(f"grep -q 'turned away' {out}", timeout=30)
 			machine.succeed(f"journalctl _UID=1000 -o cat | grep -c 'pairing: \"{device}\" from .* not added: turned away at elamond pair'")
 		else:
-			assert status == 200 and body["role"] == "admin" and body["profile"] == "default", (status, body)
+			assert status == 200 and body["role"] == "admin" and body["profile"] == "asked-phone", (status, body)
 			assert device in clients, clients
 			machine.wait_until_succeeds(f"grep -q 'Paired with \"{device}\"' {out}", timeout=30)
 	# The code a phone was turned away with doesn't work again.
@@ -215,7 +235,7 @@ with subtest("elamond control off stops every phone at once, until elamond contr
 
 with subtest("elamond clients role takes effect at once, and the log shows what was refused"):
 	clients = machine.succeed("su - alice -c 'elamond clients'")
-	assert re.search(rf"^{glance_id}\s+glance\s+default\s+Glance phone\s", clients, re.M), clients
+	assert re.search(rf"^{glance_id}\s+glance\s+glance-phone\s+Glance phone\s", clients, re.M), clients
 	machine.succeed(f"su - alice -c 'elamond clients role {glance_id} monitor'")
 	# Processes take a reading or two to come.
 	machine.wait_until_succeeds(f"curl -sk {APP} {glance} 'https://localhost:47823/api/v1/snapshot?dashboard=processes' | jq -e '.widgets[\"processes/table\"].total > 0'", timeout=30)
@@ -419,12 +439,17 @@ with subtest("a phone that came by another's token gets a key of its own, and th
 	assert call("POST", "/api/v1/rekey", shared, {"device": "Third phone"}) == (403, {"error": "rekey_refused"})
 	assert call("POST", "/api/v1/rekey", mine, {"device": "Third phone"}) == (403, {"error": "rekey_refused"})
 	clients = machine.succeed("su - alice -c 'elamond clients'")
-	assert re.search(rf"^{old_id}\s+admin\s+default\s+Old phone\s+android 0\.6\.0\s+\(paired ", clients, re.M), clients
-	assert re.search(rf"^{own['client_id']}\s+admin\s+default\s+New phone\s+\S+(\s0\.6\.0)?\s+\(added \S+ with the key of {old_id}\)", clients, re.M), clients
+	assert re.search(rf"^{old_id}\s+admin\s+old-phone\s+Old phone\s+android 0\.6\.0\s+\(paired ", clients, re.M), clients
+	# A table of its own too, using the profile of the phone whose key it came by.
+	assert own["profile"] == "new-phone", own
+	assert re.search(rf"^{own['client_id']}\s+admin\s+new-phone\s+New phone\s+\S+(\s0\.6\.0)?\s+\(added \S+ with the key of {old_id}\)", clients, re.M), clients
+	machine.succeed("grep -A2 -x '\\[profiles.new-phone\\]' /home/alice/.config/elamon/elamond.d/phones.toml | grep -qx 'use = \"old-phone\"'")
 	# The old token works until it is revoked; then only the new one does.
 	assert call("GET", "/api/v1/ui", shared)[0] == 200
 	out = machine.succeed(f"su - alice -c 'elamond revoke {old_id}'")
 	assert "Unpaired 1 phone(s): Old phone" in out and "STILL PAIRED" in out and own["client_id"] in out, out
+	# Its table stays: the new phone's uses it.
+	assert "its profile old-phone stays" in out and "new-phone uses it" in out, out
 	assert call("GET", "/api/v1/ui", shared) == (401, {"error": "unauthorized"})
 	assert ui(mine)["role"] == "admin"
 	activity(mine, ("Old phone", "phone added: New phone", "ok"))

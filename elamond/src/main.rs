@@ -18,8 +18,10 @@ mod identity;
 mod links;
 mod listen;
 mod mdns;
+mod migrate;
 mod model;
 mod names;
+mod phones;
 mod server;
 mod settings;
 mod setup;
@@ -45,6 +47,7 @@ use tokio::sync::watch;
 use consts::cadence::{self, Ticks};
 use access::Role;
 use consts::{limit, timeout};
+use store::format_date;
 
 const HELP: &str = "\
 elamond — serves this computer's metrics to the Elamon app
@@ -53,13 +56,15 @@ Usage:
   elamond serve                        run the service (what the systemd unit does)
   elamond pair [--role ROLE] [--profile ID] [--yes]
                                        show a code and QR to pair a phone, and ask before the phone
-                                       that gives it is let in (--yes: without asking)
+                                       that gives it is let in (--yes: without asking); it gets a
+                                       profile of its own in elamond.d/phones.toml, using ID
   elamond clients                      list paired phones: role, profile and app
   elamond clients role <id|all> ROLE   change what a phone may do; --with-added: and the phones
                                        that got a key of their own with its token
   elamond clients profile <id|all> ID  change how a phone looks and behaves (a profile of the
                                        settings); --with-added as above
-  elamond revoke <id|all>              unpair a phone; --with-added: and those phones too
+  elamond revoke <id|all>              unpair a phone, and take its profile out of phones.toml when
+                                       nothing else has it; --with-added: and those phones too
   elamond control [off|on|status]      hold control off for every phone, or let go
   elamond rotate-cert                  a new certificate, which paired phones follow (routine renewal)
   elamond rotate-cert --no-statement   a new certificate nothing vouches for, after a leaked key:
@@ -74,7 +79,10 @@ Usage:
   elamond edit [FILE]                  edit elamond.toml (or FILE) in $VISUAL or $EDITOR; a broken
                                        one isn't kept, and the service takes up a sound one
   elamond schema                       print the JSON Schema of the settings, for editors
-  elamond defaults                     print the built-in dashboards and profile, to start from
+  elamond defaults                     print the settings elamond starts with (defaults.toml)
+  elamond defaults --diff              where your settings differ from those, and what changed in
+                                       them since the version before (defaults.toml.old)
+  elamond defaults TABLE               one table of them to copy: dashboards.sensors, profiles.default
   elamond values                       list the values this computer has now, and the collections
   elamond setup                        install the service for this user (systemd user unit, starter
                                        settings) and print what needs root: lingering, the firewall,
@@ -91,7 +99,7 @@ Roles, each allowing what the one before does and more:
   operate  links and their units, media, the power profile and actions
   admin    power and ending processes
 
-Settings: ~/.config/elamon/elamond.toml   State: ~/.local/share/elamon/
+Settings: ~/.config/elamon/elamond.toml and elamond.d/   State: ~/.local/share/elamon/
 ";
 
 fn main() {
@@ -119,7 +127,7 @@ fn main() {
 		"check" => commands::check(&args[1..]),
 		"edit" => commands::edit(&args[1..]),
 		"schema" => commands::schema(),
-		"defaults" => commands::defaults(),
+		"defaults" => commands::defaults(&args[1..]),
 		"values" => commands::values(),
 		"setup" => setup::run(&args[1..]),
 		"update" => update::run(&args[1..]),
@@ -174,12 +182,17 @@ fn timing(config: &store::Config) -> (Duration, usize, Vec<String>) {
 
 fn serve() -> Result<(), String> {
 	let dir = store::data_dir();
+	let place = store::Place::here();
 	// Links the 0.5 app added go into the settings before they are read, once.
-	links::migrate(&dir, &store::config_dir(), &store::config_files());
-	let config = store::load_config()?;
+	links::migrate(&dir, &place.dir, &place.files());
+	// The settings to start from where there are none, 0.6.0's moved to schema 3, defaults.toml.
+	migrate::at_start(&place);
+	let config = place.load()?;
 	// Held until the service stops: `elamond restore` sees it, and the identity isn't read while
 	// a restore writes it.
 	let _held = hold_data_dir(&dir)?;
+	// Phones paired before 0.6.1 get a profile of their own, once.
+	let config = if phones::adopt(&place, &dir) { place.load()? } else { config };
 	let identity = identity::Identity::load_or_create(&dir)?;
 	let name = machine_name(&config);
 	let (interval, history_len, notes) = timing(&config);
@@ -228,6 +241,7 @@ fn serve() -> Result<(), String> {
 		interval,
 		Arc::new(config.clone()),
 		dir.clone(),
+		place,
 	));
 	hub.set_rotations(identity::chain_to(&served_rotations(&dir), &identity.fingerprint));
 
@@ -426,7 +440,7 @@ async fn watch_settings(hub: Arc<server::Hub>) {
 			None
 		}
 	};
-	let mut stamp = store::config_stamp();
+	let mut stamp = hub.place.stamp();
 	loop {
 		let hup = async {
 			match hangup.as_mut() {
@@ -439,12 +453,14 @@ async fn watch_settings(hub: Arc<server::Hub>) {
 			_ = tokio::time::sleep(cadence::SETTINGS_POLL) => false,
 		};
 		hub.sync_control_off();
-		let now = store::config_stamp();
+		let now = hub.place.stamp();
 		if !asked && now == stamp {
 			continue;
 		}
-		stamp = now;
-		match store::load_config() {
+		// A 0.6.0 elamond.toml mended since the start moves to schema 3 now.
+		migrate::reread(&hub.place);
+		stamp = hub.place.stamp();
+		match hub.place.load() {
 			Ok(c) => {
 				eprintln!("settings: reread");
 				hub.set_config(c);
@@ -601,7 +617,8 @@ fn answers() -> std::sync::mpsc::Receiver<Option<String>> {
 
 /// What the person at `elamond pair` said to a phone that gave the right code.
 enum Answer {
-	Allow,
+	/// Let in; `take`, the answer to the profile offered it by its name, when one was.
+	Allow { take: Option<bool> },
 	Deny,
 	/// Not in time: the service turns it away by itself.
 	Late,
@@ -612,47 +629,75 @@ enum Answer {
 }
 
 /// Shows the phone `ask` to the person at the terminal and waits for a yes or a no, until the
-/// service stops waiting for it. Anything but yes is no, the end of the input too.
+/// service stops waiting for it; then, when a profile of a phone of its name is offered it,
+/// whether to give it that one. Anything but yes is no, the end of the input too.
 fn ask_person(dir: &std::path::Path, ask: &store::Ask, role: Role, code: &str, lines: &std::sync::mpsc::Receiver<Option<String>>) -> Answer {
 	use std::io::Write;
-	use std::sync::mpsc::RecvTimeoutError;
 	// What was typed before the question isn't an answer to it.
 	while lines.try_recv().is_ok() {}
+	let replaces = match &ask.replaces {
+		Some(r) => {
+			let keeps = r.profile.as_deref().map(|p| format!(" and keeps its profile {}", store::sanitize_name(p))).unwrap_or_default();
+			format!(" It replaces \"{}\" ({}){keeps}.", store::sanitize_name(&r.name), store::sanitize_name(&r.id))
+		}
+		None => String::new(),
+	};
 	print!(
-		"  Phone \"{}\" from {} asks to pair as {}. Allow? [y/N] ",
+		"  Phone \"{}\" from {} asks to pair as {}.{replaces} Allow? [y/N] ",
 		store::sanitize_name(&ask.name),
 		store::sanitize_name(&ask.address),
 		role.as_str()
 	);
 	let _ = std::io::stdout().flush();
-	let shown = !std::io::stdin().is_terminal();
 	let left = (ask.at + timeout::PAIR_APPROVAL_SECS).saturating_sub(store::now());
 	let deadline = std::time::Instant::now() + Duration::from_secs(left);
+	let yes = |line: &str| matches!(line.to_ascii_lowercase().as_str(), "y" | "yes");
+	match answer_line(dir, ask, code, lines, deadline) {
+		Ok(line) if yes(&line) => {}
+		Ok(_) => return Answer::Deny,
+		Err(a) => return a,
+	}
+	let Some(offer) = &ask.offer else { return Answer::Allow { take: None } };
+	print!("  A phone named \"{}\" had the profile {}. Give it to this one? [y/N] ", store::sanitize_name(&ask.name), store::sanitize_name(offer));
+	let _ = std::io::stdout().flush();
+	match answer_line(dir, ask, code, lines, deadline) {
+		Ok(line) => Answer::Allow { take: Some(yes(&line)) },
+		// The end of the input is a no to this one, not to the phone let in.
+		Err(Answer::Deny) => Answer::Allow { take: Some(false) },
+		Err(a) => a,
+	}
+}
+
+/// The next line typed, until `deadline` and while the phone `ask` still waits with `code`; what
+/// that comes to when there is none: no at the end of the input, too late, gone or stopped.
+fn answer_line(dir: &std::path::Path, ask: &store::Ask, code: &str, lines: &std::sync::mpsc::Receiver<Option<String>>, deadline: std::time::Instant) -> Result<String, Answer> {
+	use std::sync::mpsc::RecvTimeoutError;
+	let shown = !std::io::stdin().is_terminal();
 	loop {
 		match lines.recv_timeout(Duration::from_millis(250)) {
 			Ok(Some(line)) => {
 				if shown {
 					println!("{line}");
 				}
-				return if matches!(line.to_ascii_lowercase().as_str(), "y" | "yes") { Answer::Allow } else { Answer::Deny };
+				return Ok(line);
 			}
 			Ok(None) | Err(RecvTimeoutError::Disconnected) => {
 				println!();
-				return Answer::Deny;
+				return Err(Answer::Deny);
 			}
 			Err(RecvTimeoutError::Timeout) => {}
 		}
 		if STOP.load(Ordering::SeqCst) {
 			println!();
-			return Answer::Stopped;
+			return Err(Answer::Stopped);
 		}
 		if std::time::Instant::now() >= deadline {
 			println!();
-			return Answer::Late;
+			return Err(Answer::Late);
 		}
 		if !store::read_pairing(dir).is_some_and(|p| p.code == code && p.ask.is_some_and(|a| a.id == ask.id)) {
 			println!();
-			return Answer::Gone;
+			return Err(Answer::Gone);
 		}
 	}
 }
@@ -680,10 +725,11 @@ fn pair(args: &[String]) -> Result<(), String> {
 			.into());
 	}
 	let dir = store::data_dir();
+	let place = store::Place::here();
 	let identity = identity::Identity::load_or_create(&dir)?;
 	let name = machine_name(&config);
-	let before: Vec<String> = match store::load_clients() {
-		Ok(list) => list.into_iter().map(|c| c.id).collect(),
+	let before: Vec<store::Client> = match store::load_clients() {
+		Ok(list) => list,
 		Err(e) => {
 			eprintln!("  ! {e}\n    pairing sets the damaged file aside and starts a new list");
 			Vec::new()
@@ -714,7 +760,7 @@ fn pair(args: &[String]) -> Result<(), String> {
 		unsafe { libc::signal(sig, on_stop as *const () as libc::sighandler_t) };
 	}
 	let lines = (!yes).then(answers);
-	let new_phone = || store::load_clients().ok()?.into_iter().find(|c| !before.contains(&c.id));
+	let new_phone = || store::load_clients().ok()?.into_iter().find(|c| !before.iter().any(|b| b.id == c.id));
 
 	// Where the service listens, as the phone can reach it: the local network first, then the
 	// names that stay when addresses change.
@@ -776,11 +822,14 @@ fn pair(args: &[String]) -> Result<(), String> {
 		println!("                another: elamond pair --role {}", Role::choices());
 	}
 	println!("                later: elamond clients role ID ROLE");
+	let phones_file = store::shown(&phones::path(&place));
 	let shown = config.profile(profile.as_deref().unwrap_or(&config.default_profile));
-	if shown.name == shown.id {
-		println!("  Profile:      {}", shown.id);
+	if profile.as_deref().is_some_and(|p| phones::unowned(&place, p, &before)) {
+		println!("  Profile:      {}, a phone's own in {phones_file} that no paired phone has: it becomes this one's", shown.id);
+	} else if shown.name == shown.id {
+		println!("  Profile:      its own, made in {phones_file}, using {}", shown.id);
 	} else {
-		println!("  Profile:      {} — {}", shown.id, shown.name);
+		println!("  Profile:      its own, made in {phones_file}, using {} — {}", shown.id, shown.name);
 	}
 	let others: Vec<&str> = config.profiles.keys().map(String::as_str).filter(|p| *p != shown.id).collect();
 	if profile.is_none() && !others.is_empty() {
@@ -806,7 +855,26 @@ fn pair(args: &[String]) -> Result<(), String> {
 	let paired = |c: store::Client| {
 		// Withdrawn here too, should the service not get to it.
 		store::clear_pairing_code(&dir, &pairing.code);
-		println!("  Paired with \"{}\".", c.name);
+		println!("  Paired with \"{}\".", store::sanitize_name(&c.name));
+		let now: Vec<String> = store::load_clients().map(|l| l.into_iter().map(|c| c.id).collect()).unwrap_or_default();
+		for gone in before.iter().filter(|b| !now.is_empty() && !now.contains(&b.id)) {
+			println!("  It replaces \"{}\" ({}), the same phone paired before, which is unpaired now.", store::sanitize_name(&gone.name), gone.id);
+		}
+		let settings = place.load().ok();
+		match &c.own_profile {
+			Some(own) => {
+				let uses = settings.as_ref().and_then(|s| s.profiles.get(own)).and_then(|p| p.base.clone());
+				let using = uses.map(|u| format!(", using {u}")).unwrap_or_default();
+				println!("  Its profile:  {own}, in {phones_file}{using}");
+				if let Some(p) = c.profile.as_deref().filter(|p| *p != own) {
+					println!("                it shows {p}, as before; elamond clients profile {} {own} gives it its own", c.id);
+				}
+			}
+			None => {
+				let has = c.profile.clone().or_else(|| settings.map(|s| s.default_profile)).unwrap_or_else(|| "default".into());
+				println!("  Its profile:  {has}, none of its own: {phones_file} couldn't take one (journalctl --user -u elamond says why)");
+			}
+		}
 		Ok(())
 	};
 	loop {
@@ -828,12 +896,12 @@ fn pair(args: &[String]) -> Result<(), String> {
 				asked = Some(ask.id.clone());
 				let failed = |e: std::io::Error| format!("can't save the answer: {e}");
 				match ask_person(&dir, &ask, role, &pairing.code, lines) {
-					Answer::Allow => {
-						store::answer_pairing(&dir, &pairing.code, &ask.id, true).map_err(failed)?;
+					Answer::Allow { take } => {
+						store::answer_pairing(&dir, &pairing.code, &ask.id, true, take).map_err(failed)?;
 						println!("  Letting it in…");
 					}
 					Answer::Deny => {
-						store::answer_pairing(&dir, &pairing.code, &ask.id, false).map_err(failed)?;
+						store::answer_pairing(&dir, &pairing.code, &ask.id, false, None).map_err(failed)?;
 						return Err("the phone was turned away, and the code no longer works; run `elamond pair` again for another".into());
 					}
 					Answer::Late => {
@@ -961,8 +1029,10 @@ fn client_lines(clients: &[&store::Client], config: Option<&store::Config>) -> V
 	let profile = |c: &store::Client| -> String {
 		let Some(config) = config else { return c.profile.clone().unwrap_or_else(|| "default".into()) };
 		let got = config.profile(c.profile.as_deref().unwrap_or(&config.default_profile)).id;
-		match &c.profile {
-			Some(p) if *p != got => format!("{got} ({p}: not in the settings)"),
+		match (&c.profile, &c.own_profile) {
+			(Some(p), _) if *p != got => format!("{got} ({p}: not in the settings)"),
+			// Another than its own table: one others may have too.
+			(_, Some(own)) if *own != got => format!("{got} (shared)"),
 			_ => got,
 		}
 	};
@@ -1198,8 +1268,15 @@ fn revoke(args: &[String]) -> Result<(), String> {
 	let (chosen, left) = choose(&clients, which, family)?;
 	let keep: Vec<_> = clients.iter().filter(|c| !chosen.contains(&c.id)).cloned().collect();
 	store::save_clients(&keep).map_err(|e| e.to_string())?;
-	let gone: Vec<&str> = clients.iter().filter(|c| chosen.contains(&c.id)).map(|c| c.name.as_str()).collect();
-	println!("Unpaired {} phone(s): {}.", gone.len(), gone.join(", "));
+	let gone: Vec<&store::Client> = clients.iter().filter(|c| chosen.contains(&c.id)).collect();
+	println!("Unpaired {} phone(s): {}.", gone.len(), gone.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", "));
+	// Each one's own profile, under the same lock: taken out when nothing else has it.
+	let place = store::Place::here();
+	for c in &gone {
+		if let Some(said) = phones::release(&place, c, &keep, store::now()) {
+			println!("  {}: {said}.", c.name);
+		}
+	}
 	// A phone that came by this one's token and asked for a key of its own stays paired: after
 	// Import pairings, the new phone. Unless that is known for sure, it is the one to look at.
 	if !left.is_empty() {
@@ -1231,22 +1308,6 @@ fn snapshot() -> Result<(), String> {
 	let out = serde_json::json!({ "info": info, "sample": reading.sample, "top_processes": procs });
 	println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
 	Ok(())
-}
-
-/// YYYY-MM-DD from Unix time, without pulling in a date library.
-fn format_date(secs: u64) -> String {
-	let days = (secs / 86_400) as i64;
-	// Howard Hinnant's civil_from_days.
-	let z = days + 719_468;
-	let era = z.div_euclid(146_097);
-	let doe = z.rem_euclid(146_097);
-	let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-	let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-	let mp = (5 * doy + 2) / 153;
-	let d = doy - (153 * mp + 2) / 5 + 1;
-	let m = if mp < 10 { mp + 3 } else { mp - 9 };
-	let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
-	format!("{y:04}-{m:02}-{d:02}")
 }
 
 #[cfg(test)]
@@ -1333,6 +1394,12 @@ mod tests {
 				"89ab0123  monitor  default                              Tab         -              (paired 2023-11-14, last from 2001:db8::9)",
 			]
 		);
+		// A phone with a table of its own: its profile is that one, or another, which it shares.
+		let config = settings::read_sources(&[settings::Source::new("a.toml", "[profiles.owner]\nname = \"Owner\"\n[profiles.pixel]\nuse = \"owner\"\n")]).unwrap();
+		let own = |profile: &str| store::Client { own_profile: Some("pixel".into()), ..c("0123abcd", "Pixel", Some(profile), None, None) };
+		let lines = client_lines(&[&own("pixel"), &own("owner")], Some(&config));
+		assert_eq!(lines[0], "0123abcd  monitor  pixel           Pixel  -  (paired 2023-11-14)");
+		assert_eq!(lines[1], "0123abcd  monitor  owner (shared)  Pixel  -  (paired 2023-11-14)");
 		// Settings that don't parse: the profiles as clients.json has them.
 		assert!(client_lines(&list.iter().collect::<Vec<_>>(), None)[1].contains("  gone "));
 	}

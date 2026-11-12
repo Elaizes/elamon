@@ -1,7 +1,8 @@
 //! Files elamond keeps: settings, paired phones and the pending pairing code; its TLS identity
 //! is in `identity`.
 //!
-//! Settings:  $XDG_CONFIG_HOME/elamon/elamond.toml (optional), then elamond.d/*.toml beside it
+//! Settings:  $XDG_CONFIG_HOME/elamon/elamond.toml, then elamond.d/*.toml beside it (phones.toml
+//!            among them); defaults.toml beside them is for reading, not read
 //! State:     $XDG_DATA_HOME/elamon/{id, cert.der, key.der, clients.json, pairing.json,
 //!            control-off.json, activity.jsonl, rotations.json}
 
@@ -20,7 +21,7 @@ use sha2::{Digest, Sha256};
 use crate::access::Role;
 use crate::consts::{limit, protocol, timeout};
 
-/// The settings: what is built in, then the files (see `settings`).
+/// The settings: the files (see `settings`).
 pub use crate::settings::Config;
 
 pub fn config_dir() -> PathBuf {
@@ -52,7 +53,66 @@ pub const DROPIN_DIR: &str = "elamond.d";
 
 /// The settings files in the order they are read: the main file, then the drop-ins by name.
 pub fn config_files() -> Vec<PathBuf> {
-	settings_files(&config_dir(), std::env::var_os("ELAMON_CONFIG").map(PathBuf::from))
+	Place::here().files()
+}
+
+/// Where the settings are: the config directory, with the drop-ins in elamond.d/ (phones.toml among
+/// them), and the main file, elamond.toml there unless ELAMON_CONFIG names another.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Place {
+	pub dir: PathBuf,
+	/// The main file ELAMON_CONFIG names, when it does.
+	pub named: Option<PathBuf>,
+}
+
+impl Place {
+	/// Where this elamond's settings are, as its environment says.
+	pub fn here() -> Place {
+		Place { dir: config_dir(), named: std::env::var_os("ELAMON_CONFIG").map(PathBuf::from) }
+	}
+
+	/// The main file: the one ELAMON_CONFIG names, or elamond.toml in the config directory.
+	pub fn main(&self) -> PathBuf {
+		self.named.clone().unwrap_or_else(|| self.dir.join(CONFIG_FILE))
+	}
+
+	/// The folder of drop-ins.
+	pub fn dropins(&self) -> PathBuf {
+		self.dir.join(DROPIN_DIR)
+	}
+
+	/// The settings files in the order they are read: the main file, then the drop-ins by name.
+	pub fn files(&self) -> Vec<PathBuf> {
+		settings_files(&self.dir, self.named.clone())
+	}
+
+	/// The settings as the service reads them; every mistake, one to a line, each with its file and
+	/// line.
+	pub fn load(&self) -> Result<Config, String> {
+		let mut config = crate::settings::load(&self.files()).map_err(|m| crate::settings::join_mistakes(&m))?;
+		// Where a profile is, as a person finds it: within the settings' folder, from there.
+		for w in config.profile_sources.values_mut() {
+			if let Ok(within) = Path::new(&w.file).strip_prefix(&self.dir) {
+				w.file = within.display().to_string();
+			}
+		}
+		Ok(config)
+	}
+
+	/// What the settings files look like on disk now, to notice an edit. The resolved path is
+	/// part of it: a store file keeps the same mtime, its symlink gets a new target.
+	pub fn stamp(&self) -> Vec<(PathBuf, Option<PathBuf>, Option<SystemTime>, u64)> {
+		self.files()
+			.into_iter()
+			.map(|p| {
+				let target = fs::canonicalize(&p).ok();
+				let meta = fs::metadata(&p).ok();
+				let modified = meta.as_ref().and_then(|m| m.modified().ok());
+				let len = meta.map(|m| m.len()).unwrap_or(0);
+				(p, target, modified, len)
+			})
+			.collect()
+	}
 }
 
 /// The main file is the one ELAMON_CONFIG names (the NixOS module points it into the store), or
@@ -68,33 +128,24 @@ pub fn settings_files(dir: &Path, named: Option<PathBuf>) -> Vec<PathBuf> {
 	std::iter::once(main).chain(dropins).collect()
 }
 
-/// Settings from what is built in, elamond.toml and the drop-ins; every mistake, one to a line,
-/// each with its file and line.
+/// Settings from elamond.toml and the drop-ins; every mistake, one to a line, each with its file
+/// and line.
 pub fn load_config() -> Result<Config, String> {
-	let mut config = crate::settings::load(&config_files()).map_err(|m| crate::settings::join_mistakes(&m))?;
-	// Where a profile is, as a person finds it: within the settings' folder, from there.
-	let dir = config_dir();
-	for w in config.profile_sources.values_mut() {
-		if let Ok(within) = Path::new(&w.file).strip_prefix(&dir) {
-			w.file = within.display().to_string();
-		}
-	}
-	Ok(config)
+	Place::here().load()
 }
 
-/// What the settings files look like on disk now, to notice an edit. The resolved path is
-/// part of it: a store file keeps the same mtime, its symlink gets a new target.
-pub fn config_stamp() -> Vec<(PathBuf, Option<PathBuf>, Option<SystemTime>, u64)> {
-	config_files()
-		.into_iter()
-		.map(|p| {
-			let target = fs::canonicalize(&p).ok();
-			let meta = fs::metadata(&p).ok();
-			let modified = meta.as_ref().and_then(|m| m.modified().ok());
-			let len = meta.map(|m| m.len()).unwrap_or(0);
-			(p, target, modified, len)
-		})
-		.collect()
+/// Whether `path` is a link into the Nix store: a file NixOS or Home Manager made, not to be written.
+pub fn from_nix_store(path: &Path) -> bool {
+	fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) && fs::canonicalize(path).is_ok_and(|p| p.starts_with("/nix/store"))
+}
+
+/// A path with the home folder written `~`, for people to read.
+pub fn shown(path: &Path) -> String {
+	let home = home();
+	match path.strip_prefix(&home) {
+		Ok(rest) if home != Path::new("/") => format!("~/{}", rest.display()),
+		_ => path.display().to_string(),
+	}
 }
 
 pub fn now() -> u64 {
@@ -109,6 +160,48 @@ pub fn random_bytes<const N: usize>() -> [u8; N] {
 
 pub fn sha256_hex(data: &[u8]) -> String {
 	data_encoding::HEXLOWER.encode(&Sha256::digest(data))
+}
+
+/// YYYY-MM-DD from Unix time (UTC), without pulling in a date library.
+pub fn format_date(secs: u64) -> String {
+	let days = (secs / 86_400) as i64;
+	// Howard Hinnant's civil_from_days.
+	let z = days + 719_468;
+	let era = z.div_euclid(146_097);
+	let doe = z.rem_euclid(146_097);
+	let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+	let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+	let mp = (5 * doy + 2) / 153;
+	let d = doy - (153 * mp + 2) / 5 + 1;
+	let m = if mp < 10 { mp + 3 } else { mp - 9 };
+	let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
+	format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// The permissions a file written over `path` gets: its own, or `new` for a file not there yet.
+pub fn mode_of(path: &Path, new: u32) -> u32 {
+	fs::metadata(path).map(|m| m.permissions().mode() & 0o777).unwrap_or(new)
+}
+
+/// Writes `text` to `path` in one step, the file having `mode`: through a new file beside it of a
+/// name of its own, made with that mode, renamed over `path`.
+pub fn replace_as(path: &Path, text: &[u8], mode: u32) -> io::Result<()> {
+	let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+	let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+	let tag = data_encoding::HEXLOWER.encode(&random_bytes::<4>());
+	let tmp = dir.join(format!(".{name}.{}.{tag}.saving", std::process::id()));
+	let written = (|| {
+		let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(mode).open(&tmp)?;
+		f.write_all(text)?;
+		// The umask may have taken some of the mode away: the file is to have it whole.
+		f.set_permissions(fs::Permissions::from_mode(mode))?;
+		f.sync_all()?;
+		fs::rename(&tmp, path)
+	})();
+	if written.is_err() {
+		let _ = fs::remove_file(&tmp);
+	}
+	written
 }
 
 /// Writes a file only its owner can read, replacing it atomically, in a directory only its owner
@@ -207,6 +300,10 @@ pub struct Client {
 	/// The app it said it is last (`Elamon-Client`), "android/0.6.0".
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub app: Option<String>,
+	/// The id of its own table in phones.toml, made when it paired; `profile` is the one it gets,
+	/// this one or another (`elamond clients profile`). None for a phone without one.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub own_profile: Option<String>,
 	/// The address its requests came from last, "192.0.2.7": where the phone was, for `elamond clients`.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub address: Option<String>,
@@ -294,68 +391,123 @@ impl std::fmt::Display for NotAdded {
 	}
 }
 
+/// The profiles a new phone gets: the one it shows (`None` for `default_profile`), and its own
+/// table in phones.toml, if it has one.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Profiles {
+	pub profile: Option<String>,
+	pub own: Option<String>,
+}
+
+/// A phone added: its entry and token, and the entry it replaced (the same phone, paired before).
+#[derive(Debug)]
+pub struct Added {
+	pub client: Client,
+	pub token: String,
+	pub replaced: Option<Client>,
+}
+
+/// Whether `token` is the one `client` was given.
+pub fn proves(client: &Client, token: &str) -> bool {
+	same(sha256_hex(token.as_bytes()).as_bytes(), client.token_hash.as_bytes())
+}
+
 /// Adds a phone with `role` and `profile` to those paired in `dir` and returns its token.
+#[cfg(test)]
 pub fn add_client_in(dir: &Path, name: &str, role: Role, profile: Option<&str>) -> Result<(Client, String), NotAdded> {
+	let given = Profiles { profile: profile.map(str::to_string), own: None };
+	pair_client(dir, name, role, None, |_, _, _| given).map(|a| (a.client, a.token))
+}
+
+/// Adds a phone named `name` with `role` to those paired in `dir`. `previous`, an entry's id and
+/// its token, is the same phone paired before: while that entry is still paired with that token, it
+/// goes in the same write. `give` decides the profiles under the lock, from the phones that stay
+/// paired, the entry replaced and the new phone's id; it may write phones.toml, which is changed
+/// under the same lock.
+pub fn pair_client(
+	dir: &Path,
+	name: &str,
+	role: Role,
+	previous: Option<(&str, &str)>,
+	give: impl FnOnce(&[Client], Option<&Client>, &str) -> Profiles,
+) -> Result<Added, NotAdded> {
 	let _lock = lock_clients(dir)?;
-	let clients = match load_clients_in(dir) {
+	let mut clients = match load_clients_in(dir) {
 		Ok(c) => c,
 		// The damaged file is set aside by the write below; the phones in it pair again.
 		Err(e) if e.kind() == io::ErrorKind::InvalidData => Vec::new(),
 		Err(e) => return Err(e.into()),
 	};
-	push_client(dir, clients, name, role, profile, None)
+	let at = previous.and_then(|(id, token)| clients.iter().position(|c| c.id == id && proves(c, token)));
+	let replaced = at.map(|i| clients.remove(i));
+	if clients.len() >= limit::PHONES_MAX {
+		return Err(NotAdded::Full);
+	}
+	let (id, token) = new_key(&clients);
+	let given = give(&clients, replaced.as_ref(), &id);
+	let client = new_client(id, &token, name, role, given, None);
+	clients.push(client.clone());
+	save_clients_in(dir, &clients)?;
+	Ok(Added { client, token, replaced })
 }
 
 /// Adds a phone beside those paired in `dir`, asked for with the token of the entry `from` (a key
 /// of its own for a phone that came by that token), with that entry's role and profile; returns its
-/// token. Only an entry
-/// paired with a code may ask, and only once, so one token gives one key of its own, however
-/// often it is copied. A file that doesn't parse is an error here, never a fresh start: that would
-/// unpair every other phone.
+/// token. Only an entry paired with a code may ask, and only once, so one token gives one key of
+/// its own, however often it is copied. A file that doesn't parse is an error here, never a fresh
+/// start: that would unpair every other phone.
+#[cfg(test)]
 pub fn add_client_from(dir: &Path, from: &str, name: &str) -> Result<(Client, String), NotAdded> {
+	rekey_client(dir, from, name, |_, asking, _| Profiles { profile: asking.profile.clone(), own: None }).map(|a| (a.client, a.token))
+}
+
+/// `add_client_from`, `give` deciding the new phone's profiles under the lock from the phones
+/// paired, the entry that asked and the new phone's id, as `pair_client`'s does.
+pub fn rekey_client(dir: &Path, from: &str, name: &str, give: impl FnOnce(&[Client], &Client, &str) -> Profiles) -> Result<Added, NotAdded> {
 	let _lock = lock_clients(dir)?;
-	let clients = load_clients_in(dir)?;
+	let mut clients = load_clients_in(dir)?;
 	let asking = clients.iter().find(|c| c.id == from).ok_or(NotAdded::Gone)?;
 	if asking.from.is_some() || clients.iter().any(|c| c.from.as_deref() == Some(from)) {
 		return Err(NotAdded::Rekeyed);
 	}
-	let (role, profile) = (asking.role, asking.profile.clone());
-	push_client(dir, clients, name, role, profile.as_deref(), Some(from))
-}
-
-fn push_client(
-	dir: &Path,
-	mut clients: Vec<Client>,
-	name: &str,
-	role: Role,
-	profile: Option<&str>,
-	from: Option<&str>,
-) -> Result<(Client, String), NotAdded> {
 	if clients.len() >= limit::PHONES_MAX {
 		return Err(NotAdded::Full);
 	}
+	let role = asking.role;
+	let (id, token) = new_key(&clients);
+	let given = give(&clients, asking, &id);
+	let client = new_client(id, &token, name, role, given, Some(from));
+	clients.push(client.clone());
+	save_clients_in(dir, &clients)?;
+	Ok(Added { client, token, replaced: None })
+}
+
+/// A new phone's id and token: short ids, as phones and people know them, never one another phone
+/// has or came by.
+fn new_key(clients: &[Client]) -> (String, String) {
 	let token = data_encoding::BASE64URL_NOPAD.encode(&random_bytes::<{ protocol::TOKEN_BYTES }>());
-	// Short ids, as phones and people know them; never one another phone has.
 	let id = loop {
 		let id = data_encoding::HEXLOWER.encode(&random_bytes::<{ protocol::CLIENT_ID_BYTES }>());
 		if !clients.iter().any(|c| c.id == id || c.from.as_deref() == Some(id.as_str())) {
 			break id;
 		}
 	};
-	let client = Client {
+	(id, token)
+}
+
+fn new_client(id: String, token: &str, name: &str, role: Role, given: Profiles, from: Option<&str>) -> Client {
+	Client {
 		id,
 		name: sanitize_name(name),
 		token_hash: sha256_hex(token.as_bytes()),
 		created: now(),
 		role,
 		from: from.map(str::to_string),
-		profile: profile.map(str::to_string),
+		profile: given.profile,
 		app: None,
+		own_profile: given.own,
 		address: None,
-	};
-	clients.push(client.clone());
-	save_clients_in(dir, &clients)?;
-	Ok((client, token))
+	}
 }
 
 /// Notes in clients.json that the phone `id` is the app `app` ("android/0.6.0") and came from
@@ -477,6 +629,26 @@ pub struct Ask {
 	/// The answer, once given.
 	#[serde(default)]
 	pub allow: Option<bool>,
+	/// The entry of this phone paired before, as its `previous` proved: it replaces that one.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub replaces: Option<Replaces>,
+	/// A phone's table in phones.toml no paired phone has, of an unpaired phone named as this one:
+	/// offered to it, when the person at `elamond pair` says so.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub offer: Option<String>,
+	/// That answer, given with `allow`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub take: Option<bool>,
+}
+
+/// The entry a phone that pairs again replaces, as `elamond pair` names it.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Replaces {
+	pub id: String,
+	pub name: String,
+	/// Its own profile, the one the new entry keeps; none when `elamond pair --profile` decides.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub profile: Option<String>,
 }
 
 /// How one attempt at the pending code went.
@@ -579,13 +751,14 @@ pub fn new_pairing(dir: &Path, role: Role, profile: Option<&str>, confirm: bool)
 	Ok(p)
 }
 
-/// Gives the answer `allow` to the phone `ask_id` waiting with the code `code`, unless it no longer
-/// waits there.
-pub fn answer_pairing(dir: &Path, code: &str, ask_id: &str, allow: bool) -> io::Result<()> {
+/// Gives the answer `allow` to the phone `ask_id` waiting with the code `code`, and `take` to the
+/// table offered it, unless it no longer waits there.
+pub fn answer_pairing(dir: &Path, code: &str, ask_id: &str, allow: bool, take: Option<bool>) -> io::Result<()> {
 	match read_pairing(dir) {
 		Some(mut p) if p.code == code && p.ask.as_ref().is_some_and(|a| a.id == ask_id && a.allow.is_none()) => {
 			if let Some(a) = p.ask.as_mut() {
 				a.allow = Some(allow);
+				a.take = take;
 			}
 			save_pairing(dir, &p)
 		}

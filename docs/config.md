@@ -58,7 +58,8 @@ icon = "overview"
 
 An empty elamond.toml is sound settings too, of no dashboards and no profiles: phones paired with
 it see nothing. `elamond check` says so: it warns of settings without dashboards, and of a
-`default_profile` that isn't among the profiles.
+`default_profile` that isn't among the profiles; and of an elamond.toml of 0.6.0, still to be moved
+([below](#settings-from-elamond-060)). Without any elamond.toml, the drop-ins are all there is.
 
 `schema` says which settings these are. `3` is a whole file, as this page describes. A file without
 `schema` is one of elamond 0.6.0 (settings schema 2), which was read over a layer built into the
@@ -70,16 +71,19 @@ service; another number is a mistake (a file written for a newer elamond). A dro
 0.6.0 read its settings over what was built into it: elamond.toml held only what differed. The
 first time elamond 0.6.1 or later starts with such a file (no `schema` in it), it writes the two
 together into a new, whole elamond.toml with `schema = 3`, and keeps the old one beside it as
-`elamond.toml.0.6.0`. The new file is what was built in, in its own words and comments, with every
-key of the old file in place of the one it overrode and every table of its own after them: the
-settings, and so what each phone shows, are the same as before. The drop-ins in elamond.d/ stay as
-they are and still add to it. The journal says what was done (`journalctl --user -u elamond`).
+`elamond.toml.0.6.0` (`elamond.toml.0.6.0-2` should that name be taken). The new file is what was
+built in, in its own words and comments, with every key of the old file in place of the one it
+overrode (with its comments; a key the defaults have only as an example, like `# names = …`, where
+that example was) and every table of its own after them, a few lines on top saying so: the
+settings, and so what each phone shows, are the same as before, which the service checks before it
+writes anything. The drop-ins in elamond.d/ stay as they are and still add to it. The journal says
+what was done and where the settings differ from the defaults (`journalctl --user -u elamond`).
 
 That happens once, and only to settings that are sound: while they have a mistake, the service
-reads them as 0.6.0 did and reports it, and moves them over at the first start after they are
-mended. A file it can't write (a link into the Nix store, a file `ELAMON_CONFIG` names) it never
-moves, and reads as 0.6.0 did. The NixOS and Home Manager modules write `schema = 3` themselves
-([Nix](#nix)).
+reads them as 0.6.0 did and reports it, and moves them over once they are mended, at the next start
+or as soon as it rereads them. A file it can't write (a link, into the Nix store or elsewhere; a
+file `ELAMON_CONFIG` names; one read-only) it never moves, and reads as 0.6.0 did. The NixOS and
+Home Manager modules write `schema = 3` themselves ([Nix](#nix)).
 
 ### The defaults beside: defaults.toml
 
@@ -90,7 +94,7 @@ version starts, it writes its own and keeps the one before as `defaults.toml.old
 
 | command | |
 |---|---|
-| `elamond defaults` | prints the settings elamond starts with: the starter file, without its first lines |
+| `elamond defaults` | prints the settings elamond starts with: the starter file, without its first lines (from `schema` on) |
 | `elamond defaults --diff` | what in your settings is other than in those, and what changed in them between defaults.toml.old and this version: by table, `added`, `changed` (and which keys) or `removed` |
 | `elamond defaults TABLE` | one table of them, as TOML to copy into your settings: `dashboards.sensors`, `profiles.default`, `templates.sensor_table` |
 
@@ -149,9 +153,9 @@ use = "default"
 | `elamond pair` | a table for the phone, its id from the phone's name (`Galaxy S25` → `galaxy-s25`; one taken already gets `-2`, `-3`…; a name without a letter or digit of `a-z`, `0-9` → `phone`), with `name` (the phone's) and `use`: the profile `--profile` names, or `default_profile`; a comment above says which phone it is. The phone's entry among the paired ones (`elamond clients`) has it as its profile. |
 | `elamond pair --profile ID`, ID a phone's table that no paired phone has | the phone takes that table as its own, as it is, instead of a new one |
 | the same phone pairs again, with its key still good | the new entry takes the table the old one had, and the old entry is unpaired: the app shows its key to the service ([protocol](protocol.md#post-apiv1pair)) |
-| a phone pairs whose key is gone (the phone was reset, or its entry unpaired), and an unpaired phone of the same name had a table | `elamond pair` asks whether to give that table to it; `--yes` gives it none by name |
+| a phone pairs whose key is gone (the phone was reset, or its entry unpaired), and an unpaired phone of the same name had a table | `elamond pair` asks whether to give that table to it; `--yes` gives it none by name, nor does `--profile`, which decides |
 | a phone gets a key of its own after Import pairings | a table for it, using the profile of the phone the key came from |
-| `elamond revoke` | the phone's table goes when it is as pairing wrote it (`name` and `use` alone) and no profile uses it; otherwise it stays, with a note, for a phone paired again to take |
+| `elamond revoke` | the phone's table goes when it is as pairing wrote it (`name` and `use` alone) and nothing else has it: no profile uses it, it isn't `default_profile`, no other phone has it as its profile; otherwise it stays, with a note, for a phone paired again to take |
 | the service starts, and phones paired before 0.6.1 have no table | each gets one, using the profile it had (`use = "owner"` for one that had `owner`) |
 
 `elamond clients profile ID PROFILE` still gives a phone any profile of the settings, one shared by
@@ -160,9 +164,10 @@ to give back. A phone whose profile is gone from the settings gets `default_prof
 
 The service writes phones.toml only from the lock the paired phones are kept under, in one step
 (a new file renamed over it), keeping its permissions (only yours, for a new one), comments and
-everything else in it as they were. A link there it leaves alone: a phone then pairs without a
-table, with `use`'s profile as its profile. Settings that wouldn't parse with a new table in, it
-doesn't write.
+everything else in it as they were; of the comments it changes only the lines it wrote above a
+phone's table, which phone has it and that it was unpaired, when another phone takes the table. A
+link there it leaves alone: a phone then pairs without a table, with `use`'s profile as its
+profile. Settings that wouldn't parse with a new table in, it doesn't write.
 
 Ids — of dashboards, actions, links, profiles, templates, widgets and action parameters — are 1 to
 32 characters `a-z`, `0-9`, `_` and `-`, starting with a letter or a digit. Ids with a dot are the

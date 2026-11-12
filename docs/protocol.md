@@ -150,7 +150,8 @@ is left.
 
 `profile` is the phone's own profile, a table the service adds for it to
 [phones.toml](config.md#phones) as it pairs, which uses the profile `elamond pair --profile` named
-or `default_profile`. `endpoints` [as above](#where-the-computer-is-endpoints).
+or `default_profile`; where phones.toml can't take one, the profile the phone has instead.
+`endpoints` [as above](#where-the-computer-is-endpoints).
 
 `previous`, optional, is for a phone that pairs again with a computer it is paired with already
 (after a new pairing link, or to reach it at another address): its entry there and that entry's
@@ -158,13 +159,13 @@ token, as proof that it is the same phone. A client sends it only over the certi
 for that computer, never to one it is still to trust. With the right code, a `previous` whose token
 is that entry's makes the new entry take the old one's own profile (its table in phones.toml, and
 the profile it had), and unpairs the old entry once the new one is added: it is the same phone,
-whose old token the app drops. The person at `elamond pair` is told so in its question (`replaces
-"Galaxy S25" (0123abcd), keeps its profile galaxy-s25`). The role is still the one `elamond pair`
+whose old token the app drops. The person at `elamond pair` is told so in its question (`It
+replaces "Galaxy S25" (0123abcd) and keeps its profile galaxy-s25.`). The role is still the one `elamond pair`
 gives, never the old entry's; `elamond pair --profile` still decides, when given. A `previous` that
 proves nothing (an entry not paired, a token not its own) changes nothing, and the pairing goes
 on as without it: no profile is taken and nothing unpaired. Without a `previous`, a profile left by
 an unpaired phone of the same name is given to the new one only when the person at `elamond pair`
-says so.
+says so (never with `--yes`, nor with `--profile`).
 
 The token goes in every other request as `Authorization: Bearer <token>`. Without a valid one
 the service answers 401 `{ "error": "unauthorized" }`. A phone removed with `elamond revoke` gets

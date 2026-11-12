@@ -151,6 +151,8 @@ pub struct Hub {
 	pair_lock: tokio::sync::Mutex<()>,
 	/// The data directory: the paired phones, the activity log and `elamond control off`'s file.
 	pub dir: PathBuf,
+	/// Where the settings are, phones.toml among them, which pairing writes to.
+	pub place: store::Place,
 	/// `elamond control off` holds control off, as last looked.
 	control_off: AtomicBool,
 	/// Why the settings files don't parse, while they don't: control is off meanwhile.
@@ -221,7 +223,8 @@ struct ClientCache {
 }
 
 impl Hub {
-	/// The hub for a service whose state is in `dir`.
+	/// The hub for a service whose state is in `dir`, its settings in `place`.
+	#[allow(clippy::too_many_arguments)]
 	pub fn new(
 		id: String,
 		name: String,
@@ -230,6 +233,7 @@ impl Hub {
 		interval: Duration,
 		config: Arc<store::Config>,
 		dir: PathBuf,
+		place: store::Place,
 	) -> Self {
 		Hub {
 			id,
@@ -261,6 +265,7 @@ impl Hub {
 			endpoints_gen: AtomicU64::new(0),
 			reach: Mutex::new(Reach::default()),
 			dir,
+			place,
 		}
 	}
 
@@ -824,6 +829,19 @@ fn profile_of(hub: &Hub, profile: Option<&str>) -> String {
 	config.profile(profile.unwrap_or(&config.default_profile)).id
 }
 
+/// The profile a pairing answer names: the phone's own table, or, without one, the profile it gets.
+fn answered_profile(hub: &Hub, client: &store::Client) -> String {
+	client.own_profile.clone().unwrap_or_else(|| profile_of(hub, client.profile.as_deref()))
+}
+
+/// Takes up the settings again after phones.toml changed, so the answer and the phone's first `ui`
+/// have its table; a reread that fails is the watcher's to report.
+fn reload(hub: &Hub) {
+	if let Ok(c) = hub.place.load() {
+		hub.set_config(c);
+	}
+}
+
 
 #[derive(Deserialize)]
 pub(crate) struct PairRequest {
@@ -833,7 +851,6 @@ pub(crate) struct PairRequest {
 	/// The entry this phone had here before and its token, from a phone that pairs again: the
 	/// proof that it is the same phone, whose own profile the new entry takes.
 	#[serde(default)]
-	#[allow(dead_code, reason = "taken up as pairing again keeps the profile")]
 	pub(crate) previous: Option<Previous>,
 }
 
@@ -850,16 +867,33 @@ enum Judged {
 	Nothing,
 	Blocked,
 	Wrong,
-	/// The right code: the phone gets `role` and `profile`, at once or, with `ask`, once let in.
-	Right { code: String, role: Role, profile: Option<String>, ask: Option<String> },
+	/// The right code: the phone gets `role` and `profile`, at once or, with `ask`, once let in;
+	/// `same`, when its `previous` proved it is the phone of that entry.
+	Right { code: String, role: Role, profile: Option<String>, ask: Option<String>, same: bool },
 	/// The pending code couldn't be saved with the phone's request in it.
 	Unsaved,
 }
 
+/// The entry `previous` proves the phone is, among those paired in `dir`, as `elamond pair` names
+/// it; none, said in the journal, for one that proves nothing.
+fn proven(dir: &std::path::Path, previous: Option<&Previous>, name: &str, ip: IpAddr) -> Option<store::Client> {
+	let p = previous?;
+	let found = store::load_clients_in(dir).ok().and_then(|list| list.into_iter().find(|c| c.id == p.client_id && store::proves(c, &p.token)));
+	if found.is_none() {
+		eprintln!(
+			"pairing: \"{name}\" from {ip} says it was paired as {}, which it doesn't prove (not paired, or not its token): nothing taken, nothing unpaired",
+			store::sanitize_name(&p.client_id)
+		);
+	}
+	found
+}
+
 /// Judges an attempt with `code` from `ip` by a phone named `name` (cleaned), counting a wrong one
 /// and, for a code from `elamond pair` without `--yes`, putting the phone's request in it for the
-/// person there to answer. Called with the pairing lock held: one attempt is judged at a time.
-fn judge(dir: &std::path::Path, code: &str, name: &str, ip: IpAddr) -> Judged {
+/// person there to answer: with the entry it replaces, when its `previous` proves it is that phone,
+/// or else a profile left by an unpaired phone of its name to offer it. Called with the pairing
+/// lock held: one attempt is judged at a time.
+fn judge(dir: &std::path::Path, place: &store::Place, code: &str, name: &str, previous: Option<&Previous>, ip: IpAddr) -> Judged {
 	let Some(mut pending) = store::load_pairing(dir) else { return Judged::Nothing };
 	// Spoken for: the phone that gave it is waiting to be let in.
 	if pending.ask.is_some() {
@@ -883,16 +917,39 @@ fn judge(dir: &std::path::Path, code: &str, name: &str, ip: IpAddr) -> Judged {
 			}
 			Judged::Wrong
 		}
-		Attempt::Right if !pending.confirm => Judged::Right { code: pending.code, role: pending.role, profile: pending.profile, ask: None },
 		Attempt::Right => {
+			let same = proven(dir, previous, name, ip);
+			if !pending.confirm {
+				return Judged::Right { code: pending.code, role: pending.role, profile: pending.profile, ask: None, same: same.is_some() };
+			}
+			// A profile left by a phone of its name, unless it is a phone paired here already, or
+			// `elamond pair --profile` says which profile it gets.
+			let offer = match (&same, &pending.profile) {
+				(None, None) => store::load_clients_in(dir).ok().and_then(|list| crate::phones::unowned_named(place, name, &list)),
+				_ => None,
+			};
+			let replaces = same.as_ref().map(|c| store::Replaces {
+				id: c.id.clone(),
+				name: c.name.clone(),
+				profile: pending.profile.is_none().then(|| c.own_profile.clone().or_else(|| c.profile.clone())).flatten(),
+			});
 			let id = data_encoding::HEXLOWER.encode(&store::random_bytes::<8>());
-			pending.ask = Some(store::Ask { id: id.clone(), name: name.to_string(), address: ip.to_string(), at: store::now(), allow: None });
+			pending.ask = Some(store::Ask {
+				id: id.clone(),
+				name: name.to_string(),
+				address: ip.to_string(),
+				at: store::now(),
+				allow: None,
+				replaces,
+				offer,
+				take: None,
+			});
 			if let Err(e) = store::save_pairing(dir, &pending) {
 				eprintln!("pairing: can't save the request of \"{name}\" from {ip}: {e}");
 				return Judged::Unsaved;
 			}
 			eprintln!("pairing: \"{name}\" from {ip} gave the right code; asking at elamond pair whether to let it in");
-			Judged::Right { code: pending.code, role: pending.role, profile: pending.profile, ask: Some(id) }
+			Judged::Right { code: pending.code, role: pending.role, profile: pending.profile, ask: Some(id), same: same.is_some() }
 		}
 	}
 }
@@ -917,17 +974,18 @@ impl Drop for Waiting {
 }
 
 /// Waits for the person at `elamond pair` to answer the phone `ask` waiting with `code`: whether
-/// to let it in, or why not.
-async fn answer(dir: &std::path::Path, code: &str, ask: &str) -> Result<(), &'static str> {
+/// to let it in, with the table offered it when the person gave it, or why not.
+async fn answer(dir: &std::path::Path, code: &str, ask: &str) -> Result<Option<String>, &'static str> {
 	let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout::PAIR_APPROVAL_SECS);
 	loop {
 		tokio::time::sleep(cadence::PAIR_POLL).await;
 		let Some(p) = store::read_pairing(dir).filter(|p| p.code == code) else {
 			return Err("elamond pair withdrew the code");
 		};
+		let offered = p.ask.as_ref().filter(|a| a.take == Some(true)).and_then(|a| a.offer.clone());
 		match p.ask.filter(|a| a.id == ask).map(|a| a.allow) {
 			None => return Err("elamond pair withdrew the code"),
-			Some(Some(true)) => return Ok(()),
+			Some(Some(true)) => return Ok(offered),
 			Some(Some(false)) => return Err("turned away at elamond pair"),
 			Some(None) if !store::pairing_answered(dir) => return Err("elamond pair isn't running to answer"),
 			Some(None) if tokio::time::Instant::now() >= deadline => return Err("no answer at elamond pair in time"),
@@ -950,9 +1008,9 @@ async fn pair(
 		Judged::Nothing
 	} else {
 		let _guard = hub.pair_lock.lock().await;
-		judge(&hub.dir, &code, &name, ip)
+		judge(&hub.dir, &hub.place, &code, &name, req.previous.as_ref(), ip)
 	};
-	let (code, role, profile, ask) = match judged {
+	let (code, role, profile, ask, same) = match judged {
 		Judged::Nothing => {
 			tokio::time::sleep(timeout::NO_PAIRING_DELAY).await;
 			return error(ErrorCode::NoPairing);
@@ -964,29 +1022,52 @@ async fn pair(
 			return error(ErrorCode::WrongCode);
 		}
 		Judged::Unsaved => return error(ErrorCode::Storage),
-		Judged::Right { code, role, profile, ask } => (code, role, profile, ask),
+		Judged::Right { code, role, profile, ask, same } => (code, role, profile, ask, same),
 	};
 	let mut waiting = Waiting { dir: hub.dir.clone(), code: code.clone(), ask: ask.clone() };
-	if let Some(ask) = &ask
-		&& let Err(why) = answer(&hub.dir, &code, ask).await
-	{
-		waiting.ask = None;
-		store::clear_pairing_code(&hub.dir, &code);
-		eprintln!("pairing: \"{name}\" from {ip} not added: {why}; the code no longer works");
-		return error(ErrorCode::PairDeclined);
+	let mut offered = None;
+	if let Some(ask) = &ask {
+		match answer(&hub.dir, &code, ask).await {
+			Ok(o) => offered = o,
+			Err(why) => {
+				waiting.ask = None;
+				store::clear_pairing_code(&hub.dir, &code);
+				eprintln!("pairing: \"{name}\" from {ip} not added: {why}; the code no longer works");
+				return error(ErrorCode::PairDeclined);
+			}
+		}
 	}
 	waiting.ask = None;
 	// The phone is added before the code is withdrawn: `elamond pair` takes a code gone with
-	// no new phone for one used up by wrong attempts.
-	let (dir, device) = (hub.dir.clone(), name.clone());
-	let added = tokio::task::spawn_blocking(move || store::add_client_in(&dir, &device, role, profile.as_deref()))
-		.await
-		.unwrap_or_else(|e| Err(store::NotAdded::Io(std::io::Error::other(e))));
+	// no new phone for one used up by wrong attempts. Its table in phones.toml is made under the
+	// same lock, and the entry it replaces goes in the same write.
+	let (dir, place, device) = (hub.dir.clone(), hub.place.clone(), name.clone());
+	let previous = req.previous.filter(|_| same).map(|p| (p.client_id, p.token));
+	let added = tokio::task::spawn_blocking(move || {
+		let mut notes = Vec::new();
+		let added = store::pair_client(&dir, &device, role, previous.as_ref().map(|(i, t)| (i.as_str(), t.as_str())), |remaining, replaced, id| {
+			let (given, n) = crate::phones::give(&place, remaining, replaced, offered.as_deref(), profile.as_deref(), &device, id, store::now());
+			notes = n;
+			given
+		});
+		added.map(|a| (a, notes))
+	})
+	.await
+	.unwrap_or_else(|e| Err(store::NotAdded::Io(std::io::Error::other(e))));
 	match added {
-		Ok((client, token)) => {
+		Ok((store::Added { client, token, replaced }, notes)) => {
 			store::clear_pairing_code(&hub.dir, &code);
-			let profile = profile_of(&hub, client.profile.as_deref());
+			reload(&hub);
+			let profile = answered_profile(&hub, &client);
 			eprintln!("pairing: added \"{}\" ({}) as {} with the profile {profile} from {ip}", client.name, client.id, client.role.as_str());
+			if let Some(old) = replaced {
+				eprintln!("pairing: \"{}\" ({}) is that phone paired before, as its key proved, and is unpaired", old.name, old.id);
+			} else if same {
+				eprintln!("pairing: the entry \"{name}\" said it was is no longer paired with its token: nothing taken, nothing unpaired");
+			}
+			for n in notes {
+				eprintln!("pairing: \"{}\" ({}): {n}", client.name, client.id);
+			}
 			Json(paired_body(&token, &client.id, &hub.id, &hub.name, client.role, &profile, &hub.endpoints())).into_response()
 		}
 		Err(e) => {
@@ -1019,13 +1100,22 @@ async fn rekey(
 	let name = store::sanitize_name(&req.device);
 	let ip = peer.ip().to_canonical();
 	hub.act_as(&who, None, false, format!("phone added: {name}"), async {
-		// clients.json's lock keeps it to one change at a time, pairing's and the commands' included.
-		let (dir, from, device) = (hub.dir.clone(), who.id.clone(), name.clone());
-		let added = tokio::task::spawn_blocking(move || store::add_client_from(&dir, &from, &device))
-			.await
-			.unwrap_or_else(|e| Err(store::NotAdded::Io(std::io::Error::other(e))));
+		// clients.json's lock keeps it to one change at a time, pairing's and the commands' included;
+		// the new phone's table in phones.toml is made under it too.
+		let (dir, place, from, device) = (hub.dir.clone(), hub.place.clone(), who.id.clone(), name.clone());
+		let added = tokio::task::spawn_blocking(move || {
+			let mut notes = Vec::new();
+			let added = store::rekey_client(&dir, &from, &device, |_, asking, id| {
+				let (given, n) = crate::phones::give_rekey(&place, asking, &device, id, store::now());
+				notes = n;
+				given
+			});
+			added.map(|a| (a, notes))
+		})
+		.await
+		.unwrap_or_else(|e| Err(store::NotAdded::Io(std::io::Error::other(e))));
 		match added {
-			Ok((client, token)) => {
+			Ok((store::Added { client, token, .. }, notes)) => {
 				eprintln!(
 					"pairing: added \"{}\" ({}) as {} from {ip}, asked with the key of \"{}\" ({}), which stays paired",
 					client.name,
@@ -1034,7 +1124,11 @@ async fn rekey(
 					who.name,
 					who.id
 				);
-				let profile = profile_of(&hub, client.profile.as_deref());
+				for n in notes {
+					eprintln!("pairing: \"{}\" ({}): {n}", client.name, client.id);
+				}
+				reload(&hub);
+				let profile = answered_profile(&hub, &client);
 				let response = Json(paired_body(&token, &client.id, &hub.id, &hub.name, client.role, &profile, &hub.endpoints())).into_response();
 				Ok(Acted { response, note: Some(format!("id {}, {}", client.id, client.role.as_str())) })
 			}
@@ -1322,7 +1416,11 @@ dashboards = ["overview", "control"]
 		std::fs::write(dir.join("clients.json"), serde_json::to_vec(&clients).unwrap()).unwrap();
 		let config = settings(control);
 		let (tx, rx) = watch::channel(Arc::new(frame(&config, 1)));
-		let mut hub = Hub::new("id".into(), "test".into(), rx, Ring::new(10), Duration::from_millis(250), Arc::new(config), dir);
+		// The settings in a folder of their own as well, as pairing writes phones.toml beside them.
+		let place = store::Place { dir: dir.join("config"), named: None };
+		std::fs::create_dir_all(&place.dir).unwrap();
+		std::fs::write(place.main(), format!("control = {control}\n{SETTINGS}")).unwrap();
+		let mut hub = Hub::new("id".into(), "test".into(), rx, Ring::new(10), Duration::from_millis(250), Arc::new(config), dir, place);
 		*hub.rate.lock().unwrap() = RateLimiter::new(10_000, Duration::from_secs(1));
 		change(&mut hub);
 		(Arc::new(hub), tx)
@@ -1757,15 +1855,19 @@ dashboards = ["overview", "control"]
 		let mut list = store::load_clients_in(&hub.dir).unwrap();
 		list.iter_mut().find(|c| c.name == "operate").unwrap().profile = Some("owner".into());
 		store::save_clients_in(&hub.dir, &list).unwrap();
-		for phone in PHONES {
+		for (n, phone) in PHONES.iter().enumerate() {
+			let phone = *phone;
 			let role = role_of(phone);
 			let profile = if phone == "operate" { "owner" } else { "default" };
+			// A table of its own, named by its device, using the profile of the entry that asked.
+			let table = if n == 0 { "new-phone".to_string() } else { format!("new-phone-{}", n + 1) };
 			let before = store::load_clients_in(&hub.dir).unwrap();
 			// A role asked for in the body is no more than a word in it.
 			let (status, v) = call(&hub, "POST", "/api/v1/rekey", phone, r#"{"device":" New\u0007 phone ","role":"admin"}"#).await;
 			assert_eq!(status, StatusCode::OK, "{phone}: {v}");
 			assert_eq!((v["role"].as_str(), v["id"].as_str(), v["name"].as_str()), (Some(role.as_str()), Some("id"), Some("test")), "{phone}");
-			assert_eq!(v["profile"].as_str(), Some(profile), "{phone}");
+			assert_eq!(v["profile"].as_str(), Some(table.as_str()), "{phone}");
+			assert_eq!(hub.config().profiles[&table].base.as_deref(), Some(profile), "{phone}");
 			let (token, new_id) = (v["token"].as_str().unwrap().to_string(), v["client_id"].as_str().unwrap().to_string());
 			assert_ne!(token, format!("t-{phone}"));
 
@@ -1775,13 +1877,17 @@ dashboards = ["overview", "control"]
 			let added = list.iter().find(|c| c.id == new_id).unwrap();
 			let from = format!("id-{phone}");
 			assert_eq!((added.name.as_str(), added.role, added.from.as_deref()), ("New phone", role, Some(from.as_str())), "{phone}");
+			assert_eq!((added.profile.as_deref(), added.own_profile.as_deref()), (Some(table.as_str()), Some(table.as_str())), "{phone}");
 			assert_eq!(added.token_hash, store::sha256_hex(token.as_bytes()));
 			assert!(list.iter().any(|c| c.id == from && c.token_hash == store::sha256_hex(format!("t-{phone}").as_bytes())));
 
-			// Both tokens work, each as its own phone with the same role and profile.
-			for t in [format!("t-{phone}"), token.clone()] {
+			// Both tokens work, each as its own phone with the same role, and a profile that looks the
+			// same: the new one's uses the old one's.
+			let theme = if phone == "operate" { "dark" } else { "system" };
+			for (t, p) in [(format!("t-{phone}"), profile), (token.clone(), table.as_str())] {
 				let (status, v) = call_as(&hub, "GET", "/api/v1/ui", &t, "").await;
-				assert_eq!((status, v["role"].as_str(), v["profile"]["id"].as_str()), (StatusCode::OK, Some(role.as_str()), Some(profile)), "{phone}");
+				assert_eq!((status, v["role"].as_str(), v["profile"]["id"].as_str()), (StatusCode::OK, Some(role.as_str()), Some(p)), "{phone}");
+				assert_eq!(v["profile"]["theme"].as_str(), Some(theme), "{phone}");
 			}
 
 			// The old phone revoked, the new one carries on. Locked, as the commands change it: the
@@ -2226,7 +2332,16 @@ dashboards = ["overview", "control"]
 
 	/// A phone's attempt at pairing from 192.0.2.7, answered on a task of its own: it may wait.
 	fn pair_from(hub: &Arc<Hub>, code: &str, device: &str) -> tokio::task::JoinHandle<(StatusCode, serde_json::Value)> {
-		let (hub, body) = (hub.clone(), serde_json::json!({ "code": code, "device": device }).to_string());
+		pair_again(hub, code, device, None)
+	}
+
+	/// `pair_from` by a phone that says it is the entry `previous`, with that token.
+	fn pair_again(hub: &Arc<Hub>, code: &str, device: &str, previous: Option<(&str, &str)>) -> tokio::task::JoinHandle<(StatusCode, serde_json::Value)> {
+		let mut body = serde_json::json!({ "code": code, "device": device });
+		if let Some((id, token)) = previous {
+			body["previous"] = serde_json::json!({ "client_id": id, "token": token });
+		}
+		let (hub, body) = (hub.clone(), body.to_string());
 		tokio::spawn(async move {
 			let req = axum::http::Request::builder()
 				.method(Method::POST)
@@ -2271,7 +2386,7 @@ dashboards = ["overview", "control"]
 		// Meanwhile the code is spoken for, even the right one.
 		let (status, v) = pair_from(&hub, &p.code, "Another").await.unwrap();
 		assert_eq!((status, v["error"].as_str()), (StatusCode::FORBIDDEN, Some("no_pairing")));
-		store::answer_pairing(&hub.dir, &p.code, &ask.id, false).unwrap();
+		store::answer_pairing(&hub.dir, &p.code, &ask.id, false, None).unwrap();
 		let (status, v) = waiting.await.unwrap();
 		assert_eq!((status, v["error"].as_str()), declined);
 		assert!(store::read_pairing(&hub.dir).is_none() && paired(&hub, "Stranger").is_none());
@@ -2280,9 +2395,11 @@ dashboards = ["overview", "control"]
 		let p = store::new_pairing(&hub.dir, Role::Monitor, None, true).unwrap();
 		let waiting = pair_from(&hub, &p.code, "Mine");
 		let ask = asked(&hub.dir).await;
-		store::answer_pairing(&hub.dir, &p.code, &ask.id, true).unwrap();
+		store::answer_pairing(&hub.dir, &p.code, &ask.id, true, None).unwrap();
 		let (status, v) = waiting.await.unwrap();
-		assert_eq!((status, v["role"].as_str(), v["profile"].as_str()), (StatusCode::OK, Some("monitor"), Some("default")), "{v}");
+		// A profile of its own, which the settings have at once.
+		assert_eq!((status, v["role"].as_str(), v["profile"].as_str()), (StatusCode::OK, Some("monitor"), Some("mine")), "{v}");
+		assert_eq!(hub.config().profiles["mine"].base.as_deref(), Some("default"));
 		assert_eq!(paired(&hub, "Mine").unwrap().role, Role::Monitor);
 		assert!(store::read_pairing(&hub.dir).is_none());
 
@@ -2296,8 +2413,9 @@ dashboards = ["overview", "control"]
 		// `elamond pair --yes`: at once.
 		let p = store::new_pairing(&hub.dir, Role::Glance, Some("owner"), false).unwrap();
 		let (status, v) = pair_from(&hub, &p.code, "Scripted").await.unwrap();
-		assert_eq!((status, v["role"].as_str(), v["profile"].as_str()), (StatusCode::OK, Some("glance"), Some("owner")), "{v}");
-		assert_eq!(paired(&hub, "Scripted").unwrap().profile.as_deref(), Some("owner"));
+		assert_eq!((status, v["role"].as_str(), v["profile"].as_str()), (StatusCode::OK, Some("glance"), Some("scripted")), "{v}");
+		assert_eq!(paired(&hub, "Scripted").unwrap().profile.as_deref(), Some("scripted"));
+		assert_eq!(hub.config().profiles["scripted"].base.as_deref(), Some("owner"));
 
 		// No code, or a body far bigger than a code and a name.
 		let (status, v) = pair_from(&hub, "123456", "Late").await.unwrap();
@@ -2305,6 +2423,140 @@ dashboards = ["overview", "control"]
 		store::new_pairing(&hub.dir, Role::Glance, Some("owner"), false).unwrap();
 		let (status, _) = pair_from(&hub, "123456", &"x".repeat(limit::BODY_MAX)).await.unwrap();
 		assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+		remove_test_dir(&hub.dir);
+	}
+
+	/// What phones.toml holds now.
+	fn phones_toml(hub: &Hub) -> String {
+		std::fs::read_to_string(crate::phones::path(&hub.place)).unwrap_or_default()
+	}
+
+	#[tokio::test]
+	async fn a_phone_that_pairs_again_keeps_its_profile_and_replaces_its_entry() {
+		let (hub, _tx) = hub(false);
+		let held = store::hold_pairing(&hub.dir, Duration::ZERO).unwrap().unwrap();
+		let entry = |hub: &Arc<Hub>, id: &str| store::load_clients_in(&hub.dir).unwrap().into_iter().find(|c| c.id == id);
+		// Paired with --yes and --profile owner: its own table, using owner.
+		let p = store::new_pairing(&hub.dir, Role::Admin, Some("owner"), false).unwrap();
+		let (_, first) = pair_from(&hub, &p.code, "Galaxy S25").await.unwrap();
+		let (id, token) = (first["client_id"].as_str().unwrap().to_string(), first["token"].as_str().unwrap().to_string());
+		assert_eq!(first["profile"].as_str(), Some("galaxy-s25"));
+		// Its owner gave it another profile since: that stays as well.
+		{
+			let _lock = store::lock_clients(&hub.dir).unwrap();
+			let mut list = store::load_clients_in(&hub.dir).unwrap();
+			list.iter_mut().find(|c| c.id == id).unwrap().profile = Some("owner".into());
+			store::save_clients_in(&hub.dir, &list).unwrap();
+		}
+
+		// Again, from a new pairing link, as the same phone: the person is told, and the new entry
+		// takes the old one's profiles, the old one unpaired in the same write.
+		let p = store::new_pairing(&hub.dir, Role::Monitor, None, true).unwrap();
+		let waiting = pair_again(&hub, &p.code, "Galaxy S25", Some((&id, &token)));
+		let ask = asked(&hub.dir).await;
+		assert_eq!(ask.replaces, Some(store::Replaces { id: id.clone(), name: "Galaxy S25".into(), profile: Some("galaxy-s25".into()) }));
+		assert_eq!(ask.offer, None);
+		store::answer_pairing(&hub.dir, &p.code, &ask.id, true, None).unwrap();
+		let (status, again) = waiting.await.unwrap();
+		assert_eq!((status, again["profile"].as_str(), again["role"].as_str()), (StatusCode::OK, Some("galaxy-s25"), Some("monitor")), "{again}");
+		let new_id = again["client_id"].as_str().unwrap().to_string();
+		let new = entry(&hub, &new_id).unwrap();
+		assert_eq!((new.own_profile.as_deref(), new.profile.as_deref()), (Some("galaxy-s25"), Some("owner")));
+		assert!(entry(&hub, &id).is_none(), "the old entry is unpaired");
+		assert_eq!(call_as(&hub, "GET", "/api/v1/ui", &token, "").await.0, StatusCode::UNAUTHORIZED);
+		let text = phones_toml(&hub);
+		assert!(text.contains(&format!(", paired {} ({new_id})\n[profiles.galaxy-s25]", store::format_date(store::now()))) && !text.contains(&id), "{text}");
+
+		// A previous whose token isn't its own, or of an entry not paired: nothing taken, nothing
+		// unpaired, a table of its own as for any phone.
+		let new_token = again["token"].as_str().unwrap().to_string();
+		for previous in [(new_id.as_str(), "not-its-token"), ("ffffffff", new_token.as_str()), (new_id.as_str(), "t-admin")] {
+			let p = store::new_pairing(&hub.dir, Role::Glance, None, false).unwrap();
+			let (status, v) = pair_again(&hub, &p.code, "Galaxy S25", Some(previous)).await.unwrap();
+			assert_eq!(status, StatusCode::OK, "{v}");
+			assert!(v["profile"].as_str().unwrap().starts_with("galaxy-s25-"), "{v}");
+			assert!(entry(&hub, &new_id).is_some(), "{previous:?}");
+		}
+		assert_eq!(call_as(&hub, "GET", "/api/v1/ui", &new_token, "").await.0, StatusCode::OK);
+
+		// With --profile, that profile decides; the old entry still goes, and so does its table,
+		// as revoking would take it: here it is kept, being changed since.
+		let p = store::new_pairing(&hub.dir, Role::Admin, Some("default"), false).unwrap();
+		let (status, v) = pair_again(&hub, &p.code, "Galaxy S25", Some((&new_id, &new_token))).await.unwrap();
+		assert_eq!(status, StatusCode::OK, "{v}");
+		let last = entry(&hub, v["client_id"].as_str().unwrap()).unwrap();
+		assert_eq!(last.own_profile.as_deref(), v["profile"].as_str());
+		assert_ne!(last.own_profile.as_deref(), Some("galaxy-s25"));
+		assert_eq!(hub.config().profiles[last.own_profile.as_deref().unwrap()].base.as_deref(), Some("default"));
+		assert!(entry(&hub, &new_id).is_none());
+		drop(held);
+		remove_test_dir(&hub.dir);
+	}
+
+	#[tokio::test]
+	async fn a_profile_left_by_a_phone_of_the_name_is_given_only_when_the_person_says_so() {
+		let (hub, _tx) = hub(false);
+		let held = store::hold_pairing(&hub.dir, Duration::ZERO).unwrap().unwrap();
+		// A phone paired, given a look of its own, and unpaired: its table stays, offered by name.
+		let p = store::new_pairing(&hub.dir, Role::Admin, None, false).unwrap();
+		let (_, v) = pair_from(&hub, &p.code, "Pixel 9").await.unwrap();
+		let gone = v["client_id"].as_str().unwrap().to_string();
+		let path = crate::phones::path(&hub.place);
+		std::fs::write(&path, phones_toml(&hub).replace("name = \"Pixel 9\"\n", "name = \"Pixel 9\"\ntheme = \"dark\"\n")).unwrap();
+		{
+			let _lock = store::lock_clients(&hub.dir).unwrap();
+			let mut list = store::load_clients_in(&hub.dir).unwrap();
+			let c = list.iter().find(|c| c.id == gone).unwrap().clone();
+			list.retain(|c| c.id != gone);
+			store::save_clients_in(&hub.dir, &list).unwrap();
+			assert!(crate::phones::release(&hub.place, &c, &list, store::now()).unwrap().contains("stays"));
+		}
+
+		// --yes gives it none by name.
+		let p = store::new_pairing(&hub.dir, Role::Admin, None, false).unwrap();
+		let (_, v) = pair_from(&hub, &p.code, "Pixel 9").await.unwrap();
+		assert_eq!(v["profile"].as_str(), Some("pixel-9-2"));
+		// Asked and refused: a table of its own.
+		let p = store::new_pairing(&hub.dir, Role::Admin, None, true).unwrap();
+		let waiting = pair_from(&hub, &p.code, "pixel 9");
+		let ask = asked(&hub.dir).await;
+		assert_eq!((ask.offer.as_deref(), ask.replaces.is_none()), (Some("pixel-9"), true));
+		store::answer_pairing(&hub.dir, &p.code, &ask.id, true, Some(false)).unwrap();
+		assert_eq!(waiting.await.unwrap().1["profile"].as_str(), Some("pixel-9-3"));
+		// Asked and given: that table, as it is.
+		let p = store::new_pairing(&hub.dir, Role::Admin, None, true).unwrap();
+		let waiting = pair_from(&hub, &p.code, "Pixel 9");
+		let ask = asked(&hub.dir).await;
+		assert_eq!(ask.offer.as_deref(), Some("pixel-9"));
+		store::answer_pairing(&hub.dir, &p.code, &ask.id, true, Some(true)).unwrap();
+		let (status, v) = waiting.await.unwrap();
+		assert_eq!((status, v["profile"].as_str()), (StatusCode::OK, Some("pixel-9")), "{v}");
+		let (_, doc) = call_as(&hub, "GET", "/api/v1/ui", v["token"].as_str().unwrap(), "").await;
+		assert_eq!((doc["profile"]["id"].as_str(), doc["profile"]["theme"].as_str()), (Some("pixel-9"), Some("dark")));
+		assert_eq!(doc["profile"]["source"]["file"].as_str(), Some("elamond.d/phones.toml"));
+		// Now that one has it, it isn't offered again.
+		let p = store::new_pairing(&hub.dir, Role::Admin, None, true).unwrap();
+		let waiting = pair_from(&hub, &p.code, "Pixel 9");
+		assert_eq!(asked(&hub.dir).await.offer, None);
+		store::clear_pairing(&hub.dir);
+		assert_eq!(waiting.await.unwrap().0, StatusCode::FORBIDDEN);
+		drop(held);
+		remove_test_dir(&hub.dir);
+	}
+
+	#[tokio::test]
+	async fn a_phones_toml_that_is_a_link_is_left_alone_and_the_phone_pairs_without_a_table() {
+		let (hub, _tx) = hub(false);
+		let elsewhere = hub.dir.join("elsewhere.toml");
+		std::fs::write(&elsewhere, "# not the service's\n").unwrap();
+		std::fs::create_dir_all(hub.place.dropins()).unwrap();
+		std::os::unix::fs::symlink(&elsewhere, crate::phones::path(&hub.place)).unwrap();
+		let p = store::new_pairing(&hub.dir, Role::Admin, Some("owner"), false).unwrap();
+		let (status, v) = pair_from(&hub, &p.code, "Galaxy S25").await.unwrap();
+		assert_eq!((status, v["profile"].as_str()), (StatusCode::OK, Some("owner")), "{v}");
+		let c = store::load_clients_in(&hub.dir).unwrap().into_iter().find(|c| c.name == "Galaxy S25").unwrap();
+		assert_eq!((c.profile.as_deref(), c.own_profile), (Some("owner"), None));
+		assert_eq!(std::fs::read_to_string(&elsewhere).unwrap(), "# not the service's\n");
 		remove_test_dir(&hub.dir);
 	}
 
