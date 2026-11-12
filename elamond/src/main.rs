@@ -932,7 +932,7 @@ fn client_lines(clients: &[&store::Client], config: Option<&store::Config>) -> V
 		let Some(config) = config else { return c.profile.clone().unwrap_or_else(|| "default".into()) };
 		let got = config.profile(c.profile.as_deref().unwrap_or(&config.default_profile)).id;
 		match &c.profile {
-			Some(p) if *p != got => format!("{got} ({p} is gone)"),
+			Some(p) if *p != got => format!("{got} ({p}: not in the settings)"),
 			_ => got,
 		}
 	};
@@ -1271,6 +1271,32 @@ mod tests {
 		assert!(choose(&after, "old", false).unwrap_err().contains("--with-added"));
 		assert_eq!(ids(choose(&after, "old", true)).0, ["new", "newer"]);
 		assert!(choose(&after, "nobody", true).unwrap_err().contains("no paired phone"));
+	}
+
+	#[test]
+	fn the_phones_as_the_commands_list_them() {
+		let config = settings::read_sources(&[settings::Source::new("a.toml", "[profiles.owner]\nname = \"Owner\"\n")]).unwrap();
+		let c = |id: &str, name: &str, profile: Option<&str>, app: Option<&str>| store::Client {
+			id: id.into(),
+			name: name.into(),
+			created: 1_700_000_000,
+			role: Role::Monitor,
+			profile: profile.map(Into::into),
+			app: app.map(Into::into),
+			..Default::default()
+		};
+		let list = [c("0123abcd", "Pixel", Some("owner"), Some("android/0.6.0")), c("4567cdef", "Old tablet", Some("gone"), None), c("89ab0123", "Tab", None, None)];
+		let lines = client_lines(&list.iter().collect::<Vec<_>>(), Some(&config));
+		assert_eq!(
+			lines,
+			[
+				"0123abcd  monitor  owner                                Pixel       android 0.6.0  (paired 2023-11-14)",
+				"4567cdef  monitor  default (gone: not in the settings)  Old tablet  -              (paired 2023-11-14)",
+				"89ab0123  monitor  default                              Tab         -              (paired 2023-11-14)",
+			]
+		);
+		// Settings that don't parse: the profiles as clients.json has them.
+		assert!(client_lines(&list.iter().collect::<Vec<_>>(), None)[1].contains("  gone "));
 	}
 
 	#[test]

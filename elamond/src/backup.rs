@@ -846,7 +846,14 @@ fn retired(fp: &str, dir: &Path) -> Option<u64> {
 fn print_summary(s: &Summary) {
 	println!("  Computer id:   {}", s.id);
 	println!("  Certificate:   {}", store::pretty_fingerprint(&s.fingerprint));
-	let phones: Vec<String> = s.phones.iter().map(|c| format!("{} ({}, {})", c.name, c.id, c.role.as_str())).collect();
+	let phones: Vec<String> = s
+		.phones
+		.iter()
+		.map(|c| match &c.profile {
+			Some(p) => format!("{} ({}, {}, profile {p})", c.name, c.id, c.role.as_str()),
+			None => format!("{} ({}, {})", c.name, c.id, c.role.as_str()),
+		})
+		.collect();
 	if phones.is_empty() {
 		println!("  Phones:        none paired");
 	} else {

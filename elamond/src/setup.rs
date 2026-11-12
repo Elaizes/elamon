@@ -1345,8 +1345,11 @@ mod tests {
 		let t = table(STARTER);
 		assert_eq!(t.get("control"), Some(&toml::Value::Boolean(false)));
 		assert_eq!(t.len(), 1, "only control is set");
-		// The service reads it as it is.
-		toml::from_str::<store::Config>(STARTER).expect("the service takes the starter settings");
+		// The service reads it as it is, checks and all, and its examples once uncommented too.
+		let read = |text: &str| crate::settings::read_sources(&[crate::settings::Source::new("elamond.toml", text)]);
+		read(STARTER).unwrap_or_else(|m| panic!("the starter settings: {}", crate::settings::join_mistakes(&m)));
+		let config = read(&starter_uncommented()).unwrap_or_else(|m| panic!("the starter's examples: {}", crate::settings::join_mistakes(&m)));
+		assert!(config.links.contains_key("jellyfin") && config.actions.contains_key("brightness"));
 
 		let examples = table(&starter_uncommented());
 		let link = &examples["links"]["jellyfin"];

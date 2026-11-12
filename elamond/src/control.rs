@@ -859,14 +859,17 @@ mod tests {
 	#[tokio::test]
 	async fn a_timed_out_action_takes_what_it_started_with_it() {
 		let pidfile = std::env::temp_dir().join(format!("elamond-action-{}", std::process::id()));
-		let script = format!("echo started; sleep 30 & echo $! > {}; sleep 30", pidfile.display());
-		let r = run_action("sh", &["-c".to_string(), script], Duration::from_secs(1)).await.unwrap();
+		// The background sleep is started and named before anything is written, so a slow start
+		// under load leaves nothing half done when the time is up.
+		let script = format!("sleep 30 & echo $! > {}; echo started; exec sleep 30", pidfile.display());
+		let r = run_action("sh", &["-c".to_string(), script], Duration::from_secs(3)).await.unwrap();
 		assert!(r.timed_out);
 		assert_eq!(r.exit_code, None);
 		assert_eq!(r.output, "started\n");
 		let grandchild: i32 = std::fs::read_to_string(&pidfile).unwrap().trim().parse().unwrap();
 		std::fs::remove_file(&pidfile).unwrap();
-		let deadline = Instant::now() + Duration::from_secs(2);
+		// SIGKILL is at once; being reaped, by whoever adopted it, may take a moment on a busy machine.
+		let deadline = Instant::now() + Duration::from_secs(20);
 		while !gone(grandchild) && Instant::now() < deadline {
 			std::thread::sleep(Duration::from_millis(20));
 		}

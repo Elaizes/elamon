@@ -410,4 +410,43 @@ mod tests {
 		}
 		assert_eq!(all(&config).iter().map(|(id, _)| *id).collect::<Vec<_>>(), ["a", "b"]);
 	}
+
+	#[test]
+	fn the_links_the_app_added_become_settings_once() {
+		let dir = std::env::temp_dir().join(format!("elamond-links-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
+		let (data, config) = (dir.join("data"), dir.join("config"));
+		fs::create_dir_all(&data).unwrap();
+		let link = |name: &str, url: &str, unit: Option<&str>| LinkDef { id: "x".into(), name: name.into(), url: url.into(), unit: unit.map(Into::into), scope: Some("system".into()) };
+		let list = [
+			link("Jellyfin", "http://{host}:8096", Some("jellyfin.service")),
+			link("Jellyfin", "{host}:8097", None),
+			link("Web UI", "https://{host}/", Some("elamond.service")),
+			link("Script", "javascript:alert(1)", None),
+			link("Ünïcode ☃", "http://{host}:1", None),
+		];
+		save_in(&data, &list).unwrap();
+		let settings = crate::settings::read_sources(&[crate::settings::Source::new("a.toml", "[links.web_ui]\nname = \"Mine\"\nurl = \"http://{host}:2\"\n")]).unwrap();
+		migrate(&data, &config, Some(&settings));
+		let text = fs::read_to_string(config.join("elamond.d/links-from-app.toml")).unwrap();
+		let read = crate::settings::read_sources(&[crate::settings::Source::new("links-from-app.toml", text)]).unwrap();
+		let got: Vec<(&str, &str, Option<&str>, &str)> = read.links.iter().map(|(id, l)| (id.as_str(), l.name.as_str(), l.unit.as_deref(), l.scope())).collect();
+		assert_eq!(
+			got,
+			[
+				("jellyfin", "Jellyfin", Some("jellyfin.service"), "system"),
+				("jellyfin_2", "Jellyfin", None, "user"),
+				("n_code", "Ünïcode ☃", None, "user"),
+				// Not the settings' own id, and not a unit no link may have.
+				("web_ui_2", "Web UI", None, "user"),
+			]
+		);
+		assert!(!data.join(FILE).exists() && data.join("links.json.migrated").exists());
+		// Once: another links.json (a backup of 0.5 restored) goes beside, over nothing.
+		save_in(&data, &list[..1]).unwrap();
+		migrate(&data, &config, None);
+		assert!(config.join("elamond.d/links-from-app-2.toml").exists() && data.join("links.json.migrated-2").exists());
+		assert_eq!(id_from("---", &BTreeSet::new()), "link");
+		assert_eq!(id_from(&"a".repeat(40), &BTreeSet::new()).len(), 28);
+		fs::remove_dir_all(dir).unwrap();
+	}
 }

@@ -311,7 +311,16 @@ impl PciNames {
 
 #[cfg(test)]
 mod tests {
-	use super::PciNames;
+	use super::{driver_name, is_card, PciNames};
+
+	#[test]
+	fn cards_and_the_gpus_off_pci() {
+		assert!(is_card("card0") && is_card("card12"));
+		assert!(!is_card("card0-HDMI-A-1") && !is_card("renderD128") && !is_card("version"));
+		assert_eq!(driver_name("vc4"), "Broadcom VideoCore");
+		assert_eq!(driver_name("udl"), "DisplayLink");
+		assert_eq!(driver_name("someone-new"), "someone-new");
+	}
 
 	#[test]
 	fn names_from_the_pci_database() {
