@@ -22,8 +22,9 @@ export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/n
 
 if command -v rustup > /dev/null; then
 	export RUSTUP_TOOLCHAIN=${RUSTUP_TOOLCHAIN:-stable}
-	rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal \
-		$(for arch in $targets; do printf -- '--target %s-unknown-linux-gnu ' "$arch"; done)
+	flags=()
+	for arch in $targets; do flags+=(--target "$arch-unknown-linux-gnu"); done
+	rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal "${flags[@]}"
 fi
 
 mkdir -p "$out"
