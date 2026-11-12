@@ -232,7 +232,7 @@ pub fn values() -> Result<(), String> {
 	let config = store::load_config()?;
 	let (interval, history_len, _) = crate::timing(&config);
 	let mut c = collect::Collector::new(crate::consts::cadence::Ticks::new(crate::consts::cadence::CLI_SNAPSHOT));
-	let all = crate::ui::Sources { processes: true, media: true, volume: true, gpus: true, displays: true, links: true };
+	let all = crate::ui::Sources::ALL;
 	c.read(true, all);
 	std::thread::sleep(crate::consts::cadence::CLI_SNAPSHOT);
 	let mut reading = c.read(true, all);

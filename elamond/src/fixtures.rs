@@ -422,7 +422,7 @@ fn stream_data() {
 	let values = values(&config);
 	let ui = ui_for(&config, &values, Role::Admin, "owner");
 	let sorts = std::collections::HashMap::new();
-	let s = crate::states::States { view: crate::values::View::new(&values, Role::Admin, ui.units), control: true, sorts: &sorts };
+	let s = crate::states::States { view: crate::values::View::new(&values, Role::Admin, ui.units), control: true, sorts: &sorts, read: crate::ui::Sources::ALL };
 	let header = ui.header.as_deref().and_then(|h| ui.dashboard(h));
 	let home = ui.dashboard("home").unwrap();
 	let t = sample().t;

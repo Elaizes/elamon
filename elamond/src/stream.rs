@@ -180,8 +180,8 @@ pub async fn open(
 		sorts: HashMap::new(),
 		last: None,
 		quick: None,
-		skipped: 0,
 		history: true,
+		partial: false,
 		told: Told::default(),
 		log: Log { hub: hub.clone(), id, who, opened: Instant::now(), logged, why: "connection closed" },
 	};
@@ -232,10 +232,11 @@ struct Run {
 	last: Option<Instant>,
 	/// When the last line went at once for a change, rather than with a reading.
 	quick: Option<Instant>,
-	/// Readings passed over while waiting for one that has what the dashboard needs.
-	skipped: u32,
 	/// The next `data` line carries `history`.
 	history: bool,
+	/// The last `data` line went from a reading without all the dashboard needs, so some widgets
+	/// had no state: the first reading with all of it sends one at once.
+	partial: bool,
 	/// What the journal was told of the dashboards the stream changed to.
 	told: Told,
 	log: Log,
@@ -246,26 +247,30 @@ impl Run {
 		let mut frames = self.hub.frame.clone();
 		frames.borrow_and_update();
 		let mut end = ctl.end.subscribe();
+		// The first line goes at once, from the reading there is, as the opening line's follow-up.
+		let mut opening = true;
 		loop {
 			let mut quick = false;
-			tokio::select! {
-				_ = tx.closed() => break,
-				_ = end.wait_for(Option::is_some) => break,
-				_ = ctl.changed.notified() => {
-					let Some(c) = ctl.take_change() else { continue };
-					self.apply(c);
-					// A new dashboard or order goes out at once, from the reading there is, where it has
-					// what they need; otherwise with the next one, as it would anyway. At once no more
-					// than once every half interval, however often the client changes it.
-					quick = self.last.is_none() && self.quick.is_none_or(|q| q.elapsed() >= self.interval / 2);
-					if !quick {
-						continue;
+			if !std::mem::take(&mut opening) {
+				tokio::select! {
+					_ = tx.closed() => break,
+					_ = end.wait_for(Option::is_some) => break,
+					_ = ctl.changed.notified() => {
+						let Some(c) = ctl.take_change() else { continue };
+						self.apply(c);
+						// A new dashboard or order goes out at once, from the reading there is; otherwise
+						// with the next one, as it would anyway. At once no more than once every half
+						// interval, however often the client changes it.
+						quick = self.last.is_none() && self.quick.is_none_or(|q| q.elapsed() >= self.interval / 2);
+						if !quick {
+							continue;
+						}
 					}
+					r = frames.changed() => if r.is_err() {
+						self.log.why = "the service is stopping";
+						break;
+					},
 				}
-				r = frames.changed() => if r.is_err() {
-					self.log.why = "the service is stopping";
-					break;
-				},
 			}
 			let frame = frames.borrow_and_update().clone();
 			// Revoking a phone ends its streams within a tick, not when it next reconnects.
@@ -282,14 +287,13 @@ impl Run {
 				}
 				self.set_ui(ui);
 			}
+			// The first line of a dashboard doesn't wait for a reading made with all it needs: a widget
+			// whose sources the reading hasn't has no state in it (the client shows it loading), and
+			// gets one in the line of the first reading that has them.
 			let Some(dashboard) = self.dashboard.as_deref().and_then(|d| self.ui.dashboard(d)) else { continue };
-			// The first line of a dashboard waits for a reading made with what it needs, a few ticks.
-			if self.last.is_none() && !frame.read.covers(self.need) && self.skipped < cadence::FIRST_FRAME_TICKS {
-				self.skipped += 1;
-				continue;
-			}
 			// Ticks jitter a little; a tenth of the interval of slack keeps 2 s from becoming 3 s.
-			let due = self.last.is_none_or(|l| l.elapsed() + self.interval / 10 >= self.interval);
+			let complete = frame.read.covers(self.need);
+			let due = self.last.is_none_or(|l| l.elapsed() + self.interval / 10 >= self.interval) || (self.partial && complete);
 			if !due {
 				continue;
 			}
@@ -299,11 +303,11 @@ impl Run {
 			}
 			let now = Instant::now();
 			self.last = Some(now);
+			self.partial = !complete;
 			if quick {
 				self.quick = Some(now);
 			}
 			self.history = false;
-			self.skipped = 0;
 		}
 		if let Some(why) = *end.borrow() {
 			self.log.why = why;
@@ -326,7 +330,6 @@ impl Run {
 	/// The next reading sends a line, with its history.
 	fn anew(&mut self) {
 		self.last = None;
-		self.skipped = 0;
 		self.history = true;
 	}
 

@@ -364,7 +364,11 @@ Lines:
 2. `data`, every interval: `{ "type": "data", "t": <Unix ms>, "dashboard": "<id>", "widgets": { … } }`,
    the state of each widget of the dashboard by its id, nested groups included, and of the
    header's widgets (`header/os`…) whatever dashboard is on screen. The first after opening, or
-   after the dashboard changed, also has `history`: the graphs' points so far.
+   after the dashboard changed, also has `history`: the graphs' points so far. It comes at once,
+   from the reading there is: a widget whose source isn't read yet (the processes, monitors, media
+   players, the volume, NVIDIA GPUs or the links, read only while a client shows them) has no state
+   in a line until it is; a client shows it loading. The first reading that has them sends a line
+   at once.
 3. `ui`, whenever the client's `ui` changes: `{ "type": "ui", "ui": "<version>" }`. The stream goes
    on, with the dashboard it had (or the first tab, when that one is gone for this client).
 
@@ -423,7 +427,8 @@ body over 4 KiB is a plain-text 413.
 ## `GET /api/v1/snapshot`
 
 One `data` object (without `type`, with `history` unless `history=0`) for `dashboard=<id>` (the
-first tab without it), after waiting a few ticks for a reading that has everything it needs; 404
+first tab without it), after waiting a few ticks for a reading that has everything it needs (a
+widget whose source still isn't read then has no state, as in a stream); 404
 `no_such_dashboard` for one not in the client's `ui`. `widgets` as for the stream.
 
 ## `POST /api/v1/actions/{id}`

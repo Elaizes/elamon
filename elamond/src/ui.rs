@@ -278,37 +278,43 @@ impl Dashboard {
 		out
 	}
 
-	/// The costlier sources its widgets need read: the collections of their tables and bars, and the
-	/// addresses they show, are judged by or hold in their strings.
+	/// The costlier sources its widgets need read.
+	pub fn needs(&self) -> Sources {
+		self.all_widgets().into_iter().fold(Sources::default(), |n, w| n.union(w.needs()))
+	}
+}
+
+impl UiWidget {
+	/// The costlier sources this widget's own state needs read (not those of the widgets in it):
+	/// the collection of a table or bars, and the addresses it shows, is judged by or holds in its
+	/// strings.
 	pub fn needs(&self) -> Sources {
 		let mut n = Sources::default();
-		for w in self.all_widgets() {
-			let d = &w.def;
-			if let Some(s) = &d.source {
-				n.collection(s);
-			}
-			if w.kind == "media" {
-				n.media = true;
-				n.volume = true;
-			}
-			for a in addresses(d) {
+		let d = &self.def;
+		if let Some(s) = &d.source {
+			n.collection(s);
+		}
+		if self.kind == "media" {
+			n.media = true;
+			n.volume = true;
+		}
+		for a in addresses(d) {
+			n.address(a);
+		}
+		let mut texts: Vec<&str> = [&d.label, &d.caption, &d.text, &d.empty].into_iter().flatten().map(String::as_str).collect();
+		for i in d.items.iter().flatten() {
+			texts.extend([&i.label, &i.text, &i.empty].into_iter().flatten().map(String::as_str));
+			for a in [&i.value, &i.when].into_iter().flatten() {
 				n.address(a);
 			}
-			let mut texts: Vec<&str> = [&d.label, &d.caption, &d.text, &d.empty].into_iter().flatten().map(String::as_str).collect();
-			for i in d.items.iter().flatten() {
-				texts.extend([&i.label, &i.text, &i.empty].into_iter().flatten().map(String::as_str));
-				for a in [&i.value, &i.when].into_iter().flatten() {
-					n.address(a);
-				}
+		}
+		for t in texts {
+			for p in format::placeholders(t) {
+				n.address(format::split_placeholder(p.inner).0);
 			}
-			for t in texts {
-				for p in format::placeholders(t) {
-					n.address(format::split_placeholder(p.inner).0);
-				}
-			}
-			if let Some(a) = &d.when {
-				n.address(a);
-			}
+		}
+		if let Some(a) = &d.when {
+			n.address(a);
 		}
 		n
 	}
@@ -333,6 +339,9 @@ pub struct Sources {
 }
 
 impl Sources {
+	/// Every source.
+	pub const ALL: Sources = Sources { processes: true, media: true, volume: true, gpus: true, displays: true, links: true };
+
 	/// What either needs.
 	pub fn union(self, o: Sources) -> Sources {
 		Sources {

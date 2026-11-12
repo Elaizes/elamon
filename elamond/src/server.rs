@@ -1009,7 +1009,7 @@ pub(crate) fn data_of(hub: &Hub, ui: &Ui, dashboard: &ui::Dashboard, who: &Calle
 		}
 		h
 	});
-	let states = crate::states::States { view: crate::values::View::new(&frame.values, who.role, ui.units), control: hub.control_on(), sorts };
+	let states = crate::states::States { view: crate::values::View::new(&frame.values, who.role, ui.units), control: hub.control_on(), sorts, read: frame.read };
 	crate::states::data(frame.values.t, dashboard, header, &states, history)
 }
 
@@ -1183,7 +1183,7 @@ dashboards = ["overview", "control"]
 	fn frame(config: &store::Config, seq: u64) -> Frame {
 		let values = crate::fixtures::values(config);
 		let caps = Caps::all(&values.power_profiles);
-		let all = Sources { processes: true, media: true, volume: true, gpus: true, displays: true, links: true };
+		let all = Sources::ALL;
 		Frame { seq, shape: shape_of(&values, &caps), values: Arc::new(values), caps: Arc::new(caps), read: all, features: Arc::new(vec!["processes"]) }
 	}
 
@@ -1832,6 +1832,52 @@ dashboards = ["overview", "control"]
 		assert_eq!(streams[1].next_of("data").await.unwrap()["dashboard"], "control");
 		assert!(other.next_of("data").await.is_some() && fifth.next_of("data").await.is_some());
 		assert_eq!(hub.streams.lock().unwrap().len(), limit::STREAMS_PER_CLIENT + 1);
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
+	async fn a_dashboard_comes_at_once_and_what_isnt_read_yet_follows() {
+		let (hub, tx) = hub(true);
+		// The CPU's page, and which of its widgets show the processes.
+		let ui = call(&hub, "GET", "/api/v1/ui", "admin", "").await.1;
+		let cpu = ui["dashboards"].as_array().unwrap().iter().find(|d| d["id"] == "cpu").unwrap().clone();
+		fn ids(ws: &serde_json::Value, out: &mut Vec<(String, bool)>) {
+			for w in ws.as_array().into_iter().flatten() {
+				out.push((w["id"].as_str().unwrap().to_string(), w["source"] == "processes"));
+				ids(&w["widgets"], out);
+			}
+		}
+		let mut all = Vec::new();
+		ids(&cpu["widgets"], &mut all);
+		let procs: Vec<&str> = all.iter().filter(|(_, p)| *p).map(|(id, _)| id.as_str()).collect();
+		assert!(!procs.is_empty(), "{cpu}");
+		// Readings made before anyone looked at processes, then one with them.
+		let reading = |seq: u64, processes: bool| {
+			let mut f = frame(&hub.config(), seq);
+			f.read.processes = processes;
+			Arc::new(f)
+		};
+		tx.send_replace(reading(2, false));
+		let mut lines = Lines::open(&hub, "/api/v1/stream?dashboard=cpu&interval=5000", "t-admin").await;
+		lines.next().await.unwrap();
+		// At once, with no reading in between: everything but what shows the processes.
+		let first = lines.next().await.unwrap();
+		assert_eq!((first["type"].as_str(), first["dashboard"].as_str()), (Some("data"), Some("cpu")));
+		assert!(first["history"].is_object());
+		let widgets = first["widgets"].as_object().unwrap();
+		assert!(procs.iter().all(|id| !widgets.contains_key(*id)), "{first}");
+		assert!(all.iter().filter(|(_, p)| !p).any(|(id, _)| widgets.contains_key(id)) && widgets.contains_key("header/os"), "{first}");
+		assert!(hub.wanted().is_some_and(|w| w.processes));
+		// Another reading still without them: nothing before the interval.
+		tx.send_replace(reading(3, false));
+		assert!(tokio::time::timeout(Duration::from_millis(300), lines.0.next()).await.is_err());
+		// The first with them: a line at once, with them.
+		tx.send_replace(reading(4, true));
+		let next = lines.next().await.unwrap();
+		assert!(procs.iter().all(|id| next["widgets"].get(*id).is_some()) && next.get("history").is_none(), "{next}");
+		// Then at the interval again.
+		tx.send_replace(reading(5, true));
+		assert!(tokio::time::timeout(Duration::from_millis(300), lines.0.next()).await.is_err());
 		std::fs::remove_dir_all(&hub.dir).unwrap();
 	}
 
