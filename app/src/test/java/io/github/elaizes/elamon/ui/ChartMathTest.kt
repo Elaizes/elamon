@@ -73,9 +73,9 @@ class ChartMathTest {
 		assertEquals(100f, chartScale(80f, null, 60f, binary = false))
 		assertEquals(50f, chartScale(30f, null, 50f, binary = false))
 		assertEquals(2048f, chartScale(1000f, null, 64f, binary = true))
-		// A temperature sparkline: 100 °C unless the data runs hotter, then the data itself.
-		assertEquals(100f, chartScale(80f, null, Thresholds.TEMP_BAR_TOP, binary = false, round = false))
-		assertEquals(110f * Thresholds.CHART_HEADROOM, chartScale(110f, null, Thresholds.TEMP_BAR_TOP, binary = false, round = false))
+		// Unrounded: the floor unless the data runs higher, then the data itself.
+		assertEquals(100f, chartScale(80f, null, 100f, binary = false, round = false))
+		assertEquals(110f * Thresholds.CHART_HEADROOM, chartScale(110f, null, 100f, binary = false, round = false))
 	}
 
 	private class Values(private val times: LongArray, private val values: FloatArray) : Points {

@@ -780,4 +780,54 @@
 	<!-- A question in the guide, the Displays section or a monitor in it, open or closed. -->
 	<string name="a11y_expanded">Expanded</string>
 	<string name="a11y_collapsed">Collapsed</string>
+
+	<!-- 0.6: dashboards the computer describes -->
+	<string name="err_no_such_dashboard">That page is no longer in what this computer shows this phone</string>
+	<string name="err_no_such_stream">The connection to the computer was renewed. Try again.</string>
+	<string name="err_bad_sort">That table can\'t be sorted that way</string>
+	<string name="err_bad_param">The computer didn\'t take the value of “%1$s”</string>
+	<string name="done_ran">%1$s: done</string>
+	<string name="action_prompt">%1$s on %2$s</string>
+	<string name="action_question">%1$s?</string>
+	<string name="control_held_off_body">Someone at the computer held control off for every phone. To let phones act again, run there:</string>
+	<string name="control_unreadable_body">The service\'s settings files stopped parsing, so it keeps control off until they read again. To see what is wrong, run on the computer:</string>
+	<string name="widget_unknown">This app can\'t show a “%1$s” yet. Update Elamon to see it.</string>
+	<string name="widget_notice">Notice</string>
+	<string name="widget_fold">Fold</string>
+	<string name="widget_unfold">Unfold</string>
+	<plurals name="a11y_bars">
+		<item quantity="one">%1$s: %2$d, %3$s</item>
+		<item quantity="other">%1$s: %2$d, average %3$s, highest %4$s</item>
+	</plurals>
+	<string name="table_empty">Nothing here right now</string>
+	<string name="table_search">Search</string>
+	<string name="table_details">Details</string>
+	<string name="table_row_gone">No longer in the list. These are its last readings.</string>
+	<plurals name="table_total">
+		<item quantity="one">%1$d in all</item>
+		<item quantity="other">%1$d in all</item>
+	</plurals>
+	<plurals name="table_found">
+		<item quantity="one">%1$d of %2$d</item>
+		<item quantity="other">%1$d of %2$d</item>
+	</plurals>
+	<string name="conn_incompatible">Needs updating</string>
+	<string name="compat_service_title">Update the Elamon service on this computer to %1$s</string>
+	<string name="compat_service_body">It runs elamond %1$s, which speaks an older protocol than Elamon %2$s on this phone. Once it is updated, its dashboards show here.</string>
+	<string name="compat_app_title">Update Elamon on this phone</string>
+	<string name="compat_app_body">This computer runs elamond %1$s, which speaks a newer protocol than Elamon %2$s on this phone.</string>
+	<string name="home_outdated">Needs updating</string>
+	<string name="migration_title">Your settings now live on the computer</string>
+	<string name="migration_body">From Elamon 0.6 the computer says how the app looks and behaves, in a profile. This is the profile that gives what was set on this phone; add it to ~/.config/elamon/elamond.toml on the computer:</string>
+	<string name="migration_apply">Then give it to this phone there:</string>
+	<string name="migration_each">On each computer, with this phone\'s id there; elamond clients lists them.</string>
+	<string name="migration_done">Done</string>
+	<string name="settings_from_defaults">The built-in defaults, until a computer is paired</string>
+	<string name="settings_from_unknown">As %1$s says, once it has been reached</string>
+	<string name="settings_from_profile">Profile “%1$s” on %2$s</string>
+	<string name="settings_where">How the app looks and behaves is set on the computer, in the profile it gives this phone: each line below names its key in elamond.toml. Change it there (elamond edit, then elamond check), or give this phone another profile:</string>
+	<string name="settings_on">On</string>
+	<string name="settings_off">Off</string>
+	<string name="settings_unlock_none">Nothing</string>
+	<string name="settings_unlock_minutes">%1$d min</string>
 </resources>

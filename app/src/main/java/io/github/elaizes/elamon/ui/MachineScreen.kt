@@ -26,12 +26,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -57,7 +55,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -73,48 +73,26 @@ import dev.chrisbanes.haze.hazeSource
 import io.github.elaizes.elamon.BuildConfig
 import io.github.elaizes.elamon.Compat
 import io.github.elaizes.elamon.Conn
-import io.github.elaizes.elamon.Intervals
 import io.github.elaizes.elamon.MIN_ELAMOND
 import io.github.elaizes.elamon.MachineState
 import io.github.elaizes.elamon.MachineViewModel
 import io.github.elaizes.elamon.Message
-import io.github.elaizes.elamon.Permissions
 import io.github.elaizes.elamon.PhoneRole
 import io.github.elaizes.elamon.R
-import io.github.elaizes.elamon.compatibility
-import io.github.elaizes.elamon.data.Info
-import io.github.elaizes.elamon.data.PairTarget
+import io.github.elaizes.elamon.Settings
+import io.github.elaizes.elamon.allWidgets
 import io.github.elaizes.elamon.data.Machine
 import io.github.elaizes.elamon.data.MachineStore
+import io.github.elaizes.elamon.data.PairTarget
+import io.github.elaizes.elamon.data.UiCache
+import io.github.elaizes.elamon.data.UiDoc
+import io.github.elaizes.elamon.data.Widget
+import io.github.elaizes.elamon.data.WidgetState
 
-private enum class Tab(@StringRes val label: Int) {
-	Overview(R.string.tab_overview),
-	Processes(R.string.tab_processes),
-	Sensors(R.string.tab_sensors),
-	Control(R.string.tab_control),
-}
-
-private fun Tab.icon() = when (this) {
-	Tab.Overview -> ElIcons.Overview
-	Tab.Processes -> ElIcons.Processes
-	Tab.Sensors -> ElIcons.Thermometer
-	Tab.Control -> ElIcons.Control
-}
-
-/** What a tab gets from the screen around it. */
-class TabScope(
-	val state: MachineState,
-	val vm: MachineViewModel,
-	/** What this phone may do here: whatever else, the tab leaves out. */
-	val perms: Permissions,
-	val list: LazyListState,
-	val header: @Composable () -> Unit,
-	val openDetail: (String) -> Unit,
-	val openHelp: (String?) -> Unit,
-	/** The computer's name as shown, for what asks before acting on it. */
-	val name: String,
-)
-
+/**
+ * A computer's screen: its tabs and the pages their widgets open, as the computer describes them
+ * (`ui`), filled in from one stream that is told what is on screen.
+ */
 @Composable
 fun MachineScreen(
 	machine: Machine,
@@ -132,23 +110,27 @@ fun MachineScreen(
 		factory = MachineViewModel.Factory(ctx.applicationContext as Application, machine.id),
 	)
 	val state by vm.state.collectAsStateWithLifecycle()
-	val perms by vm.permissions.collectAsStateWithLifecycle()
+	val want by vm.dashboard.collectAsStateWithLifecycle()
+	val actionsState by vm.actions.collectAsStateWithLifecycle()
 	val prefs = LocalPrefs.current
-	var tab by rememberSaveable { mutableStateOf(Tab.Overview) }
-	// A phone that may not see processes has no tab for them; one that loses it goes back to the overview.
-	val tabs = Tab.entries.filter { it != Tab.Processes || perms.processes }
-	val shownTab = if (tab in tabs) tab else Tab.Overview
-	LaunchedEffect(shownTab) { tab = shownTab }
-	var detail by rememberSaveable { mutableStateOf<String?>(null) }
-	// The activity page closes for a phone no longer allowed to read it.
-	LaunchedEffect(detail, perms.log) { if (detail == ACTIVITY_PAGE && !perms.log) detail = null }
-	val activity by vm.activity.collectAsStateWithLifecycle()
+	val ui = state.ui
+	// The tab is the stream's dashboard as the view model keeps it; pages open over it.
+	var tab by rememberSaveable { mutableStateOf<String?>(null) }
+	var pages by rememberSaveable { mutableStateOf(listOf<String>()) }
+	val tabs = ui?.tabs.orEmpty().filter { ui?.dashboard(it) != null }
+	val shownTab = tab?.takeIf { it in tabs } ?: want.dashboard?.takeIf { it in tabs } ?: tabs.firstOrNull()
+	// A page whose dashboard is gone from the ui (the role changed) closes.
+	val shownPages = pages.filter { ui?.dashboard(it) != null }
+	val current = shownPages.lastOrNull() ?: shownTab
+	LaunchedEffect(current) { current?.let(vm::show) }
 	var menu by remember { mutableStateOf(false) }
 	var confirmForget by remember { mutableStateOf(false) }
 	val haze = remember { HazeState() }
 	val snackbar = remember { SnackbarHostState() }
-	val lists = Tab.entries.associateWith { rememberLazyListState() }
-	val detailList = rememberLazyListState()
+	val lists = remember { mutableMapOf<String, LazyListState>() }
+	val folds = remember(machine.id) { Folds(Settings.get(ctx), machine.id) }
+	val tables = remember { TableStates() }
+	val form = remember { mutableStateOf<FormRequest?>(null) }
 
 	// Stream only while the screen can be seen: no data, battery or network use in the background.
 	val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -183,26 +165,33 @@ fun MachineScreen(
 		onDispose { view.keepScreenOn = false }
 	}
 
-	BackHandler(enabled = detail != null) { detail = null }
+	BackHandler(enabled = shownPages.isNotEmpty()) { pages = shownPages.dropLast(1) }
 
-	val name = state.info?.name ?: machine.name
-	val status = connText(state.conn, Intervals.effective(prefs.intervalMs, state.info?.intervalMs))
-	val compatDismissed by vm.compatDismissed.collectAsStateWithLifecycle()
-	val compat = state.info?.let { compatibility(BuildConfig.VERSION_NAME, it.api, it.elamondVersion, it.minApp) } ?: Compat.Ok
-	// Unpaired, another certificate or refused: the screen is a notice, with no tabs to switch
-	// between and no old numbers coming back.
-	val turnedAway = state.conn == Conn.Unauthorized || state.conn == Conn.CertificateChanged || state.conn == Conn.Refused
-	val currentList = if (detail != null) detailList else lists.getValue(shownTab)
+	val name = ui?.service?.name?.ifEmpty { null } ?: machine.name
+	val status = connText(state.conn, want.intervalMs)
+	// Unpaired, another certificate, refused or not understood: the screen is a notice, with no
+	// tabs to switch between and no old numbers coming back.
+	val turnedAway = state.conn in setOf(Conn.Unauthorized, Conn.CertificateChanged, Conn.Refused, Conn.Incompatible)
+	val currentList = lists.getOrPut(current ?: "") { LazyListState() }
 	val collapsed = rememberCollapsed(currentList)
+	val haptics = LocalHapticFeedback.current
+	val launcher = ui?.let {
+		ActionLauncher(
+			guard, vm, it, name, res,
+			tap = { if (prefs.haptics) haptics.performHapticFeedback(HapticFeedbackType.ContextClick) },
+			form = form,
+			running = actionsState,
+		)
+	}
 
 	CompositionLocalProvider(LocalHaze provides haze) {
 		// The tab bar is measured first: the lists, the glass and the snackbar keep clear of what it covers.
 		BottomBarLayout(
 			Modifier.fillMaxSize(),
 			bar = {
-				if (state.sample != null && detail == null && !turnedAway) {
+				if (ui != null && shownPages.isEmpty() && !turnedAway && tabs.size > 1) {
 					FloatingNavBar(
-						items = tabs.map { NavItem(stringResource(it.label), it.icon()) },
+						items = tabs.map { id -> ui.dashboard(id).let { NavItem(it?.title ?: id, icon(it?.icon)) } },
 						selected = tabs.indexOf(shownTab),
 						onSelect = { tab = tabs[it] },
 					)
@@ -228,44 +217,57 @@ fun MachineScreen(
 								Button(onClick = { vm.retry() }) { Text(stringResource(R.string.retry)) }
 							}
 						}
-						state.sample == null && state.conn == Conn.Offline -> Centered {
+						state.conn == Conn.Incompatible -> Centered {
+							val app = state.compat == Compat.UpdateApp
+							Notice(
+								Icons.Default.Warning,
+								stringResource(if (app) R.string.compat_app_title else R.string.compat_service_title, MIN_ELAMOND),
+								stringResource(if (app) R.string.compat_app_body else R.string.compat_service_body, state.hello?.version.orEmpty(), BuildConfig.VERSION_NAME),
+							) {
+								Button(onClick = { vm.retry() }) { Text(stringResource(R.string.retry)) }
+								TextButton(onClick = { onHelp(null) }) { Text(stringResource(R.string.help)) }
+							}
+						}
+						ui == null && state.conn == Conn.Offline -> Centered {
 							Notice(ElIcons.Laptop, stringResource(R.string.machine_unreachable_title, name), stringResource(R.string.machine_unreachable_body)) {
 								Button(onClick = { vm.retry() }) { Text(stringResource(R.string.retry)) }
 								TextButton(onClick = { onHelp(HelpTopic.TROUBLESHOOTING) }) { Text(stringResource(R.string.troubleshooting_button)) }
 							}
 						}
-						state.sample == null -> Centered { CircularProgressIndicator() }
+						ui == null || current == null || launcher == null -> Centered { CircularProgressIndicator() }
 						else -> AnimatedContent(
-							targetState = detail,
+							targetState = current,
 							transitionSpec = {
-								if (prefs.animations) (fadeIn(tween(Motion.DETAIL_IN)) + scaleIn(tween(Motion.DETAIL_IN), initialScale = Motion.DETAIL_SCALE)) togetherWith fadeOut(tween(Motion.DETAIL_OUT))
-								else fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+								val page = initialState in shownPages || targetState in shownPages
+								when {
+									!prefs.animations -> fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+									page -> (fadeIn(tween(Motion.DETAIL_IN)) + scaleIn(tween(Motion.DETAIL_IN), initialScale = Motion.DETAIL_SCALE)) togetherWith fadeOut(tween(Motion.DETAIL_OUT))
+									else -> fadeIn(tween(Motion.TAB_IN)) togetherWith fadeOut(tween(Motion.TAB_OUT))
+								}
 							},
-							label = "detail",
+							label = "dashboard",
 						) { d ->
-							if (d != null) {
-								if (d == ACTIVITY_PAGE) ActivityPage(vm, state, detailList)
-								else DetailPage(d, state, vm, detailList, processes = perms.processes)
-							} else {
-								AnimatedContent(
-									targetState = shownTab,
-									transitionSpec = { fadeIn(tween(if (prefs.animations) Motion.TAB_IN else 0)) togetherWith fadeOut(tween(if (prefs.animations) Motion.TAB_OUT else 0)) },
-									label = "tab",
-								) { t ->
-									val header = @Composable {
-										Column {
-											MachineHeader(name, state, status, lists.getValue(t), perms.role)
-											val info = state.info
-											if (compat != Compat.Ok && !compatDismissed && info != null) CompatBanner(compat, info) { vm.dismissCompat() }
-										}
-									}
-									val s = TabScope(state, vm, perms, lists.getValue(t), header, { detail = it }, onHelp, name)
-									when (t) {
-										Tab.Overview -> OverviewTab(s)
-										Tab.Processes -> ProcessesTab(s)
-										Tab.Sensors -> SensorsTab(s)
-										Tab.Control -> ControlTab(s)
-									}
+							val list = lists.getOrPut(d) { LazyListState() }
+							val isPage = d in shownPages
+							val scope = DashScope(
+								machine.id, ui, d, state.data[d]?.widgets.orEmpty(), vm, state, name,
+								open = { target -> if (target != d && ui.dashboard(target) != null) pages = shownPages + target },
+								actions = launcher,
+								folds = folds,
+								tables = tables,
+							)
+							DashboardList(scope, list) {
+								Column {
+									MachineHeader(
+										if (isPage) ui.dashboard(d)?.title ?: d else name,
+										state,
+										if (isPage) name else status,
+										list,
+										headerPills(ui, state),
+										ui.role,
+										live = !isPage,
+									)
+									if (state.compat != Compat.Ok) CompatBanner(state.compat, state.hello?.version.orEmpty())
 								}
 							}
 						}
@@ -273,17 +275,12 @@ fun MachineScreen(
 				}
 
 				GlassTopBar(
-					title = detail?.let { detailTitle(it, state) } ?: name,
+					title = if (current != null && current in shownPages) ui?.dashboard(current)?.title ?: name else name,
 					// No big title on a notice: the bar says whose it is.
-					collapsed = collapsed || state.sample == null || turnedAway,
-					onBack = { if (detail != null) detail = null else onBack() },
-					subtitle = if (detail != null) name else status,
+					collapsed = collapsed || ui == null || turnedAway,
+					onBack = { if (shownPages.isNotEmpty()) pages = shownPages.dropLast(1) else onBack() },
+					subtitle = if (current != null && current in shownPages) name else status,
 					actions = {
-						if (detail == ACTIVITY_PAGE) {
-							IconButton(onClick = { vm.refreshActivity() }, enabled = !activity.loading) {
-								Icon(Icons.Default.Refresh, stringResource(R.string.activity_refresh))
-							}
-						}
 						IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.machine_more)) }
 						DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
 							DropdownMenuItem(text = { Text(stringResource(R.string.settings)) }, onClick = { menu = false; onSettings() })
@@ -304,16 +301,26 @@ fun MachineScreen(
 						.then(if (collapsed) Modifier.padding(top = barHeight + Space.s) else Modifier.height(barHeight)),
 					contentAlignment = Alignment.Center,
 				) {
-					AnimatedVisibility(visible = state.sample != null && state.conn != Conn.Live && !turnedAway) {
+					AnimatedVisibility(visible = ui != null && state.conn != Conn.Live && !turnedAway) {
 						Pill(stringResource(if (state.conn == Conn.Offline) R.string.machine_offline_retrying else R.string.conn_reconnecting), Metric.colors.warn, dot = true)
 					}
 				}
 
-				if (state.sample != null && !turnedAway) BottomGlass(Modifier.align(Alignment.BottomCenter))
+				if (ui != null && !turnedAway) BottomGlass(Modifier.align(Alignment.BottomCenter))
 
 				SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = bottomReserve() + Space.l))
 			}
 		}
+	}
+
+	// The sheets and the form over the screen: a table's row, what a command printed, an action's values.
+	if (ui != null && current != null && launcher != null) {
+		val scope = DashScope(machine.id, ui, current, state.data[current]?.widgets.orEmpty(), vm, state, name, {}, launcher, folds, tables)
+		TableSheet(scope)
+	}
+	ActionOutput(vm, ui, actionsState)
+	form.value?.let { req ->
+		ParamForm(req, onDismiss = { form.value = null }) { params -> launcher?.submit(req, params) }
 	}
 
 	if (confirmForget) {
@@ -324,6 +331,8 @@ fun MachineScreen(
 			confirm = {
 				TextButton(onClick = {
 					MachineStore.get(ctx).remove(machine.id)
+					UiCache.get(ctx).remove(machine.id)
+					Settings.get(ctx).forget(machine.id)
 					confirmForget = false
 					onForgotten()
 				}) { Text(stringResource(R.string.machine_forget_confirm)) }
@@ -333,37 +342,52 @@ fun MachineScreen(
 	}
 }
 
-/** The big title: the computer's name, how it's doing, what it runs, and what this phone may do there. */
+/** The pills under the computer's name: the header dashboard's widgets with their states. */
+private fun headerPills(ui: UiDoc, state: MachineState): List<Pair<Widget, WidgetState?>> {
+	val id = ui.header ?: return emptyList()
+	val dash = ui.dashboard(id) ?: return emptyList()
+	val states = state.data[id]?.widgets.orEmpty()
+	return allWidgets(dash.widgets).filter { it.type != "group" }.map { it to states[it.id] }
+}
+
+/** The big title: the computer's name (or a page's), how it's doing, the header's pills, and what this phone may do there. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun MachineHeader(name: String, state: MachineState, status: String, list: LazyListState, role: String?) {
-	val s = state.sample
+private fun MachineHeader(
+	title: String,
+	state: MachineState,
+	status: String,
+	list: LazyListState,
+	pills: List<Pair<Widget, WidgetState?>>,
+	role: String?,
+	live: Boolean,
+) {
 	BigTitle(
-		name,
+		title,
 		list = list,
 		subtitle = {
 			Text(
 				status,
 				style = MaterialTheme.typography.titleSmall,
-				color = if (state.conn == Conn.Live) Metric.colors.good else MaterialTheme.colorScheme.onSurfaceVariant,
+				color = if (live && state.conn == Conn.Live) Metric.colors.good else MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 		},
-		extra = s?.let {
-			{
-				FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s), verticalArrangement = Arrangement.spacedBy(Space.s)) {
-					state.info?.os?.takeIf { o -> o.isNotBlank() }?.let { os -> Pill(os, MaterialTheme.colorScheme.secondary) }
-					Pill(stringResource(R.string.machine_uptime, Fmt.duration(resources(), s.uptime)), MaterialTheme.colorScheme.secondary)
-					when (s.power.onAc) {
-						true -> Pill(stringResource(R.string.machine_on_ac), Metric.colors.good, dot = true)
-						false -> Pill(stringResource(R.string.machine_on_battery), Metric.colors.warn, dot = true)
-						null -> {}
-					}
-					(s.power.ppdProfile ?: s.power.profile)?.let { p -> Pill(profileName(p), MaterialTheme.colorScheme.tertiary) }
-					role?.let { RolePill(it) }
-				}
+		extra = if (pills.isEmpty() && role == null) null else ({
+			FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s), verticalArrangement = Arrangement.spacedBy(Space.s)) {
+				for ((w, s) in pills) HeaderPill(w, s)
+				role?.let { RolePill(it) }
 			}
-		},
+		}),
 	)
+}
+
+/** One of the header's widgets as a pill: its text, coloured by its level (with a dot) or its colour. */
+@Composable
+private fun HeaderPill(w: Widget, s: WidgetState?) {
+	val text = s?.text ?: Fmt.format(s?.v, w.format, w.unit) ?: w.text ?: return
+	if (text.isBlank()) return
+	val level = levelColor(s?.level ?: w.level, s?.blend, Metric.colors.good)
+	Pill(text, level ?: if (w.color != null) accent(w.color) else MaterialTheme.colorScheme.secondary, dot = level != null)
 }
 
 /** This phone's role on the computer, small among the other pills; a screen reader also hears what it allows. */
@@ -377,7 +401,7 @@ private fun RolePill(role: String) {
 
 /** A role by the name `elamond clients role` takes, which a newer service's may be. */
 @Composable
-private fun roleName(role: String): String = when (PhoneRole.of(role)) {
+fun roleName(role: String): String = when (PhoneRole.of(role)) {
 	PhoneRole.Glance -> stringResource(R.string.role_glance)
 	PhoneRole.Monitor -> stringResource(R.string.role_monitor)
 	PhoneRole.Operate -> stringResource(R.string.role_operate)
@@ -391,17 +415,6 @@ private fun PhoneRole.about(): Int = when (this) {
 	PhoneRole.Monitor -> R.string.role_monitor_about
 	PhoneRole.Operate -> R.string.role_operate_about
 	PhoneRole.Admin -> R.string.role_admin_about
-}
-
-@Composable
-fun profileName(p: String): String = when (p) {
-	"power-saver", "low-power" -> stringResource(R.string.profile_power_saver)
-	"cool" -> stringResource(R.string.profile_cool)
-	"quiet" -> stringResource(R.string.profile_quiet)
-	"balanced" -> stringResource(R.string.profile_balanced)
-	"balanced-performance" -> stringResource(R.string.profile_balanced_performance)
-	"performance" -> stringResource(R.string.profile_performance)
-	else -> p.replaceFirstChar { it.uppercase() }
 }
 
 /** In the middle of what the bars leave: under the top bar, above whatever covers the bottom. */
@@ -422,6 +435,7 @@ private fun connText(conn: Conn, intervalMs: Int): String = when (conn) {
 	Conn.Unauthorized -> stringResource(R.string.conn_unauthorized)
 	Conn.CertificateChanged -> stringResource(R.string.conn_certificate_changed)
 	Conn.Refused -> stringResource(R.string.conn_refused)
+	Conn.Incompatible -> stringResource(R.string.conn_incompatible)
 }
 
 fun Message.text(res: Resources): String = when (this) {
@@ -429,9 +443,11 @@ fun Message.text(res: Resources): String = when (this) {
 	is Message.Text -> text
 }
 
-/** A note under the title when the app or the service is out of date; it works either way. */
+/** A note under the title when the app or the service is older than the other likes; it works either way. */
 @Composable
-private fun CompatBanner(compat: Compat, info: Info, onDismiss: () -> Unit) {
+private fun CompatBanner(compat: Compat, version: String) {
+	var dismissed by rememberSaveable { mutableStateOf(false) }
+	if (dismissed) return
 	val warn = Metric.colors.warn
 	Surface(
 		shape = RoundedCornerShape(Radius.lPlus),
@@ -443,11 +459,11 @@ private fun CompatBanner(compat: Compat, info: Info, onDismiss: () -> Unit) {
 			Spacer(Modifier.width(Space.sPlus))
 			Text(
 				if (compat == Compat.UpdateApp) stringResource(R.string.compat_update_app)
-				else stringResource(R.string.compat_update_elamond, info.elamondVersion, MIN_ELAMOND),
+				else stringResource(R.string.compat_update_elamond, version, MIN_ELAMOND),
 				style = MaterialTheme.typography.bodySmall,
 				modifier = Modifier.weight(1f),
 			)
-			IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, stringResource(R.string.compat_dismiss), Modifier.size(Sizes.iconM)) }
+			IconButton(onClick = { dismissed = true }) { Icon(Icons.Default.Close, stringResource(R.string.compat_dismiss), Modifier.size(Sizes.iconM)) }
 		}
 	}
 }

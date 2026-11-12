@@ -14,15 +14,19 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import io.github.elaizes.elamon.headerData
 
 /**
- * The app against elamond/fixtures, which the service's own tests write: every shape it sends, with
- * every optional field filled. A field the service sends that the app doesn't model fails here, and
- * so does a field the app models that the service never sends (a typo in a @SerialName).
+ * The app against elamond/fixtures, which the service's own tests write: every shape of API 2 it
+ * sends, with every optional field filled. A field the service sends that the app doesn't model
+ * fails here, and so does a field the app models that the service never sends (a typo in a
+ * @SerialName). Widgets and widget states share one shape each across their types, so what the app
+ * reads is checked against all of them together: every key it reads, some widget or state has.
  */
 class ProtocolContractTest {
 	private val dir = File(System.getProperty("elamon.fixtures") ?: error("elamon.fixtures isn't set; run the tests through Gradle"))
@@ -31,33 +35,45 @@ class ProtocolContractTest {
 	private val shapes: Map<String, KSerializer<*>> = mapOf(
 		"hello" to Hello.serializer(),
 		"pair" to PairResponse.serializer(),
-		"info" to Info.serializer(),
-		"sample" to Sample.serializer(),
-		"sample-glance" to Sample.serializer(),
-		"history" to History.serializer(),
-		"control" to ControlInfo.serializer(),
-		"control-off" to ControlInfo.serializer(),
+		"ui" to UiDoc.serializer(),
+		"stream-open" to StreamLine.serializer(),
+		"stream-data" to StreamLine.serializer(),
+		"stream-data-detail" to StreamLine.serializer(),
+		"stream-ui" to StreamLine.serializer(),
+		"subscribe" to Subscribe.serializer(),
+		"action-request" to ActionRequest.serializer(),
 		"action-result" to ActionResult.serializer(),
-		"detected" to ListSerializer(Listener.serializer()),
-		"units" to ListSerializer(UnitInfo.serializer()),
-		"log" to ListSerializer(LogEntry.serializer()),
 		"rotations" to ListSerializer(Rotation.serializer()),
 	)
 
-	/**
-	 * Fields the service sends that the app leaves alone on purpose, as "fixture.path.field" (a list's
-	 * items as "[]") to the reason. Empty while the app models everything.
-	 */
-	private val ignored: Map<String, String> = emptyMap()
+	/** Fixtures that aren't a body the app decodes, and the test that reads them. */
+	private val checkedElsewhere = mapOf(
+		"errors" to "ErrorsTest: every error code and its status",
+		"formats" to "FormatTest: every case the service formats",
+	)
 
 	/**
-	 * Fields the app reads that a fixture leaves out on purpose, as "fixture.path.field" to the reason;
-	 * another fixture has each of them.
+	 * Shapes of API 1 that the service's branch still writes until it switches: nothing of them is
+	 * read any more. They may go at any time.
+	 */
+	private val apiOne = setOf("info", "sample", "sample-glance", "history", "control", "control-off", "detected", "units", "log")
+
+	/** Objects keyed by ids rather than by field names: their values are checked together, as a list's items are. */
+	private val maps = setOf("stream-data.widgets", "stream-data.history", "stream-data-detail.widgets", "stream-data-detail.history")
+
+	/** A group's widgets are widgets: what they have, the dashboards' widgets are checked for. */
+	private val asTheirParents = setOf("ui.dashboards[].widgets[].widgets")
+
+	/** Fixtures only checked one way, that the app reads them: another fixture of the same shape has every field. */
+	private val readOnly = mapOf("stream-data-detail" to "stream-data has every field of a data line")
+
+	/**
+	 * Fields the app reads that the fixtures leave out, as "fixture.path.field" (a list's items, a
+	 * map's values as "[]"), to the reason.
 	 */
 	private val leftOut: Map<String, String> = mapOf(
-		"sample-glance.media" to "a glance phone gets no media",
-		"sample-glance.process_count" to "nor processes",
-		"sample-glance.processes" to "nor processes",
+		"ui.header" to "the header dashboard is new in the contract; the service's fixtures don't have it yet",
+		"stream-data.widgets[].labels" to "the fixture's bars have no labels (none by default)",
 	)
 
 	/** No unknown keys, no coercion: whatever the app can't place is an error. */
@@ -77,44 +93,60 @@ class ProtocolContractTest {
 
 	private fun fixture(name: String): JsonElement = Json.parseToJsonElement(File(dir, "$name.json").readText())
 
-	private fun withoutIgnored(e: JsonElement, path: String): JsonElement = when (e) {
-		is JsonObject -> JsonObject(e.filterKeys { "$path.$it" !in ignored }.mapValues { (k, v) -> withoutIgnored(v, "$path.$k") })
-		is JsonArray -> JsonArray(e.map { withoutIgnored(it, "$path[]") })
-		else -> e
+	/** [a] and [b] as one: objects key by key, lists one after the other, a value over a missing one. */
+	private fun merge(a: JsonElement, b: JsonElement): JsonElement = when {
+		a is JsonObject && b is JsonObject -> JsonObject((a.keys + b.keys).associateWith { k ->
+			val x = a[k]
+			val y = b[k]
+			if (x == null) y!! else if (y == null) x else merge(x, y)
+		})
+		a is JsonArray && b is JsonArray -> JsonArray(a + b)
+		a is JsonNull -> b
+		else -> a
 	}
 
-	/** Keys in [app] that [sent] lacks, through objects and the first item of lists. */
+	private fun union(items: Collection<JsonElement>): JsonElement? = items.reduceOrNull(::merge)
+
+	/** Keys in [app] that [sent] lacks, through objects, and all the items of lists (and [maps]) together. */
 	private fun missing(app: JsonElement, sent: JsonElement, path: String, out: MutableList<String>) {
+		if (path in asTheirParents) return
 		when {
-			app is JsonObject && sent is JsonObject -> for ((k, v) in app) {
-				val a = sent[k]
-				if (a == null) out += "$path.$k" else missing(v, a, "$path.$k", out)
+			app is JsonObject && sent is JsonObject && path in maps -> {
+				val a = union(app.values) ?: return
+				val s = union(sent.values) ?: return
+				missing(a, s, "$path[]", out)
 			}
-			app is JsonArray && sent is JsonArray && app.isNotEmpty() && sent.isNotEmpty() -> missing(app[0], sent[0], "$path[]", out)
+			app is JsonObject && sent is JsonObject -> for ((k, v) in app) {
+				val s = sent[k]
+				if (s == null) out += "$path.$k" else missing(v, s, "$path.$k", out)
+			}
+			app is JsonArray && sent is JsonArray -> {
+				val a = union(app) ?: return
+				val s = union(sent) ?: return
+				missing(a, s, "$path[]", out)
+			}
 		}
 	}
 
 	private fun <T> roundTrip(name: String, serializer: KSerializer<T>): List<String> {
 		val raw = fixture(name)
 		val decoded = try {
-			strict.decodeFromJsonElement(serializer, withoutIgnored(raw, name))
+			strict.decodeFromJsonElement(serializer, raw)
 		} catch (e: SerializationException) {
 			return listOf("$name: the app can't read what the service sends: ${e.message}")
 		}
+		if (name in readOnly) return emptyList()
 		val back = everything.encodeToJsonElement(serializer, decoded)
 		val out = mutableListOf<String>()
 		missing(back, raw, name, out)
 		return out.filter { it !in leftOut }.map { "$it: the app reads it, the service never sends it" }
 	}
 
-	/** Fixtures that aren't a body the app decodes, and the test that reads them. */
-	private val checkedElsewhere = mapOf("errors" to "ErrorsTest: every error code and its status")
-
 	@Test
 	fun everyFixtureHasAShape() {
 		val files = dir.listFiles { f -> f.extension == "json" }.orEmpty().map { it.nameWithoutExtension }.toSet()
 		assertTrue(files.isNotEmpty(), "no fixtures in $dir")
-		assertEquals(files.sorted(), (shapes.keys + checkedElsewhere.keys).sorted(), "a fixture without a shape in the app, or a shape without a fixture")
+		assertEquals((files - apiOne).sorted(), (shapes.keys + checkedElsewhere.keys).sorted(), "a fixture without a shape in the app, or a shape without a fixture")
 	}
 
 	@Test
@@ -124,89 +156,141 @@ class ProtocolContractTest {
 	}
 
 	@Test
-	fun ignoredFieldsStillExist() {
-		// An entry for a field the service dropped would hide nothing; keep the list honest.
-		for (path in ignored.keys) {
-			val name = path.substringBefore('.')
-			var e: JsonElement? = fixture(name)
-			for (part in path.substringAfter('.').split('.')) {
-				val key = part.removeSuffix("[]")
-				e = (e as? JsonObject)?.get(key)
-				if (part.endsWith("[]")) e = (e as? JsonArray)?.firstOrNull()
-			}
-			assertTrue(e != null, "$path is allowed to be ignored but the service doesn't send it")
-		}
+	fun requestsAreWrittenAsTheFixtures() {
+		// What the app sends, as the service's tests read it.
+		val subscribe = Subscribe(dashboard = "detail", interval = 2000, sort = mapOf("detail/procs" to "mem"))
+		assertEquals(fixture("subscribe"), ProtocolJson.encodeToJsonElement(Subscribe.serializer(), subscribe))
+		val action = ActionRequest(JsonObject(mapOf("mode" to JsonPrimitive("server"))))
+		assertEquals(fixture("action-request"), ProtocolJson.encodeToJsonElement(ActionRequest.serializer(), action))
+		// Each key of a change is optional: one left out isn't sent at all.
+		assertEquals("""{"dashboard":"cpu"}""", ProtocolJson.encodeToString(Subscribe.serializer(), Subscribe(dashboard = "cpu")))
+		assertEquals("""{"params":{}}""", ProtocolJson.encodeToString(ActionRequest.serializer(), ActionRequest()))
 	}
 
 	@Test
-	fun leftOutFieldsAreLeftOutAndSentElsewhere() {
-		for (path in leftOut.keys) {
-			val name = path.substringBefore('.')
-			val field = path.substringAfter('.')
-			assertTrue(field !in fixture(name).jsonObject, "$path is said to be left out, but $name has it")
-			assertTrue(field in fixture("sample").jsonObject, "$path is in no fixture at all")
-		}
+	fun theUiAsDescribed() {
+		val ui = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), fixture("ui"))
+		assertEquals(listOf("home"), ui.tabs)
+		assertEquals(listOf("home", "detail"), ui.dashboards.map { it.id })
+		assertEquals("1m", ui.profile.unlock.grace)
+		assertEquals(false, ui.profile.android.dynamicColor)
+		val home = ui.dashboard("home")!!
+		val cpu = home.widgets.first { it.id == "home/cpu" }
+		// A caption that holds values comes in the state; one that doesn't, in the ui.
+		assertEquals(JsonPrimitive(true), cpu.caption)
+		assertNull(cpu.captionText)
+		assertEquals("detail", cpu.open)
+		assertEquals("Readings from the fixture.", home.widgets.first { it.id == "home/note" }.text)
+		val disks = home.widgets.first { it.id == "home/disks" }
+		assertEquals(true, disks.collapsed)
+		assertEquals(100.0, disks.columns!!.last().bar!!.max.number())
+		val power = home.widgets.first { it.id == "home/power" }
+		assertEquals(listOf("home/power/reboot", "home/power/off"), power.widgets!!.map { it.id })
+		val links = home.widgets.first { it.id == "home/links" }
+		assertEquals(JsonPrimitive("{id}"), links.rowActions!!.single().params["link"])
+		val fan = ui.action("fan")!!.params.single()
+		assertEquals("range", fan.kind)
+		assertEquals(5.0, fan.step)
+		assertEquals(50.0, fan.default.number())
+		assertTrue(ui.action("process.signal")!!.params.first { it.id == "start" }.optional)
+		assertEquals(true, ui.action("power.reboot")!!.unlock)
+		assertEquals(listOf("server", "desktop"), ui.action("mode")!!.params.single().choices!!.map { it.value })
 	}
 
 	@Test
-	fun aGlancePhonesSampleHasTheBasicsOnly() {
-		val glance = ProtocolJson.decodeFromJsonElement(Sample.serializer(), fixture("sample-glance"))
-		assertNull(glance.processes)
-		assertNull(glance.processCount)
-		assertNull(glance.media)
-		assertEquals(emptyList(), glance.displays)
-		assertEquals(emptyList(), glance.links)
-		assertTrue(glance.gpus.isNotEmpty() && glance.disks.isNotEmpty() && glance.net.isNotEmpty())
+	fun theStatesAsSent() {
+		val data = assertIs<DataLine>(ProtocolJson.decodeFromJsonElement(StreamLine.serializer(), fixture("stream-data")))
+		assertEquals("home", data.dashboard)
+		val w = data.widgets
+		assertEquals(12.5, w.getValue("home/cpu").number)
+		assertEquals("56°C · 3.10 GHz", w.getValue("home/cpu").caption)
+		assertEquals(16_000_000_000.0, w.getValue("home/memory").max)
+		assertEquals(0.025, w.getValue("home/temp").blend)
+		assertEquals("On battery", w.getValue("home/battery").text)
+		assertEquals(listOf(1500.5, 300.5), w.getValue("home/net").numbers)
+		assertEquals(listOf("normal", "normal"), w.getValue("home/cores").levels)
+		val facts = w.getValue("home/facts").items!!
+		assertEquals(JsonPrimitive("Some CPU"), facts[0].v)
+		assertEquals(3600.0, facts[1].v.number())
+		assertEquals("8 cores · 12 threads", facts[2].text)
+		val root = w.getValue("home/disks").rows!!.single()
+		assertEquals("warning", root.level)
+		assertEquals(80.0, root.f["percent"].number())
+		assertEquals("btrfs", root.f["fs"].text())
+		assertEquals(false, w.getValue("home/mute").v.bool())
+		assertNull(w.getValue("home/mode").number)
+		val player = w.getValue("home/media").players!!.single()
+		assertEquals(240.0, player.length)
+		assertEquals(75.0, w.getValue("home/media").volume!!.level)
+		assertEquals(listOf(listOf(50.0, null)), data.history!!.getValue("home/temp").v)
+		// A table's row: its fields keep their JSON types, for the parameters they fill.
+		val detail = assertIs<DataLine>(ProtocolJson.decodeFromJsonElement(StreamLine.serializer(), fixture("stream-data-detail")))
+		assertNull(detail.history)
+		val proc = detail.widgets.getValue("detail/procs").rows!!.single()
+		assertEquals(JsonPrimitive(4242), proc.f["pid"])
+		assertEquals(JsonPrimitive("some"), proc.f["name"])
+	}
+
+	private fun line(name: String): String = fixture(name).toString()
+
+	@Test
+	fun streamLinesDecodeByType() {
+		assertEquals(StreamOpen("s1a2b3c4", "0f1e2d3c4b5a6978"), decodeStreamLine(line("stream-open")))
+		assertIs<DataLine>(decodeStreamLine(line("stream-data")))
+		assertEquals(UiChanged("1a2b3c4d5e6f7081"), decodeStreamLine(line("stream-ui")))
+		// The type need not come first.
+		val late = JsonObject(fixture("stream-ui").jsonObject - "type" + ("type" to JsonPrimitive("ui"))).toString()
+		assertIs<UiChanged>(decodeStreamLine(late))
 	}
 
 	@Test
-	fun rolesAndTheLog() {
-		val pair = ProtocolJson.decodeFromJsonElement(PairResponse.serializer(), fixture("pair"))
-		assertEquals("admin", pair.role)
-		val control = ProtocolJson.decodeFromJsonElement(ControlInfo.serializer(), fixture("control"))
-		assertEquals("admin", control.role)
-		assertEquals("processes", control.allowed?.first())
-		// No role, nothing allowed by name: read as not said (see PermissionsTest).
-		val unsaid = ProtocolJson.decodeFromJsonElement(ControlInfo.serializer(), without("control", "role", "allowed"))
-		assertNull(unsaid.role)
-		assertNull(unsaid.allowed)
-		assertNull(ProtocolJson.decodeFromJsonElement(PairResponse.serializer(), without("pair", "role")).role)
-		val log = ProtocolJson.decodeFromJsonElement(ListSerializer(LogEntry.serializer()), fixture("log"))
-		assertEquals(listOf("ok", "not_allowed"), log.map { it.result })
-		// The family an entry counts in, said only where it isn't the phone's own.
-		assertEquals(listOf("89ab0123", null), log.map { it.family })
-		assertTrue(log.first().t > log.last().t, "the log comes newest first")
-		assertNull(log.last().message)
-		// An entry without its time is broken, not from 1970.
-		val timeless = JsonArray(listOf(JsonObject(fixture("log").jsonArray.first().jsonObject - "t")))
-		assertFailsWith<SerializationException> {
-			ProtocolJson.decodeFromJsonElement(ListSerializer(LogEntry.serializer()), timeless)
-		}
+	fun unknownStreamLinesAreSkipped() {
+		assertNull(decodeStreamLine("""{"type":"notice","text":"hi"}"""))
+		assertNull(decodeStreamLine("""{"text":"no type"}"""))
 	}
 
 	@Test
-	fun strictDecodingCatchesAnUnknownField() {
-		val sample = fixture("sample").jsonObject
-		val extra = JsonObject(sample + ("brand_new" to JsonPrimitive(1)))
-		assertFailsWith<SerializationException> { strict.decodeFromJsonElement(Sample.serializer(), extra) }
+	fun brokenKnownStreamLinesFail() {
+		assertFailsWith<SerializationException> { decodeStreamLine("""{"type":"data","dashboard":"home"}""") }
+		assertFailsWith<SerializationException> { decodeStreamLine("""{"type":"open","ui":"x"}""") }
+		assertFailsWith<SerializationException> { decodeStreamLine("""{"type":"data",""") }
+	}
+
+	@Test
+	fun unknownWidgetTypesAndKeysAreRead() {
+		// A type from a newer service is read as it is (and drawn as a notice); keys nobody knows are ignored.
+		val ui = fixture("ui").jsonObject
+		val all = ui.getValue("dashboards").jsonArray
+		val home = all[0].jsonObject
+		val sparkle = Json.parseToJsonElement("""{"id":"home/x","type":"sparkle","span":3,"glitter":{"a":1},"label":"New"}""")
+		val dashboards = JsonArray(listOf(JsonObject(home + ("widgets" to JsonArray(home.getValue("widgets").jsonArray + sparkle)))) + all.drop(1))
+		val decoded = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), JsonObject(ui + ("dashboards" to dashboards) + ("added_later" to JsonPrimitive(1))))
+		val w = decoded.dashboard("home")!!.widgets.last()
+		assertEquals("sparkle", w.type)
+		assertEquals(3, w.span)
+		// A state with keys nobody knows, of a widget nobody knows.
+		val data = assertIs<DataLine>(decodeStreamLine("""{"type":"data","t":1,"dashboard":"home","widgets":{"home/x":{"sparkles":[1,2],"v":7}},"later":true}"""))
+		assertEquals(7.0, data.widgets.getValue("home/x").number)
 	}
 
 	@Test
 	fun productionToleratesNewFields() {
-		for ((name, serializer) in shapes) {
-			val raw = fixture(name)
-			ProtocolJson.decodeFromJsonElement(serializer, addField(raw))
-		}
+		for ((name, serializer) in shapes) ProtocolJson.decodeFromJsonElement(serializer, addField(fixture(name), name))
 	}
 
-	private fun addField(e: JsonElement): JsonElement = when (e) {
-		is JsonObject -> JsonObject(e.mapValues { addField(it.value) } + ("added_later" to JsonPrimitive("x")))
-		is JsonArray -> JsonArray(e.map(::addField))
+	/** [e] with a field added to every object but those keyed by ids, whose values get one instead. */
+	private fun addField(e: JsonElement, path: String): JsonElement = when (e) {
+		is JsonObject -> if (path in maps) {
+			JsonObject(e.mapValues { addField(it.value, "$path[]") })
+		} else {
+			JsonObject(e.mapValues { addField(it.value, "$path.${it.key}") } + ("added_later" to JsonPrimitive("x")))
+		}
+		is JsonArray -> JsonArray(e.map { addField(it, "$path[]") })
 		else -> e
 	}
 
 	private fun dropping(name: String, path: String): JsonElement {
-		// "temps[].value": into the list, then the field of each item.
+		// "dashboards[].widgets[].id": into the lists, then the field of each item.
 		fun go(e: JsonElement, parts: List<String>): JsonElement {
 			val part = parts.first()
 			val key = part.removeSuffix("[]")
@@ -222,59 +306,64 @@ class ProtocolContractTest {
 	@Test
 	fun identityAndTimeAreRequired() {
 		val required = mapOf(
-			"sample" to listOf("t", "uptime", "gpus[].id", "temps[].value", "temps[].kind", "net[].kind", "net[].name", "disks[].mount", "displays[].connector", "processes[].pid", "links[].id", "media.players[].id"),
-			"history" to listOf("t", "gpus[].id"),
-			"info" to listOf("id", "service_version", "api", "cpu_logical_cores", "memory_total", "boot_time", "gpus[].id"),
 			"hello" to listOf("app", "api", "id", "version"),
-			"control" to listOf("enabled", "actions[].id"),
+			"ui" to listOf("version", "service", "service.id", "dashboards[].id", "dashboards[].widgets[].id", "dashboards[].widgets[].type", "actions[].id", "actions[].params[].id", "actions[].params[].kind"),
+			"stream-open" to listOf("stream", "ui"),
+			"stream-data" to listOf("t", "dashboard"),
+			"stream-ui" to listOf("ui"),
 		)
 		for ((name, paths) in required) {
 			for (path in paths) {
-				val broken = dropping(name, path)
 				assertFailsWith<SerializationException>("$name.$path missing should fail, not read as a default") {
-					ProtocolJson.decodeFromJsonElement(shapes.getValue(name), broken)
+					ProtocolJson.decodeFromJsonElement(shapes.getValue(name), dropping(name, path))
 				}
 			}
 		}
+		// A table's row without its key.
+		val d = fixture("stream-data-detail").jsonObject
+		val procs = d.getValue("widgets").jsonObject.getValue("detail/procs").jsonObject
+		val rows = JsonArray(procs.getValue("rows").jsonArray.map { JsonObject(it.jsonObject - "key") })
+		val keyless = JsonObject(d + ("widgets" to JsonObject(mapOf("detail/procs" to JsonObject(procs + ("rows" to rows))))))
+		assertFailsWith<SerializationException> { ProtocolJson.decodeFromJsonElement(StreamLine.serializer(), keyless) }
 	}
 
 	@Test
 	fun optionalFieldsTakeTheirDefaults() {
-		// Not said: no oldest app, the default tick and history, no links.
-		val info = dropping("info", "min_app").jsonObject - "interval_ms" - "history_seconds"
-		val decoded = ProtocolJson.decodeFromJsonElement(Info.serializer(), JsonObject(info))
-		assertNull(decoded.minApp)
-		assertEquals(DEFAULT_INTERVAL_MS, decoded.intervalMs)
-		assertEquals(DEFAULT_HISTORY_SECONDS, decoded.historySeconds)
-		assertNull(ProtocolJson.decodeFromJsonElement(Hello.serializer(), dropping("hello", "min_app")).minApp)
-		assertEquals(emptyList(), ProtocolJson.decodeFromJsonElement(Sample.serializer(), without("sample", "links")).links)
-	}
-
-	private fun without(name: String, vararg keys: String) = JsonObject(fixture(name).jsonObject - keys.toSet())
-
-	private fun line(type: String, name: String): String =
-		JsonObject(mapOf("type" to JsonPrimitive(type)) + fixture(name).jsonObject).toString()
-
-	@Test
-	fun streamLinesDecodeByType() {
-		assertIs<Info>(decodeStreamLine(line("info", "info")))
-		assertIs<History>(decodeStreamLine(line("history", "history")))
-		val sample = assertIs<Sample>(decodeStreamLine(line("sample", "sample")))
-		assertEquals(1, sample.processes?.size)
-		// The type need not come first.
-		val late = JsonObject(fixture("info").jsonObject + ("type" to JsonPrimitive("info"))).toString()
-		assertIs<Info>(decodeStreamLine(late))
+		val hello = ProtocolJson.decodeFromJsonElement(Hello.serializer(), JsonObject(dropping("hello", "min_app").jsonObject - "features" - "widgets"))
+		assertNull(hello.minApp)
+		assertNull(hello.widgets)
+		assertEquals(emptyList(), hello.features)
+		assertNull(ProtocolJson.decodeFromJsonElement(PairResponse.serializer(), dropping("pair", "profile")).profile)
+		// A ui that says little: the default profile, no tabs, control off.
+		val bare = ProtocolJson.decodeFromString(UiDoc.serializer(), """{"version":"v","service":{"id":"0123456789abcdef0123456789abcdef"}}""")
+		assertEquals(Profile(), bare.profile)
+		assertEquals(false, bare.control.enabled)
+		assertNull(bare.header)
+		assertEquals(DEFAULT_INTERVAL_MS, bare.service.intervalMs)
+		assertEquals(DEFAULT_HISTORY_SECONDS, bare.service.historySeconds)
+		assertEquals(listOf("power", "signal", "actions", "units"), bare.profile.unlock.kinds)
 	}
 
 	@Test
-	fun unknownStreamLinesAreSkipped() {
-		assertNull(decodeStreamLine("""{"type":"notice","text":"hi"}"""))
-		assertNull(decodeStreamLine("""{"text":"no type"}"""))
-	}
-
-	@Test
-	fun brokenKnownStreamLinesFail() {
-		assertFailsWith<SerializationException> { decodeStreamLine("""{"type":"sample","uptime":5}""") }
-		assertFailsWith<SerializationException> { decodeStreamLine("""{"type":"sample",""") }
+	fun theHeadersStatesComeWithEveryLine() {
+		// The contract's header: a dashboard whose widgets are the pills under the name, whatever is on screen.
+		val ui = fixture("ui").jsonObject
+		val head = Json.parseToJsonElement(
+			"""{"id":"header","title":"Header","widgets":[{"id":"header/os","type":"text","span":1},{"id":"header/power","type":"status","span":1,"format":"text"}]}""",
+		)
+		val withHeader = JsonObject(ui + ("header" to JsonPrimitive("header")) + ("dashboards" to JsonArray(ui.getValue("dashboards").jsonArray + head)))
+		val doc = strict.decodeFromJsonElement(UiDoc.serializer(), withHeader)
+		assertEquals("header", doc.header)
+		val line = """{"type":"data","t":5,"dashboard":"home","widgets":{"home/cpu":{"v":1.0},""" +
+			""""header/os":{"text":"Some OS","level":"normal"},"header/power":{"v":true,"text":"On AC power","level":"normal"}}}"""
+		val data = assertIs<DataLine>(decodeStreamLine(line))
+		val header = headerData(doc, data)!!
+		assertEquals("header", header.dashboard)
+		assertEquals(5, header.t)
+		assertEquals(setOf("header/os", "header/power"), header.widgets.keys)
+		assertEquals("On AC power", header.widgets.getValue("header/power").text)
+		// No header, or a line without its widgets: nothing.
+		assertNull(headerData(ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), ui), data))
+		assertNull(headerData(doc, data.copy(widgets = mapOf("home/cpu" to WidgetState()))))
 	}
 }

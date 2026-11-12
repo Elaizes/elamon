@@ -47,6 +47,8 @@ fun Section(
 	accent: Color = MaterialTheme.colorScheme.primary,
 	trailing: (@Composable () -> Unit)? = null,
 	onClick: (() -> Unit)? = null,
+	/** What touching the title row does (folding the card), apart from the rest of it. */
+	onTitleClick: (() -> Unit)? = null,
 	content: @Composable ColumnScope.() -> Unit,
 ) {
 	Surface(modifier = modifier.fillMaxWidth(), shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
@@ -56,7 +58,10 @@ fun Section(
 				.padding(horizontal = Space.xl, vertical = Space.lPlus),
 			verticalArrangement = Arrangement.spacedBy(Space.mPlus),
 		) {
-			Row(verticalAlignment = Alignment.CenterVertically) {
+			Row(
+				Modifier.then(if (onTitleClick != null) Modifier.clickable(onClick = onTitleClick) else Modifier),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
 				IconBadge(icon, accent)
 				Spacer(Modifier.width(Space.m))
 				Text(

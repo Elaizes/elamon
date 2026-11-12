@@ -4,15 +4,26 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
 import androidx.core.content.edit
-import java.math.BigDecimal
-import java.math.RoundingMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import io.github.elaizes.elamon.data.Profile
 
-enum class ThemeMode { System, Light, Dark }
+enum class ThemeMode(val key: String) {
+	System("system"),
+	Light("light"),
+	Dark("dark");
 
-/** Everything the Settings screen changes. Immutable, so the UI can take it as one state. */
+	companion object {
+		fun of(key: String?): ThemeMode = entries.find { it.key == key } ?: System
+	}
+}
+
+/**
+ * How the app looks and behaves: the profile the computer gives this phone (docs/config.md,
+ * "Profiles"), read into the app's terms. Immutable, so the UI can take it as one state. Nothing of
+ * it is kept in the app's settings.
+ */
 data class Prefs(
 	val theme: ThemeMode = ThemeMode.System,
 	/** Black instead of dark grey in dark mode; saves power on OLED screens. */
@@ -21,123 +32,193 @@ data class Prefs(
 	val dynamicColor: Boolean = true,
 	/** Frosted-glass bars and dialogs (Android 12+). */
 	val blur: Boolean = true,
+	/** Rolling numbers, moving gauges, transitions. */
 	val animations: Boolean = true,
 	val intervalMs: Int = Intervals.DEFAULT_MS,
 	val keepScreenOn: Boolean = false,
-	val fahrenheit: Boolean = false,
-	/** Network speed in bits per second, the way providers state it. */
-	val networkBits: Boolean = false,
-	/** Ask before power, kill and other actions that can't be undone. */
+	/** Ask before actions that ask; the service has applied it to each action's `confirm` already. */
 	val confirmActions: Boolean = true,
-	/** Kinds of action the phone must be unlocked for first (biometric or its screen lock), in place of confirming. */
-	val unlockFor: Set<Guarded> = Guarded.DEFAULTS,
-	/** How long an unlock lasts before the next action asks again. */
+	/** Kinds of action the phone is unlocked for first; the service has applied it to each action's `unlock` already. */
+	val unlockFor: Set<Guarded> = DEFAULT_UNLOCK,
+	/** How long an unlock covers later actions of its kind or a lesser one. */
 	val unlockGrace: UnlockGrace = UnlockGrace.EveryTime,
 	val haptics: Boolean = true,
+	/** Temperatures in °F and network rates in bits: the service sends them so; shown in the settings only. */
+	val fahrenheit: Boolean = false,
+	val networkBits: Boolean = false,
 ) {
 	val blurAvailable: Boolean get() = Build.VERSION.SDK_INT >= 31
 	val useBlur: Boolean get() = blur && blurAvailable
+
+	companion object {
+		val DEFAULT_UNLOCK = setOf(Guarded.Power, Guarded.Processes, Guarded.Actions, Guarded.Units)
+
+		/** [p], the profile a computer gives this phone, as the app takes it. */
+		fun of(p: Profile): Prefs = Prefs(
+			theme = ThemeMode.of(p.theme),
+			pureBlack = p.pureBlack,
+			dynamicColor = p.android.dynamicColor,
+			blur = p.android.blur,
+			animations = p.animations,
+			intervalMs = p.intervalMs.coerceIn(Intervals.MIN_MS, Intervals.MAX_MS),
+			keepScreenOn = p.android.keepScreenOn,
+			confirmActions = p.confirmActions,
+			unlockFor = p.unlock.kinds.mapNotNull { k -> Guarded.entries.find { it.key == k && !it.fixed } }.toSet(),
+			unlockGrace = UnlockGrace.of(p.unlock.grace),
+			haptics = p.android.haptics,
+			fahrenheit = p.fahrenheit,
+			networkBits = p.networkBits,
+		)
+	}
 }
 
-/** How often to ask for a sample, in milliseconds. */
+/** How often to ask for readings, in milliseconds. */
 object Intervals {
 	const val DEFAULT_MS = 1000
-	val CHOICES = listOf(1000, 2000, 3000, 5000)
-
-	/** The lowest a custom value goes when the service's own tick isn't known. */
 	const val MIN_MS = 250
 	const val MAX_MS = 60_000
 
-	/** Seconds as typed, with a point or a comma; null unless a number from [minMs] to [MAX_MS]. */
-	fun parse(text: String, minMs: Int = MIN_MS): Int? {
-		val seconds = text.trim().replace(',', '.').toBigDecimalOrNull() ?: return null
-		val ms = seconds.movePointRight(3).setScale(0, RoundingMode.HALF_UP)
-		if (ms < BigDecimal(minMs) || ms > BigDecimal(MAX_MS)) return null
-		return ms.toInt()
-	}
-
-	/** How often samples really come: the service never sends faster than it reads. */
-	fun effective(settingMs: Int, elamondMs: Int?): Int = maxOf(settingMs, elamondMs ?: 0)
+	/** How often readings really come: the service never sends faster than it reads. */
+	fun effective(profileMs: Int, serviceMs: Int?): Int = maxOf(profileMs, serviceMs ?: 0).coerceAtMost(MAX_MS)
 }
 
+/**
+ * What the app keeps of its own: the state of what is on screen (folded sections, the last tab of
+ * each computer) and whether the settings of 0.5 were carried over. How it looks and behaves comes
+ * from the computers' profiles.
+ */
 class Settings private constructor(context: Context) {
-	private val prefs: SharedPreferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-	private val _state = MutableStateFlow(load())
-	val state: StateFlow<Prefs> = _state.asStateFlow()
+	private val state: SharedPreferences = context.getSharedPreferences(UI_STATE, Context.MODE_PRIVATE)
+	private val old: SharedPreferences = context.getSharedPreferences(Migration.OLD_FILE, Context.MODE_PRIVATE)
 
-	val current: Prefs get() = _state.value
-	val intervalMs: Int get() = _state.value.intervalMs
+	private val _migration = MutableStateFlow(state.getString(MIGRATION_TOML, null))
 
-	private val _elamondIntervalMs = MutableStateFlow<Int?>(null)
+	/** The profile the settings of 0.5 come to, as TOML, until the card that shows it is closed. */
+	val migration: StateFlow<String?> = _migration.asStateFlow()
 
-	/** The tick of the service last connected to, the floor for a custom interval; not kept across restarts. */
-	val elamondIntervalMs: StateFlow<Int?> = _elamondIntervalMs.asStateFlow()
-
-	fun noteElamondInterval(ms: Int) {
-		_elamondIntervalMs.value = ms
+	init {
+		migrate()
 	}
-
-	private val _displaysOpen = MutableStateFlow(prefs.getBoolean(DISPLAYS_OPEN, false))
 
 	/**
-	 * Whether the Control tab's Displays section is open; closed until first opened. Kept apart
-	 * from [Prefs], which the whole app is redrawn for, as only that section shows it.
+	 * Once: the settings 0.5 kept on the phone, turned into a profile to put on the computers
+	 * ([Migration.toml]), kept until its card is closed, and deleted.
 	 */
-	val displaysOpen: StateFlow<Boolean> = _displaysOpen.asStateFlow()
-
-	fun setDisplaysOpen(open: Boolean) {
-		prefs.edit { putBoolean(DISPLAYS_OPEN, open) }
-		_displaysOpen.value = open
+	private fun migrate() {
+		if (state.getBoolean(MIGRATED, false)) return
+		val toml = Migration.toml(old.all)
+		state.edit {
+			if (toml != null) putString(MIGRATION_TOML, toml)
+			putBoolean(MIGRATED, true)
+		}
+		old.edit { for (k in Migration.OLD_KEYS + Migration.unlockKeys()) remove(k) }
+		_migration.value = toml
 	}
 
-	private fun load(): Prefs {
-		val d = Prefs()
-		return Prefs(
-			theme = runCatching { ThemeMode.valueOf(prefs.getString("theme", d.theme.name)!!) }.getOrDefault(d.theme),
-			pureBlack = prefs.getBoolean("pure_black", d.pureBlack),
-			dynamicColor = prefs.getBoolean("dynamic_color", d.dynamicColor),
-			blur = prefs.getBoolean("blur", d.blur),
-			animations = prefs.getBoolean("animations", d.animations),
-			intervalMs = prefs.getInt("interval_ms", d.intervalMs).coerceIn(Intervals.MIN_MS, Intervals.MAX_MS),
-			keepScreenOn = prefs.getBoolean("keep_screen_on", d.keepScreenOn),
-			fahrenheit = prefs.getBoolean("fahrenheit", d.fahrenheit),
-			networkBits = prefs.getBoolean("network_bits", d.networkBits),
-			confirmActions = prefs.getBoolean("confirm_actions", d.confirmActions),
-			unlockFor = Guarded.entries.filter { it.fixed || prefs.getBoolean(UNLOCK + it.key, it.byDefault) }.toSet(),
-			unlockGrace = runCatching { UnlockGrace.valueOf(prefs.getString(UNLOCK_GRACE, d.unlockGrace.name)!!) }.getOrDefault(d.unlockGrace),
-			haptics = prefs.getBoolean("haptics", d.haptics),
-		)
+	fun dismissMigration() {
+		state.edit { remove(MIGRATION_TOML) }
+		_migration.value = null
 	}
 
-	fun update(change: (Prefs) -> Prefs) {
-		val p = change(_state.value)
-		prefs.edit()
-			.putString("theme", p.theme.name)
-			.putBoolean("pure_black", p.pureBlack)
-			.putBoolean("dynamic_color", p.dynamicColor)
-			.putBoolean("blur", p.blur)
-			.putBoolean("animations", p.animations)
-			.putInt("interval_ms", p.intervalMs)
-			.putBoolean("keep_screen_on", p.keepScreenOn)
-			.putBoolean("fahrenheit", p.fahrenheit)
-			.putBoolean("network_bits", p.networkBits)
-			.putBoolean("confirm_actions", p.confirmActions)
-			.also { e -> for (k in Guarded.entries) e.putBoolean(UNLOCK + k.key, k in p.unlockFor) }
-			.putString(UNLOCK_GRACE, p.unlockGrace.name)
-			.putBoolean("haptics", p.haptics)
-			.apply()
-		_state.value = p
+	/** Whether the group or table [widget] of the computer [machine] is folded; [initial] until it was folded or opened. */
+	fun folded(machine: String, widget: String, initial: Boolean): Boolean = state.getBoolean("$FOLDED$machine/$widget", initial)
+
+	fun setFolded(machine: String, widget: String, folded: Boolean) = state.edit { putBoolean("$FOLDED$machine/$widget", folded) }
+
+	/** The tab last shown for the computer [machine]. */
+	fun lastTab(machine: String): String? = state.getString("$TAB$machine", null)
+
+	fun setLastTab(machine: String, tab: String) = state.edit { putString("$TAB$machine", tab) }
+
+	/** A computer forgotten: what was kept of its screen goes too. */
+	fun forget(machine: String) = state.edit {
+		for (k in state.all.keys) if (k.startsWith("$FOLDED$machine/") || k == "$TAB$machine") remove(k)
 	}
 
 	companion object {
-		private const val DISPLAYS_OPEN = "displays_open"
-
-		/** Before each kind's key: "unlock_power", "unlock_media". */
-		private const val UNLOCK = "unlock_"
-		private const val UNLOCK_GRACE = "unlock_grace"
+		private const val UI_STATE = "ui_state"
+		private const val FOLDED = "folded/"
+		private const val TAB = "tab/"
+		private const val MIGRATED = "migrated_0_5"
+		private const val MIGRATION_TOML = "migration_toml"
 
 		@Volatile private var instance: Settings? = null
 		fun get(context: Context): Settings =
 			instance ?: synchronized(this) { instance ?: Settings(context.applicationContext).also { instance = it } }
+	}
+}
+
+/**
+ * The settings Elamon 0.5 kept on the phone, as the profile that gives the same on a computer
+ * (docs/config.md, "Profiles"): `[profiles.phone]` starting from `default`, with only what differs.
+ */
+object Migration {
+	/** Where 0.5 kept them. */
+	const val OLD_FILE = "settings"
+	const val PROFILE_ID = "phone"
+
+	val OLD_KEYS = listOf(
+		"theme", "pure_black", "dynamic_color", "blur", "animations", "interval_ms", "keep_screen_on",
+		"fahrenheit", "network_bits", "confirm_actions", "unlock_grace", "haptics", "displays_open",
+	)
+
+	/** 0.5's names for the kinds an unlock was asked for, to the service's. */
+	private val UNLOCK_KINDS = listOf("power" to "power", "processes" to "signal", "actions" to "actions", "units" to "units", "profile" to "profile", "media" to "media")
+
+	fun unlockKeys(): List<String> = (UNLOCK_KINDS.map { it.first } + "transfer").map { "unlock_$it" }
+
+	/**
+	 * The TOML for [old], the settings 0.5 kept; null when there were none, or none differ from
+	 * the `default` profile.
+	 */
+	fun toml(old: Map<String, *>): String? {
+		if (old.keys.none { it in OLD_KEYS || it in unlockKeys() }) return null
+		val d = Profile()
+		val common = mutableListOf<String>()
+		val android = mutableListOf<String>()
+		fun bool(key: String, default: Boolean, into: MutableList<String>) {
+			val v = old[key] as? Boolean ?: return
+			if (v != default) into += "$key = $v"
+		}
+		(old["theme"] as? String)?.let { t ->
+			val key = when (t) {
+				"Light" -> "light"
+				"Dark" -> "dark"
+				else -> "system"
+			}
+			if (key != d.theme) common += "theme = \"$key\""
+		}
+		bool("pure_black", d.pureBlack, common)
+		bool("animations", d.animations, common)
+		(old["interval_ms"] as? Int)?.let { if (it != d.intervalMs) common += "interval_ms = ${it.coerceIn(Intervals.MIN_MS, Intervals.MAX_MS)}" }
+		bool("fahrenheit", d.fahrenheit, common)
+		bool("network_bits", d.networkBits, common)
+		bool("confirm_actions", d.confirmActions, common)
+		val kinds = if (UNLOCK_KINDS.any { "unlock_${it.first}" in old }) {
+			// As 0.5 asked by default where a kind isn't there: power, processes and actions.
+			UNLOCK_KINDS.filter { (k, _) -> old["unlock_$k"] as? Boolean ?: (k in setOf("power", "processes", "actions")) }.map { it.second }
+		} else d.unlock.kinds
+		val grace = when (old["unlock_grace"] as? String) {
+			"OneMinute" -> "1m"
+			"FiveMinutes" -> "5m"
+			else -> "every_time"
+		}
+		if (kinds.toSet() != d.unlock.kinds.toSet() || grace != d.unlock.grace) {
+			common += "unlock = { for = [${kinds.joinToString(", ") { "\"$it\"" }}], grace = \"$grace\" }"
+		}
+		bool("dynamic_color", d.android.dynamicColor, android)
+		bool("blur", d.android.blur, android)
+		bool("haptics", d.android.haptics, android)
+		bool("keep_screen_on", d.android.keepScreenOn, android)
+		if (common.isEmpty() && android.isEmpty()) return null
+		return buildString {
+			append("[profiles.$PROFILE_ID]\n")
+			append("use = \"default\"\n")
+			for (line in common) append(line).append('\n')
+			if (android.isNotEmpty()) {
+				append("\n[profiles.$PROFILE_ID.android]\n")
+				for (line in android) append(line).append('\n')
+			}
+		}
 	}
 }

@@ -5,49 +5,54 @@ import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 
 /**
- * Kinds of action the phone can be made to unlock for first, and whether it asks by default.
- * [level] orders them by what they can do: an unlock for one covers, within its grace, only those
- * at its level or below. A [fixed] kind is always asked for, can't be turned off, and is never
- * covered by a grace: every time, unlocking anew.
+ * Kinds of action the phone can be made to unlock for first, by the action's `kind` in the
+ * computer's settings ([key]). [level] orders them by what they can do: an unlock for one covers,
+ * within the profile's grace, only those at its level or below (`power`, `signal`, `actions`,
+ * `units`, `profile`, `media`). A [fixed] kind is the app's own: always unlocked for, never covered
+ * by a grace.
  */
-enum class Guarded(val key: String, val byDefault: Boolean, val level: Int, val fixed: Boolean = false) {
+enum class Guarded(val key: String, val level: Int, val fixed: Boolean = false) {
 	/** Shut down, restart, sleep and lock. */
-	Power("power", true, 5),
+	Power("power", 5),
 
 	/** Quit and force kill. */
-	Processes("processes", true, 4),
+	Processes("signal", 4),
 
 	/** The actions in the computer's settings. */
-	Actions("actions", true, 3),
+	Actions("actions", 3),
 
 	/** Starting, stopping and restarting a link's unit. */
-	Units("units", false, 2),
-	Profile("profile", false, 1),
+	Units("units", 2),
+	Profile("profile", 1),
 
 	/** Playback, seeking and the volume. */
-	Media("media", false, 0),
+	Media("media", 0),
 
 	/**
 	 * Exporting pairings, which carries every computer's key off the phone, and importing them,
-	 * which can put others in their place; and asking less here, which would outlast any grace.
+	 * which can put others in their place.
 	 */
-	Transfer("transfer", true, 6, fixed = true);
+	Transfer("transfer", 6, fixed = true);
 
 	companion object {
-		val DEFAULTS: Set<Guarded> = entries.filter { it.byDefault }.toSet()
+		/** An action's kind as the service names it; an unknown one (a newer service's) counts as the settings' actions. */
+		fun of(kind: String): Guarded = entries.find { it.key == kind && !it.fixed } ?: Actions
 	}
 }
 
-/** How long a successful unlock lasts before the next action asks again. */
-enum class UnlockGrace(val minutes: Int) {
-	EveryTime(0),
-	OneMinute(1),
-	FiveMinutes(5);
+/** How long a successful unlock lasts before the next action asks again: the profile's `unlock.grace`. */
+enum class UnlockGrace(val key: String, val minutes: Int) {
+	EveryTime("every_time", 0),
+	OneMinute("1m", 1),
+	FiveMinutes("5m", 5);
 
 	val ms: Long get() = minutes * MS_PER_MINUTE
 
-	private companion object {
-		const val MS_PER_MINUTE = 60_000L
+	companion object {
+		private const val MS_PER_MINUTE = 60_000L
+
+		/** A grace the service names; one this app doesn't know asks every time. */
+		fun of(key: String?): UnlockGrace = entries.find { it.key == key } ?: EveryTime
 	}
 }
 
@@ -70,16 +75,17 @@ data class UnlockMemory(val unlockedAt: Long? = null, val unlockedFor: Guarded? 
 }
 
 /**
- * What an action of [kind] waits for. [confirmable]: whether Confirm actions covers it. Where
- * [prefs] ask to unlock for [kind] (a fixed kind always does), and no unlock within their grace
- * covers it, unlocking takes the confirmation's place. A phone without a screen lock can't be
- * unlocked: it confirms instead, whatever Confirm actions says, and the first time says why.
+ * What an action of [kind] waits for. [confirm] and [unlock] are the action's own, as the service
+ * sends them (the profile's `confirm_actions` and `unlock.for` already applied); a fixed kind always
+ * unlocks. Where it unlocks and no unlock within [grace] covers it, unlocking takes the
+ * confirmation's place. A phone without a screen lock can't be unlocked: it confirms instead, and
+ * the first time says why.
  */
-fun gate(kind: Guarded, confirmable: Boolean, prefs: Prefs, lockScreen: Boolean, now: Long, memory: UnlockMemory): Gate {
-	val asks = kind.fixed || kind in prefs.unlockFor
-	val unlock = asks && !covered(kind, prefs.unlockGrace, now, memory)
+fun gate(kind: Guarded, confirm: Boolean, unlock: Boolean, grace: UnlockGrace, lockScreen: Boolean, now: Long, memory: UnlockMemory): Gate {
+	val asks = kind.fixed || unlock
+	val needed = asks && !covered(kind, grace, now, memory)
 	return when {
-		!unlock -> Gate(if (confirmable && prefs.confirmActions) Before.Confirm else Before.Nothing)
+		!needed -> Gate(if (confirm) Before.Confirm else Before.Nothing)
 		lockScreen -> Gate(Before.Unlock)
 		else -> Gate(Before.Confirm, noLockScreen = !memory.explained)
 	}
@@ -94,10 +100,6 @@ fun covered(kind: Guarded, grace: UnlockGrace, now: Long, memory: UnlockMemory):
 /** Whether an unlock at [unlockedAt] still counts at [now]; a clock that went back doesn't stretch it. */
 fun withinGrace(grace: UnlockGrace, now: Long, unlockedAt: Long?): Boolean =
 	unlockedAt != null && now >= unlockedAt && now - unlockedAt < grace.ms
-
-/** Whether changing [from] to [to] asks less: a kind no longer asked for, or a longer grace. Asking more is free. */
-fun asksLess(from: Prefs, to: Prefs): Boolean =
-	(from.unlockFor - to.unlockFor).isNotEmpty() || to.unlockGrace.minutes > from.unlockGrace.minutes
 
 /**
  * What the unlock prompt takes on Android [sdk]: a strong biometric or the screen lock. Android 9

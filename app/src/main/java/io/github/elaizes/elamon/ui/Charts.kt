@@ -328,7 +328,7 @@ private fun chartDescription(res: Resources, series: List<ChartSeries>): String?
 		else res.getString(R.string.a11y_chart_series, name, value(now), value(s.points.peak(tLast - window)))
 	}
 	if (parts.isEmpty()) return null
-	return res.getString(R.string.a11y_chart, Fmt.duration(res, window / 1000), parts.joinToString(res.getString(R.string.a11y_list_separator)))
+	return res.getString(R.string.a11y_chart, Fmt.duration(window / 1000), parts.joinToString(res.getString(R.string.a11y_list_separator)))
 }
 
 /** A compact chart without grid or labels, for tiles; [name] and [value] are what a screen reader hears. */
@@ -444,24 +444,18 @@ fun UsageBar(fraction: Float, color: Color, modifier: Modifier = Modifier, heigh
 	}
 }
 
-/** One thin column per CPU core; a screen reader hears how many, their average and the busiest. */
+/**
+ * One thin column per item (a CPU's cores), each [fractions] full in its [colors]; a screen reader
+ * hears [description].
+ */
 @Composable
-fun CoreBars(values: List<Float>, modifier: Modifier = Modifier, height: Dp = ChartStyle.cores) {
+fun CoreBars(fractions: List<Float>, colors: List<Color>, modifier: Modifier = Modifier, height: Dp = ChartStyle.cores, description: String? = null) {
 	val track = MaterialTheme.colorScheme.surfaceContainerHighest
-	val base = Metric.colors.cpu
-	val colors = values.map { loadColor(it / Thresholds.PERCENT, base) }
 	val animate = LocalPrefs.current.animations
-	val res = resources()
-	val summary = Modifier.semantics {
-		if (values.isNotEmpty()) {
-			contentDescription = res.getQuantityString(
-				R.plurals.a11y_cores, values.size, values.size, Fmt.percent(values.average().toFloat()), Fmt.percent(values.max()),
-			)
-		}
-	}
+	val summary = Modifier.semantics { if (description != null) contentDescription = description }
 	Row(modifier.fillMaxWidth().height(height).then(summary), horizontalArrangement = Arrangement.spacedBy(ChartStyle.coreGap)) {
-		values.forEachIndexed { i, v ->
-			val animated by animateFloatAsState((v / Thresholds.PERCENT).coerceIn(0f, 1f), tween(if (animate) Motion.BAR else 0), label = "core")
+		fractions.forEachIndexed { i, v ->
+			val animated by animateFloatAsState(v.coerceIn(0f, 1f), tween(if (animate) Motion.BAR else 0), label = "core")
 			Canvas(Modifier.weight(1f).fillMaxHeight()) {
 				val r = CornerRadius(Radius.xs.toPx())
 				drawRoundRect(track, cornerRadius = r)

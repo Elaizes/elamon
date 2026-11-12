@@ -502,7 +502,7 @@ private fun FaqItem(f: Faq) {
 	}
 }
 
-private fun copy(ctx: Context, text: String) {
+internal fun copy(ctx: Context, text: String) {
 	val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
 	cm.setPrimaryClip(ClipData.newPlainText(ctx.getString(R.string.app_name), text))
 	// Android 13 and newer show their own confirmation.

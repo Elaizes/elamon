@@ -262,10 +262,9 @@ object ChartStyle {
 	/** A chart's height unless given. */
 	val height = 120.dp
 
-	/** On a detail page; the battery's and the temperatures' have less to show. */
+	/** A graph's heights: "medium", as on 0.5's detail pages, and "large". "small" is a tile's. */
 	val detail = 200.dp
-	val battery = 180.dp
-	val temperatures = 170.dp
+	val large = 280.dp
 
 	/** In a tile, and as a sparkline. */
 	val tile = 56.dp
