@@ -82,6 +82,7 @@ import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.Settings
 import io.github.elaizes.elamon.allWidgets
 import io.github.elaizes.elamon.forgetKept
+import io.github.elaizes.elamon.readingsLive
 import io.github.elaizes.elamon.data.Machine
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.PairTarget
@@ -169,7 +170,11 @@ fun MachineScreen(
 	BackHandler(enabled = shownPages.isNotEmpty()) { pages = shownPages.dropLast(1) }
 
 	val name = ui?.service?.name?.ifEmpty { null } ?: machine.name
-	val status = connText(state.conn, want.intervalMs)
+	val connStatus = connText(state.conn, want.intervalMs)
+	val updating = stringResource(R.string.conn_updating)
+	// Live once the readings on screen are the stream's, not those kept from an earlier look at the dashboard.
+	val liveOn = { d: String? -> state.conn == Conn.Live && d != null && readingsLive(state.data, d, want.intervalMs) }
+	val statusOf = { d: String? -> if (state.conn == Conn.Live && !liveOn(d)) updating else connStatus }
 	// Unpaired, another certificate, refused or not understood: the screen is a notice, with no
 	// tabs to switch between and no old numbers coming back.
 	val turnedAway = state.conn in setOf(Conn.Unauthorized, Conn.CertificateChanged, Conn.Refused, Conn.Incompatible)
@@ -269,11 +274,11 @@ fun MachineScreen(
 									MachineHeader(
 										if (isPage) ui.dashboard(d)?.title ?: d else name,
 										state,
-										if (isPage) name else status,
+										if (isPage) name else statusOf(d),
 										list,
 										headerPills(ui, state),
 										ui.role,
-										live = !isPage,
+										live = !isPage && liveOn(d),
 									)
 									if (state.compat != Compat.Ok) CompatBanner(state.compat, state.hello?.version.orEmpty())
 								}
@@ -287,7 +292,7 @@ fun MachineScreen(
 					// No big title on a notice: the bar says whose it is.
 					collapsed = collapsed || ui == null || turnedAway,
 					onBack = { if (shownPages.isNotEmpty()) pages = shownPages.dropLast(1) else onBack() },
-					subtitle = if (current != null && current in shownPages) name else status,
+					subtitle = if (current != null && current in shownPages) name else statusOf(current),
 					actions = {
 						IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.machine_more)) }
 						DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {

@@ -97,6 +97,8 @@
 	<string name="conn_live">Live · every %1$s s</string>
 	<string name="conn_connecting">Connecting…</string>
 	<string name="conn_reconnecting">Reconnecting…</string>
+	<!-- Connected, but what the tab shows was kept from an earlier look, until its own readings come. -->
+	<string name="conn_updating">Updating…</string>
 	<string name="conn_unauthorized">Not paired</string>
 	<string name="conn_certificate_changed">Certificate changed</string>
 	<string name="conn_refused">Refused</string>

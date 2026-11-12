@@ -634,3 +634,14 @@ fun headerData(ui: UiDoc, line: DataLine): DataLine? {
 	val states = line.widgets.filterKeys { it in ids }
 	return if (states.isEmpty()) null else DataLine(line.t, id, states)
 }
+
+/**
+ * Whether the readings of [dashboard] are as live as the stream: its last line no more than
+ * [Limits.LIVE_LINES] lines behind the newest of any dashboard. Kept from an earlier look, or from
+ * before the app was closed, they aren't until the stream sends the dashboard's own.
+ */
+fun readingsLive(data: Map<String, DataLine>, dashboard: String, intervalMs: Int): Boolean {
+	val line = data[dashboard] ?: return false
+	val newest = data.values.maxOf { it.t }
+	return newest - line.t <= Limits.LIVE_LINES * intervalMs.toLong()
+}
