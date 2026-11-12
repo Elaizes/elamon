@@ -23,7 +23,7 @@ The phone talks to the computer directly: on the same network, or over a VPN bot
 3. **Pair the phone.** Run `elamond pair`, scan the QR code with the phone, and answer `y` on the
    computer ([section 3](#3-pair-the-phone)).
 4. **Watch.** The app shows the computer's load, temperatures, memory, processes and more.
-5. **Control, if you want it.** Add `control = true` to `~/.config/elamon/elamond.toml`. The phone
+5. **Control, if you want it.** Set `control = true` in `~/.config/elamon/elamond.toml`. The phone
    can then use power, media, links and your own actions ([section 5](#5-the-control-panel)).
 
 ## Contents
@@ -657,19 +657,25 @@ Watching is never limited.
 
 ### `elamond.toml`
 
-The service reads its settings in this order:
+The settings are files, and nothing else. The service reads:
 
-1. what is built in: the standard dashboards and the `default` profile;
-2. `~/.config/elamon/elamond.toml`, or the file `ELAMON_CONFIG` names;
-3. every `~/.config/elamon/elamond.d/*.toml`, in name order.
+1. `~/.config/elamon/elamond.toml`, or the file `ELAMON_CONFIG` names: the whole of the settings;
+2. every `~/.config/elamon/elamond.d/*.toml`, in name order. One of them is `phones.toml`, with a
+   profile for each paired phone ([below](#each-phones-own-profile)).
+
+**The starter file.** Where there is none, `elamond setup` and the service's first start write
+`elamond.toml` with everything elamond starts with: the top-level keys, each with a line on what it
+does, two examples, the `default` profile and every standard dashboard. It begins with
+`schema = 3`. Change what you like in it. What you take out is gone: a dashboard you delete isn't put
+back from somewhere.
 
 A table with an id (`[links.web]`, `[actions.fan]`, `[dashboards.power]`, `[profiles.owner]`) adds
 to the one of the same id before it, key by key. A list (`widgets`, `listen`, a profile's
 `dashboards`) replaces the one before it whole. So a drop-in can add a dashboard, change one key of
-a built-in one, or replace its widgets. Under NixOS or Home Manager, `elamond.toml` comes from Nix
-and can't be edited, so your own additions go in drop-ins.
+one in `elamond.toml`, or replace its widgets. Under NixOS or Home Manager, `elamond.toml` comes from
+Nix and can't be edited, so your own additions go in drop-ins.
 
-All keys are optional. **Every key, widget and value is in [docs/config.md](config.md).**
+**Every key, widget and value is in [docs/config.md](config.md).**
 
 The commands:
 
@@ -677,8 +683,10 @@ The commands:
 elamond check              # read the settings as the service would; names the file and line of each mistake
 elamond check FILE         # the same, with FILE in place of elamond.toml, before you put it there
 elamond edit               # edit elamond.toml, checked before it's saved
-elamond edit ~/.config/elamon/elamond.d/power.toml   # or a drop-in
-elamond defaults           # the built-in dashboards and profile, to copy from
+elamond edit ~/.config/elamon/elamond.d/phones.toml   # or a drop-in
+elamond defaults           # the settings elamond starts with, as the starter file has them
+elamond defaults --diff    # where yours differ from them, and what changed in them since the last version
+elamond defaults dashboards.sensors   # one table of them, to copy into your settings
 elamond values             # every value this computer has now, by address, and the collections
 elamond schema > ~/.config/elamon/elamond.schema.json   # for editors that check TOML
 ```
@@ -686,10 +694,20 @@ elamond schema > ~/.config/elamon/elamond.schema.json   # for editors that check
 `elamond edit` opens `$VISUAL`, else `$EDITOR`, else `vi`. An edit with a mistake doesn't replace
 your settings: it's kept beside them as `elamond.toml.broken`, and you can open the editor again.
 
+**The defaults beside yours.** `~/.config/elamon/defaults.toml` holds the settings elamond starts
+with. It's read-only and isn't read as settings. Each new version of elamond writes its own and keeps
+the one before as `defaults.toml.old`, so after an update `elamond defaults --diff` shows:
+
+- what in your settings is other than in the defaults, by table: `added`, `changed` (and which keys),
+  `removed`;
+- what the new version changed in the defaults, such as a dashboard with a new widget. Your settings
+  don't change by themselves: copy what you want with `elamond defaults TABLE`.
+
 The top-level keys:
 
 | Key | Default | |
 |---|---|---|
+| `schema` | | `3`: the file is the whole of the settings. Without it, the file is one of elamond 0.6.0 ([section 8](#updating)) |
 | `port` | `47823` | TCP port |
 | `listen` | `"::"` | addresses and interfaces to listen on, one or a list; `"::"` is every address, IPv4 and IPv6 ([below](#where-the-service-listens)) |
 | `names` | `[]` | host names that reach this computer, added to the pairing link ([below](#names-in-the-pairing-link)) |
@@ -699,7 +717,7 @@ The top-level keys:
 | `history_minutes` | `10` | how far back charts reach, 1–1 440 (at most 7 200 readings) |
 | `control` | `false` | let phones act on the computer ([section 5](#5-the-control-panel)) |
 | `default_role` | `"admin"` | the role `elamond pair` gives when not told ([section 6](#6-roles-who-may-do-what)) |
-| `default_profile` | `"default"` | the profile of a phone paired without `--profile`, and of one whose profile is gone |
+| `default_profile` | `"default"` | the profile a new phone's own one uses when `elamond pair` isn't given `--profile`, and the profile of a phone whose profile is gone |
 | `[links.<id>]` | | `name`, `url`, `unit`, `scope`, `icon` ([section 5](#links)) |
 | `[actions.<id>]` | | `name`, `command`, `params`, `role`, `confirm`, `unlock`, `timeout`, `icon` ([section 5](#actions)) |
 | `[profiles.<id>]` | | how a phone looks and behaves ([below](#profiles)) |
@@ -718,8 +736,9 @@ file and line, and the settings read before stay. But control is off until they 
 half-finished edit can't leave phones acting on old permissions. `elamond control status` shows the
 mistake, `elamond check` all of them. At start, settings with a mistake stop the service.
 
-**From 0.5.** The settings of 0.5 and before had `[[links]]`, `[[actions]]` and `units`. The 0.6
-service refuses them and says what replaces each ([section 8](#updating)).
+**From 0.6.0.** A 0.6.0 `elamond.toml` (no `schema` in it) is moved over once, at the first start of
+0.6.1 or later ([section 8](#updating)). **From 0.5.** The settings of 0.5 and before had
+`[[links]]`, `[[actions]]` and `units`. The service refuses them and says what replaces each.
 
 **Secrets.** A secret in the settings, such as a link's URL with a password in it or a token among
 an action's arguments, belongs in a file only you can read: `chmod 600` it. Under NixOS or Home
@@ -730,7 +749,7 @@ user can read it. Use a drop-in in `~/.config/elamon/elamond.d` instead.
 
 A profile says how a phone looks and behaves: its tabs, the chips under the computer's name, its
 theme, how often it asks for readings, its units, and which actions it confirms and unlocks for.
-Each paired phone has one. The built-in `default` is everyone's until you say otherwise.
+The starter file has `default`. A profile can start from another with `use`:
 
 ```toml
 [profiles.owner]
@@ -745,11 +764,42 @@ unlock = { for = ["power", "signal", "units", "actions"], grace = "1m" }
 keep_screen_on = true
 ```
 
-- `elamond pair --profile owner` pairs a phone with it.
-- `elamond clients profile ID owner` gives it to a phone paired already.
-- `default_profile = "owner"` makes it the one new phones get.
-
 Every key is in [docs/config.md](config.md#profiles).
+
+### Each phone's own profile
+
+Every paired phone has a profile of its own, in `~/.config/elamon/elamond.d/phones.toml`. Pairing
+adds it:
+
+```toml
+# Galaxy S25, paired 2026-11-12 (0123abcd)
+[profiles.galaxy-s25]
+name = "Galaxy S25"
+use = "owner"
+```
+
+- Its id comes from the phone's name (`Galaxy S25` → `galaxy-s25`; a second one of that name gets
+  `galaxy-s25-2`).
+- It `use`s the profile `elamond pair --profile` names, or `default_profile`.
+- **To change one phone,** add keys to its table: `theme = "light"`, `dashboards = [...]`. The phone
+  follows within seconds, with its screen open. To change every phone, change the profile they use.
+- The file is yours to edit like any drop-in (`elamond edit ~/.config/elamon/elamond.d/phones.toml`).
+  The service only adds and removes tables there, keeping everything else.
+
+| When | Its profile |
+|---|---|
+| the phone pairs again (a new QR code, another address), its key still good | the app proves it's the same phone; the new pairing keeps its table, and the old entry goes |
+| the phone was reset, or unpaired, and pairs again | `elamond pair` asks: *A phone named "Galaxy S25" had the profile galaxy-s25. Give it to this one?* (`--yes` never gives it) |
+| `elamond pair --profile galaxy-s25` | the phone takes that table, as it is |
+| `elamond revoke ID` | its table goes if you never changed it; a changed one stays, with a note, for the phone to take when it pairs again |
+| a new phone gets a key with Import pairings | a table of its own, using the old phone's |
+
+`elamond clients profile ID owner` still gives a phone another profile, one shared by several
+phones say. Its own table stays: `elamond clients profile ID galaxy-s25` gives it back.
+
+Phones paired before 0.6.1 get their tables at the first start of 0.6.1, each using the profile it had.
+
+In the app, Settings shows the phone's profile and where to change it.
 
 ### Dashboards and widgets
 
@@ -759,7 +809,7 @@ A dashboard is a page of widgets in a grid of four columns (two on a narrow scre
 - a page a widget opens;
 - the chips under the computer's name (a profile's `header`).
 
-`elamond defaults` prints the standard ones: `overview`, `processes`, `sensors`, `control`, the
+The starter file has the standard ones: `overview`, `processes`, `sensors`, `control`, the
 `header`, and the pages their tiles open. A dashboard of your own:
 
 ```toml
@@ -872,7 +922,8 @@ host names in the QR code, which the app keeps and tries as well:
 | `services.elamond.enable` | run the service for the people who log in (never for system users such as a display manager's greeter) |
 | `services.elamond.users` | only these users run it; empty means every regular user. One user's service holds the port at a time |
 | `services.elamond.package` | the service's package |
-| `services.elamond.settings` | `elamond.toml` for every user's service, as Nix (below). `elamond pair` and the other commands read it too. It's checked as it is built, so a mistake fails `nixos-rebuild` with its line. A change restarts the services. It's in the Nix store, readable by every user: no secrets |
+| `services.elamond.settings` | `elamond.toml` for every user's service, as Nix (below). It holds the defaults already: set only what differs (a key you set wins over theirs; a list, like a dashboard's `widgets`, replaces theirs; a table of your own adds to them). `elamond pair` and the other commands read it too. It's checked as it is built, so a mistake fails `nixos-rebuild` with its line. A change restarts the services. It's in the Nix store, readable by every user: no secrets. A user's own `~/.config/elamon/elamond.toml` isn't read beside it; drop-ins in `elamond.d`, `phones.toml` among them, are |
+| `services.elamond.defaults` | read-only: the settings elamond starts with, as `settings` holds them before yours |
 | `services.elamond.openFirewall` | open the service's port (`settings.port`, 47823 by default) and UDP 5353 (unless `settings.mdns = false`); works without `enable` |
 | `services.elamond.firewallInterfaces` | with `openFirewall`, open them on these interfaces only, and UDP 5353 only on those not named like a VPN (`tailscale*`, `wg*`, `nordlynx*`, `tun*`, `tap*`, `zt*`, `ppp*`; a guess by the name). Empty means every interface |
 | `services.elamond.control.users` | users who may use power and the profile without a password, so their service can. polkit allows it every program of theirs, not only the service |
@@ -915,7 +966,8 @@ services.elamond.settings = {
 |---|---|
 | `services.elamond.enable` | run the service for this user |
 | `services.elamond.package` | the service's package |
-| `services.elamond.settings` | written to `~/.config/elamon/elamond.toml`, as Nix as for NixOS. It's checked as it is built, so a mistake fails `home-manager switch`. A change restarts the service. Drop-ins in `elamond.d` still add to it. It's in the Nix store, readable by every user: no secrets |
+| `services.elamond.settings` | written to `~/.config/elamon/elamond.toml`, as Nix as for NixOS, the defaults in it already. It's checked as it is built, so a mistake fails `home-manager switch`. A change restarts the service. Drop-ins in `elamond.d` still add to it. It's in the Nix store, readable by every user: no secrets |
+| `services.elamond.defaults` | read-only: the settings elamond starts with |
 
 The firewall stays the system's. If you set your own `port` here, give the system the same one
 (`services.elamond.settings.port` beside `openFirewall`; without `enable`, that only opens the
@@ -937,6 +989,18 @@ For a release or a source build, `elamond setup` sees the new binary and restart
 **Update the app and the service together.** App 0.6 and service 0.6 speak API 2, which no earlier
 app or service does. Each asks for the other to be updated when they don't match. Pairings stay:
 the phones keep their keys and roles and don't pair again.
+
+**From 0.6.0 to 0.6.1,** there's nothing to do by hand:
+
+- At its first start, the service moves a 0.6.0 `elamond.toml` (one without `schema`) to a whole
+  file: everything 0.6.0 had built in, with your keys in their places and your own tables after
+  them. The old file stays beside it as `elamond.toml.0.6.0`. The phones see the same as before.
+- Each paired phone gets its own profile in `elamond.d/phones.toml`, using the one it had
+  ([section 7](#each-phones-own-profile)).
+- Under NixOS and Home Manager, the module holds the defaults: `services.elamond.settings` work as
+  they are.
+- App 0.6.0 works with service 0.6.1 and the other way round, but update both: the phone learns the
+  computer's addresses from 0.6.1 on, and finds it over a VPN after pairing on the local network.
 
 **From 0.5 to 0.6,** the settings change once (settings schema 2). The 0.6 service doesn't start
 with 0.5's `[[links]]`, `[[actions]]` and `units`. `elamond check` names each line and what replaces
