@@ -315,24 +315,35 @@ impl Hub {
 			note.pending = true;
 			note.written.map_or(Duration::ZERO, |t| self.app_note.saturating_sub(t.elapsed()))
 		};
-		let (hub, id, name) = (self.clone(), who.id.clone(), who.name.clone());
-		tokio::spawn(async move {
-			tokio::time::sleep(wait).await;
-			let label = {
-				let mut apps = hub.apps.lock().unwrap_or_else(|p| p.into_inner());
-				let Some(note) = apps.get_mut(&id) else { return };
-				note.pending = false;
-				note.written = Some(Instant::now());
-				note.said.clone()
-			};
-			let dir = hub.dir.clone();
-			let _ = tokio::task::spawn_blocking(move || {
-				if let Err(e) = store::set_client_app(&dir, &id, &label) {
-					eprintln!("clients: can't note that \"{name}\" ({id}) is {label}: {e}");
+		let (id, name) = (who.id.clone(), who.name.clone());
+		if wait.is_zero() {
+			self.write_app(id, name);
+		} else {
+			let hub = self.clone();
+			tokio::spawn(async move {
+				tokio::time::sleep(wait).await;
+				if let Some(writing) = hub.write_app(id, name) {
+					let _ = writing.await;
 				}
-			})
-			.await;
-		});
+			});
+		}
+	}
+
+	/// Writes down what the client `id` said it is last, off the runtime.
+	fn write_app(&self, id: String, name: String) -> Option<tokio::task::JoinHandle<()>> {
+		let label = {
+			let mut apps = self.apps.lock().unwrap_or_else(|p| p.into_inner());
+			let note = apps.get_mut(&id)?;
+			note.pending = false;
+			note.written = Some(Instant::now());
+			note.said.clone()
+		};
+		let dir = self.dir.clone();
+		Some(tokio::task::spawn_blocking(move || {
+			if let Err(e) = store::set_client_app(&dir, &id, &label) {
+				eprintln!("clients: can't note that \"{name}\" ({id}) is {label}: {e}");
+			}
+		}))
 	}
 
 	/// The settings as last read.
