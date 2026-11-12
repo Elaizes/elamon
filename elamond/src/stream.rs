@@ -16,7 +16,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch, Notify};
 
 use crate::access::Caller;
 use crate::consts::{cadence, limit};
@@ -29,16 +29,55 @@ pub struct Open {
 	/// The client it is for.
 	pub client: String,
 	opened: Instant,
-	ctl: mpsc::UnboundedSender<Ctl>,
+	ctl: Arc<Ctl>,
 	/// The `ui` it sends for now, to check changes against.
 	ui: Arc<Mutex<Arc<Ui>>>,
 }
 
-/// What reaches a stream from outside.
-enum Ctl {
-	Change(Change),
-	/// End it, saying why in the journal.
-	End(&'static str),
+impl Open {
+	/// The change that waits for the stream to look, if one does.
+	#[cfg(test)]
+	pub(crate) fn waiting(&self) -> Option<Change> {
+		self.ctl.change.lock().unwrap().clone()
+	}
+}
+
+/// What reaches a stream from outside: the changes asked for since it last looked, merged into
+/// one, and whether to end. However often a client asks, and whether or not the stream gets to
+/// look (a client that doesn't read holds it up), no more than that waits for it.
+struct Ctl {
+	change: Mutex<Option<Change>>,
+	changed: Notify,
+	/// Why it is to end, once it is, for the journal.
+	end: watch::Sender<Option<&'static str>>,
+}
+
+impl Ctl {
+	fn new() -> Ctl {
+		Ctl { change: Mutex::new(None), changed: Notify::new(), end: watch::channel(None).0 }
+	}
+
+	/// Adds `c` to what waits for the stream.
+	fn change(&self, c: Change) {
+		{
+			let mut waiting = self.change.lock().unwrap_or_else(|p| p.into_inner());
+			let merged = match waiting.take() {
+				Some(before) => before.then(c),
+				None => c,
+			};
+			*waiting = Some(merged);
+		}
+		self.changed.notify_one();
+	}
+
+	fn take_change(&self) -> Option<Change> {
+		self.change.lock().unwrap_or_else(|p| p.into_inner()).take()
+	}
+
+	/// Ends the stream, as soon as it looks or while it waits to send.
+	fn end(&self, why: &'static str) {
+		self.end.send_if_modified(|e| e.is_none() && e.replace(why).is_none());
+	}
 }
 
 /// `POST /api/v1/stream/{id}`: each key optional.
@@ -49,6 +88,20 @@ pub struct Change {
 	pub interval: Option<u64>,
 	/// Another of a table's `sorts`, by the table's id; `null` for the table's own order back.
 	pub sort: BTreeMap<String, Option<String>>,
+}
+
+impl Change {
+	/// This change, then `later`: what the one and the other in turn would leave.
+	fn then(mut self, later: Change) -> Change {
+		if later.dashboard.is_some() {
+			self.dashboard = later.dashboard;
+		}
+		if later.interval.is_some() {
+			self.interval = later.interval;
+		}
+		self.sort.extend(later.sort);
+		self
+	}
 }
 
 #[derive(Deserialize, Default)]
@@ -104,9 +157,9 @@ pub async fn open(
 	let dashboard = dashboard_in(&ui, q.dashboard.as_deref()).or_else(|| dashboard_in(&ui, None)).map(|d| d.id.clone());
 	let interval = interval_of(&hub, q.interval, ui.profile.interval_ms);
 	let id = data_encoding::HEXLOWER.encode(&crate::store::random_bytes::<8>());
-	let (ctl, ctl_rx) = mpsc::unbounded_channel();
+	let ctl = Arc::new(Ctl::new());
 	let shared = Arc::new(Mutex::new(ui.clone()));
-	register(&hub, &id, Open { client: who.id.clone(), opened: Instant::now(), ctl, ui: shared.clone() });
+	register(&hub, &id, Open { client: who.id.clone(), opened: Instant::now(), ctl: ctl.clone(), ui: shared.clone() });
 
 	let mut words = vec![format!("dashboard {}", dashboard.as_deref().unwrap_or("none")), format!("every {} ms", interval.as_millis())];
 	let need = dashboard.as_deref().and_then(|d| ui.dashboard(d)).map(|d| needs_of(&ui, d)).unwrap_or_default();
@@ -126,14 +179,16 @@ pub async fn open(
 		interval,
 		sorts: HashMap::new(),
 		last: None,
+		quick: None,
 		skipped: 0,
 		history: true,
+		told: Told::default(),
 		log: Log { hub: hub.clone(), id, who, opened: Instant::now(), logged, why: "connection closed" },
 	};
 	let (tx, rx) = mpsc::channel::<Bytes>(4);
 	// Sent before the task starts, so it is the first line whatever happens after.
 	let _ = tx.try_send(line(open_line(&run.id, &ui.version)));
-	tokio::spawn(run.run(tx, ctl_rx));
+	tokio::spawn(run.run(tx, ctl));
 
 	let body = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|b| (Ok::<_, Infallible>(b), rx)) });
 	let mut resp = Body::from_stream(body).into_response();
@@ -153,7 +208,7 @@ fn register(hub: &Hub, id: &str, open: Open) {
 	let over = mine.len().saturating_sub(limit::STREAMS_PER_CLIENT);
 	for (_, old) in mine.into_iter().take(over) {
 		if let Some(o) = streams.remove(&old) {
-			let _ = o.ctl.send(Ctl::End("the phone opened more streams than it may hold"));
+			o.ctl.end("the phone opened more streams than it may hold");
 		}
 	}
 }
@@ -175,35 +230,38 @@ struct Run {
 	sorts: HashMap<String, String>,
 	/// When the last `data` line went.
 	last: Option<Instant>,
+	/// When the last line went at once for a change, rather than with a reading.
+	quick: Option<Instant>,
 	/// Readings passed over while waiting for one that has what the dashboard needs.
 	skipped: u32,
 	/// The next `data` line carries `history`.
 	history: bool,
+	/// What the journal was told of the dashboards the stream changed to.
+	told: Told,
 	log: Log,
 }
 
 impl Run {
-	async fn run(mut self, tx: mpsc::Sender<Bytes>, mut ctl: mpsc::UnboundedReceiver<Ctl>) {
+	async fn run(mut self, tx: mpsc::Sender<Bytes>, ctl: Arc<Ctl>) {
 		let mut frames = self.hub.frame.clone();
 		frames.borrow_and_update();
+		let mut end = ctl.end.subscribe();
 		loop {
+			let mut quick = false;
 			tokio::select! {
 				_ = tx.closed() => break,
-				c = ctl.recv() => match c {
+				_ = end.wait_for(Option::is_some) => break,
+				_ = ctl.changed.notified() => {
+					let Some(c) = ctl.take_change() else { continue };
+					self.apply(c);
 					// A new dashboard or order goes out at once, from the reading there is, where it has
-					// what they need; otherwise with the next one, as it would anyway.
-					Some(Ctl::Change(c)) => {
-						self.apply(c);
-						if self.last.is_some() {
-							continue;
-						}
+					// what they need; otherwise with the next one, as it would anyway. At once no more
+					// than once every half interval, however often the client changes it.
+					quick = self.last.is_none() && self.quick.is_none_or(|q| q.elapsed() >= self.interval / 2);
+					if !quick {
+						continue;
 					}
-					Some(Ctl::End(why)) => {
-						self.log.why = why;
-						break;
-					}
-					None => break,
-				},
+				}
 				r = frames.changed() => if r.is_err() {
 					self.log.why = "the service is stopping";
 					break;
@@ -219,7 +277,7 @@ impl Run {
 			let draws = self.fixed.clone().or_else(|| self.hub.draws_of(&who.id, &self.kind));
 			let ui = self.hub.ui(&self.hub.ui_key(&who, &self.kind, draws), &frame);
 			if ui.version != self.ui.version {
-				if tx.send(line(ui_line(&ui.version))).await.is_err() {
+				if !send(&tx, &mut end, line(ui_line(&ui.version))).await {
 					break;
 				}
 				self.set_ui(ui);
@@ -236,12 +294,19 @@ impl Run {
 				continue;
 			}
 			let data = data_of(&self.hub, &self.ui, dashboard, &who, &frame, &self.sorts, self.history);
-			if tx.send(line(data)).await.is_err() {
+			if !send(&tx, &mut end, line(data)).await {
 				break;
 			}
-			self.last = Some(Instant::now());
+			let now = Instant::now();
+			self.last = Some(now);
+			if quick {
+				self.quick = Some(now);
+			}
 			self.history = false;
 			self.skipped = 0;
+		}
+		if let Some(why) = *end.borrow() {
+			self.log.why = why;
 		}
 		self.hub.streams.lock().unwrap_or_else(|p| p.into_inner()).remove(&self.id);
 	}
@@ -277,8 +342,11 @@ impl Run {
 	fn apply(&mut self, c: Change) {
 		if let Some(d) = c.dashboard.filter(|d| self.ui.dashboard(d).is_some()) {
 			// Said in the journal where its opening was, so a stream's dashboards can be followed there.
-			if self.log.logged && self.dashboard.as_deref() != Some(d.as_str()) {
-				eprintln!("stream: \"{}\" now on dashboard {d}", self.log.who.name);
+			if self.log.logged
+				&& self.dashboard.as_deref() != Some(d.as_str())
+				&& let Some(more) = self.told.change(Instant::now())
+			{
+				eprintln!("stream: \"{}\" now on dashboard {d}{more}", self.log.who.name);
 			}
 			self.dashboard = Some(d);
 			self.anew();
@@ -297,6 +365,38 @@ impl Run {
 			self.last = None;
 		}
 		self.update_need();
+	}
+}
+
+/// A stream's changes of dashboard as the journal hears of them: one line every
+/// `cadence::STREAM_LOG_QUIET` at most, the changes in between counted in the next.
+#[derive(Default)]
+struct Told {
+	at: Option<Instant>,
+	untold: u32,
+}
+
+impl Told {
+	/// A change of dashboard at `now`: what to add to its line if it is said, or nothing if it isn't.
+	fn change(&mut self, now: Instant) -> Option<String> {
+		if self.at.is_some_and(|t| now.duration_since(t) < cadence::STREAM_LOG_QUIET) {
+			self.untold += 1;
+			return None;
+		}
+		self.at = Some(now);
+		Some(match std::mem::take(&mut self.untold) {
+			0 => String::new(),
+			n => format!(" (and {n} more change(s) of dashboard since the last line)"),
+		})
+	}
+}
+
+/// Sends `line` on the stream, unless it is to end meanwhile: a client that stops reading holds
+/// the line up, not the end of the stream. False when the stream is over.
+async fn send(tx: &mpsc::Sender<Bytes>, end: &mut watch::Receiver<Option<&'static str>>, line: Bytes) -> bool {
+	tokio::select! {
+		sent = tx.send(line) => sent.is_ok(),
+		_ = end.wait_for(Option::is_some) => false,
 	}
 }
 
@@ -336,9 +436,10 @@ pub async fn change(State(hub): State<Arc<Hub>>, Extension(who): Extension<Calle
 			return server::error_with(ErrorCode::BadSort, table.clone());
 		}
 	}
-	if ctl.send(Ctl::Change(c)).is_err() {
+	if ctl.end.borrow().is_some() {
 		return error(ErrorCode::NoSuchStream);
 	}
+	ctl.change(c);
 	Json(json!({ "ok": true })).into_response()
 }
 
@@ -349,4 +450,38 @@ pub(crate) fn sorts_by(ui: &Ui, table: &str, field: Option<&str>) -> bool {
 		None => true,
 		Some(f) => w.def.sorts.iter().flatten().any(|s| s == f) || w.def.sort.as_ref().is_some_and(|s| s.field == f),
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn changes_waiting_merge_as_they_would_apply_in_turn() {
+		let change = |body: &str| serde_json::from_str::<Change>(body).unwrap();
+		let ctl = Ctl::new();
+		ctl.change(change(r#"{"dashboard":"processes","sort":{"processes/table":"mem","other/table":"cpu"}}"#));
+		ctl.change(change(r#"{"interval":5000,"sort":{"processes/table":null}}"#));
+		ctl.change(change(r#"{"dashboard":"control"}"#));
+		let merged = ctl.take_change().unwrap();
+		assert_eq!(merged, change(r#"{"dashboard":"control","interval":5000,"sort":{"processes/table":null,"other/table":"cpu"}}"#));
+		assert_eq!(ctl.take_change(), None);
+		// Told to end once; the first reason stays.
+		ctl.end("first");
+		ctl.end("second");
+		assert_eq!(*ctl.end.borrow(), Some("first"));
+	}
+
+	#[test]
+	fn changes_of_dashboard_are_told_a_few_at_a_time() {
+		let mut told = Told::default();
+		let t0 = Instant::now();
+		assert_eq!(told.change(t0).as_deref(), Some(""));
+		for i in 1..=30 {
+			assert_eq!(told.change(t0 + Duration::from_millis(100 * i)), None);
+		}
+		let line = told.change(t0 + cadence::STREAM_LOG_QUIET).unwrap();
+		assert_eq!(line, " (and 30 more change(s) of dashboard since the last line)");
+		assert_eq!(told.change(t0 + cadence::STREAM_LOG_QUIET * 2).as_deref(), Some(""));
+	}
 }

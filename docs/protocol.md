@@ -411,10 +411,12 @@ Changes what an open stream of this client sends, from its next line, without re
 
 Each key is optional. `sort` asks a table, by its widget id, for another of its `sorts`
 (descending); `null` in place of a field (`{ "processes/table": null }`) returns the table to its own
-`sort`, field and direction. A new dashboard or order comes with the next reading, not after an
-interval; a new dashboard's first line has `history`. 200 `{ "ok": true }`; 404 `no_such_stream`
-when the stream has ended or isn't this client's; 404 `no_such_dashboard` for one not in the
-client's `ui`; 400 `bad_sort` with the table's id in `message`. A refused request (400 `bad_sort`,
+`sort`, field and direction. A new dashboard or order comes at once, from the reading there is, not
+after an interval; a new dashboard's first line has `history`. At once no more than every half
+interval: a change soon after another comes with the next reading. Changes the stream hasn't taken
+up yet (its client doesn't read it) become one, each key the last asked. 200 `{ "ok": true }`;
+404 `no_such_stream` when the stream has ended or isn't this client's; 404 `no_such_dashboard` for
+one not in the client's `ui`; 400 `bad_sort` with the table's id in `message`. A refused request (400 `bad_sort`,
 404 `no_such_dashboard`) applies none of its keys: the stream goes on as it was. A body over 4 KiB
 is a plain-text 413.
 

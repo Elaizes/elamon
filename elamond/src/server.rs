@@ -1835,6 +1835,100 @@ dashboards = ["overview", "control"]
 	}
 
 	#[tokio::test]
+	async fn a_change_goes_out_at_once_at_most_once_a_half_interval() {
+		let (hub, tx) = hub(true);
+		let mut lines = Lines::open(&hub, "/api/v1/stream?interval=2000", "t-admin").await;
+		let id = lines.next().await.unwrap()["stream"].as_str().unwrap().to_string();
+		// The stream's task looks at the readings before the next one comes.
+		tokio::time::sleep(Duration::from_millis(50)).await;
+		tick(&hub, &tx);
+		assert_eq!(lines.next_of("data").await.unwrap()["dashboard"], "overview");
+		let change = |dashboard: &str| {
+			let (hub, path, body) = (hub.clone(), format!("/api/v1/stream/{id}"), format!(r#"{{"dashboard":"{dashboard}"}}"#));
+			async move { call(&hub, "POST", &path, "admin", &body).await.0 }
+		};
+		// At once, with no reading in between.
+		assert_eq!(change("control").await, StatusCode::OK);
+		let now = lines.next().await.unwrap();
+		assert_eq!((now["type"].as_str(), now["dashboard"].as_str()), (Some("data"), Some("control")));
+		assert!(now["history"].is_object());
+		// Again within half the interval: with the next reading, not at once.
+		assert_eq!(change("overview").await, StatusCode::OK);
+		assert!(tokio::time::timeout(Duration::from_millis(300), lines.0.next()).await.is_err());
+		tick(&hub, &tx);
+		assert_eq!(lines.next_of("data").await.unwrap()["dashboard"], "overview");
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+	async fn a_client_that_keeps_changing_dashboards_gets_a_line_a_reading_at_most() {
+		let (hub, tx) = hub(true);
+		let _ticks = ticking(&hub, tx);
+		let mut lines = Lines::open(&hub, "/api/v1/stream?interval=1000", "t-admin").await;
+		let id = lines.next().await.unwrap()["stream"].as_str().unwrap().to_string();
+		lines.next_of("data").await.unwrap();
+		let reader = tokio::spawn(async move {
+			let (mut with_history, t0) = (0, Instant::now());
+			while t0.elapsed() < Duration::from_millis(1500) {
+				if let Ok(Some(chunk)) = tokio::time::timeout(Duration::from_millis(200), lines.0.next()).await {
+					let l: serde_json::Value = serde_json::from_slice(&chunk.unwrap()).unwrap();
+					with_history += l["history"].is_object() as u32;
+				}
+			}
+			with_history
+		});
+		// A change every few milliseconds for a second: about 200 of them.
+		let t0 = Instant::now();
+		let mut changes = 0;
+		while t0.elapsed() < Duration::from_secs(1) {
+			let dashboard = if changes % 2 == 0 { "control" } else { "overview" };
+			let (status, _) = call(&hub, "POST", &format!("/api/v1/stream/{id}"), "admin", &format!(r#"{{"dashboard":"{dashboard}"}}"#)).await;
+			assert_eq!(status, StatusCode::OK);
+			changes += 1;
+			tokio::time::sleep(Duration::from_millis(5)).await;
+		}
+		let with_history = reader.await.unwrap();
+		// A reading every 100 ms, and a line at once every half second at most.
+		assert!(changes > 50 && (2..=20).contains(&with_history), "{changes} changes, {with_history} lines with history");
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+	async fn a_stream_its_client_doesnt_read_holds_one_change_and_still_ends() {
+		let (hub, tx) = hub(true);
+		let _ticks = ticking(&hub, tx);
+		// Opened and never read: its task is held up once its lines fill what waits to be sent.
+		let mut stalled = Lines::open(&hub, "/api/v1/stream", "t-admin").await;
+		let id = stalled.next().await.unwrap()["stream"].as_str().unwrap().to_string();
+		let path = format!("/api/v1/stream/{id}");
+		for i in 0..10_000 {
+			let body = if i % 2 == 0 { r#"{"dashboard":"control","interval":1000}"# } else { r#"{"dashboard":"overview","interval":2000,"sort":{"processes/table":"mem"}}"# };
+			assert_eq!(call(&hub, "POST", &path, "admin", body).await.0, StatusCode::OK);
+		}
+		// However many, one change waits: the last of each key.
+		let waiting = hub.streams.lock().unwrap()[&id].waiting();
+		let last = stream::Change { dashboard: Some("overview".into()), interval: Some(2000), sort: [("processes/table".to_string(), Some("mem".to_string()))].into() };
+		assert_eq!(waiting, Some(last));
+		// A fifth stream of the phone's ends it, held up as it is: what it needed read no longer is.
+		let mut others = Vec::new();
+		for _ in 0..limit::STREAMS_PER_CLIENT {
+			let mut s = Lines::open(&hub, "/api/v1/stream", "t-admin").await;
+			s.next().await.unwrap();
+			others.push(s);
+		}
+		for _ in 0..100 {
+			if hub.watchers() == limit::STREAMS_PER_CLIENT {
+				break;
+			}
+			tokio::time::sleep(Duration::from_millis(20)).await;
+		}
+		assert_eq!(hub.watchers(), limit::STREAMS_PER_CLIENT);
+		while stalled.next().await.is_some() {}
+		assert_eq!(call(&hub, "POST", &path, "admin", "{}").await.1["error"], "no_such_stream");
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
 	async fn a_dashboard_gone_from_the_settings_gives_way_to_the_first_tab() {
 		let (hub, tx) = hub(true);
 		let config = |extra: &str| {
