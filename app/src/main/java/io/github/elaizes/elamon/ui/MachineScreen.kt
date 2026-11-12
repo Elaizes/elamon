@@ -26,7 +26,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
@@ -62,6 +64,8 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelStoreOwner
@@ -236,6 +240,7 @@ fun MachineScreen(
 						}
 						ui == null && state.conn == Conn.Offline -> Centered {
 							Notice(ElIcons.Laptop, stringResource(R.string.machine_unreachable_title, name), stringResource(R.string.machine_unreachable_body)) {
+								if (state.tried.isNotEmpty()) Tried(state.tried)
 								Button(onClick = { vm.retry() }) { Text(stringResource(R.string.retry)) }
 								TextButton(onClick = { onHelp(HelpTopic.TROUBLESHOOTING) }) { Text(stringResource(R.string.troubleshooting_button)) }
 							}
@@ -429,13 +434,33 @@ private fun PhoneRole.about(): Int = when (this) {
 	PhoneRole.Admin -> R.string.role_admin_about
 }
 
-/** In the middle of what the bars leave: under the top bar, above whatever covers the bottom. */
+/**
+ * In the middle of what the bars leave: under the top bar, above whatever covers the bottom. What
+ * is taller than that, in large type, scrolls.
+ */
 @Composable
 private fun Centered(content: @Composable () -> Unit) {
 	Box(
 		Modifier.fillMaxSize().statusBarsPadding().padding(top = topBarHeight(), bottom = bottomReserve()),
 		contentAlignment = Alignment.Center,
-	) { content() }
+	) {
+		Box(Modifier.verticalScroll(rememberScrollState()), contentAlignment = Alignment.Center) { content() }
+	}
+}
+
+/** The addresses and names a computer was looked for at, in vain: small, in monospace, wrapping between them. */
+@Composable
+private fun Tried(hosts: List<String>) {
+	Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.xxs)) {
+		Text(stringResource(R.string.machine_unreachable_tried), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		Text(
+			hosts.joinToString(", "),
+			style = MaterialTheme.typography.bodySmall,
+			fontFamily = FontFamily.Monospace,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			textAlign = TextAlign.Center,
+		)
+	}
 }
 
 @Composable

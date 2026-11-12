@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
 	<uses-permission android:name="android.permission.INTERNET" />
+	<!-- To hear of the phone's network changing (Wi-Fi, mobile data, a VPN), and look for a computer again at once. -->
+	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
 	<!-- Pairing tokens stay on this phone: no cloud backup, no device-to-device transfer. -->
 	<application

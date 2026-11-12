@@ -21,6 +21,21 @@ fun pairCheck(id: String, fingerprint: String, list: List<Machine>, replaces: St
 }
 
 /**
+ * What pairing again with the computer that said hello as [id] sends as proof that this is the phone
+ * paired with it before: [existing], its entry here, and its [token] there ([PreviousPairing]). Only
+ * to a computer the phone trusts already: [fingerprint], the certificate the pairing request is
+ * pinned to, has to be the one pinned for it, as a new or changed certificate may be another
+ * computer's, never to be shown the token. Never with a token that came with Import pairings and is
+ * still the other phone's too ([Machine.tokenShared]): the entry is that phone's, and the computer
+ * would unpair it. Null when there is nothing to send.
+ */
+fun previousPairing(id: String, fingerprint: String, existing: Machine?, token: String?): PreviousPairing? {
+	val m = existing?.takeIf { it.id == id && it.fingerprint.equals(fingerprint, ignoreCase = true) && !it.tokenShared } ?: return null
+	val clientId = m.clientId?.takeIf { it.isNotEmpty() } ?: return null
+	return token?.takeIf { it.isNotEmpty() }?.let { PreviousPairing(clientId, it) }
+}
+
+/**
  * The id a pairing is kept under: the one the computer said hello with, which its answer may repeat
  * or leave out but not change. Null when it does: the answer isn't the computer's that was checked.
  */

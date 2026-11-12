@@ -89,6 +89,8 @@
 	<string name="machine_pair_again">Pair again</string>
 	<string name="machine_unreachable_title">Can\'t reach %1$s</string>
 	<string name="machine_unreachable_body">The computer may be off or asleep, the Elamon service not running, or the phone on another network. Elamon keeps trying.</string>
+	<!-- Over the addresses and names the computer was looked for at, in vain: "192.0.2.10, 100.64.0.7, desk.example.net". -->
+	<string name="machine_unreachable_tried">Tried at</string>
 	<string name="machine_offline_retrying">Offline · retrying</string>
 	<!-- The computer answers, but shows this phone no dashboard at all. -->
 	<string name="machine_nothing_title">Nothing to show here</string>
@@ -483,7 +485,15 @@
 	<string name="settings_from_defaults">The built-in defaults, until a computer is paired</string>
 	<string name="settings_from_unknown">As %1$s says, once it has been reached</string>
 	<string name="settings_from_profile">Profile “%1$s” on %2$s</string>
-	<string name="settings_where">How the app looks and behaves is set on the computer, in the profile it gives this phone: each line below names its key in elamond.toml. Change it there (elamond edit, then elamond check), or give this phone another profile:</string>
+	<!-- Where the profile's table is, as the computer tells an admin: a file of its settings folder and a line of it. -->
+	<string name="settings_profile_at">%1$s, line %2$d, in ~/.config/elamon on the computer</string>
+	<!-- The same, for a file outside the settings folder. -->
+	<string name="settings_profile_at_path">%1$s, line %2$d, on the computer</string>
+	<!-- The same, for settings made by the NixOS or Home Manager module. -->
+	<string name="settings_profile_nix">Set in Nix: services.elamond.settings.profiles.%1$s</string>
+	<!-- Where the profile is, for a phone the computer doesn't tell (any role but admin). -->
+	<string name="settings_profile_table">On the computer: the table [profiles.%1$s] (a phone\'s own profile is in elamond.d/phones.toml)</string>
+	<string name="settings_where">How the app looks and behaves is set on the computer, in the profile it gives this phone: each line below names its key there. Change it in the profile\'s table (elamond edit opens a file and checks it), or give this phone another profile:</string>
 	<string name="settings_on">On</string>
 	<string name="settings_off">Off</string>
 	<string name="settings_unlock_none">Nothing</string>

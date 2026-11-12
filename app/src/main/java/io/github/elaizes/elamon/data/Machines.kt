@@ -172,6 +172,19 @@ class MachineStore(private val file: MachineFile, private val cipher: TokenCiphe
 	/** The entry that took the place of the gone entry [id] (paired again, the computer had a new id), if one is still here. */
 	fun successor(id: String): String? = successorOf(id, replacedBy) { get(it) != null }
 
+	/**
+	 * Takes [endpoints], where the computer [id] says it is now, into the addresses kept for it
+	 * ([withEndpoints]). Only from an answer that came over [pin], the certificate it is pinned to
+	 * (checked again here: one paired again meanwhile under another is left as it is), and to its
+	 * token. Nothing is written when they change nothing.
+	 */
+	@Synchronized
+	fun takeEndpoints(id: String, pin: String, endpoints: List<String>) {
+		val m = get(id)?.takeIf { it.fingerprint.equals(pin, ignoreCase = true) } ?: return
+		val hosts = withEndpoints(m.hosts, m.lastHost, endpoints)
+		if (hosts != m.hosts) save(_machines.value.map { if (it.id == id) it.copy(hosts = hosts) else it })
+	}
+
 	@Synchronized
 	fun update(id: String, change: (Machine) -> Machine) {
 		save(_machines.value.map { if (it.id == id) change(it) else it })
@@ -275,6 +288,20 @@ fun withMachine(list: List<Machine>, machine: Machine, replacing: String? = null
 	val rest = list.filterNot(gone)
 	// Nothing before the first match is removed, so its index is where the new entry goes.
 	return if (at < 0) rest + machine else rest.toMutableList().apply { add(at, machine) }
+}
+
+/**
+ * The addresses and names to keep for a computer kept at [hosts], reached last at [lastHost], that
+ * says it is at [endpoints] now: [lastHost] first, then each of [endpoints] the app would take from
+ * a pairing link (an IPv4 or IPv6 address, with or without brackets, or a DNS name: [Hosts.isValid]),
+ * then the others it had; each once (a name whatever its case), [Limits.MACHINE_HOSTS_MAX] at most.
+ * Past that, those it had go first: where the computer is now counts for more than where it was
+ * when it was paired. [hosts] as they are when [endpoints] holds nothing to take.
+ */
+fun withEndpoints(hosts: List<String>, lastHost: String?, endpoints: List<String>): List<String> {
+	val told = endpoints.asSequence().map { it.trim().removeSurrounding("[", "]") }.filter(Hosts::isValid).take(Limits.MACHINE_HOSTS_MAX).toList()
+	if (told.isEmpty()) return hosts
+	return (listOfNotNull(lastHost) + told + hosts).distinctBy { it.lowercase() }.take(Limits.MACHINE_HOSTS_MAX)
 }
 
 /**

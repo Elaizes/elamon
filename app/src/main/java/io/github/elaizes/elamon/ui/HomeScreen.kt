@@ -292,7 +292,13 @@ private suspend fun reading(s: Machine, store: MachineStore, ownKeys: OwnKeys, c
 		val own = ownKeys.renew(s.id, device) { ElamondClient(host, s.port, pin, token).rekey(it) }
 		val client = ElamondClient(host, s.port, pin, own ?: token)
 		cardReading(
-			ui = { fresh -> (if (fresh) null else cache.ui(s.id)) ?: client.ui().also { cache.putUi(s.id, it, ticket) } },
+			ui = { fresh ->
+				(if (fresh) null else cache.ui(s.id)) ?: client.ui().also {
+					cache.putUi(s.id, it, ticket)
+					// Where the computer says it is now, over its certificate and to its token: kept with its addresses.
+					store.takeEndpoints(s.id, pin, it.service.endpoints)
+				}
+			},
 			snapshot = { client.snapshot(it) },
 		)
 	} catch (e: CancellationException) {

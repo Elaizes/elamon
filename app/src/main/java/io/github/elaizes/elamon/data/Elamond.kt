@@ -120,7 +120,8 @@ internal suspend fun <T> closeOnCancel(close: () -> Unit, block: suspend Corouti
 class ElamondClient(
 	val host: String,
 	val port: Int,
-	private val pin: String?,
+	/** The certificate this client accepts alone; null takes any, as pairing by code does. */
+	val pin: String?,
 	private val token: String? = null,
 ) {
 	val seenCertificate = AtomicReference<String?>(null)
