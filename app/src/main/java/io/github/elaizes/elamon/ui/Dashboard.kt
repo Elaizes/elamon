@@ -132,9 +132,13 @@ fun DashboardList(scope: DashScope, list: LazyListState, header: @Composable () 
 	}
 }
 
-/** Whether [w], or one in it, runs an action: drawn disabled while control is off. */
+/**
+ * Whether [w], or one in it, is a control that runs an action: drawn disabled while control is off,
+ * under a card that says so. A table's row actions, in its rows' sheets, don't bring the card, as
+ * 0.5 showed it on the Control tab only.
+ */
 private fun acts(w: Widget): Boolean =
-	w.action != null || w.type == "media" || !w.rowActions.isNullOrEmpty() || w.widgets.orEmpty().any(::acts)
+	w.action != null || w.type == "media" || w.widgets.orEmpty().any(::acts)
 
 /** A row of the grid: [cells] side by side, each as wide as its span of [columns], as tall as the tallest. */
 @Composable
