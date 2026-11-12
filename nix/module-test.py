@@ -442,7 +442,7 @@ with subtest("a phone that came by another's token gets a key of its own, and th
 	assert re.search(rf"^{old_id}\s+admin\s+old-phone\s+Old phone\s+android 0\.6\.0\s+\(paired ", clients, re.M), clients
 	# A table of its own too, using the profile of the phone whose key it came by.
 	assert own["profile"] == "new-phone", own
-	assert re.search(rf"^{own['client_id']}\s+admin\s+new-phone\s+New phone\s+\S+(\s0\.6\.0)?\s+\(added \S+ with the key of {old_id}\)", clients, re.M), clients
+	assert re.search(rf"^{own['client_id']}\s+admin\s+new-phone\s+New phone\s+\S+(\s0\.6\.0)?\s+\(added \S+ with the key of {old_id}(, last from \S+)?\)", clients, re.M), clients
 	machine.succeed("grep -A2 -x '\\[profiles.new-phone\\]' /home/alice/.config/elamon/elamond.d/phones.toml | grep -qx 'use = \"old-phone\"'")
 	# The old token works until it is revoked; then only the new one does.
 	assert call("GET", "/api/v1/ui", shared)[0] == 200
