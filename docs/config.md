@@ -161,6 +161,7 @@ The part every client reads:
 | `unlock.for` | list of kinds | `["power", "signal", "actions", "units"]` | action kinds the client unlocks the phone for first: `power`, `signal`, `actions`, `units`, `profile`, `media` |
 | `unlock.grace` | `every_time` \| `1m` \| `5m` | `every_time` | how long an unlock covers later actions of its kind or a lesser one |
 | `dashboards` | list of dashboard ids | `["overview", "processes", "sensors", "control"]` | the client's tabs, in order; those the client's role can't see are left out |
+| `header` | dashboard id | `header` | widgets shown as small chips under the computer's name on every tab; `""` for none |
 
 `[profiles.<id>.android]`, for the app only (the service checks the keys, but doesn't act on them):
 
@@ -179,8 +180,9 @@ key as well. A profile that names a dashboard that doesn't exist is a mistake.
 ## Dashboards
 
 A dashboard is a page of widgets: a tab when a profile lists it, otherwise a page a widget opens
-(`open`). The standard ones are `overview`, `processes`, `sensors` and `control`, and the pages
-their tiles open: `cpu`, `memory`, `gpu.<key>`, `network`, `storage`, `battery`, `activity`.
+(`open`), or the chips under the computer's name (a profile's `header`). The standard ones are
+`overview`, `processes`, `sensors` and `control`, the `header`, and the pages their tiles open:
+`cpu`, `memory`, `gpu.<key>`, `network`, `storage`, `battery`, `activity`.
 
 ```toml
 [dashboards.power]
@@ -266,7 +268,7 @@ the clock on a computer without a CPU temperature); a string left empty isn't sh
 | `select` | one of an action's choices | `value` (the choice now), `action`, `param` |
 | `slider` | a number in an action's range | `value`, `action`, `param` |
 | `text` | words | `text` (may hold values), `level` |
-| `group` | a card around widgets | `widgets`, `collapsed` (whether it starts closed; the client remembers it after) |
+| `group` | a card around widgets | `widgets`, `collapsed` (whether it starts closed; the client remembers it after); with `for_each`, its widgets are repeated for each item inside the one card, their ids `<id>.<item key>` |
 | `media` | the players, with covers and seeking, and the volume | |
 
 A `table`:
@@ -329,7 +331,7 @@ units and formats.
 | `gpu.<key>.freq`, `.freq_max`, `.mem_freq` | MHz | `mhz` | |
 | `gpu.<key>.fan` | % | `percent` | |
 | `gpu.<key>.state` | | `text` | `active`, `sleeping` or `unknown` |
-| `gpu.<key>.name`, `.vendor`, `.driver` | | `text` | |
+| `gpu.<key>.name`, `.short_name`, `.vendor`, `.driver` | | `text` | `short_name` as the `gpus` collection has it |
 | `temp.<key>` | °C | `temp` | `.high` and `.crit`, the sensor's limits |
 | `fan.<key>` | RPM | `rpm` | |
 | `disk.<key>.used`, `.available`, `.total` | B | `bytes` | |
@@ -347,6 +349,7 @@ units and formats.
 | `battery.time_left` | s | `duration` | |
 | `battery.status` | | `text` | `charging`, `discharging`, `full`, `not_charging`, `unknown` |
 | `battery.cycles` | | `integer` | |
+| `battery.model` | | `text` | |
 | `power.on_ac` | | `bool` | |
 | `power.profile` | | `text` | power-profiles-daemon's |
 | `power.platform_profile`, `power.governor`, `power.epp` | | `text` | |
@@ -393,12 +396,14 @@ Lists of things, for `table` and `for_each`, each item with a `key` and fields:
 | `disks` | glance | `device`, `mount`, `fs`, `used`, `available`, `total`, `percent`, `removable` |
 | `disk_io` | glance | `name`, `model`, `read`, `write` |
 | `net` | glance | `name`, `kind` (`wired`, `wireless`, `vpn`, `virtual`), `up`, `addrs`, `rx`, `tx`, `rx_total`, `tx_total`, `speed` |
-| `displays` | monitor | `name` (vendor and model, or the connector), `state` (`On`, `Off`, `Standby`, `Disconnected`…), `connector`, `gpu`, `connected`, `active`, `dpms`, `internal`, `vendor`, `model`, `year`, `size` (`15.6″ · 34 × 19 cm`), `mode` (`1920 × 1080 @ 144 Hz`), `preferred`, `max_refresh`, `position` (`1920, 0`) |
+| `displays` | monitor | `name` (vendor and model, or the connector), `state` (`On`, `Off`, `Standby`, `Not in use`, `Disconnected`), `connector`, `gpu`, `connected`, `active`, `dpms`, `internal`, `vendor`, `model`, `year`, `size` (`15.6″ · 34 × 19 cm`), `mode` (`1920 × 1080 @ 144 Hz`), `preferred`, `max_refresh`, `position` (`1920, 0`) |
 | `links` | monitor | `id`, `name`, `url`, `unit`, `scope`, `port`, `up`, `local_only`, `unit_state` |
 | `activity` | monitor | `t` (ms), `phone`, `what`, `result`, `message` |
 | `actions` | operate | the actions the settings add (not the built-in ones) that the role may run: `key` (the id), `name`, `icon` |
 
-A row's `level`, where its collection has one (`temps`, `processes` by CPU), comes with it.
+A row's `level`, where its collection has one (`temps` by value, `processes` by CPU, `disks` by
+percent, `cores` and `gpus` by usage), comes with it. In a string, `{item.<field>}` is written by
+the field's format.
 
 ### Levels
 
@@ -411,9 +416,16 @@ colours it alike:
 | `cpu.usage`, `mem.percent`, `swap.percent`, `gpu.*.usage`, `gpu.*.mem_percent`, `disk.*.percent` | above 75 | above 90 | 0 |
 | temperatures | the sensor's `high`, or 20 below critical, never under 40 | the sensor's `crit`, or `high`, or 95 | 20 |
 | `battery.percent` | below 30 | below 15 | 0 |
+| `processes` rows by `cpu` (a quarter of the CPU is a lot already) | above 18.75 | above 22.5 | 0 |
 | anything else | — | — | |
 
-`soft`: the colour starts turning toward `warning` that far before it.
+`soft`: the colour starts turning toward `warning` that far before it. Between `warning` and
+`critical`, `blend` is how far across it is. A widget's own `warning_above`… replace the address's
+limits one by one; an address given there is read now, in the client's units.
+
+What has a level: a number with limits, judged by them; a number without is `normal`, but a
+duration, a moment or a text has none. A widget with `levels` gives each mapped value its level
+there, `normal` for the rest.
 
 ### Formats
 

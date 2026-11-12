@@ -1,20 +1,19 @@
-//! Links to the web pages this computer hosts: what the app opens, whether they answer, their units.
+//! Links to the web pages this computer hosts: what a client opens, whether they answer, their units.
 //!
-//! Links come from elamond.toml (fixed) and from the app (links.json in the data directory,
-//! editable from any paired phone).
+//! Links come from the settings alone (`[links.<id>]`). links.json, where 0.5 kept the links added
+//! from the app, is only carried by backups now.
 
 use std::collections::HashMap;
 use std::fs;
-use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
-use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 use crate::consts::{limit, timeout};
-use crate::errors::ErrorCode;
+use crate::settings::Link;
 use crate::store;
 
+/// A link added from the 0.5 app, as links.json kept it.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LinkDef {
 	pub id: String,
@@ -34,7 +33,7 @@ pub struct LinkStatus {
 	pub url: String,
 	pub unit: Option<String>,
 	pub scope: String,
-	/// Added from the app, so the app may change or remove it.
+	/// Added from the app, so the app may change or remove it: never, from 0.6 on.
 	pub editable: bool,
 	pub port: Option<u16>,
 	/// Something accepts connections on the port, seen from the computer itself.
@@ -51,30 +50,17 @@ pub struct Listener {
 	pub process: Option<String>,
 }
 
-/// The links added from the app, in the data directory.
+/// links.json in the data directory, which 0.5 kept the links added from the app in.
 pub const FILE: &str = "links.json";
 
-/// The links added from the app, kept in the data directory `dir`; none when there are none
-/// yet. A file that doesn't parse is an error, and stays on disk until the next save sets it
-/// aside.
-pub fn load_in(dir: &Path) -> io::Result<Vec<LinkDef>> {
-	Ok(store::read_json(&dir.join(FILE))?.unwrap_or_default())
-}
-
-pub fn save_in(dir: &Path, list: &[LinkDef]) -> io::Result<()> {
+#[cfg(test)]
+pub fn save_in(dir: &std::path::Path, list: &[LinkDef]) -> std::io::Result<()> {
 	store::write_json::<Vec<LinkDef>>(&dir.join(FILE), list)
 }
 
-/// Every link the app may open, the configured ones first; one whose URL isn't a web page's
-/// (`web_url`) is left out, wherever it came from.
-pub fn all(config: &store::Config, app: &[LinkDef]) -> Vec<(LinkDef, bool)> {
-	let fixed = config.links.iter().map(|s| {
-		(
-			LinkDef { id: format!("config-{}", s.id()), name: s.name.clone(), url: s.url.clone(), unit: s.unit.clone(), scope: s.scope.clone() },
-			false,
-		)
-	});
-	fixed.chain(app.iter().cloned().map(|s| (s, true))).filter(|(l, _)| web_url(&l.url)).collect()
+/// Every link a client may open, by id; one whose URL isn't a web page's (`web_url`) is left out.
+pub fn all(config: &store::Config) -> Vec<(&str, &Link)> {
+	config.links.iter().filter(|(_, l)| web_url(&l.url)).map(|(id, l)| (id.as_str(), l)).collect()
 }
 
 /// Whether the app may open `url`: an http:// or https:// one, or a bare host and port, which the
@@ -126,28 +112,29 @@ pub fn probe(port: u16) -> bool {
 }
 
 /// Statuses without the units' state, which needs D-Bus and is filled in by the caller.
-pub fn statuses(config: &store::Config, app: &[LinkDef]) -> Vec<LinkStatus> {
+pub fn statuses(config: &store::Config) -> Vec<LinkStatus> {
 	let listening = listening_sockets();
-	all(config, app)
+	all(config)
 		.into_iter()
-		.map(|(s, editable)| {
-			let port = port_of(&s.url);
-			let socks: Vec<&(u16, bool, u64)> = listening.iter().filter(|l| Some(l.0) == port).collect();
+		.map(|(id, l)| {
+			let port = port_of(&l.url);
+			let socks: Vec<&(u16, bool, u64)> = listening.iter().filter(|s| Some(s.0) == port).collect();
 			LinkStatus {
 				up: port.map(|p| !socks.is_empty() || probe(p)),
-				local_only: !socks.is_empty() && socks.iter().all(|l| l.1),
+				local_only: !socks.is_empty() && socks.iter().all(|s| s.1),
 				port,
-				scope: s.scope.clone().unwrap_or_else(|| "user".into()),
-				id: s.id,
-				name: s.name,
-				url: s.url,
-				unit: s.unit,
-				editable,
+				scope: l.scope().to_string(),
+				id: id.to_string(),
+				name: l.name.clone(),
+				url: l.url.clone(),
+				unit: l.unit.clone(),
+				editable: false,
 				unit_state: None,
 			}
 		})
 		.collect()
 }
+
 
 /// Listening TCP sockets: (port, bound to loopback, socket inode).
 fn listening_sockets() -> Vec<(u16, bool, u64)> {
@@ -235,41 +222,6 @@ fn socket_owners() -> HashMap<u64, String> {
 	map
 }
 
-/// What to tell about `[[links]]` in the settings that won't work as written.
-pub fn settings_notes(config: &store::Config) -> Vec<String> {
-	config
-		.links
-		.iter()
-		.filter_map(|l| {
-			if !web_url(&l.url) {
-				return Some(format!("[[links]] \"{}\" is left out: its url isn't an http:// or https:// one", l.name));
-			}
-			let unit = l.unit.as_deref()?;
-			let why = unit_shape(unit).err()?;
-			Some(format!("[[links]] \"{}\": its unit {unit} {why}; the app can't start or stop it", l.name))
-		})
-		.collect()
-}
-
-/// A link as the app sends it, checked before it's stored. Control characters are refused
-/// everywhere: these end up in the log and on other phones. Whether the settings allow its unit
-/// is `unit_refusal`'s to say.
-pub fn validate(name: &str, url: &str, unit: Option<&str>, scope: Option<&str>) -> Result<(), ErrorCode> {
-	if name.trim().is_empty() || name.chars().count() > limit::NAME_MAX || name.chars().any(store::unseen) {
-		return Err(ErrorCode::BadName);
-	}
-	if url.trim().is_empty() || url.len() > limit::URL_MAX || url.chars().any(char::is_control) || !web_url(url) {
-		return Err(ErrorCode::BadUrl);
-	}
-	if unit.is_some_and(|u| unit_shape(u).is_err()) {
-		return Err(ErrorCode::BadUnit);
-	}
-	if !matches!(scope, None | Some("user") | Some("system")) {
-		return Err(ErrorCode::BadScope);
-	}
-	Ok(())
-}
-
 /// Whether `name` is a unit a phone could ever be let start, stop and restart: a service, its name
 /// as systemd writes one, never one the service itself runs in. A template's instance (`@`) or an
 /// escaped name (`\`) passes only as itself: `unit_refusal` wants the exact name in the settings.
@@ -308,18 +260,15 @@ fn own_units() -> &'static [String] {
 	})
 }
 
-/// Why the unit `unit` in `scope` ("user" when none) may not be started, stopped or restarted from
-/// the app, if it may not: only a service unit the settings name, on a `[[links]]` entry or in
-/// `units`, in that scope, ever may. A link added from the app names any unit it likes; this is
-/// asked when it is added and again whenever its unit is to be used.
+/// Why the unit `unit` in `scope` ("user" when none) may not be started, stopped or restarted by a
+/// client, if it may not: only a service unit a link in the settings names, in that scope, ever may.
 pub fn unit_refusal(config: &store::Config, unit: &str, scope: Option<&str>) -> Option<String> {
 	if let Err(why) = unit_shape(unit) {
 		return Some(format!("{unit} {why}"));
 	}
 	let scope = scope.unwrap_or("user");
-	let on_a_link = config.links.iter().any(|l| l.unit.as_deref() == Some(unit) && l.scope.as_deref().unwrap_or("user") == scope);
-	let listed = config.units.iter().any(|u| u.name == unit && u.scope == scope);
-	(!on_a_link && !listed).then(|| format!("the settings don't name {unit} ({scope}) on a [[links]] entry or in units"))
+	let on_a_link = config.links.values().any(|l| l.unit.as_deref() == Some(unit) && l.scope() == scope);
+	(!on_a_link).then(|| format!("no link in the settings names {unit} ({scope})"))
 }
 
 #[cfg(test)]
@@ -345,103 +294,39 @@ mod tests {
 	}
 
 	#[test]
-	fn what_the_app_may_store() {
-		assert_eq!(validate("Syncthing", "http://{host}:8384", Some("syncthing.service"), Some("user")), Ok(()));
-		assert_eq!(validate("Grafana", "https://{host}/", Some("getty@tty1.service"), None), Ok(()));
-		for unit in ["-.slice", "-.service", "user.slice", "x.socket", ".service", "elamond.service"] {
-			assert_eq!(validate("a", "http://x", Some(unit), None), Err(ErrorCode::BadUnit), "{unit}");
-		}
-		assert_eq!(validate(" ", "http://x", None, None), Err(ErrorCode::BadName));
-		assert_eq!(validate(&"n".repeat(65), "http://x", None, None), Err(ErrorCode::BadName));
-		assert_eq!(validate("a\u{1b}[31m", "http://x", None, None), Err(ErrorCode::BadName));
-		assert_eq!(validate("Web\u{202e}", "http://x", None, None), Err(ErrorCode::BadName));
-		assert_eq!(validate("a", "http://x\n", None, None), Err(ErrorCode::BadUrl));
+	fn web_pages_only() {
 		for bad in ["javascript:alert(1)", "intent://x#Intent;end", "file:///etc/passwd", "data:text/html,x", "ftp://{host}", "http:x", "mailto:a@b"] {
-			assert_eq!(validate("a", bad, None, None), Err(ErrorCode::BadUrl), "{bad}");
+			assert!(!web_url(bad), "{bad}");
 		}
 		for good in ["HTTPS://{host}/", "{host}:3000", "localhost:8080/admin", "pc.lan:81", "192.0.2.10:8096", "[::1]:9090"] {
-			assert_eq!(validate("a", good, None, None), Ok(()), "{good}");
+			assert!(web_url(good), "{good}");
 		}
-		assert_eq!(validate("a", &"u".repeat(513), None, None), Err(ErrorCode::BadUrl));
-		assert_eq!(validate("a", "http://x", Some("a b.service"), None), Err(ErrorCode::BadUnit));
-		assert_eq!(validate("a", "http://x", Some("a\tb"), None), Err(ErrorCode::BadUnit));
-		assert_eq!(validate("a", "http://x", Some(""), None), Err(ErrorCode::BadUnit));
-		assert_eq!(validate("a", "http://x", None, Some("global")), Err(ErrorCode::BadScope));
+		for unit in ["-.slice", "-.service", "user.slice", "x.socket", ".service", "elamond.service", "a b.service", ""] {
+			assert!(unit_shape(unit).is_err(), "{unit}");
+		}
+		assert!(unit_shape("getty@tty1.service").is_ok());
 	}
 
 	#[test]
-	fn only_units_the_settings_name_may_be_used() {
-		let link = |unit: &str, scope: Option<&str>| store::LinkConfig {
-			name: "x".into(),
-			url: "http://{host}".into(),
-			unit: Some(unit.into()),
-			scope: scope.map(str::to_string),
-		};
-		let config: store::Config = toml::from_str(
-			"units = [\"syncthing.service\", { name = \"jellyfin.service\", scope = \"system\" }, \"podman-kube@a.service\"]",
-		)
+	fn only_units_a_link_names_may_be_used() {
+		let config = crate::settings::read_sources(&[crate::settings::Source::new(
+			"a.toml",
+			"[links.a]\nname = \"A\"\nurl = \"http://{host}:1\"\nunit = \"nginx.service\"\nscope = \"system\"\n[links.b]\nname = \"B\"\nurl = \"http://{host}:2\"\nunit = \"mine.service\"\n",
+		)])
 		.unwrap();
-		let config = store::Config { links: vec![link("nginx.service", Some("system")), link("mine.service", None)], ..config };
 		let allowed = |unit: &str, scope: Option<&str>| unit_refusal(&config, unit, scope).is_none();
-		assert!(allowed("syncthing.service", None) && allowed("syncthing.service", Some("user")));
-		assert!(allowed("jellyfin.service", Some("system")) && allowed("nginx.service", Some("system")) && allowed("mine.service", None));
-		// Each in its own scope only.
-		assert!(!allowed("jellyfin.service", None) && !allowed("syncthing.service", Some("system")) && !allowed("nginx.service", None));
-		// A template's instance only as the settings name it; never anything else, whatever it is.
-		assert!(allowed("podman-kube@a.service", None));
-		for unit in ["podman-kube@https:--evil.service", "-.slice", "user@1000.service", "getty@tty1.service", "x.service"] {
+		assert!(allowed("nginx.service", Some("system")) && allowed("mine.service", None) && allowed("mine.service", Some("user")));
+		// Each in its own scope only, and nothing else whatever it is.
+		assert!(!allowed("nginx.service", None) && !allowed("mine.service", Some("system")));
+		for unit in ["podman-kube@https:--evil.service", "-.slice", "user@1000.service", "x.service"] {
 			assert!(!allowed(unit, None) && !allowed(unit, Some("system")), "{unit}");
 		}
 		assert!(unit_refusal(&config, "-.slice", None).unwrap().contains("isn't a service unit"));
-		// The service's own unit is refused even when named.
-		let own = store::Config { links: vec![link("elamond.service", None)], ..Default::default() };
-		assert!(unit_refusal(&own, "elamond.service", None).unwrap().contains("own unit"));
-		// Settings that list what could never be allowed don't load.
-		for bad in ["units = [\"-.slice\"]", "units = [\"x.socket\"]", "units = [{ name = \"a.service\", scope = \"global\" }]", "units = [\"elamond.service\"]", "units = [{ name = \"a.service\", other = 1 }]"] {
-			assert!(toml::from_str::<store::Config>(bad).is_err(), "{bad}");
+		// Settings with a link whose unit could never be allowed, or whose url isn't a web page's,
+		// don't load.
+		for bad in ["[links.a]\nname = \"A\"\nurl = \"http://x\"\nunit = \"elamond.service\"\n", "[links.a]\nname = \"A\"\nurl = \"file:///etc/passwd\"\n"] {
+			assert!(crate::settings::read_sources(&[crate::settings::Source::new("a.toml", bad)]).is_err(), "{bad}");
 		}
-	}
-
-	#[test]
-	fn links_that_arent_web_pages_are_left_out_wherever_they_came_from() {
-		let link = |name: &str, url: &str| store::LinkConfig { name: name.into(), url: url.into(), unit: None, scope: None };
-		let config = store::Config { links: vec![link("Web", "http://{host}"), link("File", "file:///etc/passwd")], ..Default::default() };
-		let app = [
-			LinkDef { id: "a".into(), name: "Old".into(), url: "javascript:alert(1)".into(), unit: None, scope: None },
-			LinkDef { id: "b".into(), name: "Mine".into(), url: "{host}:81".into(), unit: None, scope: None },
-		];
-		let names: Vec<String> = all(&config, &app).into_iter().map(|(l, _)| l.name).collect();
-		assert_eq!(names, ["Web", "Mine"]);
-		assert!(settings_notes(&config)[0].contains("\"File\" is left out"));
-	}
-
-	#[test]
-	fn configured_links_first_with_ids_from_content() {
-		let config = store::Config {
-			links: vec![store::LinkConfig { name: "Web".into(), url: "http://{host}".into(), unit: None, scope: None }],
-			..Default::default()
-		};
-		let app = [LinkDef { id: "a1b2".into(), name: "Mine".into(), url: "http://{host}:81".into(), unit: None, scope: None }];
-		let list = all(&config, &app);
-		assert_eq!(list.len(), 2);
-		assert_eq!(list[0].0.id, format!("config-{}", config.links[0].id()));
-		assert_eq!(list[0].0.id.len(), "config-".len() + 12);
-		assert!(!list[0].1);
-		assert_eq!((list[1].0.id.as_str(), list[1].1), ("a1b2", true));
-	}
-
-	#[test]
-	fn links_saved_read_back() {
-		let dir = std::env::temp_dir().join(format!("elamond-links-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
-		fs::create_dir_all(&dir).unwrap();
-		let def = |id: &str| LinkDef { id: id.into(), name: id.into(), url: "http://{host}:81".into(), unit: None, scope: None };
-		let ids = |list: Vec<LinkDef>| list.into_iter().map(|l| l.id).collect::<Vec<_>>();
-		assert!(load_in(&dir).unwrap().is_empty());
-
-		save_in(&dir, &[def("a"), def("b")]).unwrap();
-		assert_eq!(ids(load_in(&dir).unwrap()), ["a", "b"]);
-		save_in(&dir, &[]).unwrap();
-		assert!(load_in(&dir).unwrap().is_empty());
-		fs::remove_dir_all(dir).unwrap();
+		assert_eq!(all(&config).iter().map(|(id, _)| *id).collect::<Vec<_>>(), ["a", "b"]);
 	}
 }

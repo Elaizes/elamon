@@ -24,14 +24,13 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::access::{self, Can, Caller, Rate, Role};
 use crate::activity::{self, Entry};
-use crate::bus::{self, Bus, Player, PowerCaps, Profiles, Scope, UnitInfo};
+use crate::bus::{self, Bus, Player, PowerCaps, Profiles, Scope};
 use crate::consts::cadence::{self, Ticks};
 use crate::consts::{limit, timeout};
 use crate::errors::{reason, ErrorCode};
 use crate::model::Sample;
 use crate::server::{error, failed, Hub};
-use crate::links::{self, LinkDef, LinkStatus};
-use crate::store;
+use crate::links::{self, LinkStatus};
 
 /// What an acting request answered, and a word on how it went for the activity log.
 pub struct Acted {
@@ -173,7 +172,7 @@ pub async fn info(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>
 	let power = if may(Can::Power) { hub.bus.power_caps().await } else { PowerCaps::default() };
 	let profiles = if may(Can::Profile) { hub.bus.profiles().await } else { None };
 	let actions = if may(Can::Actions) {
-		hub.config().actions.iter().map(|a| ActionInfo { id: a.id(), name: a.name.clone(), confirm: a.confirm }).collect()
+		hub.config().actions.iter().map(|(id, a)| ActionInfo { id: id.clone(), name: a.name.clone(), confirm: a.confirm }).collect()
 	} else {
 		Vec::new()
 	};
@@ -363,13 +362,17 @@ pub(crate) struct ActionResult {
 
 pub async fn action(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Json(r): Json<ActionReq>) -> Response {
 	let config = hub.config();
-	let found = config.actions.iter().find(|a| a.id() == r.id);
+	let found = config.actions.get(&r.id);
 	let what = format!("action {}", found.map_or(r.id.as_str(), |a| a.name.as_str()));
 	hub.act(&who, Can::Actions, what, async {
 		let Some(a) = found else {
 			return Err(ErrorCode::NoSuchAction.into());
 		};
-		let Some((program, args)) = a.command.split_first() else {
+		// API 1 sends no parameters: each takes its default, and one without can't run.
+		let params = crate::actions::check_params(&crate::actions::settings_spec(&r.id, a), &serde_json::Map::new())
+			.map_err(|p| Refusal::failed(format!("the parameter {p} has no default")))?;
+		let command = crate::actions::command(a, &params);
+		let Some((program, args)) = command.split_first() else {
 			return Err(ErrorCode::EmptyCommand.into());
 		};
 		eprintln!("control: {} ran \"{}\"", who.name, a.name);
@@ -693,72 +696,6 @@ pub async fn links_list(State(hub): State<Arc<Hub>>, Extension(who): Extension<C
 }
 
 #[derive(Deserialize)]
-pub struct LinkReq {
-	id: Option<String>,
-	name: String,
-	url: String,
-	unit: Option<String>,
-	scope: Option<String>,
-}
-
-pub async fn link_put(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Json(r): Json<LinkReq>) -> Response {
-	let what = format!("link {} {}", if r.id.is_some() { "change" } else { "add" }, r.name.trim());
-	hub.act(&who, Can::LinksEdit, what, async {
-		let unit = r.unit.as_deref().map(str::trim).filter(|u| !u.is_empty());
-		links::validate(&r.name, &r.url, unit, r.scope.as_deref())?;
-		// A link may carry a unit only if the settings let phones use it.
-		if let Some(why) = unit.and_then(|u| links::unit_refusal(&hub.config(), u, r.scope.as_deref())) {
-			eprintln!("links: {} may not add a link with a unit: {why}", who.name);
-			return Err(ErrorCode::NotAllowed.into());
-		}
-		let mut list = hub.app_links.lock().await;
-		let def = LinkDef {
-			id: r.id.clone().unwrap_or_else(|| data_encoding::HEXLOWER.encode(&store::random_bytes::<{ crate::consts::protocol::LINK_ID_BYTES }>())),
-			name: r.name.trim().to_string(),
-			url: r.url.trim().to_string(),
-			unit: unit.map(str::to_string),
-			scope: r.scope.clone(),
-		};
-		match list.iter_mut().find(|s| s.id == def.id) {
-			Some(s) => *s = def.clone(),
-			None if r.id.is_none() => list.push(def.clone()),
-			None => return Err(ErrorCode::NoSuchLink.into()),
-		}
-		if let Err(e) = links::save_in(&hub.dir, &list) {
-			eprintln!("links: can't save: {e}");
-			return Err(ErrorCode::Storage.into());
-		}
-		eprintln!("links: {} saved \"{}\"", who.name, def.name);
-		drop(list);
-		hub.refresh_soon();
-		Ok(Json(def).into_response().into())
-	})
-	.await
-}
-
-pub async fn link_delete(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Path(id): Path<String>) -> Response {
-	let name = hub.app_links.lock().await.iter().find(|l| l.id == id).map(|l| l.name.clone());
-	let what = format!("link remove {}", name.as_deref().unwrap_or(&id));
-	hub.act(&who, Can::LinksEdit, what, async {
-		let mut list = hub.app_links.lock().await;
-		let before = list.len();
-		list.retain(|s| s.id != id);
-		if list.len() == before {
-			return Err(ErrorCode::NoSuchLink.into());
-		}
-		if let Err(e) = links::save_in(&hub.dir, &list) {
-			eprintln!("links: can't save: {e}");
-			return Err(ErrorCode::Storage.into());
-		}
-		eprintln!("links: {} removed {id}", who.name);
-		drop(list);
-		hub.refresh_soon();
-		Ok(Acted::ok())
-	})
-	.await
-}
-
-#[derive(Deserialize)]
 pub struct UnitReq {
 	op: String,
 }
@@ -769,25 +706,23 @@ pub async fn link_unit(
 	Path(id): Path<String>,
 	Json(r): Json<UnitReq>,
 ) -> Response {
-	let app = hub.app_links.lock().await.clone();
-	let found = links::all(&hub.config(), &app).into_iter().find(|(s, _)| s.id == id).map(|(def, _)| def);
-	let what = format!("unit {} {}", r.op, found.as_ref().and_then(|d| d.unit.as_deref()).unwrap_or(&id));
+	let config = hub.config();
+	let found = links::all(&config).into_iter().find(|(lid, _)| *lid == id).map(|(_, l)| l.clone());
+	let what = format!("unit {} {}", r.op, found.as_ref().and_then(|l| l.unit.as_deref()).unwrap_or(&id));
 	hub.act(&who, Can::Units, what, async {
-		let Some(def) = found else {
+		let Some(link) = found else {
 			return Err(ErrorCode::NoSuchLink.into());
 		};
-		let Some(unit) = def.unit else { return Err(ErrorCode::NoUnit.into()) };
+		let Some(unit) = link.unit.clone() else { return Err(ErrorCode::NoUnit.into()) };
 		if Bus::unit_method(&r.op).is_none() {
 			return Err(Refusal::failed(reason::UNKNOWN_OPERATION));
 		}
-		// Asked again here: links.json may hold a unit from before the settings had a say, or one
-		// they no longer name.
-		if let Some(why) = links::unit_refusal(&hub.config(), &unit, def.scope.as_deref()) {
+		if let Some(why) = links::unit_refusal(&hub.config(), &unit, Some(link.scope())) {
 			eprintln!("control: {} asked to {} {unit}, refused: {why}", who.name, r.op);
 			return Err(ErrorCode::NotAllowed.into());
 		}
 		eprintln!("control: {} asked to {} {unit}", who.name, r.op);
-		let res = hub.bus.unit_op(Scope::parse(def.scope.as_deref()), &unit, &r.op).await;
+		let res = hub.bus.unit_op(Scope::parse(Some(link.scope())), &unit, &r.op).await;
 		hub.refresh_soon();
 		done(res)
 	})
@@ -800,27 +735,6 @@ pub async fn detected(State(hub): State<Arc<Hub>>, Extension(who): Extension<Cal
 	}
 	let list = tokio::task::spawn_blocking(links::detect).await.unwrap_or_default();
 	Json(list).into_response()
-}
-
-#[derive(Deserialize)]
-pub struct UnitsQuery {
-	scope: Option<String>,
-}
-
-pub async fn units(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Query(q): Query<UnitsQuery>) -> Response {
-	if let Some(r) = hub.refuse_read(&who, Can::Links) {
-		return r;
-	}
-	// Only those a link may be given: the units the settings name in this scope.
-	let scope = if Scope::parse(q.scope.as_deref()) == Scope::System { "system" } else { "user" };
-	let config = hub.config();
-	match hub.bus.units(Scope::parse(q.scope.as_deref())).await {
-		Ok(mut list) => {
-			list.retain(|u| links::unit_refusal(&config, &u.name, Some(scope)).is_none());
-			Json::<Vec<UnitInfo>>(list).into_response()
-		}
-		Err(e) => failed(e),
-	}
 }
 
 // ---- what the stream carries -------------------------------------------------------------
@@ -875,13 +789,11 @@ impl Extras {
 }
 
 impl Hub {
-	/// Link statuses with their units' states: only of the units the settings allow, so systemd
-	/// isn't asked to load whatever a link added from the app names.
+	/// Link statuses with their units' states.
 	pub async fn link_statuses(&self) -> Vec<LinkStatus> {
-		let app = self.app_links.lock().await.clone();
 		let config = self.config();
 		let given = config.clone();
-		let mut list = tokio::task::spawn_blocking(move || links::statuses(&given, &app)).await.unwrap_or_default();
+		let mut list = tokio::task::spawn_blocking(move || links::statuses(&given)).await.unwrap_or_default();
 		for s in &mut list {
 			if let Some(u) = &s.unit
 				&& links::unit_refusal(&config, u, Some(&s.scope)).is_none()
@@ -920,7 +832,7 @@ mod tests {
 
 	#[test]
 	fn programs_off_the_path_are_found_where_they_live() {
-		let dir = std::env::temp_dir().join(format!("elamond-bin-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
+		let dir = std::env::temp_dir().join(format!("elamond-bin-{}", data_encoding::HEXLOWER.encode(&crate::store::random_bytes::<6>())));
 		std::fs::create_dir_all(dir.join("b")).unwrap();
 		std::fs::write(dir.join("b/wpctl"), "").unwrap();
 		std::fs::create_dir_all(dir.join("a/wpctl")).unwrap();

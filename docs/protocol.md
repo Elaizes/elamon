@@ -278,6 +278,7 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
                "unlock": { "for": ["power", "signal", "actions", "units"], "grace": "every_time" },
                "android": { "dynamic_color": true, "blur": true, "haptics": true, "keep_screen_on": false } },
   "tabs": ["overview", "processes", "sensors", "control"],
+  "header": "header",
   "dashboards": [{ "id": "overview", "title": "Overview", "icon": "overview", "widgets": [ … ] }, …],
   "actions": [{ "id": "power.reboot", "name": "Restart", "kind": "power", "icon": "restart",
                 "confirm": true, "unlock": true, "params": [] }, …]
@@ -290,8 +291,12 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
   show while offline, and fetches it again when a stream says `ui` with another version.
 - `profile` holds the part every client reads, and the part for this client's kind (`android`)
   only.
-- `tabs` are the profile's dashboards the role sees, in order; `dashboards` the tabs, then the
-  dashboards their widgets open, and those theirs open, each once and as far as the role sees.
+- `tabs` are the profile's dashboards the role sees, in order (one for each item of a dashboard
+  with `for_each`); `dashboards` the tabs, then the header, then the dashboards their widgets
+  open, and those theirs open, each once and as far as the role sees. A dashboard the role sees
+  none of the widgets of isn't there, nor an `open` to a dashboard that isn't.
+- `header` is the profile's `header` dashboard, whose widgets a client draws as small chips under
+  the computer's name on every tab; `null` when the profile has none or the role sees none of it.
 - `actions` are those the role may run and the computer can do. `confirm` and `unlock` are final:
   the action's own, the profile's `confirm_actions` and `unlock.for` already applied. A client asks
   before running an action with `confirm`, unlocks the phone first for one with `unlock` (within the
@@ -329,9 +334,10 @@ reads, beside `id`, `type`, `span`, `label`, `icon`, `color` and `open`:
 ### What a client can't draw
 
 A widget type the client didn't list in `widgets` is replaced by the nearest it did: `gauge` and
-`meter` by `value`, `select` by buttons in a `group`, `slider` by `select`… and where there's none,
-by a `text` with `level` `warning` saying the app needs updating to show it. An unknown key on a
-known type, a client ignores.
+`meter` (and `status`) by `value`, `select` by buttons in a `group` (each button's id
+`<id>/<value>`), `slider` by `select` or those buttons (11 of its values at most), a `group` by
+the widgets in it… and where there's none, by a `text` with `level` `warning` saying the app needs
+updating to show it. An unknown key on a known type, a client ignores.
 
 ## `GET /api/v1/stream`
 
@@ -348,8 +354,9 @@ Lines:
    stream for [changing what it sends](#post-apiv1streamid); `ui` is the version of the client's
    `ui` now: a client holding another fetches it.
 2. `data`, every interval: `{ "type": "data", "t": <Unix ms>, "dashboard": "<id>", "widgets": { … } }`,
-   the state of each widget of the dashboard by its id, nested groups included. The first after
-   opening, or after the dashboard changed, also has `history`: the graphs' points so far.
+   the state of each widget of the dashboard by its id, nested groups included, and of the
+   header's widgets (`header/os`…) whatever dashboard is on screen. The first after opening, or
+   after the dashboard changed, also has `history`: the graphs' points so far.
 3. `ui`, whenever the client's `ui` changes: `{ "type": "ui", "ui": "<version>" }`. The stream goes
    on, with the dashboard it had (or the first tab, when that one is gone for this client).
 
@@ -359,7 +366,7 @@ A widget's state:
 |---|---|
 | `value`, `gauge`, `meter`, `status` | `{ "v": 42.5, "text": "On battery", "level": "warning", "blend": 0.4, "max": 16000000000, "caption": "4.1 GiB of 16 GiB" }`: `v` the value (number, string, bool or `null` when missing) in the widget's unit; `text` when `map` gave it a word, or the value is missing and the widget has `empty` (filled in); `level` and `blend` ([levels](config.md#levels)); `max` when it is an address; `caption` filled in |
 | `graph` | `{ "v": [1.5, 0.2], "max": 16000000000, "text": "Asleep" }`, the newest point of each series, at the line's `t`; `max` when it is an address; `text`, the widget's `empty` while the first series has no value |
-| `bars` | `{ "v": [12.5, 80.0, …], "labels": ["0", "1", …], "levels": ["normal", "critical", …] }` |
+| `bars` | `{ "v": [12.5, 80.0, …], "labels": ["0", "1", …], "levels": ["normal", "critical", …] }`; `max` when it is an address |
 | `list` | `{ "items": [{ "v": …, "text": …, "level": … }] }`, in the order of `items` |
 | `table` | `{ "rows": [{ "key": "4242", "level": "normal", "f": { "pid": 4242, "name": "firefox", … } }], "total": 312 }`: at most `limit` rows in the table's order, each with the fields its columns, `expand`, `row_open` and `row_actions` need; `total`, how many there are in all |
 | `button` | `{ "enabled": true }` |

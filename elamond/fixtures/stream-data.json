@@ -10,14 +10,7 @@
     "home/net": { "v": [1500.5, 300.5] },
     "home/gpus.nvidia": { "v": 33.0, "level": "normal" },
     "home/cores": { "v": [10.0, 15.0], "levels": ["normal", "normal"] },
-    "home/facts": {
-      "items": [
-        { "v": "Some CPU" },
-        { "v": 3600 },
-        { "text": "8 cores · 12 threads" },
-        { "v": 95.2, "level": "normal" }
-      ]
-    },
+    "home/facts": { "items": [{ "v": "Some CPU" }, { "v": 3600 }, { "text": "8 cores · 12 threads" }, { "v": 95.2, "level": "normal" }] },
     "home/disks": {
       "caption": "Read 1.00 KiB/s · write 2.00 KiB/s",
       "rows": [
@@ -30,15 +23,7 @@
       ],
       "total": 1
     },
-    "home/links": {
-      "rows": [
-        {
-          "key": "web",
-          "f": { "id": "web", "name": "Web", "up": "Up", "url": "http://{host}:8080" }
-        }
-      ],
-      "total": 1
-    },
+    "home/links": { "rows": [{ "key": "web", "f": { "name": "Web", "up": "Up", "url": "http://{host}:8080", "id": "web" } }], "total": 1 },
     "home/mute": { "v": false, "enabled": true },
     "home/mode": { "v": null, "enabled": true },
     "home/fan": { "v": null, "enabled": true },
@@ -68,16 +53,11 @@
         }
       ],
       "volume": { "level": 75.0, "muted": false }
-    }
+    },
+    "header/power": { "v": false, "text": "On battery", "level": "warning" }
   },
   "history": {
-    "home/temp": {
-      "t": [1700000000000, 1700000001000],
-      "v": [[50.0, null]]
-    },
-    "home/net": {
-      "t": [1700000000000, 1700000001000],
-      "v": [[100.5, 200.5], [10.5, 20.5]]
-    }
+    "home/temp": { "t": [1700000000000, 1700000001000], "v": [[50.0, null]] },
+    "home/net": { "t": [1700000000000, 1700000001000], "v": [[100.5, 200.5], [10.5, 20.5]] }
   }
 }

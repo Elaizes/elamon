@@ -52,22 +52,6 @@
     "status": 404
   },
   {
-    "error": "bad_name",
-    "status": 400
-  },
-  {
-    "error": "bad_url",
-    "status": 400
-  },
-  {
-    "error": "bad_unit",
-    "status": 400
-  },
-  {
-    "error": "bad_scope",
-    "status": 400
-  },
-  {
     "error": "no_such_link",
     "status": 404
   },

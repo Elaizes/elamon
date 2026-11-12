@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use crate::access::{allowed, Role};
 use crate::activity::Entry;
-use crate::bus::{Player, PowerCaps, Profiles, UnitInfo};
+use crate::bus::{Player, PowerCaps, Profiles};
 use crate::control::{ActionInfo, ActionResult, ControlInfo, Media, Volume};
 use crate::errors::ErrorCode;
 use crate::links::{LinkStatus, Listener};
@@ -20,9 +20,20 @@ use crate::model::*;
 use crate::server::{hello_body, paired_body, render_sample, Frame, Want};
 
 fn check(name: &str, value: &impl Serialize) {
+	write_or_compare(name, serde_json::to_string_pretty(value).unwrap() + "\n");
+}
+
+/// As `check`, written the way people write JSON by hand: what fits on a line of 140 columns
+/// stays on one, the keys in the order the service sends them.
+fn check_compact(name: &str, value: &crate::ui::J) {
+	let mut text = String::new();
+	compact(value, 0, 0, &mut text);
+	write_or_compare(name, text + "\n");
+}
+
+fn write_or_compare(name: &str, text: String) {
 	let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
 	let path = dir.join(format!("{name}.json"));
-	let text = serde_json::to_string_pretty(value).unwrap() + "\n";
 	if std::env::var_os("ELAMON_BLESS").is_some() {
 		std::fs::create_dir_all(&dir).unwrap();
 		std::fs::write(&path, &text).unwrap();
@@ -30,6 +41,59 @@ fn check(name: &str, value: &impl Serialize) {
 	}
 	let kept = std::fs::read_to_string(&path).unwrap_or_default();
 	assert!(kept == text, "elamond/fixtures/{name}.json is out of date: run `ELAMON_BLESS=1 cargo test` and commit it");
+}
+
+/// `v` on one line: `{ "a": 1, "b": [1, 2] }`.
+fn one_line(v: &crate::ui::J) -> String {
+	use crate::ui::J;
+	match v {
+		J::Arr(a) if a.is_empty() => "[]".into(),
+		J::Arr(a) => format!("[{}]", a.iter().map(one_line).collect::<Vec<_>>().join(", ")),
+		J::Obj(o) if o.is_empty() => "{}".into(),
+		J::Obj(o) => {
+			let parts: Vec<String> = o.keys().map(|k| format!("{}: {}", serde_json::to_string(k).unwrap(), one_line(o.get(k).unwrap()))).collect();
+			format!("{{ {} }}", parts.join(", "))
+		}
+		other => serde_json::to_string(other).unwrap(),
+	}
+}
+
+/// `v` at `indent`, after `used` columns of its line: on one line if it fits, else one entry to a
+/// line. The outermost is always spread.
+fn compact(v: &crate::ui::J, indent: usize, used: usize, out: &mut String) {
+	use crate::ui::J;
+	let line = one_line(v);
+	if indent > 0 && used + line.chars().count() <= 140 {
+		out.push_str(&line);
+		return;
+	}
+	let pad = "  ".repeat(indent + 1);
+	match v {
+		J::Arr(a) if !a.is_empty() => {
+			out.push_str("[\n");
+			for (i, e) in a.iter().enumerate() {
+				out.push_str(&pad);
+				compact(e, indent + 1, pad.len(), out);
+				out.push_str(if i + 1 < a.len() { ",\n" } else { "\n" });
+			}
+			out.push_str(&"  ".repeat(indent));
+			out.push(']');
+		}
+		J::Obj(o) if !o.is_empty() => {
+			out.push_str("{\n");
+			let keys: Vec<&str> = o.keys().collect();
+			for (i, k) in keys.iter().enumerate() {
+				let key = format!("{}: ", serde_json::to_string(k).unwrap());
+				out.push_str(&pad);
+				out.push_str(&key);
+				compact(o.get(k).unwrap(), indent + 1, pad.len() + key.chars().count(), out);
+				out.push_str(if i + 1 < keys.len() { ",\n" } else { "\n" });
+			}
+			out.push_str(&"  ".repeat(indent));
+			out.push('}');
+		}
+		_ => out.push_str(&line),
+	}
 }
 
 fn some(s: &str) -> Option<String> {
@@ -312,34 +376,182 @@ fn control() {
 	);
 	check("action-result", &ActionResult { exit_code: Some(0), timed_out: false, output: "done\n".into() });
 	check("detected", &vec![Listener { port: 8080, local_only: true, process: some("some") }]);
-	check("units", &vec![UnitInfo { name: "some.service".into(), description: "Some service".into(), active: "active".into() }]);
 }
 
 #[test]
 fn activity_log() {
-	check(
-		"log",
-		&vec![
-			Entry {
-				t: 1_700_000_060_000,
-				phone: "Some phone".into(),
-				client_id: "0123abcd".into(),
-				what: "action Some action".into(),
-				result: "ok".into(),
-				message: some("exit 0"),
-				family: some("89ab0123"),
-			},
-			Entry {
-				t: 1_700_000_000_000,
-				phone: "Other phone".into(),
-				client_id: "4567cdef".into(),
-				what: "power reboot".into(),
-				result: "not_allowed".into(),
-				message: None,
-				family: None,
-			},
-		],
-	);
+	check("log", &log());
+}
+
+/// The activity log, newest first.
+pub fn log() -> Vec<Entry> {
+	vec![
+		Entry {
+			t: 1_700_000_060_000,
+			phone: "Some phone".into(),
+			client_id: "0123abcd".into(),
+			what: "action Some action".into(),
+			result: "ok".into(),
+			message: some("exit 0"),
+			family: some("89ab0123"),
+		},
+		Entry {
+			t: 1_700_000_000_000,
+			phone: "Other phone".into(),
+			client_id: "4567cdef".into(),
+			what: "power reboot".into(),
+			result: "not_allowed".into(),
+			message: None,
+			family: None,
+		},
+	]
+}
+
+// ---- API 2: ui and the stream's data lines ---------------------------------------------------
+
+/// The fixture sample with the links of `config`, each answering, its unit active.
+pub fn sample_for(config: &crate::settings::Config) -> Sample {
+	let mut s = sample();
+	s.links = config
+		.links
+		.iter()
+		.map(|(id, l)| LinkStatus {
+			id: id.clone(),
+			name: l.name.clone(),
+			url: l.url.clone(),
+			unit: l.unit.clone(),
+			scope: l.scope().into(),
+			editable: false,
+			port: crate::links::port_of(&l.url),
+			up: Some(true),
+			local_only: false,
+			unit_state: l.unit.as_ref().map(|_| "active".into()),
+		})
+		.collect();
+	s
+}
+
+/// The values of the fixture readings for `config`: the sample, the media, the processes and the
+/// activity log.
+pub fn values(config: &crate::settings::Config) -> crate::values::Values {
+	let (sample, info, media, procs, log) = (sample_for(config), info(), media(), processes(), log());
+	crate::values::read(&crate::values::Reading {
+		sample: &sample,
+		info: &info,
+		media: Some(&media),
+		processes: Some(&procs),
+		activity: &log,
+		actions: &config.actions,
+	})
+}
+
+/// The settings ui.json and stream-*.json describe.
+fn ui_source() -> crate::settings::Config {
+	crate::settings::read_sources(&[crate::settings::Source::new("ui-source.toml", include_str!("../fixtures/ui-source.toml"))]).unwrap()
+}
+
+/// `ui` for a client of `role` and `profile` that draws every widget type.
+fn ui_for(config: &crate::settings::Config, values: &crate::values::Values, role: Role, profile: &str) -> crate::ui::Ui {
+	let info = info();
+	let caps = crate::actions::Caps::all(&values.power_profiles);
+	crate::ui::build(&crate::ui::Input {
+		config,
+		values,
+		caps: &caps,
+		service: crate::ui::Service {
+			id: info.id,
+			name: info.name,
+			version: info.service_version.into(),
+			interval_ms: info.interval_ms,
+			history_seconds: info.history_seconds,
+		},
+		control: crate::ui::Control { enabled: config.control, off_reason: (!config.control).then_some("settings") },
+		role,
+		profile,
+		kind: "android",
+		draws: None,
+	})
+}
+
+/// The history ring the fixtures' graphs are drawn from: two points, a value missing at the second.
+fn ring() -> crate::history::Ring {
+	let mut ring = crate::history::Ring::new(600);
+	let h = history();
+	for (i, t) in h.t.iter().enumerate() {
+		let points = [
+			("cpu.usage", Some(h.cpu[i] as f64)),
+			("cpu.temp", h.cpu_temp[i].map(f64::from)),
+			("mem.used", Some(h.mem[i] as f64)),
+			("swap.used", Some(h.swap[i] as f64)),
+			("net.rx", Some(h.rx[i])),
+			("net.tx", Some(h.tx[i])),
+			("disk.read", Some(h.read[i])),
+			("disk.write", Some(h.write[i])),
+			("battery.power", h.battery_power[i].map(f64::from)),
+			("gpu.nvidia.usage", h.gpus[0].usage[i].map(f64::from)),
+			("gpu.nvidia.temp", h.gpus[0].temp[i].map(f64::from)),
+		];
+		ring.push_points(*t, points.into_iter().map(|(a, x)| (a.to_string(), x)));
+	}
+	ring
+}
+
+#[test]
+fn ui() {
+	let config = ui_source();
+	let values = values(&config);
+	let ui = ui_for(&config, &values, Role::Admin, "owner");
+	check_compact("ui", &ui.doc);
+}
+
+/// The first `data` line of the dashboard `home` (with its history), and a later one of `detail`.
+#[test]
+fn stream_data() {
+	let config = ui_source();
+	let values = values(&config);
+	let ui = ui_for(&config, &values, Role::Admin, "owner");
+	let sorts = std::collections::HashMap::new();
+	let s = crate::states::States { view: crate::values::View::new(&values, Role::Admin, ui.units), control: true, sorts: &sorts };
+	let header = ui.header.as_deref().and_then(|h| ui.dashboard(h));
+	let home = ui.dashboard("home").unwrap();
+	let t = sample().t;
+	let history = crate::history::json(home, &ring(), ui.units, t);
+	check_compact("stream-data", &crate::ui::J::Obj(crate::states::data(t, home, header, &s, Some(history))));
+	let detail = ui.dashboard("detail").unwrap();
+	check_compact("stream-data-detail", &crate::ui::J::Obj(crate::states::data(t + 1000, detail, header, &s, None)));
+}
+
+/// The built-in dashboards and profile, for an admin, with the fixture readings: what the app
+/// checks it shows as much as 0.5 did.
+#[test]
+fn ui_default() {
+	let config = crate::settings::Config::default();
+	let values = values(&config);
+	check_compact("ui-default", &ui_for(&config, &values, Role::Admin, "default").doc);
+	// Every role gets a sound one: each tab there, each open leading to a dashboard it has, each
+	// action widget's action among its actions, ids unique.
+	for role in Role::ALL {
+		let ui = ui_for(&config, &values, role, "default");
+		let ids: Vec<&str> = ui.dashboards.iter().map(|d| d.id.as_str()).collect();
+		assert!(ui.tabs.iter().all(|t| ids.contains(&t.as_str())), "{role:?}");
+		assert!(!ui.tabs.is_empty(), "{role:?}");
+		let mut seen = std::collections::HashSet::new();
+		for d in &ui.dashboards {
+			for w in d.all_widgets() {
+				assert!(seen.insert(w.id.clone()), "{} twice for {role:?}", w.id);
+				if let Some(o) = &w.def.open {
+					assert!(ids.contains(&o.as_str()), "{} opens {o} for {role:?}", w.id);
+				}
+				if let Some(a) = &w.def.action {
+					assert!(ui.actions.iter().any(|s| &s.id == a), "{} runs {a} for {role:?}", w.id);
+				}
+			}
+		}
+		let monitor = role >= Role::Monitor;
+		assert_eq!(ui.tabs.iter().any(|t| t == "processes"), monitor, "{role:?}");
+		assert_eq!(ui.actions.is_empty(), role < Role::Operate, "{role:?}");
+		assert_eq!(ui.header.as_deref(), Some("header"));
+	}
 }
 
 /// Three certificate rotations in a row, as `GET /api/v1/identity/rotations` serves them. Their

@@ -14,12 +14,44 @@ network_bits = false
 confirm_actions = true
 unlock = { for = ["power", "signal", "actions", "units"], grace = "every_time" }
 dashboards = ["overview", "processes", "sensors", "control"]
+header = "header"
 
 [profiles.default.android]
 dynamic_color = true
 blur = true
 haptics = true
 keep_screen_on = false
+
+# ---- Header: chips under the computer's name, on every tab ---------------------------------
+
+[dashboards.header]
+title = "Header"
+icon = "overview"
+
+[[dashboards.header.widgets]]
+id = "os"
+type = "status"
+value = "system.os"
+
+[[dashboards.header.widgets]]
+id = "uptime"
+type = "text"
+text = "Up {system.uptime:duration}"
+
+[[dashboards.header.widgets]]
+id = "power"
+type = "status"
+value = "power.on_ac"
+when = "power.on_ac"
+map = { "true" = "On AC power", "false" = "On battery" }
+levels = { "false" = "warning" }
+
+[[dashboards.header.widgets]]
+id = "profile"
+type = "status"
+value = "power.profile"
+when = "power.profile"
+map = { "power-saver" = "Power saver", balanced = "Balanced", performance = "Performance" }
 
 # ---- Overview ------------------------------------------------------------------------------
 
@@ -312,6 +344,7 @@ widgets = [
 id = "displays"
 type = "table"
 source = "displays"
+filter = { connected = true }
 label = "Displays"
 icon = "monitor"
 hide_empty = true
