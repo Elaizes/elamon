@@ -485,13 +485,8 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 				val h = hists[w.id]?.takeIf { it.seriesCount == count } ?: Hist(count, window).also { hists[w.id] = it }
 				h.windowMs = window
 				h.stepHintMs = wanted.value.intervalMs.toLong()
-				val past = line.history?.get(w.id)
-				if (past != null) {
-					h.replace(past)
-				} else {
-					val s = line.widgets[w.id]
-					h.append(line.t, if (graph) s?.numbers.orEmpty() else listOf(s?.number))
-				}
+				val s = line.widgets[w.id]
+				h.take(line.t, if (graph) s?.numbers.orEmpty() else listOf(s?.number), line.history?.get(w.id))
 			}
 		}
 		histCount++

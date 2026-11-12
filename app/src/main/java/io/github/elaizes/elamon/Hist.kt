@@ -111,6 +111,19 @@ class Hist(val seriesCount: Int, windowMs: Long = DEFAULT_HISTORY_SECONDS * 1000
 		return true
 	}
 
+	/**
+	 * A data line's points: its [history] when it has one (the first of a dashboard), and its own
+	 * [values] at [t] where that doesn't reach so far, so the newest point is never left out.
+	 */
+	fun take(t: Long, values: List<Double?>, history: HistoryEntry?) {
+		if (history == null) {
+			append(t, values)
+			return
+		}
+		replace(history)
+		if (t > lastTime) append(t, values)
+	}
+
 	/** A value as a point: NaN where it is missing, or past what a Float holds (no chart scales to it). */
 	private fun point(v: Double?): Float = v?.toFloat()?.takeIf { it.isFinite() } ?: Float.NaN
 

@@ -115,6 +115,27 @@ class HistTest {
 	}
 
 	@Test
+	fun aLineWithHistoryKeepsItsOwnPointToo() {
+		// The service's history ends at the line's moment: nothing more to add.
+		val h = Hist(1)
+		h.take(3000, listOf(3.0), HistoryEntry(t = listOf(1000, 2000, 3000), v = listOf(listOf(1.0, 2.0, 3.0))))
+		assertEquals(listOf(1000L, 2000L, 3000L), h.points(0).times())
+		// Ending before it, the line's own value is the newest point.
+		h.take(4000, listOf(4.0), HistoryEntry(t = listOf(1000, 2000), v = listOf(listOf(1.0, 2.0))))
+		assertEquals(listOf(1000L, 2000L, 4000L), h.points(0).times())
+		assertEquals(4f, h.points(0).v(2))
+		// Reaching past it, nothing is cleared or added.
+		h.take(1500, listOf(9.0), HistoryEntry(t = listOf(1000, 2000), v = listOf(listOf(1.0, 2.0))))
+		assertEquals(listOf(1f, 2f), h.points(0).values())
+		// An empty history, as for a graph with nothing kept yet: the line's point starts it.
+		h.take(5000, listOf(5.0), HistoryEntry())
+		assertEquals(listOf(5000L), h.points(0).times())
+		// Without history, appended.
+		h.take(6000, listOf(6.0), null)
+		assertEquals(listOf(5f, 6f), h.points(0).values())
+	}
+
+	@Test
 	fun theFixturesHistoryReads() {
 		// stream-data.json: the network graph's two series, the temperature's spark with a gap.
 		val h = Hist(1)
