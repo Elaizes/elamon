@@ -306,7 +306,7 @@ main() {
 	elif has wget; then
 		get=wget
 	else
-		missing="$missing curl"
+		missing="$missing curl (or wget)"
 	fi
 	[ -z "$missing" ] || die "missing:$missing. Install it with your distribution's package manager, then run this again"
 
