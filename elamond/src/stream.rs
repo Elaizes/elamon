@@ -190,9 +190,13 @@ impl Run {
 			tokio::select! {
 				_ = tx.closed() => break,
 				c = ctl.recv() => match c {
+					// A new dashboard or order goes out at once, from the reading there is, where it has
+					// what they need; otherwise with the next one, as it would anyway.
 					Some(Ctl::Change(c)) => {
 						self.apply(c);
-						continue;
+						if self.last.is_some() {
+							continue;
+						}
 					}
 					Some(Ctl::End(why)) => {
 						self.log.why = why;
@@ -272,6 +276,10 @@ impl Run {
 	/// What `POST /api/v1/stream/{id}` asked for, checked there, from the next line on.
 	fn apply(&mut self, c: Change) {
 		if let Some(d) = c.dashboard.filter(|d| self.ui.dashboard(d).is_some()) {
+			// Said in the journal where its opening was, so a stream's dashboards can be followed there.
+			if self.log.logged && self.dashboard.as_deref() != Some(d.as_str()) {
+				eprintln!("stream: \"{}\" now on dashboard {d}", self.log.who.name);
+			}
 			self.dashboard = Some(d);
 			self.anew();
 		}

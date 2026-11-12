@@ -57,7 +57,7 @@ object Fmt {
 	private const val MS_PER_SECOND = 1000L
 
 	/** `{:.2}`: that many decimals. */
-	private val PATTERN = Regex("""^\{:\.(\d)}$""")
+	private val PATTERN = Regex("""^\{:\.(\d)\}$""")
 
 	/** [v] with [decimals] decimals, halves away from zero, as the shortest text of the number reads. */
 	fun round(v: Double, decimals: Int): String {

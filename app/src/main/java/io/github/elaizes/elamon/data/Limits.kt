@@ -78,7 +78,7 @@ object Limits {
 	const val STOP_GRACE_MS = 5_000L
 
 	/** How long a new dashboard, sort or interval has to stay before the stream is told of it. */
-	const val PARAMS_SETTLE_MS = 400L
+	const val PARAMS_SETTLE_MS = 150L
 
 	/** A dashboard's readings more than this many lines older than the newest are old: the screen doesn't call them live. */
 	const val LIVE_LINES = 2

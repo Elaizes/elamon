@@ -181,7 +181,7 @@ object Migration {
 	fun unlockKeys(): List<String> = (UNLOCK_KINDS.map { it.first } + "transfer").map { "unlock_$it" }
 
 	/** The `unlock` line [toml] writes, and the kinds it lists. */
-	private val UNLOCK_LINE = Regex("""^unlock = \{ for = \[([^\]]*)]""", RegexOption.MULTILINE)
+	private val UNLOCK_LINE = Regex("""^unlock = \{ for = \[([^\]]*)\]""", RegexOption.MULTILINE)
 
 	/**
 	 * The kinds of action the profile [toml] (as [toml] wrote it) unlocks the phone for that the

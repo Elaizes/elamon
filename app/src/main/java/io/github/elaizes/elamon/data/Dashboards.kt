@@ -154,7 +154,7 @@ object Tables {
 
 object Params {
 	/** A whole "{field}", filled from a row. */
-	private val FIELD = Regex("""^\{([a-z0-9_]+)}$""")
+	private val FIELD = Regex("""^\{([a-z0-9_]+)\}$""")
 
 	/**
 	 * [template]'s values with each that is exactly "{field}" taken from [row] as the JSON value it
