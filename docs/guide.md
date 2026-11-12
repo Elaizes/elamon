@@ -227,8 +227,11 @@ does the same.
 
 **Roles.** Each phone gets its own key and a **role** that says what it may see and do. By default
 it's `admin`, which allows everything. For someone else's phone, give less, for example
-`elamond pair --role glance` ([section 6](#6-roles-who-may-do-what)). `elamond pair --profile NAME`
-gives the phone another profile: other tabs and looks ([section 7](#profiles)).
+`elamond pair --role glance` ([section 6](#6-roles-who-may-do-what)).
+
+**Its own profile.** Pairing adds a profile for the phone to `~/.config/elamon/elamond.d/phones.toml`,
+which starts from `default` (`elamond pair --profile NAME` names another): change that phone's tabs
+and looks there ([section 7](#each-phones-own-profile)). Pairing the same phone again keeps it.
 
 **Managing phones.** `elamond clients` lists the paired phones with their IDs, roles and profiles.
 `elamond revoke ID` unpairs one. Up to 64 phones can be paired with one computer.
@@ -244,6 +247,10 @@ gives the phone another profile: other tabs and looks ([section 7](#profiles)).
   network first), then names that stay when addresses change (those in `names` and its Tailscale
   name, [section 7](#names-in-the-pairing-link)), and its certificate. The app keeps them all, and
   later tries the one that worked last first.
+- *Addresses after pairing.* The computer tells a paired phone where it is now, whenever it connects:
+  its addresses on the local network and on VPNs, and its names. So a phone paired by code over
+  Wi-Fi also finds it over Tailscale later. When the phone's network changes, the app tries all the
+  addresses at once.
 
 ## 4. The app
 
@@ -602,8 +609,8 @@ elamond pair --role operate    # everyday control, without power or ending proce
 
 To make another role the default, set `default_role = "monitor"` (or any role) in `elamond.toml`.
 
-`elamond clients` lists each phone with its role, its profile and the app it last reported
-(`android 0.6.0`). To change a role later:
+`elamond clients` lists each phone with its role, its profile, the app it last reported
+(`android 0.6.1`) and the address it came from last. To change a role later:
 
 ```sh
 elamond clients role ID glance                  # ID from elamond clients
@@ -615,11 +622,12 @@ It applies at once. The phone's open stream hears of it within a second or two a
 may see now. A phone turned into `glance`, for example, stops getting processes, monitors and
 links.
 
-A phone's profile ([section 7](#profiles)) changes the same way:
+Each phone has a profile of its own ([section 7](#each-phones-own-profile)), which starts from
+another:
 
 ```sh
-elamond pair --profile owner            # pair with [profiles.owner] from the settings
-elamond clients profile ID owner        # change it later; all and --with-added work as for roles
+elamond pair --profile owner            # its own profile uses [profiles.owner] from the settings
+elamond clients profile ID owner        # give it another later; all and --with-added work as for roles
 ```
 
 ### Stopping every phone at once

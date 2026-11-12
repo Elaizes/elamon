@@ -18,8 +18,8 @@ Watch and control a Linux computer from your Android phone, live.
 Every screen is a dashboard of widgets that the service describes, set in its settings on the
 computer (`elamond.toml`, or Nix on NixOS): the standard Overview, Processes, Sensors and Control
 come in the settings it starts with, and you can change them or add your own — any reading,
-table, graph, button or choice — without updating the app ([settings reference](docs/config.md)). How the app looks and
-behaves on each phone is that phone's profile, set on the computer too.
+table, graph, button or choice — without updating the app ([settings reference](docs/config.md)).
+How the app looks and behaves on each phone is that phone's profile, set on the computer too.
 
 Watching, always:
 
