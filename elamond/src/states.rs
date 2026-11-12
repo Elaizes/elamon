@@ -379,4 +379,77 @@ mod tests {
 		let s = States { view: View::new(&values, Role::Admin, Units::default()), control: true, sorts: &sorts };
 		assert_eq!(widgets(d, &s).get("t/p").unwrap().to_value()["rows"][0]["key"].as_str(), Some("7"));
 	}
+
+	#[test]
+	fn levels_units_and_control_in_the_states() {
+		let config = crate::settings::read_sources(&[crate::settings::Source::new(
+			"a.toml",
+			r#"
+control = true
+[profiles.hot]
+use = "default"
+fahrenheit = true
+dashboards = ["t"]
+[actions.go]
+name = "Go"
+command = ["true"]
+[dashboards.t]
+title = "T"
+[[dashboards.t.widgets]]
+id = "temp"
+type = "gauge"
+value = "cpu.temp"
+warning_above = "temp.nvme_composite"
+soft = 0
+caption = "{cpu.temp:temp} · {gpu.amd.temp:temp}"
+[[dashboards.t.widgets]]
+id = "gone"
+type = "value"
+value = "gpu.amd.usage"
+empty = "No such GPU"
+[[dashboards.t.widgets]]
+id = "graph"
+type = "graph"
+values = ["gpu.amd.usage", "cpu.temp"]
+empty = "Asleep"
+[[dashboards.t.widgets]]
+id = "go"
+type = "button"
+action = "go"
+[[dashboards.t.widgets]]
+id = "uptime"
+type = "value"
+value = "system.uptime"
+"#,
+		)])
+		.unwrap();
+		let values = crate::fixtures::values(&config);
+		let caps = Caps::all(&[]);
+		let ui = crate::ui::build(&crate::ui::tests::input(&config, &values, &caps, Role::Admin, "hot", None));
+		let d = ui.dashboard("t").unwrap();
+		let sorts = HashMap::new();
+		let state = |control: bool| {
+			let s = States { view: View::new(&values, Role::Admin, ui.units), control, sorts: &sorts };
+			widgets(d, &s).to_value_map()
+		};
+		let on = state(true);
+		// 55.5 °C is 131.9 °F; the NVMe's 41.5 °C (106.7 °F) is where it turns warning, and it is
+		// near critical's 95 °C (203 °F) by (131.9 - 106.7) / (203 - 106.7).
+		assert_eq!(on["t/temp"]["v"], 131.9);
+		assert_eq!(on["t/temp"]["level"], "warning");
+		assert_eq!(on["t/temp"]["blend"], 0.262);
+		assert_eq!(on["t/temp"]["caption"], "132°F");
+		assert_eq!(on["t/gone"], serde_json::json!({ "v": null, "text": "No such GPU" }));
+		assert_eq!(on["t/graph"], serde_json::json!({ "v": [null, 131.9], "text": "Asleep" }));
+		assert_eq!(on["t/go"]["enabled"], true);
+		// A duration has no level.
+		assert_eq!(on["t/uptime"], serde_json::json!({ "v": 3600 }));
+		let off = state(false);
+		assert_eq!(off["t/go"]["enabled"], false);
+		// The history in °F too.
+		let mut ring = crate::history::Ring::new(10);
+		ring.push_points(1000, [("cpu.temp".to_string(), Some(100.0))]);
+		let h = crate::history::json(d, &ring, ui.units, 2000).to_value_map();
+		assert_eq!(h["t/graph"], serde_json::json!({ "t": [1000], "v": [[null], [212.0]] }));
+	}
 }

@@ -33,6 +33,12 @@ pub enum J {
 pub struct Obj(Vec<(String, J)>);
 
 impl Obj {
+	/// As a JSON value, for tests.
+	#[cfg(test)]
+	pub fn to_value_map(&self) -> Value {
+		serde_json::to_value(self).unwrap_or_default()
+	}
+
 	pub fn new() -> Obj {
 		Obj(Vec::new())
 	}
@@ -279,6 +285,26 @@ impl Dashboard {
 		walk(&self.widgets, &mut out);
 		out
 	}
+
+	/// The costlier sources its widgets need read: the collections of its tables and bars, and
+	/// whether it shows media.
+	pub fn needs(&self) -> Needs {
+		let mut n = Needs::default();
+		for w in self.all_widgets() {
+			if let Some(s) = &w.def.source {
+				n.collections.insert(s.clone());
+			}
+			n.media |= w.kind == "media" || w.def.value.as_deref().is_some_and(|v| v.starts_with("volume."));
+		}
+		n
+	}
+}
+
+/// What a dashboard on screen needs read.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Needs {
+	pub collections: BTreeSet<String>,
+	pub media: bool,
 }
 
 /// What `GET /api/v1/ui` answers, and what the stream needs of it.
@@ -1228,5 +1254,89 @@ pub mod tests {
 		let again = build(&input(&config, &values, &caps, Role::Admin, "hot", None));
 		assert_eq!(again.version, ui.version);
 		assert_ne!(build(&input(&config, &values, &caps, Role::Monitor, "hot", None)).version, ui.version);
+	}
+
+	#[test]
+	fn for_each_templates_and_groups_spread_out() {
+		let config = settings::read_sources(&[
+			settings::Source::new("ui-source.toml", include_str!("../fixtures/ui-source.toml")),
+			settings::Source::new(
+				"more.toml",
+				r#"
+[profiles.owner]
+dashboards = ["home", "control", "t"]
+
+[templates.hist]
+type = "graph"
+values = ["{src}.{item}"]
+label = "{name} {item}"
+
+[dashboards.t]
+title = "T"
+
+[[dashboards.t.widgets]]
+id = "h"
+use = "hist"
+with = { src = "net", name = "Net" }
+for_each = ["rx", "tx"]
+
+[[dashboards.t.widgets]]
+id = "fans"
+type = "value"
+for_each = "fans"
+value = "fan.{item}"
+label = "{item.label} at {item.rpm}"
+"#,
+			),
+		])
+		.unwrap();
+		let values = crate::fixtures::values(&config);
+		let caps = Caps::all(&values.power_profiles);
+		let ui = build(&input(&config, &values, &caps, Role::Admin, "owner", None));
+		let t = ui.dashboard("t").unwrap();
+		let ids: Vec<&str> = t.widgets.iter().map(|w| w.id.as_str()).collect();
+		assert_eq!(ids, ["t/h.rx", "t/h.tx", "t/fans.hp_cpu"]);
+		assert_eq!(t.widgets[1].def.values.as_deref(), Some(&["net.tx".to_string()][..]));
+		let doc = ui.doc.to_value();
+		let t_json = doc["dashboards"].as_array().unwrap().iter().find(|d| d["id"] == "t").unwrap().clone();
+		assert_eq!(t_json["widgets"][0]["label"], "Net rx");
+		assert_eq!(t_json["widgets"][2]["label"], "CPU at 2500 RPM");
+		// The built-in Control's group of the settings' actions: one button for each, in the one card.
+		let control = ui.dashboard("control").unwrap();
+		let group = control.widgets.iter().find(|w| w.id == "control/actions").unwrap();
+		let buttons: Vec<(&str, Option<&str>)> = group.widgets.iter().map(|b| (b.id.as_str(), b.def.action.as_deref())).collect();
+		assert_eq!(buttons, [("control/actions/0.backup", Some("backup")), ("control/actions/0.fan", Some("fan")), ("control/actions/0.mode", Some("mode"))]);
+		assert_eq!(group.widgets[2].def.icon.as_deref(), Some("leaf"));
+		assert!(control.needs().collections.contains("links") && control.needs().media);
+	}
+
+	#[test]
+	fn a_header_the_role_sees_none_of_is_none() {
+		let config = settings::read_sources(&[settings::Source::new(
+			"a.toml",
+			"[[dashboards.header.widgets]]\ntype = \"status\"\nvalue = \"volume.muted\"\n",
+		)])
+		.unwrap();
+		let values = crate::fixtures::values(&config);
+		let caps = Caps::all(&values.power_profiles);
+		let glance = build(&input(&config, &values, &caps, Role::Glance, "default", None));
+		assert_eq!((glance.header.as_deref(), glance.doc.to_value()["header"].clone()), (None, Value::Null));
+		assert!(glance.dashboard("header").is_none());
+		let monitor = build(&input(&config, &values, &caps, Role::Monitor, "default", None));
+		assert_eq!(monitor.header.as_deref(), Some("header"));
+		// After the tabs, before what they open.
+		let order: Vec<&str> = monitor.dashboards.iter().map(|d| d.id.as_str()).collect();
+		assert_eq!(&order[..5], ["overview", "processes", "sensors", "control", "header"]);
+	}
+
+	#[test]
+	fn the_history_keeps_what_graphs_and_sparks_show() {
+		let config = Config::default();
+		let values = crate::fixtures::values(&config);
+		let tracked = tracked(&config, &values);
+		for a in ["cpu.usage", "cpu.temp", "net.rx", "net.tx", "gpu.nvidia.usage", "gpu.nvidia.temp", "mem.used", "swap.used", "disk.read", "battery.power"] {
+			assert!(tracked.contains(a), "{a}");
+		}
+		assert!(!tracked.contains("mem.total"));
 	}
 }
