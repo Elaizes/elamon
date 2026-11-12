@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
+import io.github.elaizes.elamon.allWidgets
 
 /**
  * The last `ui` document of each paired computer, the last readings of its dashboards and its
@@ -98,10 +99,13 @@ class UiCache(private val dir: File) {
 		scope.launch { putData(id, data, ticket) }
 	}
 
-	/** Its dashboards' last readings, without history: the graphs ask the service for theirs again. */
+	/**
+	 * Its dashboards' last readings, as [keptReadings] leaves them with its ui as kept, without
+	 * history: the graphs ask the service for theirs again.
+	 */
 	suspend fun putData(id: String, data: Map<String, DataLine>, ticket: Long = ticket(id)) = withContext(Dispatchers.IO) {
 		ifCurrent(id, ticket) {
-			write(file(id, DATA), ProtocolJson.encodeToString(DATA_LINES, data.mapValues { it.value.copy(history = null) }))
+			write(file(id, DATA), ProtocolJson.encodeToString(DATA_LINES, keptReadings(docs[id], data).mapValues { it.value.copy(history = null) }))
 		}
 	}
 
@@ -134,6 +138,25 @@ class UiCache(private val dir: File) {
 		private const val DATA = "data"
 		private const val PROFILE = "profile"
 		private val DATA_LINES = MapSerializer(String.serializer(), DataLine.serializer())
+
+		/**
+		 * The collections whose rows tell what is done on the computer (its processes and their
+		 * command lines, who did what, its screens, its web pages), which only a monitor sees.
+		 */
+		private val PRIVATE_SOURCES = setOf("processes", "activity", "displays", "links")
+
+		/**
+		 * [data] as it is kept on the phone, in the app's cache: figures, not what is done on the
+		 * computer. The states of tables of [PRIVATE_SOURCES] and of media players (what plays) are
+		 * left out, as [ui] says which those are; without it, every table's and player's.
+		 */
+		fun keptReadings(ui: UiDoc?, data: Map<String, DataLine>): Map<String, DataLine> {
+			val private = ui?.dashboards.orEmpty().flatMap { allWidgets(it.widgets) }
+				.filter { w -> w.type == "media" || (w.type == "table" && w.source in PRIVATE_SOURCES) }
+				.map { it.id }.toSet()
+			fun kept(id: String, s: WidgetState) = if (ui != null) id !in private else s.rows == null && s.players == null
+			return data.mapValues { (_, line) -> line.copy(widgets = line.widgets.filter { (id, s) -> kept(id, s) }) }
+		}
 
 		@Volatile private var instance: UiCache? = null
 		fun get(context: Context): UiCache =

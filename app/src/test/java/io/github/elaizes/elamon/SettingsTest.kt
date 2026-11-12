@@ -126,4 +126,14 @@ class SettingsTest {
 		// Only the Android part differs: no common keys but use.
 		assertEquals("[profiles.phone]\nuse = \"default\"\n\n[profiles.phone.android]\nblur = false\n", Migration.toml(mapOf("blur" to false, "unlock_units" to true)))
 	}
+
+	@Test
+	fun pairedAgainUnderANewIdLeavesTheOldEntryToForget() {
+		val old = "0123456789abcdef0123456789abcdef"
+		val new = "fedcba9876543210fedcba9876543210"
+		assertEquals(old, leftBehind(old, new))
+		// The same computer paired again, or a new one: nothing left behind.
+		assertNull(leftBehind(old, old))
+		assertNull(leftBehind(null, new))
+	}
 }

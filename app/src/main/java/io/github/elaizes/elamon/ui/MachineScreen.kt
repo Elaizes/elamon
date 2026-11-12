@@ -81,10 +81,10 @@ import io.github.elaizes.elamon.PhoneRole
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.Settings
 import io.github.elaizes.elamon.allWidgets
+import io.github.elaizes.elamon.forgetKept
 import io.github.elaizes.elamon.data.Machine
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.PairTarget
-import io.github.elaizes.elamon.data.UiCache
 import io.github.elaizes.elamon.data.UiDoc
 import io.github.elaizes.elamon.data.Widget
 import io.github.elaizes.elamon.data.WidgetState
@@ -339,8 +339,7 @@ fun MachineScreen(
 			confirm = {
 				TextButton(onClick = {
 					MachineStore.get(ctx).remove(machine.id)
-					UiCache.get(ctx).remove(machine.id)
-					Settings.get(ctx).forget(machine.id)
+					forgetKept(ctx, machine.id)
 					confirmForget = false
 					onForgotten()
 				}) { Text(stringResource(R.string.machine_forget_confirm)) }

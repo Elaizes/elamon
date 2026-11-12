@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import io.github.elaizes.elamon.data.Profile
+import io.github.elaizes.elamon.data.UiCache
 
 enum class ThemeMode(val key: String) {
 	System("system"),
@@ -147,6 +148,18 @@ class Settings private constructor(context: Context) {
 			instance ?: synchronized(this) { instance ?: Settings(context.applicationContext).also { instance = it } }
 	}
 }
+
+/**
+ * What the phone kept of the computer [id] (its ui and readings, its folded cards and last tab),
+ * gone: the computer was forgotten, or paired again under a new id (its service was reset).
+ */
+fun forgetKept(context: Context, id: String) {
+	UiCache.get(context).remove(id)
+	Settings.get(context).forget(id)
+}
+
+/** The entry a pairing that [replaces] one, of the computer [paired], leaves behind: none when it is the same. */
+fun leftBehind(replaces: String?, paired: String): String? = replaces?.takeIf { it != paired }
 
 /**
  * The settings Elamon 0.5 kept on the phone, as the profile that gives the same on a computer

@@ -163,6 +163,8 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 				)
 				// Written to disk before the screen moves on.
 				withContext(Dispatchers.IO) { store.put(machine, resp.token, replacing = target.replaces) }
+				// Paired again under a new id (its service was reset): nothing of the entry it replaced stays.
+				leftBehind(target.replaces, machine.id)?.let { forgetKept(app, it) }
 				_state.update { it.copy(busy = false, confirmOnComputer = false, paired = machine) }
 			} catch (e: CancellationException) {
 				throw e

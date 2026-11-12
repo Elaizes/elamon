@@ -7,6 +7,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /** The last ui of each computer, its readings and its profile, kept to start with and to show while offline. */
 class UiCacheTest {
@@ -26,11 +28,34 @@ class UiCacheTest {
 		cache.putUi(id, ui)
 		cache.putData(id, mapOf("home" to data))
 		assertEquals(ui, cache.ui(id))
-		// The readings without their history: the graphs ask for theirs again.
-		assertEquals(data.copy(history = null), cache.data(id).getValue("home"))
+		// The readings without their history (the graphs ask for theirs again), nor the links' rows and what plays.
+		val kept = cache.data(id).getValue("home")
+		assertEquals(data.copy(history = null, widgets = data.widgets - "home/links" - "home/media"), kept)
 		assertEquals(ui.profile, cache.profiles.value[id])
 		// Another run reads the profiles at once, before anything is asked.
 		assertEquals(mapOf(id to ui.profile), UiCache(d).profiles.value)
+	}
+
+	@Test
+	fun figuresAreKeptNotWhatIsDoneOnTheComputer() {
+		val detail = DataLine(
+			t = 1,
+			dashboard = "detail",
+			widgets = mapOf(
+				"detail/procs" to WidgetState(rows = listOf(Row("4242", f = JsonObject(mapOf("cmd" to JsonPrimitive("secret --token x"))))), total = 1),
+				"detail/cpu" to WidgetState(v = JsonPrimitive(12.5)),
+			),
+		)
+		val readings = mapOf("home" to data, "detail" to detail)
+		val kept = UiCache.keptReadings(ui, readings)
+		// Processes, links and the media player's titles go; figures, and the disks' rows, stay.
+		assertEquals(setOf("detail/cpu"), kept.getValue("detail").widgets.keys)
+		assertEquals(data.widgets.keys - "home/links" - "home/media", kept.getValue("home").widgets.keys)
+		assertEquals(data.widgets["home/disks"], kept.getValue("home").widgets["home/disks"])
+		// Without the ui to tell which tables are which: no table's rows and no player.
+		val blind = UiCache.keptReadings(null, readings)
+		assertEquals(setOf("detail/cpu"), blind.getValue("detail").widgets.keys)
+		assertEquals(data.widgets.keys - "home/links" - "home/media" - "home/disks", blind.getValue("home").widgets.keys)
 	}
 
 	@Test
