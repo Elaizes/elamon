@@ -172,8 +172,11 @@ pub struct Hub {
 	uis: Mutex<HashMap<UiKey, CachedUi>>,
 	/// The open streams, by id.
 	pub(crate) streams: Mutex<HashMap<String, Open>>,
-	/// The app each client said it is last ("android/0.6.0"), by its id.
-	apps: Mutex<HashMap<String, String>>,
+	/// The app each client said it is last ("android/0.6.0"), and when that was written down, by
+	/// its id.
+	apps: Mutex<HashMap<String, AppNote>>,
+	/// A client's app is written down at most this often (`cadence::APP_NOTE`).
+	app_note: Duration,
 	/// The widget types each client said it draws in its last `GET /api/v1/ui`, by its id and kind:
 	/// what its streams describe with.
 	draws: Mutex<HashMap<(String, String), Draws>>,
@@ -181,6 +184,15 @@ pub struct Hub {
 
 /// The widget types a client draws; `None` for all of them.
 pub type Draws = Option<BTreeSet<String>>;
+
+/// The app a client said it is last, as clients.json is to have it.
+struct AppNote {
+	said: String,
+	/// When it was last written down.
+	written: Option<Instant>,
+	/// A write waits for its turn, and will write what the client said last.
+	pending: bool,
+}
 
 /// The hash of the token a request came with, so a stream can tell when it is revoked.
 #[derive(Clone)]
@@ -227,6 +239,7 @@ impl Hub {
 			uis: Mutex::new(HashMap::new()),
 			streams: Mutex::new(HashMap::new()),
 			apps: Mutex::new(HashMap::new()),
+			app_note: cadence::APP_NOTE,
 			draws: Mutex::new(HashMap::new()),
 			dir,
 		}
@@ -286,25 +299,39 @@ impl Hub {
 			.map(|(_, who)| who.clone())
 	}
 
-	/// Notes the app a client says it is; clients.json keeps the last of each, written only when it
-	/// changes, for `elamond clients`.
-	fn saw(&self, who: &Caller, app: &ClientApp) {
+	/// Notes the app a client says it is; clients.json keeps the last of each, for `elamond clients`.
+	/// It is written when it changes: at once the first time, then at most once every `app_note`
+	/// for a client, one write at a time, with what the client said last. A client that keeps
+	/// saying another costs a write now and then, not one for each request.
+	fn saw(self: &Arc<Self>, who: &Caller, app: &ClientApp) {
 		let Some(label) = app.label() else { return };
-		if who.app.as_deref() == Some(label.as_str()) {
-			return;
-		}
-		{
+		let wait = {
 			let mut apps = self.apps.lock().unwrap_or_else(|p| p.into_inner());
-			if apps.get(&who.id) == Some(&label) {
+			let note = apps.entry(who.id.clone()).or_insert_with(|| AppNote { said: String::new(), written: None, pending: false });
+			note.said = label;
+			if note.pending || who.app.as_deref() == Some(note.said.as_str()) {
 				return;
 			}
-			apps.insert(who.id.clone(), label.clone());
-		}
-		let (dir, id, name) = (self.dir.clone(), who.id.clone(), who.name.clone());
-		tokio::task::spawn_blocking(move || {
-			if let Err(e) = store::set_client_app(&dir, &id, &label) {
-				eprintln!("clients: can't note that \"{name}\" ({id}) is {label}: {e}");
-			}
+			note.pending = true;
+			note.written.map_or(Duration::ZERO, |t| self.app_note.saturating_sub(t.elapsed()))
+		};
+		let (hub, id, name) = (self.clone(), who.id.clone(), who.name.clone());
+		tokio::spawn(async move {
+			tokio::time::sleep(wait).await;
+			let label = {
+				let mut apps = hub.apps.lock().unwrap_or_else(|p| p.into_inner());
+				let Some(note) = apps.get_mut(&id) else { return };
+				note.pending = false;
+				note.written = Some(Instant::now());
+				note.said.clone()
+			};
+			let dir = hub.dir.clone();
+			let _ = tokio::task::spawn_blocking(move || {
+				if let Err(e) = store::set_client_app(&dir, &id, &label) {
+					eprintln!("clients: can't note that \"{name}\" ({id}) is {label}: {e}");
+				}
+			})
+			.await;
 		});
 	}
 
@@ -1163,6 +1190,11 @@ dashboards = ["overview", "control"]
 	/// A hub with its state in a directory of its own, the phones above paired, and a rate
 	/// limit out of the way.
 	fn hub(control: bool) -> (Arc<Hub>, watch::Sender<Arc<Frame>>) {
+		hub_with(control, |_| {})
+	}
+
+	/// `hub`, changed by `change` before it serves.
+	fn hub_with(control: bool, change: impl FnOnce(&mut Hub)) -> (Arc<Hub>, watch::Sender<Arc<Frame>>) {
 		let dir = scratch();
 		let mut clients: Vec<serde_json::Value> =
 			Role::ALL.iter().map(|r| serde_json::to_value(client(r.as_str(), *r)).unwrap()).collect();
@@ -1172,8 +1204,9 @@ dashboards = ["overview", "control"]
 		std::fs::write(dir.join("clients.json"), serde_json::to_vec(&clients).unwrap()).unwrap();
 		let config = settings(control);
 		let (tx, rx) = watch::channel(Arc::new(frame(&config, 1)));
-		let hub = Hub::new("id".into(), "test".into(), rx, Ring::new(10), Duration::from_millis(250), Arc::new(config), dir);
+		let mut hub = Hub::new("id".into(), "test".into(), rx, Ring::new(10), Duration::from_millis(250), Arc::new(config), dir);
 		*hub.rate.lock().unwrap() = RateLimiter::new(10_000, Duration::from_secs(1));
+		change(&mut hub);
 		(Arc::new(hub), tx)
 	}
 
@@ -1371,6 +1404,42 @@ dashboards = ["overview", "control"]
 		assert_eq!(hub.uis.lock().unwrap().len(), limit::UIS_KEPT);
 		let last = Some(draws_from("value,gauge,meter,status,graph,list,bars"));
 		assert!(hub.uis.lock().unwrap().keys().any(|k| k.draws == last));
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+	async fn a_client_that_keeps_saying_another_app_is_written_down_now_and_then() {
+		let (hub, _tx) = hub_with(true, |h| h.app_note = Duration::from_millis(500));
+		let app = || store::load_clients_in(&hub.dir).unwrap().into_iter().find(|c| c.name == "glance").unwrap().app;
+		let mut stamps = std::collections::HashSet::new();
+		let t0 = Instant::now();
+		for i in 0..60 {
+			let said = if i % 2 == 0 { "android/1" } else { "android/2" };
+			let resp = router(hub.clone()).oneshot(request_from("GET", "/api/v1/ui", "t-glance", said, "")).await.unwrap();
+			assert_eq!(resp.status(), StatusCode::OK);
+			tokio::time::sleep(Duration::from_millis(5)).await;
+			stamps.insert(store::clients_stamp_in(&hub.dir));
+		}
+		// The first, written at once; the others wait for one write, of what it said last.
+		assert!(t0.elapsed() < Duration::from_millis(500));
+		assert_eq!(app().as_deref(), Some("android/1"));
+		assert!(stamps.len() <= 2, "{} versions of clients.json", stamps.len());
+		for _ in 0..100 {
+			if app().as_deref() == Some("android/2") {
+				break;
+			}
+			tokio::time::sleep(Duration::from_millis(20)).await;
+		}
+		assert_eq!(app().as_deref(), Some("android/2"));
+		// Saying what the file has writes nothing.
+		let stamp = store::clients_stamp_in(&hub.dir);
+		for _ in 0..5 {
+			let resp = router(hub.clone()).oneshot(request_from("GET", "/api/v1/ui", "t-glance", "android/2", "")).await.unwrap();
+			assert_eq!(resp.status(), StatusCode::OK);
+		}
+		assert!(!hub.apps.lock().unwrap()["id-glance"].pending);
+		tokio::time::sleep(Duration::from_millis(600)).await;
+		assert_eq!(store::clients_stamp_in(&hub.dir), stamp);
 		std::fs::remove_dir_all(&hub.dir).unwrap();
 	}
 

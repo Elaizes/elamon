@@ -49,8 +49,8 @@ Every request with a token carries `Elamon-Client: <kind>/<version>`: `android/0
 `web/0.8.0`. The service shows it in `elamond clients`, and gives each client the profile's part for
 its kind. The kinds are `android` and `web`; a request without the header, with one that isn't
 `<kind>/<version>` (a version of letters, digits and `.+-_`), or with a kind the service doesn't
-know, is taken as `android` of an unknown version. The service writes the version down only when it
-changes.
+know, is taken as `android` of an unknown version. The service writes the version down when it
+changes: at once, then at most once every 5 minutes for a client that keeps changing it.
 
 What widget types a client draws it says in `GET /api/v1/ui?widgets=…`; the service describes the
 dashboards with those alone ([below](#what-a-client-cant-draw)), in that `ui` and in what the

@@ -56,6 +56,10 @@ pub mod cadence {
 	pub const UI_REBUILD: Duration = Duration::from_secs(5);
 	/// A `ui` no client has asked for in this long is forgotten.
 	pub const UI_FORGET: Duration = Duration::from_secs(60);
+	/// The app a phone says it is (`Elamon-Client`) is written to clients.json at once when it
+	/// changes, then at most this often for the phone: `elamond clients` may be as late as this
+	/// with a phone that keeps saying another.
+	pub const APP_NOTE: Duration = Duration::from_secs(300);
 	/// The settings files, and `elamond control off`'s file, are looked at for edits; SIGHUP
 	/// rereads them at once. Acting requests look at `control off`'s file themselves.
 	pub const SETTINGS_POLL: Duration = Duration::from_secs(5);
