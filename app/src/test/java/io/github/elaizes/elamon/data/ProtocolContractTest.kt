@@ -76,8 +76,6 @@ class ProtocolContractTest {
 	 * map's values as "[]"), to the reason.
 	 */
 	private val leftOut: Map<String, String> = mapOf(
-		"ui.dashboards[].widgets[].search_fields" to "asked of the service with sort_labels; its fixtures don't have them yet",
-		"ui.dashboards[].widgets[].sort_labels" to "asked of the service with search_fields; its fixtures don't have them yet",
 		"stream-data.widgets[].labels" to "the fixture's bars have no labels (none by default)",
 	)
 
@@ -241,9 +239,12 @@ class ProtocolContractTest {
 
 	@Test
 	fun streamLinesDecodeByType() {
-		assertEquals(StreamOpen("s1a2b3c4", "0f1e2d3c4b5a6978"), decodeStreamLine(line("stream-open")))
+		// The stream opens with the version of the client's ui; a ui line names another one.
+		val version = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), fixture("ui")).version
+		assertEquals(StreamOpen("s1a2b3c4", version), decodeStreamLine(line("stream-open")))
 		assertIs<DataLine>(decodeStreamLine(line("stream-data")))
-		assertEquals(UiChanged("1a2b3c4d5e6f7081"), decodeStreamLine(line("stream-ui")))
+		val changed = assertIs<UiChanged>(decodeStreamLine(line("stream-ui")))
+		assertTrue(changed.ui.isNotEmpty() && changed.ui != version)
 		// The type need not come first.
 		val late = JsonObject(fixture("stream-ui").jsonObject - "type" + ("type" to JsonPrimitive("ui"))).toString()
 		assertIs<UiChanged>(decodeStreamLine(late))
