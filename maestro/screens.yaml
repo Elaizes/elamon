@@ -14,13 +14,20 @@ appId: io.github.elaizes.elamon.debug
 - scroll
 - takeScreenshot: 04-overview-scrolled
 - tapOn: "Processes"
-- waitForAnimationToEnd
+# Processes come a tick or two after they are first asked for (their CPU use is a rate).
+- extendedWaitUntil:
+    visible: "[0-9]+ in all"
+    timeout: 10000
 - takeScreenshot: 05-processes
 - tapOn: "Sensors"
-- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible: "Live.*"
+    timeout: 10000
 - takeScreenshot: 06-sensors
 - tapOn: "Control"
-- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible: "Live.*"
+    timeout: 10000
 - takeScreenshot: 07-control
 - scrollUntilVisible:
     element: "Say hello"
@@ -50,7 +57,9 @@ appId: io.github.elaizes.elamon.debug
 - swipe:
     direction: DOWN
 - tapOn: "CPU"
-- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible: "Model"
+    timeout: 10000
 - takeScreenshot: 10-cpu-detail
 - swipe:
     start: 50%, 30%

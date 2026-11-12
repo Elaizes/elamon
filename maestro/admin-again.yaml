@@ -10,8 +10,10 @@ appId: io.github.elaizes.elamon.debug
     timeout: 10000
 - takeScreenshot: 17-admin-again
 - tapOn: "Processes"
-- waitForAnimationToEnd
 - extendedWaitUntil:
     visible: "This phone's role: Admin.*"
+    timeout: 10000
+- extendedWaitUntil:
+    visible: "[0-9]+ in all"
     timeout: 10000
 - takeScreenshot: 18-processes-again

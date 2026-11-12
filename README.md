@@ -15,12 +15,18 @@ Watch and control a Linux computer from your Android phone, live.
 
 ## What it does
 
+Every screen is a dashboard of widgets that the service describes, set in its settings on the
+computer (`elamond.toml`, or Nix on NixOS): the standard Overview, Processes, Sensors and Control
+come built in, and you can change them or add your own — any reading, table, graph, button or
+choice — without updating the app ([settings reference](docs/config.md)). How the app looks and
+behaves on each phone is that phone's profile, set on the computer too.
+
 Watching, always:
 
 - a dashboard of the CPU, memory, each graphics card, temperatures, network, storage and battery,
   each with a page of its own: ten minutes of history on charts you can read with a finger, and
   the processes using the most;
-- processes, sortable, searchable and grouped by program;
+- processes, sortable and searchable;
 - every temperature sensor and fan;
 - connected monitors with their modes and arrangement, read from the kernel, so under any desktop.
 
@@ -30,7 +36,7 @@ Controlling, once the computer allows it:
   units;
 - media players and the volume;
 - the power profile, locking, restarting and shutting down;
-- commands you define on the computer;
+- commands you define on the computer, with a parameter to choose from the values you allow;
 - quitting and killing processes.
 
 Each phone has a role, set on the computer: glancing at the basics, watching everything, everyday
@@ -123,7 +129,8 @@ nix flake check                                   # the NixOS module in a VM
 maestro/run.sh                                    # the app on an emulator only (a real phone: --yes-real-phone), against a throwaway service
 ```
 
-The protocol between the app and the service: [docs/protocol.md](docs/protocol.md).
+The protocol between the app and the service: [docs/protocol.md](docs/protocol.md); the settings,
+dashboards and profiles: [docs/config.md](docs/config.md).
 
 ## Not there yet
 
