@@ -22,6 +22,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
@@ -54,6 +55,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -225,10 +227,15 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 			Modifier.clickable(enabled = enabled && !running, role = Role.Button, onClick = run).padding(horizontal = Space.l, vertical = Space.mPlus),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
-			Icon(if (w.open != null && action == null) icon(w.icon) else ElIcons.Play, null, tint = accent(w.color ?: "tertiary").copy(alpha = alpha), modifier = Modifier.size(Sizes.iconM))
+			// While it runs, the spinner in place of the play mark; how it ended, under the name: a tile
+			// is half a row wide, and a pill beside the name left the name a letter or two.
+			if (running) CircularProgressIndicator(Modifier.size(Sizes.iconM), strokeWidth = Sizes.spinnerStroke)
+			else Icon(if (w.open != null && action == null) icon(w.icon) else ElIcons.Play, null, tint = accent(w.color ?: "tertiary").copy(alpha = alpha), modifier = Modifier.size(Sizes.iconM))
 			Spacer(Modifier.width(Space.m))
-			Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-			outcome(running, result, scope.vm, action)?.invoke()
+			Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+				Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), maxLines = 2, overflow = TextOverflow.Ellipsis)
+				if (!running) outcome(false, result, scope.vm, action)?.invoke()
+			}
 		}
 	}
 }
@@ -347,7 +354,17 @@ fun SelectWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 					verticalArrangement = Arrangement.spacedBy(Space.xsPlus),
 				) {
 					if (action?.id == PROFILE_SET) Icon(profileIcon(c.value), null, tint = fg)
-					Text(name, style = MaterialTheme.typography.labelMedium, color = fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+					// One line: a name too long for its tile ("Performance" at a large font) shrinks to
+					// fit, down to a floor, rather than breaking inside the word.
+					val style = MaterialTheme.typography.labelMedium
+					Text(
+						name,
+						style = style,
+						color = fg,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis,
+						autoSize = TextAutoSize.StepBased(minFontSize = ChoiceLabelMin, maxFontSize = style.fontSize),
+					)
 				}
 			}
 			// The last row's choices as wide as the others.
@@ -358,6 +375,7 @@ fun SelectWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 
 private const val CHOICES_IN_A_ROW = 3
 private const val PROFILE_SET = "profile.set"
+private val ChoiceLabelMin = 9.sp
 
 /** The power profiles' pictures, as 0.5 drew them. */
 private fun profileIcon(p: String): ImageVector = when (p) {
