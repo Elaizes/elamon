@@ -360,14 +360,15 @@ pub fn give(
 			Profiles { profile: Some(table.to_string()), own: Some(table.to_string()) }
 		};
 		if let (Some(old), None) = (replaced, asked) {
-			let has = |p: &str| place.load().is_ok_and(|c| c.profiles.contains_key(p));
-			if let Some(own) = old.own_profile.as_deref().filter(|own| has(own)) {
+			// Its table, as long as it is there: in phones.toml, or elsewhere in the settings.
+			let kept = |own: &&str| unowned(place, own, remaining) || present(place, own);
+			if let Some(own) = old.own_profile.as_deref().filter(kept) {
 				let mut given = take(own, &mut notes);
 				given.profile.clone_from(&old.profile);
 				break 'given given;
 			}
 			// No table of its own to keep: one made, using the profile it had.
-			let had = old.profile.as_deref().filter(|p| old.own_profile.as_deref() != Some(*p));
+			let had = old.profile.as_deref().filter(|p| old.own_profile.as_deref() != Some(*p) && present(place, p));
 			break 'given new_table(place, name, had, id, at, &mut notes);
 		}
 		if let Some(x) = asked {
@@ -394,8 +395,15 @@ pub fn give(
 /// its own using the profile of `asking`, the entry whose token asked.
 pub fn give_rekey(place: &Place, asking: &Client, name: &str, id: &str, at: u64) -> (Profiles, Vec<String>) {
 	let mut notes = Vec::new();
-	let profiles = new_table(place, name, asking.profile.as_deref(), id, at, &mut notes);
+	// One gone from the settings is default_profile for that entry, and so for this one.
+	let had = asking.profile.as_deref().filter(|p| present(place, p));
+	let profiles = new_table(place, name, had, id, at, &mut notes);
 	(profiles, notes)
+}
+
+/// Whether the settings have the profile `id`.
+fn present(place: &Place, id: &str) -> bool {
+	place.load().is_ok_and(|c| c.profiles.contains_key(id))
 }
 
 /// A table of its own for a new phone, using `uses` (`default_profile` for none); when phones.toml
@@ -538,7 +546,7 @@ mod tests {
 		// The settings read it: the phone's table starts from owner.
 		let config = place.load().unwrap();
 		assert_eq!(config.profile("galaxy-s25").theme, "dark");
-		assert_eq!(config.profile_sources["galaxy-s25"].file, "elamond.d/phones.toml");
+		assert_eq!((config.profile_sources["galaxy-s25"].file.as_str(), config.profile_sources["galaxy-s25"].line), ("elamond.d/phones.toml", 5));
 		// An id the settings have elsewhere is taken too.
 		assert_eq!(add(&place, "Owner", None, "cdef0123", AT).unwrap(), "owner-2");
 		fs::remove_dir_all(&place.dir).unwrap();

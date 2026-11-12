@@ -244,7 +244,7 @@ pub fn schema() -> Result<(), String> {
 pub fn defaults(args: &[String]) -> Result<(), String> {
 	match args {
 		[] => {
-			print!("{DEFAULTS}");
+			print!("{}", without_header(DEFAULTS));
 			Ok(())
 		}
 		[d] if d == "--diff" => {
@@ -256,6 +256,14 @@ pub fn defaults(args: &[String]) -> Result<(), String> {
 			Ok(())
 		}
 		_ => Err("usage: elamond defaults [--diff | TABLE]".into()),
+	}
+}
+
+/// The starter file without its first lines, which speak of it as the file it is: from `schema` on.
+fn without_header(text: &str) -> &str {
+	match text.find("\n\n") {
+		Some(i) if text.starts_with('#') => &text[i + 2..],
+		_ => text,
 	}
 }
 
@@ -294,7 +302,7 @@ impl fmt::Display for Change {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "{} {}", self.kind.word(), self.unit)?;
 		if !self.keys.is_empty() {
-			write!(f, " ({})", self.keys.join(", "))?;
+			write!(f, ": {}", self.keys.join(", "))?;
 		}
 		Ok(())
 	}
@@ -564,6 +572,12 @@ mod tests {
 			"{out}"
 		);
 		fs::remove_dir_all(dir).unwrap();
+	}
+
+	#[test]
+	fn the_defaults_printed_start_at_their_schema() {
+		assert!(without_header(DEFAULTS).starts_with("schema = 3\n"));
+		assert!(DEFAULTS.ends_with(without_header(DEFAULTS)));
 	}
 
 	#[test]
