@@ -60,7 +60,8 @@ fn fill(s: &States, text: &str) -> String {
 pub fn state(w: &UiWidget, s: &States) -> Option<Obj> {
 	let d = &w.def;
 	let mut o = Obj::new();
-	let caption = d.caption.as_deref().filter(|c| format::holds_values(c)).map(|c| fill(s, c));
+	// A caption whose values are all missing fills to nothing: then there's none, as for a widget without.
+	let caption = d.caption.as_deref().filter(|c| format::holds_values(c)).map(|c| fill(s, c)).filter(|c| !c.is_empty());
 	match w.kind.as_str() {
 		"value" | "gauge" | "meter" | "status" => value_state(w, s, &mut o),
 		"graph" => {
@@ -415,6 +416,7 @@ id = "gone"
 type = "value"
 value = "gpu.amd.usage"
 empty = "No such GPU"
+caption = "{gpu.amd.temp:temp} · {gpu.amd.power:watts}"
 [[dashboards.t.widgets]]
 id = "graph"
 type = "graph"

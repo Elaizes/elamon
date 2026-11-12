@@ -1503,7 +1503,12 @@ dashboards = ["overview", "control"]
 
 		// A file of phones that no longer parses is left alone: the phones read before keep working,
 		// and no new one is added over them.
-		std::fs::write(hub.dir.join(store::CLIENTS_FILE), "[{broken").unwrap();
+		// Under the file's lock, as anything that writes it: the app each phone is, noted in the
+		// background after its requests, can't write the list it read before over the broken file.
+		{
+			let _lock = store::lock_clients(&hub.dir).unwrap();
+			std::fs::write(hub.dir.join(store::CLIENTS_FILE), "[{broken").unwrap();
+		}
 		let (status, v) = call(&hub, "POST", "/api/v1/rekey", "admin", r#"{"device":"Over"}"#).await;
 		assert_eq!((status, v["error"].as_str()), (StatusCode::INTERNAL_SERVER_ERROR, Some("storage")));
 		assert_eq!(std::fs::read_to_string(hub.dir.join(store::CLIENTS_FILE)).unwrap(), "[{broken");

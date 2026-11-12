@@ -214,7 +214,8 @@ levels = { OB = "warning", LB = "critical" }
 
 Widgets fill a grid of 4 columns, in order, each as wide as its `span`; on a narrow screen the grid
 has 2 and each span is halved, rounding up. A widget that doesn't fit beside the one before starts
-a row.
+a row, and the last widget of a row takes the columns left free, so no row ends in a gap (a lone
+tile under two others is as wide as the screen).
 
 Every widget takes:
 
