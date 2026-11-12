@@ -261,7 +261,7 @@ private fun graceName(g: UnlockGrace): String =
 	if (g == UnlockGrace.EveryTime) stringResource(R.string.settings_unlock_every_time) else stringResource(R.string.settings_unlock_minutes, g.minutes)
 
 @StringRes
-private fun Guarded.title(): Int = when (this) {
+internal fun Guarded.title(): Int = when (this) {
 	Guarded.Power -> R.string.settings_unlock_power
 	Guarded.Processes -> R.string.settings_unlock_processes
 	Guarded.Actions -> R.string.settings_unlock_actions

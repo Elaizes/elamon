@@ -472,6 +472,8 @@
 	<string name="migration_body">From Elamon 0.6 the computer says how the app looks and behaves, in a profile. This is the profile that gives what was set on this phone; add it to ~/.config/elamon/elamond.toml on the computer:</string>
 	<string name="migration_apply">Then give it to this phone there:</string>
 	<string name="migration_each">On each computer, with this phone\'s id there; elamond clients lists them.</string>
+	<!-- The kinds of action, as the settings screen names them: "Power profile, Media and volume". -->
+	<string name="migration_unlock">Until a computer gives this phone that profile, the app doesn\'t ask to unlock the phone there before what it asked for here: %1$s.</string>
 	<string name="migration_done">Done</string>
 	<string name="settings_from_defaults">The built-in defaults, until a computer is paired</string>
 	<string name="settings_from_unknown">As %1$s says, once it has been reached</string>

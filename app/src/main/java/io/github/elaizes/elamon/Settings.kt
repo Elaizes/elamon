@@ -180,6 +180,20 @@ object Migration {
 
 	fun unlockKeys(): List<String> = (UNLOCK_KINDS.map { it.first } + "transfer").map { "unlock_$it" }
 
+	/** The `unlock` line [toml] writes, and the kinds it lists. */
+	private val UNLOCK_LINE = Regex("""^unlock = \{ for = \[([^\]]*)]""", RegexOption.MULTILINE)
+
+	/**
+	 * The kinds of action the profile [toml] (as [toml] wrote it) unlocks the phone for that the
+	 * `default` profile doesn't: until a computer gives the phone that profile, the app doesn't ask
+	 * to unlock it there before them, as 0.5 did.
+	 */
+	fun unlocksMore(toml: String): List<String> {
+		val listed = UNLOCK_LINE.find(toml)?.groupValues?.get(1) ?: return emptyList()
+		val kinds = listed.split(',').map { it.trim().removeSurrounding("\"") }.filter { it.isNotEmpty() }
+		return kinds - Profile().unlock.kinds.toSet()
+	}
+
 	/**
 	 * The TOML for [old], the settings 0.5 kept; null when there were none, or none differ from
 	 * the `default` profile.

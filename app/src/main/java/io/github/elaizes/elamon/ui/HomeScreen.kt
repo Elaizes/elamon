@@ -66,6 +66,7 @@ import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import io.github.elaizes.elamon.Guarded
 import io.github.elaizes.elamon.Migration
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.Settings
@@ -370,6 +371,12 @@ private fun MigrationCard(toml: String, machines: List<Machine>, onDismiss: () -
 				?: "elamond clients profile ID ${Migration.PROFILE_ID}"
 			CodeBlock(commands)
 			if (machines.size > 1) Text(stringResource(R.string.migration_each), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			// Unlocks this phone asked for that the computers' default profile doesn't: gone until the profile is given.
+			val more = Migration.unlocksMore(toml).mapNotNull { k -> Guarded.entries.find { it.key == k } }
+			if (more.isNotEmpty()) {
+				val kinds = more.map { stringResource(it.title()) }.joinToString(", ")
+				Text(stringResource(R.string.migration_unlock, kinds), style = MaterialTheme.typography.bodyMedium, color = Metric.colors.warn)
+			}
 			Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 				FilledTonalButton(onClick = { copy(ctx, toml) }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.copy)) }
 				TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.migration_done)) }

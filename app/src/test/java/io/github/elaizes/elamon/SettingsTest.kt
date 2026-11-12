@@ -136,4 +136,15 @@ class SettingsTest {
 		assertNull(leftBehind(old, old))
 		assertNull(leftBehind(null, new))
 	}
+
+	@Test
+	fun unlocksThatStopUntilTheProfileIsGiven() {
+		// 0.5 unlocked for the media and the power profile here; the default profile doesn't.
+		val stricter = Migration.toml(mapOf("unlock_media" to true, "unlock_profile" to true))!!
+		assertEquals(listOf("profile", "media"), Migration.unlocksMore(stricter))
+		// Fewer than the default, or only other settings: nothing stops being asked.
+		assertEquals(emptyList(), Migration.unlocksMore(Migration.toml(mapOf("unlock_units" to false))!!))
+		assertEquals(emptyList(), Migration.unlocksMore(Migration.toml(mapOf("blur" to false))!!))
+		assertEquals(emptyList(), Migration.unlocksMore(""))
+	}
 }
