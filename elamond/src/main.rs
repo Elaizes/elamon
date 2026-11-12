@@ -27,6 +27,7 @@ mod states;
 mod store;
 mod stream;
 mod ui;
+mod update;
 mod values;
 
 use std::io::IsTerminal;
@@ -78,6 +79,9 @@ Usage:
                                        settings) and print what needs root: lingering, the firewall,
                                        the polkit rule (--print: only show it; --no-start)
   elamond setup --check                tell whether the service, and what it uses, works here
+  elamond update [--check] [--yes]     install the newest release over this binary, after asking,
+                                       and restart the service (--check: only tell whether there is
+                                       one; --yes: without asking)
   elamond --version
 
 Roles, each allowing what the one before does and more:
@@ -117,6 +121,7 @@ fn main() {
 		"defaults" => commands::defaults(),
 		"values" => commands::values(),
 		"setup" => setup::run(&args[1..]),
+		"update" => update::run(&args[1..]),
 		"-V" | "--version" | "version" => {
 			println!("elamond {}", env!("CARGO_PKG_VERSION"));
 			Ok(())
