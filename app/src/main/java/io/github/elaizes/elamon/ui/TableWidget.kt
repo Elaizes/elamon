@@ -100,6 +100,9 @@ fun tableRows(scope: DashScope, w: Widget): List<TableRow> {
 /** The column whose text takes the room left: the one that grows, or the first. */
 private fun growColumn(w: Widget): TableColumn? = w.columns.orEmpty().let { c -> c.firstOrNull { it.grow } ?: c.firstOrNull() }
 
+/** The column drawn as a bar, where one is. */
+private fun barColumn(w: Widget): TableColumn? = w.columns?.firstOrNull { it.bar != null }
+
 /** A cell's text: its value by its column's format and unit; a dash while it is missing. */
 private fun cell(row: TableRow, c: TableColumn): String = Fmt.format(row.f[c.field], c.format, c.unit, c.field) ?: DASH
 
@@ -122,6 +125,9 @@ private val CELL_TIME = 120.dp
 /** An expanded field longer than this is set as a block of its own, like a command line. */
 private const val LONG_FIELD = 40
 
+/** The most rows a table in a card draws; those past them are counted under it. */
+private const val CARD_ROWS = 100
+
 /**
  * Rows from a collection, in a card: a heading for the columns that have labels, each row's text
  * and figures, and a bar under a row where a column is one (the sensors, the disks). On a tab, one
@@ -143,7 +149,14 @@ fun TableWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 		if (rows.isEmpty()) {
 			Text(stringResource(if (s == null) R.string.loading else R.string.table_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
-		for (r in rows) TableRowView(scope, w, r, rows, card = false, labelled = tile)
+		// A card is drawn whole, every line: so many rows and no more (a table with a search field has the list's own).
+		val drawn = rows.take(CARD_ROWS)
+		val fractions = barColumn(w)?.let { Tables.barFractions(rows, it) }
+		drawn.forEachIndexed { i, r -> TableRowView(scope, w, r, fractions?.get(i), card = false, labelled = tile) }
+		val more = rows.size - drawn.size
+		if (more > 0) {
+			Text(pluralStringResource(R.plurals.table_more, more, more), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		}
 	}
 	if (tile) {
 		Tile(modifier, accent = accent, onClick = open) {
@@ -187,7 +200,8 @@ fun LazyListScope.tableItems(scope: DashScope, w: Widget, keys: UniqueKeys) {
 		}
 	}
 	val rowKeys = rows.map { keys.of("table/${w.id}/${it.key}") }
-	items(rows.size, key = { rowKeys[it] }) { i -> TableRowView(scope, w, rows[i], rows, card = true) }
+	val fractions = barColumn(w)?.let { Tables.barFractions(rows, it) }
+	items(rows.size, key = { rowKeys[it] }) { i -> TableRowView(scope, w, rows[i], fractions?.get(i), card = true) }
 }
 
 /** The search field, the orders the service offers, and how many rows there are. */
@@ -246,7 +260,7 @@ private fun TableHead(w: Widget) {
 	val cols = w.columns.orEmpty()
 	if (cols.none { it.label != null }) return
 	val grow = growColumn(w)
-	val bar = cols.firstOrNull { it.bar != null }
+	val bar = barColumn(w)
 	Row {
 		if (avatars(w)) Spacer(Modifier.width(Sizes.avatarS + Space.m))
 		Text(grow?.label.orEmpty(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), maxLines = 1)
@@ -264,19 +278,18 @@ private fun TableHead(w: Widget) {
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TableRowView(scope: DashScope, w: Widget, row: TableRow, rows: List<TableRow>, card: Boolean, labelled: Boolean = false) {
+private fun TableRowView(scope: DashScope, w: Widget, row: TableRow, fraction: Float?, card: Boolean, labelled: Boolean = false) {
 	val ctx = LocalContext.current
 	val haptics = LocalHapticFeedback.current
 	val prefs = LocalPrefs.current
 	val cols = w.columns.orEmpty()
 	val grow = growColumn(w)
-	val bar = cols.firstOrNull { it.bar != null }
+	val bar = barColumn(w)
 	val others = cols.filter { it != grow && it != bar }
 	val hasSheet = !w.expand.isNullOrEmpty() || !w.rowActions.isNullOrEmpty()
 	val url = w.rowOpen?.let { row.f[it].text() }
 	val accent = accent(w.color)
 	val barColor = bar?.let { levelColor(row.level, row.blend, if (it.format == "temp") Metric.colors.good else accent) ?: accent }
-	val fraction = bar?.let { Tables.barFraction(row, it, rows) }
 	val sheet = { scope.tables.open(w.id, row) }
 	val tap: (() -> Unit)? = when {
 		url != null -> { { openRowLink(ctx, scope, url) } }

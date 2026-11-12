@@ -462,6 +462,11 @@
 		<item quantity="one">%1$d of %2$d</item>
 		<item quantity="other">%1$d of %2$d</item>
 	</plurals>
+	<!-- Under a table in a card that has more rows than it draws. -->
+	<plurals name="table_more">
+		<item quantity="one">%1$d more not shown</item>
+		<item quantity="other">%1$d more not shown</item>
+	</plurals>
 	<string name="conn_incompatible">Needs updating</string>
 	<string name="compat_service_title">Update the Elamon service on this computer to %1$s</string>
 	<string name="compat_service_body">It runs elamond %1$s, which speaks an older protocol than Elamon %2$s on this phone. Once it is updated, its dashboards show here.</string>

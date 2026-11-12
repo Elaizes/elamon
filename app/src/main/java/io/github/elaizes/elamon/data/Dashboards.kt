@@ -114,21 +114,35 @@ object Tables {
 	}
 
 	/** How much of the bar of [column] is filled in [row], 0 to 1, among [rows]; null when it can't be told. */
-	fun barFraction(row: Row, column: Column, rows: List<Row>): Float? {
-		val v = row.f[column.field].number() ?: return null
-		val top = barTop(row, column, rows) ?: return null
-		if (top <= 0.0) return null
-		return (v / top).toFloat().coerceIn(0f, 1f)
+	fun barFraction(row: Row, column: Column, rows: List<Row>): Float? = fraction(row, column) { largest(column, rows) }
+
+	/** [barFraction] of each of [rows]: the column's largest, for "top", looked for once, not once a row. */
+	fun barFractions(rows: List<Row>, column: Column): List<Float?> {
+		val top by lazy { largest(column, rows) }
+		return rows.map { fraction(it, column) { top } }
 	}
 
 	/** What the bar stands for when full: a number, a field of the row, or a quarter above the column's largest. */
-	fun barTop(row: Row, column: Column, rows: List<Row>): Double? {
+	fun barTop(row: Row, column: Column, rows: List<Row>): Double? = barTop(row, column) { largest(column, rows) }
+
+	private inline fun fraction(row: Row, column: Column, top: () -> Double?): Float? {
+		val v = row.f[column.field].number() ?: return null
+		val full = barTop(row, column, top) ?: return null
+		if (full <= 0.0) return null
+		return (v / full).toFloat().coerceIn(0f, 1f)
+	}
+
+	private inline fun barTop(row: Row, column: Column, top: () -> Double?): Double? {
 		val max = column.bar?.max ?: return null
 		max.number()?.let { return it }
 		val name = max.text() ?: return null
-		if (name == TOP) return rows.mapNotNull { it.f[column.field].number() }.maxOrNull()?.let { it * TOP_HEADROOM }
+		if (name == TOP) return top()
 		return row.f[name].number()
 	}
+
+	/** "top": a quarter above the column's largest. */
+	private fun largest(column: Column, rows: List<Row>): Double? =
+		rows.mapNotNull { it.f[column.field].number() }.maxOrNull()?.let { it * TOP_HEADROOM }
 
 	private const val TOP = "top"
 

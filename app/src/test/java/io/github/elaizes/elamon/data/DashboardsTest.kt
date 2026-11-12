@@ -167,6 +167,23 @@ class DashboardsTest {
 		assertNull(Tables.barFraction(fans[0], Column("rpm"), fans))
 	}
 
+	@Test
+	fun aTablesBarsAtOnce() {
+		// As each row's own, the column's largest looked for once for them all.
+		val rpm = Column("rpm", bar = Bar(JsonPrimitive("top")))
+		val fans = listOf(row("f1", "rpm" to 2000), row("f2", "rpm" to 1000), row("f3"))
+		assertEquals(listOf(0.8f, 0.4f, null), Tables.barFractions(fans, rpm))
+		val crit = Column("value", bar = Bar(JsonPrimitive("crit")))
+		val sensors = listOf(row("a", "value" to 42.0, "crit" to 84.0), row("b", "value" to 21.0, "crit" to 84.0), row("c", "value" to 1.0))
+		assertEquals(sensors.map { Tables.barFraction(it, crit, sensors) }, Tables.barFractions(sensors, crit))
+		assertEquals(emptyList(), Tables.barFractions(emptyList(), rpm))
+		// Many rows, as the processes may be: the same as row by row, without asking the whole list a row.
+		val many = (1..5000).map { row("p$it", "rpm" to it.toDouble()) }
+		val all = Tables.barFractions(many, rpm)
+		assertEquals(1f / 1.25f, all.last())
+		assertEquals(Tables.barFraction(many[2499], rpm, many), all[2499])
+	}
+
 	// ---- actions -------------------------------------------------------------------------------
 
 	@Test
