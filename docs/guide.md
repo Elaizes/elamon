@@ -27,7 +27,72 @@ The phone talks to the computer directly: on the same network, or over a VPN bot
 
 ## 1. Install the service
 
-### NixOS
+The same way on every distribution that runs systemd: Debian, Ubuntu, Fedora, Arch, openSUSE and
+the rest. On NixOS, the module does it ([below](#nixos-and-home-manager)).
+
+1. **Get elamond.** Download it from the [latest release](https://github.com/Elaizes/elamon/releases/latest):
+   `x86_64` for most PCs, `aarch64` for ARM boards. It runs on any distribution with glibc 2.28 or
+   newer (Debian 10, Ubuntu 20.04, RHEL 8 and everything since). Check it, unpack it and put it
+   where it stays:
+
+   ```sh
+   sha256sum -c elamond-VERSION-x86_64-linux.tar.gz.sha256
+   tar -xzf elamond-VERSION-x86_64-linux.tar.gz
+   install -Dm755 elamond-VERSION-x86_64-linux/elamond ~/.local/bin/elamond
+   ```
+
+   Or [build it from source](#building-from-source).
+
+2. **Set it up**, as yourself, not root:
+
+   ```sh
+   ~/.local/bin/elamond setup
+   ```
+
+   It installs the service as a systemd user unit (`~/.config/systemd/user/elamond.service`,
+   running the binary you ran it from), writes settings to start from in
+   `~/.config/elamon/elamond.toml` when there are none, and starts the service. Run again, it
+   changes only what changed, and restarts the service when its binary was moved or updated.
+   `--print` shows what it would do without doing it; `--no-start` leaves the service stopped.
+
+3. **Run what it prints as root.** Each step is printed only while it is needed:
+
+   - `sudo loginctl enable-linger YOUR_USER`, to keep the service running while you're logged out;
+   - the commands that open the firewall, for the firewall that runs ([section 2](#2-open-the-firewall));
+   - `sudo install -m 0644 … /etc/polkit-1/rules.d/50-elamond.rules`, the polkit rule the control
+     panel needs for power, the power profile and system units
+     ([section 5](#power-the-profile-and-system-units-polkit)).
+
+4. **Pair the phone**: `elamond pair` ([section 3](#3-pair-the-phone)).
+
+`elamond setup --check` tells whether it all works: a line for each thing the service needs or
+uses, marked `OK`, `!` (wrong, with what to do), `?` (can't tell, often without root) or `-`
+(not on this computer, and not needed). It exits with 1 when the service can't run or be reached.
+
+If your shell doesn't find `elamond`, `~/.local/bin` isn't on your `PATH`; call it as
+`~/.local/bin/elamond`. `elamond setup` knows systemd only for now; under another init system,
+have it run `elamond serve` as your user at login, which needs nothing else.
+
+### Building from source
+
+It needs git, a C compiler and Rust 1.88 or newer.
+
+| System | Build tools |
+|---|---|
+| Fedora | `sudo dnf install git cargo gcc` |
+| Arch | `sudo pacman -S --needed git rust base-devel` |
+| openSUSE | `sudo zypper install git cargo gcc` |
+| Debian, Ubuntu | `sudo apt install git build-essential curl`, then Rust from [rustup](https://rustup.rs), since their own is older than 1.88 |
+
+```sh
+git clone https://github.com/Elaizes/elamon.git
+cd elamon/elamond
+cargo build --release
+install -Dm755 target/release/elamond ~/.local/bin/elamond
+~/.local/bin/elamond setup
+```
+
+### NixOS and Home Manager
 
 Add the flake to your inputs:
 
@@ -38,7 +103,7 @@ inputs.elamon = {
 };
 ```
 
-Import the module and turn the service on:
+On NixOS, import the module and turn the service on, then `sudo nixos-rebuild switch`:
 
 ```nix
 imports = [ inputs.elamon.nixosModules.default ];
@@ -47,59 +112,25 @@ services.elamond = {
   enable = true;        # runs for everyone who logs in
   openFirewall = true;  # TCP 47823, and UDP 5353 for discovery
 };
+users.users.YOUR_USER.linger = true;  # keeps it running while you're logged out
 ```
 
-Then `sudo nixos-rebuild switch`. To keep the service running while nobody is logged in, enable
-lingering for your user: `users.users.YOUR_USER.linger = true;` or `loginctl enable-linger`.
+The polkit rule is `services.elamond.control` ([section 5](#power-the-profile-and-system-units-polkit)).
+There, `elamond setup` only points at these options; `elamond setup --check` works as anywhere.
 
-### Home Manager
+With Home Manager, for one user, `imports = [ inputs.elamon.homeModules.default ];` and
+`services.elamond.enable = true;`. The firewall stays the system's: on NixOS `openFirewall`
+works without `enable`; on another distribution, `elamond setup` leaves Home Manager's unit alone
+and prints what needs root.
 
-For one user, with the firewall still opened by the system (`openFirewall` works without
-`enable`):
-
-```nix
-imports = [ inputs.elamon.homeModules.default ];
-
-services.elamond.enable = true;
-```
-
-### Nix on another distribution
-
-With flakes enabled:
+Nix on another distribution, without Home Manager:
 
 ```sh
 nix profile install github:Elaizes/elamon
 systemctl --user link ~/.nix-profile/lib/systemd/user/elamond.service
 systemctl --user enable --now elamond
+elamond setup    # what needs root: lingering, the firewall, the polkit rule
 ```
-
-### Fedora, Debian, Ubuntu, Arch, openSUSE and others
-
-The service is built from source. It needs git, a C compiler and Rust 1.88 or newer.
-
-| System | Build tools |
-|---|---|
-| Fedora | `sudo dnf install git cargo gcc` |
-| Arch | `sudo pacman -S --needed git rust base-devel` |
-| openSUSE | `sudo zypper install git cargo gcc` |
-| Debian, Ubuntu | `sudo apt install git build-essential curl`, then Rust from [rustup](https://rustup.rs), since their own is older than 1.88 |
-
-Build and install it for your user; nothing goes outside your home folder:
-
-```sh
-git clone https://github.com/Elaizes/elamon.git
-cd elamon/elamond
-cargo build --release
-install -Dm755 target/release/elamond ~/.local/bin/elamond
-install -Dm644 dist/elamond.service ~/.config/systemd/user/elamond.service
-sed -i "s|/usr/bin/elamond|$HOME/.local/bin/elamond|" ~/.config/systemd/user/elamond.service
-systemctl --user daemon-reload
-systemctl --user enable --now elamond
-loginctl enable-linger    # keep it running while you're logged out
-```
-
-If your shell doesn't find `elamond` afterwards, `~/.local/bin` isn't on your `PATH`; call it as
-`~/.local/bin/elamond`.
 
 ## 2. Open the firewall
 
@@ -107,19 +138,24 @@ The service listens on **TCP 47823**. **UDP 5353** is mDNS, which lets the app f
 itself; without it, add the computer by address. Over a VPN only 47823 matters, and an interface
 the firewall already trusts needs nothing.
 
+`elamond setup` finds the firewall that runs (firewalld, ufw or nftables) and prints the commands
+that open both for it, with the port your settings give; `elamond setup --check` tells whether
+they are open, as far as it can see without root. By hand:
+
 | Firewall | Commands |
 |---|---|
 | NixOS | `services.elamond.openFirewall = true;` |
 | firewalld (Fedora, openSUSE) | `sudo firewall-cmd --permanent --add-port=47823/tcp`<br>`sudo firewall-cmd --permanent --add-service=mdns`<br>`sudo firewall-cmd --reload` |
 | ufw (Ubuntu, when it's on) | `sudo ufw allow 47823/tcp`<br>`sudo ufw allow 5353/udp` |
+| nftables (when its service runs) | `sudo nft insert rule inet filter input tcp dport 47823 accept`<br>`sudo nft insert rule inet filter input udp dport 5353 accept`<br>and the same rules in `/etc/nftables.conf`, or they're gone after a reboot |
 
 Arch and Debian ship with no firewall running; then there's nothing to open.
 
-To open the port on some interfaces only, on NixOS
-`services.elamond.firewallInterfaces = [ "eno1" "tailscale0" ];` (UDP 5353 then opens only on
-those not named like a VPN, where discovery doesn't reach anyway); elsewhere, your firewall's zones.
-To have the service itself listen only there, see `listen` in
-[section 7](#where-the-service-listens).
+To open the port on some interfaces only, name them in `listen`
+([section 7](#where-the-service-listens)) and run `elamond setup` again: it opens the port there
+only (with firewalld, in their zones), and UDP 5353 only on those not named like a VPN, where
+discovery doesn't reach anyway. On NixOS,
+`services.elamond.firewallInterfaces = [ "eno1" "tailscale0" ];` does the same.
 
 ## 3. Pair the phone
 
@@ -361,7 +397,21 @@ polkit can't tell the Elamon service from the other programs you run: what such 
 without a password, it allows every process of your user, not only the service. Allow only what
 you want phones to do.
 
-On NixOS the module writes the rule:
+`elamond setup` writes the rule: your user may power off, restart and sleep the computer and
+switch the power profile, and start, stop and restart the system units the settings' links name
+(`unit` with `scope = "system"`, [Links](#links)). It saves it as
+`~/.local/share/elamon/setup/50-elamond.rules` and prints the command that installs it:
+
+```sh
+sudo install -m 0644 ~/.local/share/elamon/setup/50-elamond.rules /etc/polkit-1/rules.d/50-elamond.rules
+```
+
+After changing which system units the links name, run `elamond setup` again and install the new
+rule the same way; `elamond setup --check` says when the one installed no longer matches.
+`elamond setup --multiple-sessions` also allows powering off, restarting and sleeping while
+someone else is logged in too, ending their sessions.
+
+On NixOS the module writes it:
 
 ```nix
 services.elamond.control = {
@@ -371,10 +421,7 @@ services.elamond.control = {
 };
 ```
 
-A system unit the app should start and stop needs naming in the service's settings too, on a
-`[[links]]` entry with `scope = "system"` or in `units` ([Links](#links)).
-
-Elsewhere, save this as `/etc/polkit-1/rules.d/50-elamon.rules`, with your user name and units:
+By hand, the rule is this, with your user name and units, in `/etc/polkit-1/rules.d/50-elamond.rules`:
 
 ```js
 polkit.addRule(function (action, subject) {
@@ -394,10 +441,6 @@ polkit.addRule(function (action, subject) {
   return polkit.Result.NOT_HANDLED;
 });
 ```
-
-To power off, restart or sleep while someone else is logged in too, add the
-`org.freedesktop.login1.power-off-multiple-sessions`, `…reboot-multiple-sessions` and
-`…suspend-multiple-sessions` actions to the list.
 
 *Lock* locks every session of your user through logind; your desktop's locker has to respond to
 that (GNOME and KDE do; on wlroots compositors, set up e.g. hypridle's `lock_cmd`).
@@ -713,16 +756,19 @@ computer's menu.
 
 | What happens | What to do |
 |---|---|
+| Something doesn't work, and you don't know what | `elamond setup --check`: a line for each thing the service needs, with what to do about those marked `!`. |
 | The computer isn't under *Found on this network* | Same network, UDP 5353 open on the computer; VPNs and many guest Wi-Fi networks block discovery, and the service only announces itself on wired and wireless interfaces it listens on (`mdns: announced on …` in the journal). Add it by address or name: `elamond pair` prints them. |
-| The app can't connect | `systemctl --user status elamond`, `journalctl --user -u elamond -e`; TCP 47823 open; the address reachable from the phone, and one the service listens on (`listen: on …` in the journal). |
-| It works only while you're logged in | `loginctl enable-linger` |
+| The app can't connect | `elamond setup --check`, `systemctl --user status elamond`, `journalctl --user -u elamond -e`; TCP 47823 open; the address reachable from the phone, and one the service listens on (`listen: on …` in the journal). |
+| It works only while you're logged in | `sudo loginctl enable-linger YOUR_USER`, as `elamond setup` prints it. |
 | *The computer's certificate changed* | The service's data was deleted or the system reinstalled; restore a backup of it ([section 8](#a-new-computer-or-reinstalling)), or forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` the app follows by itself; after `elamond rotate-cert --no-statement` every phone says this, and pairs again ([section 10](#a-new-certificate)). |
 | *Control is off* | `control = true` in `elamond.toml` or a drop-in in `elamond.d`; the service takes it up within a few seconds. If it is set, `elamond control status` tells whether `elamond control off` holds it off, or whether the settings stopped parsing, which holds it off until they parse again. |
 | Pairing ends with the phone turned away | `elamond pair` asks before it lets a phone in: answer `y` there within 90 seconds, and keep it running until the phone is paired ([section 3](#3-pair-the-phone)). |
 | *Not allowed* | The phone's role doesn't allow that: `elamond clients` shows it, `elamond clients role ID ROLE` changes it ([section 6](#6-roles-who-may-do-what)). For a link's unit: the settings don't name it; add it to `units` ([section 5](#links)). |
 | *Too many requests* | The phone asked for more than 10 things in a row; wait a few seconds. When pairing: five wrong codes came from this address; run `elamond pair` again for a new code. |
 | The phone keeps dropping off | The journal has a line for each stream a phone opens and closes, with its address (local network or VPN), how long it lasted and why it ended: `journalctl --user -u elamond -e`. |
-| *needs permission*, or *The computer didn't allow that* | The polkit rule from section 5. |
+| *needs permission*, or *The computer didn't allow that* | The polkit rule from section 5: `elamond setup` prints the command that installs it, `elamond setup --check` tells whether it is there. |
+| `elamond setup` says the user manager doesn't answer | Run it in a session of your own, logged in at the computer or over ssh, not through `su` or `sudo`. |
+| `elamond setup` says systemd isn't running | Another init system runs the computer: have it run `elamond serve` as your user at login. |
 | A link shows *Local only* | It listens on 127.0.0.1; see section 5. |
 | A link shows *No such unit* | The `unit` name is wrong, or the unit isn't installed; `systemctl list-units` (add `--user` for user units). |
 | No temperatures or fans | `sudo sensors-detect` (lm-sensors), then restart the service. |

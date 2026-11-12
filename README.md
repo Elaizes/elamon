@@ -45,7 +45,17 @@ The app: Material You with frosted glass on Android 12 and newer, light, dark or
 
 ## Quick start
 
-1. Install the service. On NixOS, from this flake:
+1. Install the service. On any distribution with systemd, take the binary from the
+   [latest release](https://github.com/Elaizes/elamon/releases/latest) (or build it with `cargo`),
+   then let `elamond setup` install it for your user:
+
+   ```sh
+   install -Dm755 elamond ~/.local/bin/elamond
+   ~/.local/bin/elamond setup
+   ```
+
+   and run what it prints as root: lingering, the firewall, the polkit rule. On NixOS, from this
+   flake:
 
    ```nix
    imports = [ inputs.elamon.nixosModules.default ];
@@ -55,8 +65,8 @@ The app: Material You with frosted glass on Android 12 and newer, light, dark or
    };
    ```
 
-   Home Manager, Nix on other distributions, and Fedora, Debian, Ubuntu, Arch, openSUSE and the
-   rest: [section 1 of the guide](docs/guide.md#1-install-the-service).
+   Building from source, Home Manager and the details:
+   [section 1 of the guide](docs/guide.md#1-install-the-service).
 
 2. Run `elamond pair` on the computer and point the phone's camera at the QR code it prints, or
    enter its six-digit code in the app, then let the phone in where `elamond pair` asks
@@ -117,7 +127,7 @@ The protocol between the app and the service: [docs/protocol.md](docs/protocol.m
 
 ## Not there yet
 
-The service for Windows and macOS, ready-made binaries of it, and published app builds.
+The service for Windows and macOS, and published app builds.
 
 ## License
 
