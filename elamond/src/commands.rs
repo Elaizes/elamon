@@ -104,12 +104,18 @@ pub fn edit(args: &[String]) -> Result<(), String> {
 		Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
 		Err(e) => return Err(format!("can't read {}: {e}", target.display())),
 	};
+	// A file Nix or Home Manager put there is theirs: replacing their link would be undone, or
+	// stop the next switch.
+	if fs::symlink_metadata(&target).is_ok_and(|m| m.file_type().is_symlink()) && fs::canonicalize(&target).is_ok_and(|p| p.starts_with("/nix/store")) {
+		return Err(format!("{} comes from the Nix store; change it where it is made, or put your own settings in a drop-in in {}/", target.display(), store::DROPIN_DIR));
+	}
 	let dir = target.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
 	if fs::create_dir_all(dir).is_err() || fs::metadata(dir).is_ok_and(|m| m.permissions().readonly()) {
 		return Err(format!("can't write to {}; is it managed elsewhere (NixOS, Home Manager)? A drop-in in elamond.d/ is yours to edit", dir.display()));
 	}
 	// The copy is edited away from the settings, so the service never reads it half done.
-	let scratch = std::env::temp_dir().join(format!("elamond-edit-{}", std::process::id()));
+	let base = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).filter(|d| d.is_absolute() && d.is_dir()).unwrap_or_else(std::env::temp_dir);
+	let scratch = base.join(format!("elamond-edit-{}", std::process::id()));
 	store::private_dir(&scratch).map_err(|e| format!("can't make {}: {e}", scratch.display()))?;
 	let copy = scratch.join(target.file_name().unwrap_or("elamond.toml".as_ref()));
 	let start = original.clone().unwrap_or_else(|| {
