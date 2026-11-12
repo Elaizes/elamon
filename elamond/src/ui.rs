@@ -750,8 +750,10 @@ impl Ctx<'_> {
 			ParamKind::Choice(c) => c.iter().map(|(v, l)| (Value::String(v.clone()), l.clone())).collect(),
 			ParamKind::Range { min, max, step, unit } => {
 				let (lo, hi, st) = (min.as_f64()?, max.as_f64()?, step.as_f64()?.max(f64::EPSILON));
+				// As many as fit, for a range wider than any count of steps.
 				let steps = ((hi - lo) / st).floor() as u64;
-				let picks: Vec<u64> = if steps <= 10 { (0..=steps).collect() } else { (0..=10).map(|i| (i * steps + 5) / 10).collect() };
+				let picks: Vec<u64> =
+					if steps <= 10 { (0..=steps).collect() } else { (0..=10u64).map(|i| ((u128::from(i) * u128::from(steps) + 5) / 10) as u64).collect() };
 				let whole = min.is_i64() && step.is_i64();
 				picks
 					.into_iter()
@@ -1309,6 +1311,30 @@ pub mod tests {
 			kind: "android",
 			draws,
 		}
+	}
+
+	#[test]
+	fn a_range_wider_than_any_count_of_steps_still_makes_buttons() {
+		let config = crate::settings::read_sources(&[crate::settings::Source::new(
+			"a.toml",
+			"[actions.big]\nname = \"Big\"\ncommand = [\"big\", \"{n}\"]\nparams.n = { range = [0, 9223372036854775807] }\n\
+			 [actions.huge]\nname = \"Huge\"\ncommand = [\"huge\", \"{x}\"]\nparams.x = { range = [-1e300, 1e300], step = 1e-300 }\n\
+			 [dashboards.big]\ntitle = \"Big\"\n\
+			 [[dashboards.big.widgets]]\ntype = \"slider\"\naction = \"big\"\nparam = \"n\"\n\
+			 [[dashboards.big.widgets]]\ntype = \"slider\"\naction = \"huge\"\nparam = \"x\"\n\
+			 [profiles.default]\ndashboards = [\"big\"]\n",
+		)])
+		.unwrap();
+		let values = crate::fixtures::values(&config);
+		let caps = Caps::all(&values.power_profiles);
+		let draws: BTreeSet<String> = ["group", "button", "text"].iter().map(|s| s.to_string()).collect();
+		let ui = build(&input(&config, &values, &caps, Role::Admin, "default", Some(&draws)));
+		let big = ui.dashboard("big").unwrap();
+		for w in &big.widgets {
+			assert_eq!((w.kind.as_str(), w.widgets.len()), ("group", 11), "{w:?}");
+		}
+		let last = big.widgets[0].widgets.last().unwrap().def.params.as_ref().unwrap()["n"].clone();
+		assert_eq!(last, serde_json::json!(i64::MAX));
 	}
 
 	#[test]
