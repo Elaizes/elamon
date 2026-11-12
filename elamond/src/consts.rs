@@ -202,6 +202,9 @@ pub mod limit {
 	pub const BODY_MAX: usize = 4 * 1024;
 	/// Streams one client holds open at once; a new one beyond these ends its oldest.
 	pub const STREAMS_PER_CLIENT: usize = 4;
+	/// `ui` documents kept built at once (one for each role, profile, kind of client and set of
+	/// widget types asked for); beyond these the least lately asked for is forgotten.
+	pub const UIS_KEPT: usize = 64;
 	/// Connections the service holds at once; more are closed as they come. The systemd units give
 	/// it far more descriptors than these take.
 	pub const CONNECTIONS_MAX: usize = 256;

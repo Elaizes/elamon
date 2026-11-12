@@ -47,13 +47,15 @@ NVML can read). A client ignores those it doesn't know.
 
 Every request with a token carries `Elamon-Client: <kind>/<version>`: `android/0.6.0`, later
 `web/0.8.0`. The service shows it in `elamond clients`, and gives each client the profile's part for
-its kind. A request without it, or with one that isn't `<kind>/<version>` (a kind of `a-z`, `0-9`,
-`_` and `-`, a version of letters, digits and `.+-_`), is taken as `android` of an unknown version.
-The service writes the version down only when it changes.
+its kind. The kinds are `android` and `web`; a request without the header, with one that isn't
+`<kind>/<version>` (a version of letters, digits and `.+-_`), or with a kind the service doesn't
+know, is taken as `android` of an unknown version. The service writes the version down only when it
+changes.
 
 What widget types a client draws it says in `GET /api/v1/ui?widgets=…`; the service describes the
 dashboards with those alone ([below](#what-a-client-cant-draw)), in that `ui` and in what the
-client's streams and snapshots send from then on.
+client's streams and snapshots send from then on. A type the service doesn't know is left out, as
+if the client hadn't listed it.
 
 ## Discovery
 

@@ -101,8 +101,12 @@ struct CachedUi {
 	used: Instant,
 }
 
-/// What the client says it is: `Elamon-Client: <kind>/<version>`. Without it, `android` of an
-/// unknown version.
+/// The kinds of client the service knows, each with its part of a profile.
+pub const CLIENT_KINDS: [&str; 2] = ["android", "web"];
+
+/// What the client says it is: `Elamon-Client: <kind>/<version>`. Without it, or of a kind the
+/// service doesn't know, `android` of an unknown version: what it is decides the `ui` it gets, and
+/// each kind is a `ui` of its own to keep.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClientApp {
 	pub kind: String,
@@ -116,8 +120,7 @@ impl ClientApp {
 		let (kind, version) = h.split_once('/').unwrap_or((h, ""));
 		let kind = kind.trim().to_ascii_lowercase();
 		let version = version.trim();
-		let kind_ok = (1..=16).contains(&kind.len()) && kind.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-');
-		if !kind_ok {
+		if !CLIENT_KINDS.contains(&kind.as_str()) {
 			return unknown;
 		}
 		let version_ok = (1..=32).contains(&version.len()) && version.bytes().all(|b| b.is_ascii_alphanumeric() || b".+-_".contains(&b));
@@ -491,6 +494,11 @@ impl Hub {
 		}));
 		let mut uis = self.uis.lock().unwrap_or_else(|p| p.into_inner());
 		uis.retain(|_, c| now.duration_since(c.used) < cadence::UI_FORGET);
+		// However many ways clients ask, a few documents are kept: the least lately asked for goes.
+		while !uis.contains_key(key) && uis.len() >= limit::UIS_KEPT {
+			let Some(oldest) = uis.iter().min_by_key(|(_, c)| c.used).map(|(k, _)| k.clone()) else { break };
+			uis.remove(&oldest);
+		}
 		uis.insert(key.clone(), CachedUi { stamp, ui: built.clone(), used: now });
 		built
 	}
@@ -922,9 +930,15 @@ async fn rotations(State(hub): State<Arc<Hub>>) -> Response {
 }
 
 
-/// The widget types a client draws, from `widgets=value,gauge,…`.
+/// The widget types a client draws, from `widgets=value,gauge,…`: those the service knows, the
+/// rest left out, so what it keeps for a client is one of few sets whatever the client sends.
 pub fn draws_from(widgets: &str) -> BTreeSet<String> {
-	widgets.split(',').map(str::trim).filter(|w| !w.is_empty()).map(str::to_string).collect()
+	widgets
+		.split(',')
+		.map(str::trim)
+		.filter_map(|w| crate::settings::WIDGET_TYPES.iter().find(|t| **t == w))
+		.map(|t| t.to_string())
+		.collect()
 }
 
 #[derive(Deserialize, Default)]
@@ -1061,8 +1075,9 @@ mod tests {
 		let app = |h: Option<&str>| ClientApp::parse(h);
 		assert_eq!(app(Some("android/0.6.0")), ClientApp { kind: "android".into(), version: Some("0.6.0".into()) });
 		assert_eq!(app(Some(" Web/0.8.0-rc.1 ")).label().as_deref(), Some("web/0.8.0-rc.1"));
-		// Without it, or with what isn't one, an Android app of no known version.
-		for h in [None, Some(""), Some("andr oid/1"), Some("\u{1b}[31m/1"), Some(&"x".repeat(40))] {
+		// Without it, with what isn't one, or of a kind the service doesn't know, an Android app of
+		// no known version.
+		for h in [None, Some(""), Some("andr oid/1"), Some("\u{1b}[31m/1"), Some(&"x".repeat(40)), Some("ios/1.0"), Some("k17/0.6.0")] {
 			assert_eq!(app(h), ClientApp { kind: "android".into(), version: None }, "{h:?}");
 		}
 		assert_eq!(app(Some("android/1.0 \u{7}")).version, None);
@@ -1163,12 +1178,17 @@ dashboards = ["overview", "control"]
 	}
 
 	fn request_as(method: &str, path: &str, token: &str, body: &str) -> Request {
+		request_from(method, path, token, "android/0.6.0", body)
+	}
+
+	/// `request_as` from a client that says it is `app`.
+	fn request_from(method: &str, path: &str, token: &str, app: &str, body: &str) -> Request {
 		axum::http::Request::builder()
 			.method(Method::from_bytes(method.as_bytes()).unwrap())
 			.uri(path)
 			.header(header::AUTHORIZATION, format!("Bearer {token}"))
 			.header(header::CONTENT_TYPE, "application/json")
-			.header(protocol::CLIENT_HEADER, "android/0.6.0")
+			.header(protocol::CLIENT_HEADER, app)
 			.extension(ConnectInfo(SocketAddr::from(([192, 0, 2, 1], 50000))))
 			.body(Body::from(body.to_string()))
 			.unwrap()
@@ -1315,6 +1335,42 @@ dashboards = ["overview", "control"]
 		call(&hub, "GET", "/api/v1/ui", "admin", "").await;
 		tokio::time::sleep(Duration::from_millis(100)).await;
 		assert_eq!(store::clients_stamp_in(&hub.dir), stamp);
+		std::fs::remove_dir_all(&hub.dir).unwrap();
+	}
+
+	#[tokio::test]
+	async fn what_a_client_says_it_draws_and_is_keeps_to_a_few_documents() {
+		let (hub, tx) = hub(true);
+		// Types no service knows, by the thousand, and a kind of its own each time: the kind is
+		// android, the types are the one it knows, and the service keeps one set for the phone.
+		let junk: String = (0..3000).map(|i| format!("w{i}")).collect::<Vec<_>>().join(",");
+		for i in 0..40 {
+			let path = format!("/api/v1/ui?widgets=value,{junk}");
+			let resp = router(hub.clone()).oneshot(request_from("GET", &path, "t-glance", &format!("k{i}/1.0"), "")).await.unwrap();
+			assert_eq!(resp.status(), StatusCode::OK);
+		}
+		{
+			let draws = hub.draws.lock().unwrap();
+			let only = BTreeSet::from(["value".to_string()]);
+			assert_eq!(draws.iter().collect::<Vec<_>>(), [(&("id-glance".to_string(), "android".to_string()), &Some(only))]);
+		}
+		let snapshot = format!("/api/v1/snapshot?history=0&widgets={junk}");
+		assert_eq!(call(&hub, "GET", &snapshot, "glance", "").await.0, StatusCode::OK);
+		let mut stream = Lines::open(&hub, &format!("/api/v1/stream?widgets={junk}"), "t-glance").await;
+		stream.next().await.unwrap();
+		drop(stream);
+		// Every set of the types it knows, and readings meanwhile: no more documents kept than the
+		// limit, and the ones asked for lately among them.
+		for mask in 0..(limit::UIS_KEPT as u32 * 2) {
+			let types: Vec<&str> = crate::settings::WIDGET_TYPES.iter().enumerate().filter(|(i, _)| mask & (1 << i) != 0).map(|(_, t)| *t).collect();
+			assert_eq!(call(&hub, "GET", &format!("/api/v1/ui?widgets={}", types.join(",")), "glance", "").await.0, StatusCode::OK);
+			if mask % 16 == 0 {
+				tick(&hub, &tx);
+			}
+		}
+		assert_eq!(hub.uis.lock().unwrap().len(), limit::UIS_KEPT);
+		let last = Some(draws_from("value,gauge,meter,status,graph,list,bars"));
+		assert!(hub.uis.lock().unwrap().keys().any(|k| k.draws == last));
 		std::fs::remove_dir_all(&hub.dir).unwrap();
 	}
 
