@@ -17,7 +17,7 @@ use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::consts::{protocol, timeout};
@@ -203,7 +203,10 @@ impl InitSystem for Systemd {
 	}
 
 	fn system_active(&self, name: &str) -> Option<bool> {
-		let out = Command::new("systemctl").args(["is-active", "--quiet", name]).status().ok()?;
+		if !self.running() {
+			return None;
+		}
+		let out = Command::new("systemctl").args(["is-active", "--quiet", name]).stderr(Stdio::null()).status().ok()?;
 		Some(out.success())
 	}
 }
@@ -945,11 +948,11 @@ impl Item {
 fn format_items(items: &[Item]) -> String {
 	let mut out = String::new();
 	for i in items {
-		out.push_str(&format!("  {:<3} {}\n", i.mark.sign(), i.what));
-		if let Some(h) = &i.hint {
-			for line in h.lines() {
-				out.push_str(&format!("      {line}\n"));
-			}
+		// A line of its own for each line of it, as a parse error has several.
+		let mut lines = i.what.lines().filter(|l| !l.trim().is_empty());
+		out.push_str(&format!("  {:<3} {}\n", i.mark.sign(), lines.next().unwrap_or_default()));
+		for line in lines.chain(i.hint.iter().flat_map(|h| h.lines())) {
+			out.push_str(&format!("      {line}\n"));
 		}
 	}
 	out
@@ -971,14 +974,17 @@ fn check(init: &dyn InitSystem) -> Result<(), String> {
 		Err(e) => Item::new(Mark::Bad, format!("settings don't parse: {e}")).hint("elamond check names the line").essential(),
 	});
 	let probe = probe_addrs(&settings);
+	let start = if init.running() {
+		"systemctl --user start elamond; journalctl --user -u elamond -e says why it stopped"
+	} else {
+		"start elamond serve"
+	};
 	items.push(if answers(&probe, settings.port) {
 		Item::new(Mark::Ok, format!("the service answers on port {}", settings.port))
 	} else if probe.is_empty() {
 		Item::new(Mark::Unknown, format!("the service listens on none of this computer's addresses yet (port {})", settings.port))
 	} else {
-		Item::new(Mark::Bad, format!("nothing answers on port {}", settings.port))
-			.hint("systemctl --user start elamond; journalctl --user -u elamond -e says why it stopped")
-			.essential()
+		Item::new(Mark::Bad, format!("nothing answers on port {}", settings.port)).hint(start).essential()
 	});
 	if init.running() {
 		items.push(match init.lingers(&user) {
@@ -1159,7 +1165,7 @@ fn check_buses() -> Vec<Item> {
 	items.push(match names(false) {
 		Ok(_) => Item::new(Mark::Ok, "session bus: media players"),
 		Err(e) => Item::new(Mark::Bad, format!("no session bus ({e}): no media players"))
-			.hint("Debian and Ubuntu: sudo apt install dbus-user-session, then log in again"),
+			.hint("a login session brings one; on Debian and Ubuntu, with the dbus-user-session package"),
 	});
 	items
 }
@@ -1445,10 +1451,11 @@ mod tests {
 			Item::new(Mark::Bad, "it runs only while you're logged in").hint("sudo loginctl enable-linger alice"),
 			Item::new(Mark::Unknown, "ufw is on").hint("sudo ufw status\nsudo ufw allow 47823/tcp"),
 			Item::new(Mark::Absent, "no power profiles"),
+			Item::new(Mark::Bad, "settings don't parse: elamond.toml: TOML parse error at line 2\n  |\n2 | [links.web]\n\n").hint("elamond check names the line"),
 		];
 		assert_eq!(
 			format_items(&items),
-			"  OK  running\n  !   it runs only while you're logged in\n      sudo loginctl enable-linger alice\n  ?   ufw is on\n      sudo ufw status\n      sudo ufw allow 47823/tcp\n  -   no power profiles\n"
+			"  OK  running\n  !   it runs only while you're logged in\n      sudo loginctl enable-linger alice\n  ?   ufw is on\n      sudo ufw status\n      sudo ufw allow 47823/tcp\n  -   no power profiles\n  !   settings don't parse: elamond.toml: TOML parse error at line 2\n        |\n      2 | [links.web]\n      elamond check names the line\n"
 		);
 		assert!(!failed(&items), "nothing essential is wrong");
 		let mut broken = items.to_vec();
