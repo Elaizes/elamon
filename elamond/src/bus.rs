@@ -85,13 +85,6 @@ pub struct Profiles {
 	pub available: Vec<String>,
 }
 
-#[derive(Serialize, Clone, Debug)]
-pub struct UnitInfo {
-	pub name: String,
-	pub description: String,
-	pub active: String,
-}
-
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct Player {
 	/// The bus name, which also identifies the player in requests.
@@ -372,21 +365,6 @@ impl Bus {
 		m.call::<_, _, OwnedObjectPath>(method, &(name, "replace")).await.map(|_| ()).map_err(|e| self.failed(scope, e))
 	}
 
-	/// Loaded service units, for picking one when adding a link.
-	pub async fn units(&self, scope: Scope) -> Result<Vec<UnitInfo>, String> {
-		type Row = (String, String, String, String, String, String, OwnedObjectPath, u32, String, OwnedObjectPath);
-		let m = self.systemd(scope).await?;
-		let rows: Vec<Row> = m.call("ListUnits", &()).await.map_err(|e| self.failed(scope, e))?;
-		let mut v: Vec<UnitInfo> = rows
-			.into_iter()
-			.filter(|r| r.0.ends_with(".service") && r.2 != "not-found")
-			// Desktop autostart entries, D-Bus activations and transient runs aren't what people host.
-			.filter(|r| !["app-", "dbus-", "run-", "user@", "user-runtime-dir@"].iter().any(|p| r.0.starts_with(p)))
-			.map(|r| UnitInfo { name: r.0, description: r.1, active: r.3 })
-			.collect();
-		v.sort_by(|a, b| a.name.cmp(&b.name));
-		Ok(v)
-	}
 
 	// ---- media players -------------------------------------------------------------
 

@@ -28,10 +28,6 @@ pub enum ErrorCode {
 	EmptyCommand,
 	/// The player has no cover in a local file, or no such player.
 	NoArt,
-	BadName,
-	BadUrl,
-	BadUnit,
-	BadScope,
 	/// No link with that id.
 	NoSuchLink,
 	/// The link has no unit to start or stop.
@@ -53,7 +49,7 @@ pub enum ErrorCode {
 impl ErrorCode {
 	/// Every code, for elamond/fixtures/errors.json.
 	#[cfg(test)]
-	pub const ALL: [ErrorCode; 25] = [
+	pub const ALL: [ErrorCode; 21] = [
 		ErrorCode::NotFound,
 		ErrorCode::Unauthorized,
 		ErrorCode::NoPairing,
@@ -67,10 +63,6 @@ impl ErrorCode {
 		ErrorCode::NoSuchAction,
 		ErrorCode::EmptyCommand,
 		ErrorCode::NoArt,
-		ErrorCode::BadName,
-		ErrorCode::BadUrl,
-		ErrorCode::BadUnit,
-		ErrorCode::BadScope,
 		ErrorCode::NoSuchLink,
 		ErrorCode::NoUnit,
 		ErrorCode::NotAllowed,
@@ -96,10 +88,6 @@ impl ErrorCode {
 			ErrorCode::NoSuchAction => ("no_such_action", StatusCode::NOT_FOUND),
 			ErrorCode::EmptyCommand => ("empty_command", StatusCode::BAD_REQUEST),
 			ErrorCode::NoArt => ("no_art", StatusCode::NOT_FOUND),
-			ErrorCode::BadName => ("bad_name", StatusCode::BAD_REQUEST),
-			ErrorCode::BadUrl => ("bad_url", StatusCode::BAD_REQUEST),
-			ErrorCode::BadUnit => ("bad_unit", StatusCode::BAD_REQUEST),
-			ErrorCode::BadScope => ("bad_scope", StatusCode::BAD_REQUEST),
 			ErrorCode::NoSuchLink => ("no_such_link", StatusCode::NOT_FOUND),
 			ErrorCode::NoUnit => ("no_unit", StatusCode::BAD_REQUEST),
 			ErrorCode::NotAllowed => ("not_allowed", StatusCode::FORBIDDEN),

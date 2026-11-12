@@ -1,10 +1,13 @@
 //! elamond: serves this computer's metrics to the Elamon phone app.
 
 mod access;
+#[allow(dead_code)] // the server uses it from API 2 on
+mod actions;
 mod activity;
 mod backup;
 mod bus;
 mod collect;
+mod commands;
 mod consts;
 mod control;
 mod errors;
@@ -19,7 +22,10 @@ mod mdns;
 mod model;
 mod names;
 mod server;
+mod settings;
 mod store;
+#[allow(dead_code)] // the server uses it from API 2 on
+mod values;
 
 use std::io::IsTerminal;
 use std::net::{IpAddr, SocketAddr};
@@ -56,6 +62,13 @@ Usage:
   elamond restore FILE                 put a backup back, the service stopped (--force: running);
                                        --with-settings puts elamond.toml and elamond.d back too
   elamond snapshot                     print one reading as JSON
+  elamond check [FILE]                 read the settings as the service would (with FILE in its
+                                       place) and name the file and line of each mistake
+  elamond edit [FILE]                  edit elamond.toml (or FILE) in $VISUAL or $EDITOR; a broken
+                                       one isn't kept, and the service takes up a sound one
+  elamond schema                       print the JSON Schema of the settings, for editors
+  elamond defaults                     print the built-in dashboards and profile, to start from
+  elamond values                       list the values this computer has now, and the collections
   elamond --version
 
 Roles, each allowing what the one before does and more:
@@ -89,6 +102,11 @@ fn main() {
 		"restore" => backup::restore(&args[1..]),
 		"revoke" => revoke(&args[1..]),
 		"snapshot" => snapshot(),
+		"check" => commands::check(&args[1..]),
+		"edit" => commands::edit(&args[1..]),
+		"schema" => commands::schema(),
+		"defaults" => commands::defaults(),
+		"values" => commands::values(),
 		"-V" | "--version" | "version" => {
 			println!("elamond {}", env!("CARGO_PKG_VERSION"));
 			Ok(())
@@ -147,7 +165,7 @@ fn serve() -> Result<(), String> {
 	let identity = identity::Identity::load_or_create(&dir)?;
 	let name = machine_name(&config);
 	let (interval, history_len, notes) = timing(&config);
-	for n in notes.into_iter().chain(links::settings_notes(&config)) {
+	for n in notes {
 		eprintln!("settings: {n}");
 	}
 	let tls = tls_config(&identity, &dir)?;

@@ -3,7 +3,7 @@
 //!
 //! Settings:  $XDG_CONFIG_HOME/elamon/elamond.toml (optional), then elamond.d/*.toml beside it
 //! State:     $XDG_DATA_HOME/elamon/{id, cert.der, key.der, clients.json, pairing.json,
-//!            control-off.json, activity.jsonl, links.json, rotations.json}
+//!            control-off.json, activity.jsonl, rotations.json}
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -18,156 +18,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::access::Role;
-use crate::listen::Target;
 use crate::consts::{limit, protocol, timeout};
 
-#[derive(Deserialize, Debug, Clone)]
-#[serde(default, deny_unknown_fields)]
-pub struct Config {
-	/// Addresses and interfaces to listen on; "::", the default, takes every address, IPv4 too.
-	#[serde(deserialize_with = "crate::listen::deserialize")]
-	pub listen: Vec<Target>,
-	pub port: u16,
-	/// Host names that reach this computer, for `elamond pair` to offer after its addresses.
-	#[serde(deserialize_with = "crate::names::deserialize")]
-	pub names: Vec<String>,
-	/// Name shown in the app; the hostname when empty.
-	pub name: String,
-	/// Announce the service on the local network so the app finds it.
-	pub mdns: bool,
-	pub interval_ms: u64,
-	pub history_minutes: u64,
-	/// Let paired phones act on this computer: power, profiles, units, processes,
-	/// media and the actions below. Off unless turned on here.
-	pub control: bool,
-	/// The role a phone pairs with when `elamond pair` isn't given one.
-	pub default_role: Role,
-	/// Links to web pages this computer hosts, shown in the app beside those added from the
-	/// app itself.
-	pub links: Vec<LinkConfig>,
-	/// Commands the app can run, defined only here: a phone can't add its own.
-	pub actions: Vec<ActionConfig>,
-	/// Units a link added from the app may start, stop and restart, beside those of `[[links]]`:
-	/// a phone can only name a unit the settings name.
-	#[serde(deserialize_with = "deserialize_units")]
-	pub units: Vec<UnitRule>,
-}
-
-/// A unit the settings let phones start, stop and restart, in its scope: "user" or "system".
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UnitRule {
-	pub name: String,
-	pub scope: String,
-}
-
-/// `units` as the settings give it: a name is a user unit, `{ name = "…", scope = "system" }` a
-/// system one. Only service units that could ever be allowed are taken.
-fn deserialize_units<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<UnitRule>, D::Error> {
-	#[derive(Deserialize)]
-	#[serde(deny_unknown_fields)]
-	struct Table {
-		name: String,
-		scope: Option<String>,
-	}
-	#[derive(Deserialize)]
-	#[serde(untagged)]
-	enum Entry {
-		Name(String),
-		Table(Table),
-	}
-	let entries = Vec::<Entry>::deserialize(d)?;
-	entries
-		.into_iter()
-		.map(|e| {
-			let (name, scope) = match e {
-				Entry::Name(n) => (n, None),
-				Entry::Table(t) => (t.name, t.scope),
-			};
-			let name = name.trim().to_string();
-			let scope = scope.unwrap_or_else(|| "user".into());
-			if scope != "user" && scope != "system" {
-				return Err(format!("units: scope \"{scope}\" of {name} is neither \"user\" nor \"system\""));
-			}
-			crate::links::unit_shape(&name).map_err(|why| format!("units: \"{name}\" {why}"))?;
-			Ok(UnitRule { name, scope })
-		})
-		.collect::<Result<_, _>>()
-		.map_err(serde::de::Error::custom)
-}
-
-#[derive(Deserialize, Debug, Clone)]
-#[serde(deny_unknown_fields)]
-pub struct LinkConfig {
-	pub name: String,
-	/// What the app opens; "{host}" becomes the address the phone reaches this computer at.
-	pub url: String,
-	/// A systemd unit the app may start, stop and restart.
-	pub unit: Option<String>,
-	/// "user" (default) or "system".
-	pub scope: Option<String>,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-#[serde(deny_unknown_fields)]
-pub struct ActionConfig {
-	pub name: String,
-	/// Program and arguments, run without a shell.
-	pub command: Vec<String>,
-	/// Ask in the app before running.
-	#[serde(default = "yes")]
-	pub confirm: bool,
-	/// Seconds before the command is stopped.
-	#[serde(default = "minute")]
-	pub timeout: u64,
-}
-
-/// Ids for what the settings define, from what it is rather than where it stands in the
-/// file: reordering the file or adding a drop-in must not point a phone's button at
-/// another command.
-fn content_id(parts: &[&str]) -> String {
-	sha256_hex(parts.join("\0").as_bytes())[..protocol::CONTENT_ID_LEN].to_string()
-}
-
-impl ActionConfig {
-	pub fn id(&self) -> String {
-		let mut parts = vec![self.name.as_str()];
-		parts.extend(self.command.iter().map(String::as_str));
-		content_id(&parts)
-	}
-}
-
-impl LinkConfig {
-	pub fn id(&self) -> String {
-		content_id(&[&self.name, &self.url, self.unit.as_deref().unwrap_or(""), self.scope.as_deref().unwrap_or("")])
-	}
-}
-
-fn yes() -> bool {
-	true
-}
-
-fn minute() -> u64 {
-	timeout::ACTION_DEFAULT_SECS
-}
-
-impl Default for Config {
-	fn default() -> Self {
-		Config {
-			listen: vec![Target::ANY],
-			port: protocol::DEFAULT_PORT,
-			names: Vec::new(),
-			name: String::new(),
-			mdns: true,
-			interval_ms: 1000,
-			history_minutes: 10,
-			control: false,
-			default_role: Role::Admin,
-			links: Vec::new(),
-			actions: Vec::new(),
-			units: Vec::new(),
-		}
-	}
-}
+/// The settings: what is built in, then the files (see `settings`).
+pub use crate::settings::Config;
 
 pub fn config_dir() -> PathBuf {
 	xdg_dir("ELAMON_CONFIG_DIR", "XDG_CONFIG_HOME", ".config")
@@ -205,7 +59,7 @@ pub fn config_files() -> Vec<PathBuf> {
 /// elamond.toml in the config directory `dir`. Drop-ins are always in the user's own config
 /// directory: where NixOS or Home Manager make the main file a read-only one in the store, these
 /// stay the user's to write.
-fn settings_files(dir: &Path, named: Option<PathBuf>) -> Vec<PathBuf> {
+pub fn settings_files(dir: &Path, named: Option<PathBuf>) -> Vec<PathBuf> {
 	let main = named.unwrap_or_else(|| dir.join(CONFIG_FILE));
 	let mut dropins: Vec<PathBuf> = fs::read_dir(dir.join(DROPIN_DIR))
 		.map(|d| d.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "toml")).collect())
@@ -214,41 +68,10 @@ fn settings_files(dir: &Path, named: Option<PathBuf>) -> Vec<PathBuf> {
 	std::iter::once(main).chain(dropins).collect()
 }
 
-/// Settings from elamond.toml and the drop-ins. A later file adds to the lists (links,
-/// actions, units) and replaces anything else it sets.
+/// Settings from what is built in, elamond.toml and the drop-ins; every mistake, one to a line,
+/// each with its file and line.
 pub fn load_config() -> Result<Config, String> {
-	read_settings(&config_files())
-}
-
-fn read_settings(files: &[PathBuf]) -> Result<Config, String> {
-	let mut merged = toml::Table::new();
-	for path in files {
-		let text = match fs::read_to_string(path) {
-			Ok(t) => t,
-			Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-			Err(e) => return Err(format!("{}: {e}", path.display())),
-		};
-		// Each file on its own first, so a mistake names the file and the line it is in.
-		toml::from_str::<Config>(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-		let table: toml::Table = text.parse().map_err(|e| format!("{}: {e}", path.display()))?;
-		merge_toml(&mut merged, table);
-	}
-	toml::Value::Table(merged).try_into().map_err(|e| format!("settings: {e}"))
-}
-
-/// The settings a later file adds to rather than replaces.
-const ADDED_UP: [&str; 3] = ["links", "actions", "units"];
-
-fn merge_toml(into: &mut toml::Table, from: toml::Table) {
-	for (key, value) in from {
-		match (into.get_mut(&key), value) {
-			(Some(toml::Value::Array(a)), toml::Value::Array(b)) if ADDED_UP.contains(&key.as_str()) => a.extend(b),
-			(Some(toml::Value::Table(a)), toml::Value::Table(b)) => merge_toml(a, b),
-			(_, v) => {
-				into.insert(key, v);
-			}
-		}
-	}
+	crate::settings::load(&config_files()).map_err(|m| crate::settings::join_mistakes(&m))
 }
 
 /// What the settings files look like on disk now, to notice an edit. The resolved path is
@@ -811,58 +634,31 @@ pub fn same(a: &[u8], b: &[u8]) -> bool {
 mod tests {
 	use super::*;
 
-	fn table(s: &str) -> toml::Table {
-		s.parse().unwrap()
-	}
-
 	#[test]
-	fn dropins_add_to_lists_and_replace_the_rest() {
-		let mut m = table("control = false\nport = 1\n[[actions]]\nname = \"a\"\ncommand = [\"true\"]\n");
-		merge_toml(&mut m, table("control = true\n[[actions]]\nname = \"b\"\ncommand = [\"false\"]\n[[links]]\nname = \"s\"\nurl = \"http://{host}\"\n"));
-		let c: Config = toml::Value::Table(m).try_into().unwrap();
-		assert!(c.control);
-		assert_eq!(c.port, 1);
-		assert_eq!(c.actions.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(), ["a", "b"]);
-		assert_eq!(c.links.len(), 1);
-		// `listen` is a list, but a drop-in's replaces the one before, in either form.
-		let mut m = table("listen = [\"eth0\", \"wg0\"]\n");
-		merge_toml(&mut m, table("listen = [\"tailscale0\"]\n"));
-		let c: Config = toml::Value::Table(m).try_into().unwrap();
-		assert_eq!(c.listen, [Target::Interface("tailscale0".into())]);
-		let mut m = table("listen = [\"eth0\"]\n");
-		merge_toml(&mut m, table("listen = \"::\"\n"));
-		assert_eq!(toml::Value::Table(m).try_into::<Config>().unwrap().listen, [Target::ANY]);
-		assert_eq!(Config::default().listen, [Target::ANY]);
-	}
-
-	fn link_names(c: &Config) -> Vec<&str> {
-		c.links.iter().map(|l| l.name.as_str()).collect()
-	}
-
-	#[test]
-	fn links_in_every_file_add_up() {
+	fn links_merge_by_id_across_files() {
 		let dir = scratch();
 		let write = |name: &str, text: &str| fs::write(dir.join(name), text).unwrap();
-		write("main.toml", "[[links]]\nname = \"a\"\nurl = \"http://{host}:1\"\n");
-		write("two.toml", "[[links]]\nname = \"b\"\nurl = \"http://{host}:2\"\n[[links]]\nname = \"c\"\nurl = \"http://{host}:3\"\n");
-		write("one.toml", "[[links]]\nname = \"d\"\nurl = \"http://{host}:4\"\n");
-		let c = read_settings(&[dir.join("main.toml"), dir.join("two.toml"), dir.join("one.toml"), dir.join("missing.toml")]).unwrap();
-		assert_eq!(link_names(&c), ["a", "b", "c", "d"]);
+		write("main.toml", "[links.a]\nname = \"A\"\nurl = \"http://{host}:1\"\n");
+		write("two.toml", "[links.b]\nname = \"B\"\nurl = \"http://{host}:2\"\n[links.a]\nunit = \"a.service\"\n");
+		let c = crate::settings::load(&[dir.join("main.toml"), dir.join("two.toml"), dir.join("missing.toml")]).unwrap();
+		assert_eq!(c.links.keys().collect::<Vec<_>>(), ["a", "b"]);
+		// One key of a link changed by a later file; the rest of it stays.
+		assert_eq!((c.links["a"].name.as_str(), c.links["a"].unit.as_deref()), ("A", Some("a.service")));
 		// A mistake names the file and the line.
-		write("bad.toml", "port = 1\n\n[[links]]\nname = 5\nurl = \"x\"\n");
-		let e = read_settings(&[dir.join("bad.toml")]).unwrap_err();
-		assert!(e.contains("bad.toml") && e.contains("line 4"), "{e}");
+		write("bad.toml", "port = 1\n\n[links.c]\nname = 5\nurl = \"x\"\n");
+		let e = crate::settings::join_mistakes(&crate::settings::load(&[dir.join("bad.toml")]).unwrap_err());
+		assert!(e.contains("bad.toml:4: links.c.name"), "{e}");
 		// So does a key the settings don't have.
 		write("unknown.toml", "port = 1\n[[pages]]\nname = \"a\"\n");
-		let e = read_settings(&[dir.join("unknown.toml")]).unwrap_err();
-		assert!(e.contains("unknown.toml") && e.contains("line 2"), "{e}");
+		let e = crate::settings::join_mistakes(&crate::settings::load(&[dir.join("unknown.toml")]).unwrap_err());
+		assert!(e.contains("unknown.toml:2: pages: no key \"pages\""), "{e}");
 		fs::remove_dir_all(dir).unwrap();
 	}
 
 	#[test]
 	fn settings_files_are_the_main_one_then_the_dropins_by_name() {
 		let dir = scratch();
-		let link = |name: &str| format!("[[links]]\nname = \"{name}\"\nurl = \"http://{{host}}\"\n");
+		let link = |id: &str| format!("[links.{id}]\nname = \"{id}\"\nurl = \"http://{{host}}\"\n");
 		let main = dir.join("elamond.toml");
 		// Nothing yet: the main file, for the settings to be written under.
 		assert_eq!(settings_files(&dir, None), std::slice::from_ref(&main));
@@ -874,27 +670,13 @@ mod tests {
 		fs::write(dir.join("elamond.d/notes.txt"), "not settings").unwrap();
 		let files = settings_files(&dir, None);
 		assert_eq!(files, [main.clone(), dir.join("elamond.d/a.toml"), dir.join("elamond.d/b.toml")]);
-		let c = read_settings(&files).unwrap();
-		assert_eq!((c.port, link_names(&c)), (2, vec!["main", "a", "b"]));
+		let c = crate::settings::load(&files).unwrap();
+		assert_eq!((c.port, c.links.keys().map(String::as_str).collect::<Vec<_>>()), (2, vec!["a", "b", "main"]));
 
 		// ELAMON_CONFIG names the main file outright; the drop-ins stay in the config directory.
 		let named = dir.join("store.toml");
 		assert_eq!(settings_files(&dir, Some(named.clone()))[..2], [named, dir.join("elamond.d/a.toml")]);
 		fs::remove_dir_all(dir).unwrap();
-	}
-	#[test]
-	fn ids_follow_content_not_position() {
-		let a = |name: &str, cmd: &[&str]| ActionConfig {
-			name: name.into(),
-			command: cmd.iter().map(|s| s.to_string()).collect(),
-			confirm: true,
-			timeout: 60,
-		};
-		assert_eq!(a("Update", &["nh", "os", "switch"]).id(), a("Update", &["nh", "os", "switch"]).id());
-		assert_ne!(a("Update", &["nh", "os", "switch"]).id(), a("Update", &["nh", "os", "boot"]).id());
-		// The separator keeps ["ab"] and ["a", "b"] apart.
-		assert_ne!(a("x", &["ab"]).id(), a("x", &["a", "b"]).id());
-		assert_eq!(a("x", &["y"]).id().len(), 12);
 	}
 
 	#[test]

@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use crate::access::{allowed, Role};
 use crate::activity::Entry;
-use crate::bus::{Player, PowerCaps, Profiles, UnitInfo};
+use crate::bus::{Player, PowerCaps, Profiles};
 use crate::control::{ActionInfo, ActionResult, ControlInfo, Media, Volume};
 use crate::errors::ErrorCode;
 use crate::links::{LinkStatus, Listener};
@@ -312,7 +312,6 @@ fn control() {
 	);
 	check("action-result", &ActionResult { exit_code: Some(0), timed_out: false, output: "done\n".into() });
 	check("detected", &vec![Listener { port: 8080, local_only: true, process: some("some") }]);
-	check("units", &vec![UnitInfo { name: "some.service".into(), description: "Some service".into(), active: "active".into() }]);
 }
 
 #[test]

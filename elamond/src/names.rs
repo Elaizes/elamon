@@ -32,20 +32,19 @@ pub fn is_name(s: &str) -> bool {
 /// `names` as the settings give them: host names only, each without its trailing dot.
 pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
 	let names = Vec::<String>::deserialize(d)?;
-	names
-		.iter()
-		.map(|n| {
-			let n = n.trim();
-			if n.trim_start_matches('[').trim_end_matches(']').parse::<IpAddr>().is_ok() {
-				Err(format!("\"{n}\" in names is an address; elamond pair offers the addresses the service listens on by itself"))
-			} else if !is_name(n) {
-				Err(format!("\"{n}\" in names isn't a host name"))
-			} else {
-				Ok(n.strip_suffix('.').unwrap_or(n).to_string())
-			}
-		})
-		.collect::<Result<_, _>>()
-		.map_err(serde::de::Error::custom)
+	names.iter().map(String::as_str).map(check).collect::<Result<_, _>>().map_err(serde::de::Error::custom)
+}
+
+/// One name of `names`, as kept, or why it isn't one.
+pub fn check(n: &str) -> Result<String, String> {
+	let n = n.trim();
+	if n.trim_start_matches('[').trim_end_matches(']').parse::<IpAddr>().is_ok() {
+		Err(format!("\"{n}\" in names is an address; elamond pair offers the addresses the service listens on by itself"))
+	} else if !is_name(n) {
+		Err(format!("\"{n}\" in names isn't a host name"))
+	} else {
+		Ok(n.strip_suffix('.').unwrap_or(n).to_string())
+	}
 }
 
 /// Tailscale's addresses: 100.64.0.0/10 and fd7a:115c:a1e0::/48.

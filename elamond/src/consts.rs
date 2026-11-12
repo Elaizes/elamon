@@ -20,10 +20,6 @@ pub mod protocol {
 	pub const TOKEN_BYTES: usize = 32;
 	/// Random bytes in a paired phone's id (shown as hex).
 	pub const CLIENT_ID_BYTES: usize = 4;
-	/// Random bytes in the id of a link added from the app (shown as hex).
-	pub const LINK_ID_BYTES: usize = 6;
-	/// Hex digits in the ids of configured actions and links, taken from their content.
-	pub const CONTENT_ID_LEN: usize = 12;
 	/// Digits in a pairing code.
 	pub const PAIRING_DIGITS: u32 = 6;
 	/// Addresses and names in a pairing link: the app reads no more than these.
@@ -166,8 +162,6 @@ pub mod limit {
 	pub const HISTORY_MAX: usize = 7200;
 	/// Characters in a phone's or a link's name.
 	pub const NAME_MAX: usize = 64;
-	/// Bytes in a link's URL.
-	pub const URL_MAX: usize = 512;
 	/// Bytes in a systemd unit's name.
 	pub const UNIT_MAX: usize = 256;
 	/// Wrong guesses, from anywhere, before a pairing code is thrown away.
