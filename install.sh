@@ -369,6 +369,8 @@ EOF
 	mv -f "$part" "$target" || die "can't put elamond in $bin_dir"
 	part=
 	say "  OK  installed $(show "$target") (elamond $version)"
+	# Nothing in it a terminal would act on.
+	page=$(printf '%s' "$page" | tr -d '[:cntrl:]')
 	case $page in
 		https://*) say "      release notes: $page" ;;
 	esac
