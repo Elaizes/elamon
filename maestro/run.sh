@@ -3,8 +3,10 @@
 # elamond/target/release on 127.0.0.1 (the emulator reaches it as 10.0.2.2), installs the debug APK
 # (io.github.elaizes.elamon.debug, beside the real app and never in its place), pairs, walks every
 # screen and the settings' own dashboard with an action's choice, makes the phone a glance one and an
-# admin again with elamond clients role, switches its profile and back, and leaves the
-# screenshots in $OUT.
+# admin again with elamond clients role, switches its profile and back, changes the phone's own
+# profile in elamond.d/phones.toml with its screen open, pairs it again (it keeps that profile), and
+# leaves the screenshots in $OUT. The settings are written as elamond 0.6.0 had them (no schema):
+# the service moves them to schema 3 at its first start, as it would on an update.
 #   cargo build --release (in elamond/) and ./gradlew :app:assembleDebug first.
 #   ELAMOND=path/to/elamond   another build of the service than elamond/target/release/elamond.
 #   FONT_SCALE=2.0 maestro/run.sh   repeats the screens with a large font; the phone's own comes back after.
@@ -60,6 +62,8 @@ work=$(mktemp -d)
 trap 'kill "${service:-}" "${pairing:-}" 2>/dev/null; restore_font_scale; rm -rf "$work"' EXIT
 
 mkdir -p "$work/cfg" "$work/data"
+# As elamond 0.6.0 had them: no `schema`, what differs from what was built in. The service moves
+# them to a whole file of schema 3 at its first start.
 cat > "$work/cfg/elamond.toml" <<TOML
 port = $PORT
 listen = "127.0.0.1"
@@ -118,13 +122,17 @@ TOML
 # system bus: power, units and the rest of this computer stay out of the test's reach.
 run_elamond() {
 	exec env -i PATH="$PATH" HOME="$work" ELAMON_CONFIG_DIR="$work/cfg" ELAMON_DATA_DIR="$work/data" \
-		ELAMON_CONFIG="$work/cfg/elamond.toml" DBUS_SYSTEM_BUS_ADDRESS=unix:path=/nonexistent \
+		DBUS_SYSTEM_BUS_ADDRESS=unix:path=/nonexistent \
 		${ELAMON_PCI_IDS:+ELAMON_PCI_IDS="$ELAMON_PCI_IDS"} \
 		"$ELAMOND" "$@"
 }
 run_elamond serve > "$OUT/elamond.log" 2>&1 &
 service=$!
 sleep 2
+# Moved to schema 3, the 0.6.0 file kept beside it, and the defaults written beside them.
+fail() { echo "maestro/run.sh: $*" >&2; exit 1; }
+grep -qx 'schema = 3' "$work/cfg/elamond.toml" || fail "elamond.toml wasn't moved to schema 3"
+[[ -f "$work/cfg/elamond.toml.0.6.0" && -f "$work/cfg/defaults.toml" ]] || fail "elamond.toml.0.6.0 or defaults.toml is missing"
 
 adb uninstall "$APP_ID" > /dev/null 2>&1 || true
 adb install -r "${APK:-app/build/outputs/apk/debug/app-debug.apk}" > /dev/null
@@ -137,6 +145,10 @@ sleep 3
 code=$(grep -a -E '^\s+[0-9]{3} [0-9]{3}\s*$' "$work/pair.log" | tr -d ' ')
 flow() { maestro --device "$ANDROID_SERIAL" test --test-output-dir "$OUT" "$@"; }
 flow -e ADDRESS="10.0.2.2:$PORT" -e CODE="$code" maestro/pair.yaml
+# The phone has a profile of its own in phones.toml, using the one --profile named.
+phones=$work/cfg/elamond.d/phones.toml
+grep -qx 'use = "phone"' "$phones" || fail "no profile of the phone's own in $phones"
+own=$(sed -n 's/^\[profiles\.\(.*\)\]$/\1/p' "$phones" | tail -n 1)
 flow -e NAME="$NAME" maestro/screens.yaml
 # In a subshell: run_elamond execs. A glance phone sees the basics only.
 (run_elamond clients role all glance)
@@ -149,4 +161,20 @@ flow maestro/admin-again.yaml
 flow maestro/profile.yaml
 (run_elamond clients profile all phone)
 flow maestro/profile-back.yaml
+# Its own profile again, then two keys added to its table with the screen open: the last table in
+# the file is the phone's.
+(run_elamond clients profile all "$own")
+printf 'theme = "light"\ndashboards = ["overview", "test"]\n' >> "$phones"
+flow maestro/own-profile.yaml
+# Paired again by code: the app proves it is the same phone, so it keeps that table, and the entry
+# before goes.
+run_elamond pair --yes > "$work/pair2.log" 2>&1 &
+pairing=$!
+sleep 3
+code=$(grep -a -E '^\s+[0-9]{3} [0-9]{3}\s*$' "$work/pair2.log" | tr -d ' ')
+flow -e ADDRESS="10.0.2.2:$PORT" -e CODE="$code" maestro/pair-again.yaml
+wait "$pairing" || true
+grep -q "keeps its profile $own\\|It replaces" "$work/pair2.log" || fail "pairing again didn't replace the entry before: $(cat "$work/pair2.log")"
+[[ $( (run_elamond clients) | grep -c '^[0-9a-f]\{8\} ') -eq 1 ]] || fail "more than one entry after pairing again"
+[[ $(grep -c '^\[profiles\.' "$phones") -eq 1 ]] || fail "phones.toml has more than the phone's one table"
 echo "screenshots: $OUT"

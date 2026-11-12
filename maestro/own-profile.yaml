@@ -1,0 +1,12 @@
+# The phone's own profile in elamond.d/phones.toml, which pairing made: run.sh gave it back to the
+# phone (elamond clients profile all <its table>) and added two keys to its table, with the screen
+# open. The phone follows the file within seconds: the light theme, and the tabs Overview and Test.
+appId: io.github.elaizes.elamon.debug
+---
+- extendedWaitUntil:
+    notVisible: "Sensors"
+    timeout: 30000
+- assertVisible: "Overview"
+- assertVisible: "Test"
+- assertNotVisible: "Processes"
+- takeScreenshot: 21-own-profile-light

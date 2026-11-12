@@ -1,0 +1,43 @@
+# The same phone pairs again with the computer it has, by address and code: the app proves it is the
+# same phone (previous), so the computer keeps its own profile, the one own-profile.yaml left: the
+# light theme and the tabs Overview and Test.
+appId: io.github.elaizes.elamon.debug
+---
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: "Add computer"
+    timeout: 20000
+- waitForAnimationToEnd
+- tapOn: "Add computer"
+- tapOn: "Address"
+- inputText: ${ADDRESS}
+- hideKeyboard
+- scrollUntilVisible:
+    element: "Next"
+    timeout: 10000
+- tapOn: "Next"
+- extendedWaitUntil:
+    visible: "These digits match"
+    timeout: 20000
+- repeat:
+    times: 10
+    while:
+      visible: "These digits match"
+    commands:
+      - tapOn: "These digits match"
+      - waitForAnimationToEnd
+- tapOn: "Code from the computer"
+- inputText: ${CODE}
+- hideKeyboard
+- tapOn:
+    text: "Pair"
+    below: "Code from the computer"
+- extendedWaitUntil:
+    visible: "Overview"
+    timeout: 20000
+- extendedWaitUntil:
+    visible: "Test"
+    timeout: 20000
+- assertNotVisible: "Processes"
+- takeScreenshot: 22-paired-again-same-profile
