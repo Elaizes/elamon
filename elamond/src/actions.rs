@@ -194,7 +194,7 @@ pub fn settings_spec(id: &str, a: &settings::Action) -> Spec {
 		.map(|(pid, p)| {
 			let kind = if let Some(choices) = &p.choices {
 				ParamKind::Choice(
-					choices.iter().map(|c| (c.clone(), p.labels.as_ref().and_then(|l| l.get(c)).cloned().unwrap_or_else(|| c.clone()))).collect(),
+					choices.iter().map(|c| (c.clone(), p.labels.as_ref().and_then(|l| l.get(c)).cloned().unwrap_or_else(|| label_of(c)))).collect(),
 				)
 			} else if let Some(range) = &p.range {
 				let step = p.step.clone().unwrap_or_else(|| 1.into());
@@ -202,7 +202,7 @@ pub fn settings_spec(id: &str, a: &settings::Action) -> Spec {
 			} else {
 				ParamKind::Bool
 			};
-			Param { id: pid.clone(), label: p.label.clone().unwrap_or_else(|| pid.clone()), kind, optional: false, default: p.default.clone() }
+			Param { id: pid.clone(), label: p.label.clone().unwrap_or_else(|| label_of(pid)), kind, optional: false, default: p.default.clone() }
 		})
 		.collect();
 	Spec {
@@ -353,6 +353,16 @@ mod tests {
 		let caps = Caps::from_power(&PowerCaps { poweroff: "challenge".into(), reboot: "no".into(), suspend: "na".into(), lock: true });
 		assert_eq!((caps.poweroff, caps.reboot, caps.suspend, caps.lock), (true, false, false, true));
 		assert_eq!(label_of("power-saver"), "Power saver");
+	}
+
+	#[test]
+	fn a_parameter_without_labels_is_named_from_its_id_and_values() {
+		let source = "[actions.fan]\nname = \"Fan\"\ncommand = [\"fanctl\", \"{fan_mode}\"]\nparams.fan_mode = { choices = [\"auto\", \"full-speed\"], labels = { auto = \"Automatic\" } }\n";
+		let config = settings::read_sources(&[settings::Source::new("test.toml", source)]).unwrap();
+		let spec = settings_spec("fan", &config.actions["fan"]);
+		assert_eq!(spec.params[0].label, "Fan mode");
+		let ParamKind::Choice(choices) = &spec.params[0].kind else { panic!("{:?}", spec.params[0].kind) };
+		assert_eq!(choices, &[("auto".to_string(), "Automatic".to_string()), ("full-speed".to_string(), "Full speed".to_string())]);
 	}
 
 	#[test]

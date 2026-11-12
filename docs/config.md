@@ -117,8 +117,9 @@ part of another argument or an option.
 | `{ range = [0, 100], step = 5, unit = "%", default = 50 }` | `range` | a number within the range, on a step from its start; written as an integer when `step` and the start are (`100`, never `100.0` or `1e2`); zero never as `-0` |
 | `{ type = "bool", default = false }` | `bool` | `true` or `false` |
 
-Each may have a `label` (what a form calls it; the parameter's id by default). A parameter
-without `default` must be given.
+Each may have a `label` (what a form calls it; by default its id as words, `fan_speed` →
+"Fan speed"), and a choice `labels` for its values (by default each value as words, likewise). A
+parameter without `default` must be given.
 
 ### Built-in actions
 

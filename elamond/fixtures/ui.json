@@ -1,5 +1,5 @@
 {
-  "version": "ae316e8538344d50",
+  "version": "25d472c97e1b0573",
   "service": {
     "id": "0123456789abcdef0123456789abcdef",
     "name": "fixture",
@@ -399,7 +399,7 @@
         {
           "id": "mode",
           "kind": "choice",
-          "label": "mode",
+          "label": "Mode",
           "choices": [{ "value": "server", "label": "Server" }, { "value": "desktop", "label": "Desktop" }],
           "default": "desktop"
         }
