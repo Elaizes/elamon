@@ -31,7 +31,7 @@ service's own (built-in actions, dashboards made by `for_each`).
 
 | key | type | default | |
 |---|---|---|---|
-| `listen` | list of addresses and interface names | `["::"]` | where the service listens ([guide](guide.md#where-the-service-listens)) |
+| `listen` | list of addresses and interface names (letters, digits and `_.@-`) | `["::"]` | where the service listens ([guide](guide.md#where-the-service-listens)) |
 | `port` | integer | 47823 | |
 | `names` | list of host names | `[]` | names offered in the pairing link after the addresses |
 | `name` | string | the host name | the computer's name in the app |

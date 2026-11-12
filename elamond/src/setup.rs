@@ -8,7 +8,8 @@
 //! same under any of them, or by hand.
 //!
 //! Settings are read here as plain TOML, only for the few keys setup needs (`port`, `listen`,
-//! `mdns`, `control`, and the units of `[links.<id>]` with `scope = "system"`).
+//! `mdns`, `control`); the units of `[links.<id>]` with `scope = "system"`, which the polkit rule
+//! lets the user start and stop, only from the settings as the service reads them, checks and all.
 
 use std::ffi::{CStr, OsString};
 use std::fs;
@@ -198,7 +199,7 @@ impl InitSystem for Systemd {
 	}
 
 	fn linger_command(&self, user: &str) -> String {
-		format!("sudo loginctl enable-linger {user}")
+		format!("sudo loginctl enable-linger {}", sh_word(user))
 	}
 
 	fn system_active(&self, name: &str) -> Option<bool> {
@@ -294,8 +295,9 @@ struct Settings {
 	mdns: bool,
 	control: bool,
 	listen: Vec<Target>,
-	/// System units the links name, for the polkit rule.
-	system_units: Vec<String>,
+	/// System units the links name, for the polkit rule; why it can't be told, when the settings
+	/// don't load.
+	system_units: Result<Vec<String>, String>,
 }
 
 impl Settings {
@@ -309,7 +311,7 @@ impl Settings {
 				merge(&mut merged, table);
 			}
 		}
-		Settings::of(&merged)
+		Settings { system_units: system_units(crate::settings::load(files)), ..Settings::of(&merged) }
 	}
 
 	fn of(t: &toml::Table) -> Settings {
@@ -320,19 +322,7 @@ impl Settings {
 			_ => Vec::new(),
 		};
 		let listen: Vec<Target> = listen.iter().filter_map(|s| Target::parse(s).ok()).collect();
-		let mut system_units: Vec<String> = Vec::new();
-		if let Some(links) = t.get("links").and_then(toml::Value::as_table) {
-			for link in links.values().filter_map(toml::Value::as_table) {
-				let scope = link.get("scope").and_then(toml::Value::as_str);
-				if let (Some(unit), Some("system")) = (link.get("unit").and_then(toml::Value::as_str), scope) {
-					let unit = unit.trim().to_string();
-					if !unit.is_empty() && !system_units.contains(&unit) {
-						system_units.push(unit);
-					}
-				}
-			}
-		}
-		system_units.sort();
+		let system_units = system_units(crate::settings::read_sources(&[crate::settings::Source::new("settings", t.to_string())]));
 		Settings {
 			port: port.unwrap_or(protocol::DEFAULT_PORT),
 			mdns: t.get("mdns").and_then(toml::Value::as_bool).unwrap_or(true),
@@ -354,6 +344,30 @@ impl Settings {
 		}
 		names
 	}
+}
+
+/// The system units the links of the settings `loaded` name, sorted, for the polkit rule: from the
+/// settings as the service reads them, so never a unit it would refuse a phone, and each one a link
+/// may have. `Err` says why there are none to tell: the settings don't load.
+fn system_units(loaded: Result<store::Config, Vec<crate::settings::Mistake>>) -> Result<Vec<String>, String> {
+	let config = loaded.map_err(|m| crate::settings::join_mistakes(&m))?;
+	let mut units: Vec<String> = config
+		.links
+		.values()
+		.filter(|l| l.scope() == "system")
+		.filter_map(|l| l.unit.clone())
+		.filter(|u| crate::links::unit_shape(u).is_ok())
+		.collect();
+	units.sort();
+	units.dedup();
+	Ok(units)
+}
+
+/// `s` as one word of a command for a shell: as it is when nothing in it means anything to one,
+/// otherwise in single quotes.
+fn sh_word(s: &str) -> String {
+	let plain = !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-./@:=+,%".contains(&b));
+	if plain { s.to_string() } else { format!("'{}'", s.replace('\'', r"'\''")) }
 }
 
 /// A later settings file's tables merge with the earlier ones key by key; anything else replaces.
@@ -528,7 +542,7 @@ fn firewall_commands(fw: Firewall, port: u16, mdns: bool, on: &[Opening]) -> Vec
 				}
 			}
 			for (zone, with_mdns) in zones {
-				let zone = zone.map(|z| format!(" --zone={z}")).unwrap_or_default();
+				let zone = zone.map(|z| format!(" {}", sh_word(&format!("--zone={z}")))).unwrap_or_default();
 				out.push(format!("sudo firewall-cmd --permanent{zone} --add-port={port}/tcp"));
 				if with_mdns {
 					out.push(format!("sudo firewall-cmd --permanent{zone} --add-service=mdns"));
@@ -544,16 +558,24 @@ fn firewall_commands(fw: Firewall, port: u16, mdns: bool, on: &[Opening]) -> Vec
 				}
 			}
 			for o in on {
-				out.push(format!("sudo ufw allow in on {} to any port {port} proto tcp", o.iface));
+				let iface = sh_word(&o.iface);
+				out.push(format!("sudo ufw allow in on {iface} to any port {port} proto tcp"));
 				if mdns && !vpn(&o.iface) {
-					out.push(format!("sudo ufw allow in on {} to any port {MDNS_PORT} proto udp", o.iface));
+					out.push(format!("sudo ufw allow in on {iface} to any port {MDNS_PORT} proto udp"));
 				}
 			}
 		}
 		Firewall::Nftables => {
 			// The table and chain of the distributions' /etc/nftables.conf (Arch, Debian).
 			let rule = |iface: Option<&str>, proto: &str, p: u16| {
-				let on = iface.map(|i| format!("iifname \"{i}\" ")).unwrap_or_default();
+				// nft reads the name in double quotes; a name with what a shell would read in them
+				// goes in single quotes, double quotes and all.
+				let on = iface
+					.map(|i| {
+						let quoted = format!("\"{i}\"");
+						format!("iifname {} ", if sh_word(i) == i { quoted } else { sh_word(&quoted) })
+					})
+					.unwrap_or_default();
 				format!("sudo nft insert rule inet filter input {on}{proto} dport {p} accept")
 			};
 			if on.is_empty() {
@@ -623,7 +645,7 @@ fn setup(init: &dyn InitSystem, opts: &Opts) -> Result<(), String> {
 			"{} isn't running here, and it's the only init system elamond setup knows so far.\n  \
 			 Have your init system run `{} serve` as your user at login; it needs nothing else.",
 			init.name(),
-			this_exe().unwrap_or_else(|_| "elamond".into())
+			sh_word(&this_exe().unwrap_or_else(|_| "elamond".into()))
 		));
 	}
 	// SAFETY: geteuid only reads the process's user id.
@@ -794,7 +816,20 @@ fn root_steps(init: &dyn InitSystem, opts: &Opts, user: &str, settings: &Setting
 		}
 	}
 
-	let rule = polkit_rule(user, &settings.system_units, opts.multiple_sessions);
+	// The rule names the units the settings let phones start and stop; while they don't load, no
+	// one can tell which those are, so there is no rule to give.
+	let system_units = match &settings.system_units {
+		Ok(units) => units,
+		Err(why) => {
+			println!(
+				"\nNo polkit rule for now: the settings don't load, so the system units it would let you start and stop \
+				 can't be told.\n  {}\n  Mend them (elamond check names the line), then run elamond setup again.",
+				why.replace('\n', "\n  ")
+			);
+			return Ok(steps);
+		}
+	};
+	let rule = polkit_rule(user, system_units, opts.multiple_sessions);
 	let installed = Path::new(POLKIT_DIR).join(POLKIT_FILE);
 	if fs::read_to_string(&installed).ok().as_deref() != Some(rule.as_str()) {
 		let saved = store::data_dir().join("setup").join(POLKIT_FILE);
@@ -805,15 +840,15 @@ fn root_steps(init: &dyn InitSystem, opts: &Opts, user: &str, settings: &Setting
 				.and_then(|_| write_file(&saved, &rule, 0o644))
 				.map_err(|e| format!("can't write {}: {e}", saved.display()))?;
 		}
-		let units = if settings.system_units.is_empty() {
+		let units = if system_units.is_empty() {
 			String::new()
 		} else {
-			format!(", and start, stop and restart {}", settings.system_units.join(", "))
+			format!(", and start, stop and restart {}", system_units.join(", "))
 		};
 		let when = if settings.control { "" } else { " Needed once control is on (control = true)." };
 		steps.push(RootStep {
 			why: format!("Let the service power off, restart and sleep the computer and switch the power profile{units}, without a password.{when}"),
-			commands: vec![format!("sudo install -m 0644 {} {}", saved.display(), installed.display())],
+			commands: vec![format!("sudo install -m 0644 {} {}", sh_word(&saved.to_string_lossy()), sh_word(&installed.to_string_lossy()))],
 			after: Some("polkit allows that every program you run, not only the service. Run elamond setup again after changing the links' units.".into()),
 		});
 	}
@@ -1108,10 +1143,13 @@ fn check_polkit(user: &str, settings: &Settings) -> Item {
 	if !settings.control {
 		return Item::new(Mark::Absent, "polkit rule: not needed while control is off");
 	}
+	let Ok(units) = &settings.system_units else {
+		return Item::new(Mark::Unknown, "polkit rule: can't tell what it should be while the settings don't load");
+	};
 	let installed = Path::new(POLKIT_DIR).join(POLKIT_FILE);
 	let fix = || format!("elamond setup writes it and prints the command that installs it ({})", installed.display());
 	match fs::read_to_string(&installed) {
-		Ok(t) if t == polkit_rule(user, &settings.system_units, false) || t == polkit_rule(user, &settings.system_units, true) => {
+		Ok(t) if t == polkit_rule(user, units, false) || t == polkit_rule(user, units, true) => {
 			Item::new(Mark::Ok, format!("polkit rule {}", installed.display()))
 		}
 		Ok(_) => Item::new(Mark::Bad, format!("polkit rule {} isn't what the settings need now (their system units changed?)", installed.display())).hint(fix()),
@@ -1289,7 +1327,7 @@ mod tests {
 	#[test]
 	fn the_settings_setup_needs() {
 		let s = Settings::of(&toml::Table::new());
-		assert_eq!(s, Settings { port: 47823, mdns: true, control: false, listen: vec![Target::ANY], system_units: Vec::new() });
+		assert_eq!(s, Settings { port: 47823, mdns: true, control: false, listen: vec![Target::ANY], system_units: Ok(Vec::new()) });
 		assert!(s.interfaces().is_empty());
 
 		let s = Settings::of(&table(
@@ -1319,7 +1357,7 @@ mod tests {
 		));
 		assert_eq!((s.port, s.mdns, s.control), (48000, false, true));
 		assert_eq!(s.interfaces(), ["eno1", "tailscale0"]);
-		assert_eq!(s.system_units, ["jellyfin.service", "nginx.service"], "only system units, sorted");
+		assert_eq!(s.system_units, Ok(vec!["jellyfin.service".into(), "nginx.service".into()]), "only system units, sorted");
 
 		// An address among them: it may be on any interface.
 		assert!(Settings::of(&table(r#"listen = ["eno1", "192.0.2.10"]"#)).interfaces().is_empty());
@@ -1331,12 +1369,12 @@ mod tests {
 
 	#[test]
 	fn later_files_merge_into_earlier_ones() {
-		let mut t = table("port = 48000\n[links.a]\nname = \"A\"\nunit = \"a.service\"\nscope = \"system\"\n");
-		merge(&mut t, table("[links.a]\nscope = \"user\"\n[links.b]\nname = \"B\"\nunit = \"b.service\"\nscope = \"system\"\n"));
+		let mut t = table("port = 48000\n[links.a]\nname = \"A\"\nurl = \"http://{host}:1\"\nunit = \"a.service\"\nscope = \"system\"\n");
+		merge(&mut t, table("[links.a]\nscope = \"user\"\n[links.b]\nname = \"B\"\nurl = \"http://{host}:2\"\nunit = \"b.service\"\nscope = \"system\"\n"));
 		merge(&mut t, table("listen = \"eno1\"\n"));
 		let s = Settings::of(&t);
 		assert_eq!(s.port, 48000);
-		assert_eq!(s.system_units, ["b.service"]);
+		assert_eq!(s.system_units, Ok(vec!["b.service".into()]));
 		assert_eq!(s.interfaces(), ["eno1"]);
 	}
 
@@ -1359,7 +1397,7 @@ mod tests {
 		assert_eq!(action["params"]["level"]["choices"].as_array().map(Vec::len), Some(3));
 		assert_eq!(action["params"]["level"]["labels"]["50%"].as_str(), Some("Half"));
 		assert_eq!(examples["profiles"]["default"]["theme"].as_str(), Some("dark"));
-		assert_eq!(Settings::of(&examples).system_units, ["jellyfin.service"]);
+		assert_eq!(Settings::of(&examples).system_units, Ok(vec!["jellyfin.service".into()]));
 	}
 
 	#[test]
@@ -1392,8 +1430,49 @@ mod tests {
 	#[test]
 	fn the_polkit_rule_from_a_settings_table() {
 		let s = Settings::of(&table("control = true\n[links.media]\nname = \"Media\"\nurl = \"http://{host}:8096\"\nunit = \"jellyfin.service\"\nscope = \"system\"\n"));
-		let rule = polkit_rule("alice", &s.system_units, false);
+		let rule = polkit_rule("alice", s.system_units.as_ref().unwrap(), false);
 		assert!(rule.contains("[\"jellyfin.service\"].indexOf(action.lookup(\"unit\"))"));
+	}
+
+	#[test]
+	fn the_polkit_rule_names_only_units_the_service_would_let_phones_use() {
+		let link = |unit: &str| format!("[links.x]\nname = \"X\"\nurl = \"http://{{host}}:1\"\nunit = \"{unit}\"\nscope = \"system\"\n");
+		// Units the service refuses make settings it doesn't load: no units to tell, so no rule.
+		for unit in ["reboot.target", "-.slice", "-.service", "elamond.service", "user@1000.service x"] {
+			let s = Settings::of(&table(&format!("control = true\n{}", link(unit))));
+			assert!(s.system_units.is_err(), "{unit}: {:?}", s.system_units);
+		}
+		// Nor settings that don't load for any other reason, a link without its url among them.
+		let s = Settings::of(&table("control = true\n[links.x]\nname = \"X\"\nunit = \"nginx.service\"\nscope = \"system\"\n"));
+		assert!(s.system_units.is_err());
+		assert!(s.control, "what setup reads as plain TOML stays");
+		// The files as the service reads them, drop-ins merged: a drop-in that refuses its unit
+		// leaves nothing to tell.
+		let dir = std::env::temp_dir().join(format!("elamond-setup-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
+		fs::create_dir_all(&dir).unwrap();
+		let (main, dropin) = (dir.join("elamond.toml"), dir.join("z.toml"));
+		fs::write(&main, format!("control = true\n{}", link("nginx.service"))).unwrap();
+		assert_eq!(Settings::read(std::slice::from_ref(&main)).system_units, Ok(vec!["nginx.service".into()]));
+		fs::write(&dropin, "[links.x]\nunit = \"reboot.target\"\n").unwrap();
+		let s = Settings::read(&[main.clone(), dropin.clone()]);
+		assert!(s.system_units.unwrap_err().contains("reboot.target"));
+		fs::remove_dir_all(dir).unwrap();
+	}
+
+	#[test]
+	fn commands_for_root_quote_what_a_shell_would_read() {
+		assert_eq!(sh_word("/home/alice/.local/share/elamon/setup/50-elamond.rules"), "/home/alice/.local/share/elamon/setup/50-elamond.rules");
+		assert_eq!(sh_word("/home/alice/My Data/elamon"), "'/home/alice/My Data/elamon'");
+		assert_eq!(sh_word("a'b"), r"'a'\''b'");
+		assert_eq!(sh_word("$(reboot)`x`;y"), "'$(reboot)`x`;y'");
+		assert_eq!(sh_word(""), "''");
+		assert_eq!(Systemd.linger_command("alice"), "sudo loginctl enable-linger alice");
+		assert_eq!(Systemd.linger_command("a b"), "sudo loginctl enable-linger 'a b'");
+		// What a firewall tells, or an interface that isn't one the settings would take.
+		let odd = [Opening { iface: "e;reboot".into(), zone: Some("x y".into()) }];
+		assert_eq!(firewall_commands(Firewall::Firewalld, 47823, false, &odd)[0], "sudo firewall-cmd --permanent '--zone=x y' --add-port=47823/tcp");
+		assert_eq!(firewall_commands(Firewall::Ufw, 47823, false, &odd), ["sudo ufw allow in on 'e;reboot' to any port 47823 proto tcp"]);
+		assert_eq!(firewall_commands(Firewall::Nftables, 47823, false, &odd), ["sudo nft insert rule inet filter input iifname '\"e;reboot\"' tcp dport 47823 accept"]);
 	}
 
 	#[test]

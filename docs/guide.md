@@ -427,8 +427,10 @@ you want phones to do.
 
 `elamond setup` writes the rule: your user may power off, restart and sleep the computer and
 switch the power profile, and start, stop and restart the system units the settings' links name
-(`unit` with `scope = "system"`, [Links](#links)). It saves it as
-`~/.local/share/elamon/setup/50-elamond.rules` and prints the command that installs it:
+(`unit` with `scope = "system"`, [Links](#links)), as the service reads them: while the settings
+don't load (`elamond check` says why), it writes no rule, since which units they name can't be
+told. It saves it as `~/.local/share/elamon/setup/50-elamond.rules` and prints the command that
+installs it:
 
 ```sh
 sudo install -m 0644 ~/.local/share/elamon/setup/50-elamond.rules /etc/polkit-1/rules.d/50-elamond.rules
