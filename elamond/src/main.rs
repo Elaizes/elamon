@@ -360,6 +360,10 @@ impl Upkeep {
 	fn network(&mut self, ifaces: &[listen::Iface]) {
 		let plan = listen::Plan::of(&self.targets, ifaces);
 		self.listeners.update(&plan);
+		// Where paired phones find the computer now: its addresses, then the names it has.
+		let names = self.hub.config().names.clone();
+		let offered = plan.pairing_hosts(ifaces).into_iter().map(|a| a.to_string()).chain(names);
+		self.hub.set_endpoints(offered.take(consts::limit::ENDPOINTS_MAX).collect());
 		if let Some(a) = &mut self.announcer {
 			a.update(plan.mdns(ifaces));
 		}

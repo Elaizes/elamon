@@ -1,8 +1,9 @@
 {
   "client_id": "0123abcd",
+  "endpoints": ["192.0.2.10", "100.64.0.7", "desk.example.net", "desk.tail0000.ts.net"],
   "id": "0123456789abcdef0123456789abcdef",
   "name": "fixture",
-  "profile": "owner",
+  "profile": "galaxy-s25",
   "role": "admin",
   "token": "token"
 }

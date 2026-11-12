@@ -91,7 +91,29 @@ a DNS name, and refuses the link whole for anything else or for more than 8. It 
 computer at any of them and accepts it only with the `id` and the certificate `fp` of the link, so
 a name or address that leads to another computer is never taken for it. Stopping
 `elamond pair` withdraws its code. The phone that pairs with it gets the role `elamond pair --role` named, or
-`default_role` from the settings ([roles](#roles)), and the profile `elamond pair --profile` named, or `default_profile` ([profiles](#profiles)).
+`default_role` from the settings ([roles](#roles)), and a profile of its own ([profiles](#profiles)).
+
+### Where the computer is: `endpoints`
+
+A phone paired by code knows only the address it reached the computer at, and a link holds what was
+true when it was made. So the service tells paired phones where it is now, as `endpoints`: in the
+answer to `pair`, in `ui` (`service.endpoints`) and in a stream's `ui` line. They are what `h`
+would hold, by the same rules, up to 16: the addresses the service listens on that a phone could
+reach, the local network first, then VPNs (of each interface its IPv4 addresses, or its IPv6 ones
+when it has none; never loopback or link-local ones, nor, listening on every address, bridges for
+containers and virtual machines), then the names in `names`, then the computer's Tailscale name.
+They change as the computer's networks do (Tailscale coming up, an interface named in `listen`
+getting an address), and with them `ui`'s `version`.
+
+```json
+"endpoints": ["192.0.2.10", "100.64.0.7", "desk.example.net", "desk.tail0000.ts.net"]
+```
+
+A client adds them to the addresses it tries for that computer (it keeps 16 at most, each taken
+only as an address or a DNS name, as `h`'s are), only from an answer that came over the certificate
+it pinned for that computer and to its token; the one that worked last stays the first it tries.
+None of them makes a computer of another: whatever answers there is accepted only with the paired
+id and certificate.
 
 An address may try 5 wrong codes; after that it is answered 429 `too_many_requests`, whatever it
 sends, for as long as the code lives (an IPv6 address counts by its /64). Other addresses can still
@@ -113,10 +135,10 @@ At most 64 phones are paired at once, keys of their own ([`rekey`](#post-apiv1re
 ### `POST /api/v1/pair` (no token)
 
 ```json
-{ "code": "123456", "device": "Phone name" }
+{ "code": "123456", "device": "Phone name", "previous": { "client_id": "0123abcd", "token": "…" } }
 ```
 
-200: `{ "token": "…", "client_id": "…", "id": "<service id>", "name": "<computer name>", "role": "<role>", "profile": "<profile id>" }`,
+200: `{ "token": "…", "client_id": "…", "id": "<service id>", "name": "<computer name>", "role": "<role>", "profile": "<profile id>", "endpoints": ["…"] }`,
 after up to 90 seconds while the person at `elamond pair` decides.
 403: `{ "error": "wrong_code" }`, `{ "error": "no_pairing" }` when no code is pending (or a phone
 that gave it waits to be let in), `{ "error": "pair_declined" }` when the phone wasn't let in,
@@ -124,6 +146,24 @@ that gave it waits to be let in), `{ "error": "pair_declined" }` when the phone 
 from an address that tried too many wrong codes; 413 for a body over 4 KiB. `device` is cleaned
 (controls and Unicode format characters taken out, 64 characters kept) and is `Phone` when nothing
 is left.
+
+`profile` is the phone's own profile, a table the service adds for it to
+[phones.toml](config.md#phones) as it pairs, which uses the profile `elamond pair --profile` named
+or `default_profile`. `endpoints` [as above](#where-the-computer-is-endpoints).
+
+`previous`, optional, is for a phone that pairs again with a computer it is paired with already
+(after a new pairing link, or to reach it at another address): its entry there and that entry's
+token, as proof that it is the same phone. A client sends it only over the certificate it pinned
+for that computer, never to one it is still to trust. With the right code, a `previous` whose token
+is that entry's makes the new entry take the old one's own profile (its table in phones.toml, and
+the profile it had), and unpairs the old entry once the new one is added: it is the same phone,
+whose old token the app drops. The person at `elamond pair` is told so in its question (`replaces
+"Galaxy S25" (0123abcd), keeps its profile galaxy-s25`). The role is still the one `elamond pair`
+gives, never the old entry's; `elamond pair --profile` still decides, when given. A `previous` that
+proves nothing (an entry not paired, a token not its own) changes nothing, and the pairing goes
+on as without it: no profile is taken and nothing unpaired. Without a `previous`, a profile left by
+an unpaired phone of the same name is given to the new one only when the person at `elamond pair`
+says so.
 
 The token goes in every other request as `Authorization: Bearer <token>`. Without a valid one
 the service answers 401 `{ "error": "unauthorized" }`. A phone removed with `elamond revoke` gets
@@ -150,9 +190,9 @@ A key of its own for a phone that holds another's token, as one does after Impor
 { "device": "Phone name" }
 ```
 
-200, as pairing answers: `{ "token": "…", "client_id": "…", "id": "<service id>", "name": "<computer name>", "role": "<role>", "profile": "<profile id>" }`.
-It is a new entry among the paired phones, named `device`, with a new token and the role and profile of the
-entry whose token asked. That token stays good: the phone it came from keeps working until
+200, as pairing answers: `{ "token": "…", "client_id": "…", "id": "<service id>", "name": "<computer name>", "role": "<role>", "profile": "<profile id>", "endpoints": ["…"] }`.
+It is a new entry among the paired phones, named `device`, with a new token, the role of the entry
+whose token asked and a profile of its own in phones.toml that uses that entry's. That token stays good: the phone it came from keeps working until
 `elamond revoke` of its own entry, which leaves the new one paired. `elamond clients` shows the
 new entry as added with the key of the one that asked, and `elamond revoke` of that one names the
 entries added with its key.
@@ -259,9 +299,11 @@ parse, and no `elamond control off`. A request the role doesn't allow is answere
 ## Profiles
 
 Each paired client also has a profile: how it looks and behaves ([config.md](config.md#profiles)).
-`elamond pair --profile <id>`, otherwise `default_profile` from the settings; `elamond clients
-profile <id|all> <profile>` changes it, from the client's next request (a stream it has open gets
-`ui` at once). A client whose profile the settings no longer have gets `default_profile`.
+Pairing gives each phone one of its own in [phones.toml](config.md#phones), using the profile
+`elamond pair --profile <id>` names, otherwise `default_profile` from the settings; a change to it
+there reaches the phone as any change of the settings does (a stream it has open gets `ui` at once).
+`elamond clients profile <id|all> <profile>` gives it another, from the client's next request. A
+client whose profile the settings no longer have gets `default_profile`.
 
 ## `GET /api/v1/ui`
 
@@ -272,14 +314,16 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
 ```json
 {
   "version": "5c1f0e2a9d3b7a41",
-  "service": { "id": "…", "name": "…", "version": "0.6.0", "interval_ms": 1000, "history_seconds": 600,
-               "features": ["control", "media", "power", "power_profiles", "processes", "units"] },
+  "service": { "id": "…", "name": "…", "version": "0.6.1", "interval_ms": 1000, "history_seconds": 600,
+               "features": ["control", "media", "power", "power_profiles", "processes", "units"],
+               "endpoints": ["192.0.2.10", "100.64.0.7", "desk.example.net"] },
   "role": "admin",
   "control": { "enabled": true, "off_reason": null },
-  "profile": { "id": "owner", "name": "Owner", "theme": "dark", "pure_black": true, "animations": true,
+  "profile": { "id": "galaxy-s25", "name": "Galaxy S25", "theme": "dark", "pure_black": true, "animations": true,
                "interval_ms": 1000, "fahrenheit": false, "network_bits": false, "confirm_actions": true,
                "unlock": { "for": ["power", "signal", "actions", "units"], "grace": "every_time" },
-               "android": { "dynamic_color": true, "blur": true, "haptics": true, "keep_screen_on": false } },
+               "android": { "dynamic_color": true, "blur": true, "haptics": true, "keep_screen_on": false },
+               "source": { "file": "elamond.d/phones.toml", "line": 4 } },
   "tabs": ["overview", "processes", "sensors", "control"],
   "header": "header",
   "dashboards": [{ "id": "overview", "title": "Overview", "icon": "overview", "widgets": [ … ] }, …],
@@ -289,7 +333,7 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
 ```
 
 - `version` changes whenever anything else in the document would: the settings, the client's role
-  or profile, control turned on or off, a GPU, disk, sensor or interface that comes or goes (a
+  or profile, control turned on or off, the endpoints, a GPU, disk, sensor or interface that comes or goes (a
   label or title that holds values follows them within 5 seconds). A
   client keeps the last document of each computer (a cache, not settings) to start at once and to
   show while offline, and fetches it again when a stream says `ui` with another version.
@@ -298,8 +342,12 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
   sleep or lock), `power_profiles` (power-profiles-daemon or tuned-ppd), `units` (systemd), `media`
   (a session bus for MPRIS), `processes`, `displays` (a GPU whose monitors DRM tells of), `nvml` (an
   NVIDIA GPU NVML can read). A client ignores those it doesn't know.
+- `service.endpoints`: where the computer is now ([pairing](#where-the-computer-is-endpoints)).
 - `profile` holds the part every client reads, and the part for this client's kind (`android`)
-  only.
+  only. For an `admin`, `source` says where the profile's table is, for the person to change it:
+  the file that set it last (relative to the settings' folder, `~/.config/elamon`, when it is in
+  it; `elamond.toml`, `elamond.d/phones.toml`) and the line of its `[profiles.<id>]` there; for
+  other roles it is left out.
 - `tabs` are the profile's dashboards the role sees, in order (one for each item of a dashboard
   with `for_each`); `dashboards` the tabs, then the header, then the dashboards their widgets
   open, and those theirs open, each once and as far as the role sees. A dashboard the role sees
@@ -372,7 +420,8 @@ Lines:
    players, the volume, NVIDIA GPUs or the links, read only while a client shows them) has no state
    in a line until it is; a client shows it loading. The first reading that has them sends a line
    at once.
-3. `ui`, whenever the client's `ui` changes: `{ "type": "ui", "ui": "<version>" }`. The stream goes
+3. `ui`, whenever the client's `ui` changes: `{ "type": "ui", "ui": "<version>", "endpoints": [ … ] }`,
+   `endpoints` as they are now ([pairing](#where-the-computer-is-endpoints)). The stream goes
    on, with the dashboard it had (or the first tab, when that one is gone for this client).
 
 A widget's state:

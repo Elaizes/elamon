@@ -17,10 +17,14 @@ use crate::format;
 use crate::listen::Target;
 use crate::values;
 
-/// The standard dashboards and the default profile, read before any file.
+/// The settings elamond starts with, a whole file of settings schema 3: what `elamond setup` and
+/// the first start write as elamond.toml, and what a file of 0.6.0 (no `schema`) is read over.
 pub const DEFAULTS: &str = include_str!("defaults.toml");
 /// What mistakes in them are said to be in.
 pub const DEFAULTS_NAME: &str = "built-in defaults";
+/// The settings schema this elamond reads: `schema = 3`, a whole file. A file without `schema` is
+/// one of 0.6.0, schema 2, read over `DEFAULTS`.
+pub const SCHEMA: i64 = 3;
 
 pub const WIDGET_TYPES: [&str; 15] =
 	["value", "gauge", "meter", "status", "graph", "list", "bars", "table", "button", "toggle", "select", "slider", "text", "group", "media"];
@@ -73,6 +77,17 @@ pub struct Config {
 	pub profiles: BTreeMap<String, ProfileDef>,
 	pub dashboards: BTreeMap<String, Dashboard>,
 	pub templates: BTreeMap<String, WidgetDef>,
+	/// Where each profile's table is: the file that set it last, and the line of its
+	/// `[profiles.<id>]` there. Filled in as the files are read, not a key of theirs.
+	#[serde(skip)]
+	pub profile_sources: BTreeMap<String, Whence>,
+}
+
+/// A place in the settings files: a file as `Source::name` gives it, and a line from 1.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Whence {
+	pub file: String,
+	pub line: usize,
 }
 
 /// A web page this computer hosts.
@@ -354,11 +369,14 @@ pub struct RowAction {
 }
 
 impl Default for Config {
-	/// The built-in settings alone, as with no files at all.
+	/// The settings elamond starts with, `DEFAULTS` read as the one file.
 	fn default() -> Self {
 		static BUILT_IN: std::sync::OnceLock<Config> = std::sync::OnceLock::new();
 		BUILT_IN
-			.get_or_init(|| read_sources(&[]).unwrap_or_else(|m| panic!("the built-in defaults have mistakes: {}", join_mistakes(&m))))
+			.get_or_init(|| {
+				read_sources(&[Source::new(DEFAULTS_NAME, DEFAULTS)])
+					.unwrap_or_else(|m| panic!("the built-in defaults have mistakes: {}", join_mistakes(&m)))
+			})
 			.clone()
 	}
 }
@@ -382,6 +400,7 @@ impl Config {
 			profiles: BTreeMap::new(),
 			dashboards: BTreeMap::new(),
 			templates: BTreeMap::new(),
+			profile_sources: BTreeMap::new(),
 		}
 	}
 
@@ -537,9 +556,17 @@ pub fn load(files: &[PathBuf]) -> Result<Config, Vec<Mistake>> {
 	read_sources(&read_files(files)?)
 }
 
-/// The settings from the built-in defaults and `sources`, in that order, or every mistake found.
+/// Whether the settings file `text` says which schema it is: one that doesn't is of 0.6.0.
+pub fn has_schema(text: &str) -> bool {
+	text.parse::<toml::Table>().is_ok_and(|t| t.contains_key("schema"))
+}
+
+/// The settings from `sources`, in that order, or every mistake found. The first is the main file:
+/// one that says its `schema` is the whole of the settings; one that doesn't is of 0.6.0, read
+/// over `DEFAULTS` as 0.6.0 read it over what was built in.
 pub fn read_sources(sources: &[Source]) -> Result<Config, Vec<Mistake>> {
-	let all: Vec<Source> = std::iter::once(Source::new(DEFAULTS_NAME, DEFAULTS)).chain(sources.iter().cloned()).collect();
+	let over_defaults = !sources.first().is_some_and(|s| has_schema(&s.text));
+	let all: Vec<Source> = over_defaults.then(|| Source::new(DEFAULTS_NAME, DEFAULTS)).into_iter().chain(sources.iter().cloned()).collect();
 	let mut mistakes = Vec::new();
 	let mut docs = Vec::new();
 	for (i, s) in all.iter().enumerate() {
@@ -593,10 +620,15 @@ pub fn read_sources(sources: &[Source]) -> Result<Config, Vec<Mistake>> {
 	if !bad.is_empty() {
 		return Err(bad.into_iter().map(|(p, m)| at(&p, m)).collect());
 	}
-	let config: Config = match serde_json::from_value(merged) {
+	let mut config: Config = match serde_json::from_value(merged) {
 		Ok(c) => c,
 		Err(e) => return Err(vec![Mistake { file: None, line: None, path: String::new(), message: e.to_string() }]),
 	};
+	for id in config.profiles.keys() {
+		if let Some((i, line)) = whence.get(&join("profiles", id)) {
+			config.profile_sources.insert(id.clone(), Whence { file: all[*i].name.clone(), line: *line });
+		}
+	}
 	let bad = semantics(&config);
 	if !bad.is_empty() {
 		return Err(bad.into_iter().map(|(p, m)| at(&p, m)).collect());
@@ -767,6 +799,7 @@ pub const RECORDS: [&str; 15] =
 pub fn record(name: &str) -> Vec<Key> {
 	match name {
 		"settings" => vec![
+			k("schema", Ty::Int(SCHEMA, SCHEMA)),
 			k("listen", Ty::Any(vec![Ty::Str, list(Ty::Str)])),
 			k("port", Ty::Int(1, 65535)),
 			k("names", list(Ty::Str)),
@@ -1844,7 +1877,14 @@ mod tests {
 		let fixture = read(&[("ui-source.toml", include_str!("../fixtures/ui-source.toml"))]).unwrap();
 		assert_eq!(fixture.actions.keys().collect::<Vec<_>>(), ["backup", "fan", "mode"]);
 		assert_eq!(fixture.links["web"].unit.as_deref(), Some("web.service"));
-		assert!(fixture.dashboards.contains_key("overview"), "the built-in dashboards stay");
+		// A whole file, of schema 3: nothing is read under it.
+		assert!(!fixture.dashboards.contains_key("overview"));
+		// One without a schema is of 0.6.0, read over the defaults.
+		let old = read(&[("elamond.toml", "[profiles.mine]\nuse = \"default\"\n")]).unwrap();
+		assert!(old.dashboards.contains_key("overview") && old.profiles.contains_key("mine"));
+		// The fixture of a 0.6.0 file, moved to schema 3 at the first start of 0.6.1, is sound as it was.
+		let old = read(&[("settings-0.6.0.toml", include_str!("../fixtures/settings-0.6.0.toml"))]).unwrap();
+		assert_eq!((old.dashboards["overview"].title.as_str(), old.profile("owner").theme.as_str()), ("Home", "dark"));
 	}
 
 	#[test]

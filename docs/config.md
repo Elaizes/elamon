@@ -1,27 +1,168 @@
-# Elamon settings reference (settings schema 2)
+# Elamon settings reference (settings schema 3)
 
 Everything the app and the web page show, and everything a phone may run, is set on the computer,
 in elamond's settings: the dashboards and their widgets, the actions, how each phone looks and
 behaves (its *profile*). The app keeps nothing of it; it draws what the service describes. These
 settings are TOML on every distribution; on NixOS the module's `settings` mirror them one to one.
 
-Files, read in this order, a later one adding to and overriding an earlier one:
+The files are all there is. The service reads these, in this order, a later one adding to and
+overriding an earlier one, and nothing under them:
 
-1. what is built into elamond: the standard dashboards (`elamond defaults` prints them), the built-in
-   actions and the `default` profile;
-2. `~/.config/elamon/elamond.toml` (or the file `ELAMON_CONFIG` names);
-3. `~/.config/elamon/elamond.d/*.toml`, by name.
+1. `~/.config/elamon/elamond.toml` (or the file `ELAMON_CONFIG` names): the whole of the settings,
+   as `elamond setup` or the service's first start writes it ([the starter file](#the-starter-file))
+   and you change it;
+2. `~/.config/elamon/elamond.d/*.toml`, by name: drop-ins, among them [`phones.toml`](#phones),
+   where each paired phone has a profile of its own.
+
+What isn't in them the service doesn't have: a dashboard taken out of elamond.toml is gone, not
+put back from somewhere. Only the built-in actions (`power.*`, `profile.set`, `unit.*`…) come
+with elamond itself, being what it can do rather than settings.
 
 A table with an id (`[dashboards.power]`, `[actions.mode]`, `[links.jellyfin]`,
 `[profiles.owner]`, `[templates.history]`) merges with the one of the same id before it, key by
 key; a list (`widgets`, `listen`, `dashboards` in a profile) replaces the one before it whole.
-So a drop-in can add a dashboard, change one key of a built-in one, or replace its widgets.
+So a drop-in can add a dashboard, change one key of one in elamond.toml, or replace its widgets.
 
 `elamond check [FILE]` reads the settings as the service would and names the file and line of each
-mistake; `elamond edit [FILE]` opens the file in `$EDITOR` and doesn't keep a broken one;
-`elamond schema` prints the JSON Schema of these settings, for editors that check TOML against one
-(taplo, Even Better TOML: `#:schema` at the top of the file); `elamond defaults` prints the built-in
-dashboards and profile as a starting point; `elamond values` lists the values this computer has now.
+mistake; `elamond edit [FILE]` opens the file in `$VISUAL` or `$EDITOR` and doesn't keep a broken
+one; `elamond schema` prints the JSON Schema of these settings, for editors that check TOML against
+one (taplo, Even Better TOML: `#:schema` at the top of the file); `elamond defaults` prints the
+settings elamond starts with ([below](#the-defaults-beside-defaultstoml)); `elamond values` lists
+the values this computer has now.
+
+## The starter file
+
+Where there is no elamond.toml, `elamond setup` and the service's first start write one: the
+settings elamond starts with, whole. It begins with `schema = 3` and the top-level keys, each with
+a line on what it does, then commented-out examples of a link and an action, then the `default`
+profile, every standard dashboard (`header`, `overview`, `processes`, `sensors`, `control`, and
+the pages their tiles open) and the templates they use. It is yours from then on: elamond never
+writes it again, but once, to move a 0.6.0 file to schema 3 ([below](#settings-from-elamond-060)).
+
+```toml
+schema = 3
+
+# Let paired phones act on this computer (power, the power profile, units, media, actions),
+# each as far as its role allows.
+control = false
+…
+[profiles.default]
+name = "Default"
+theme = "system"
+…
+[dashboards.overview]
+title = "Overview"
+icon = "overview"
+…
+```
+
+An empty elamond.toml is sound settings too, of no dashboards and no profiles: phones paired with
+it see nothing. `elamond check` says so: it warns of settings without dashboards, and of a
+`default_profile` that isn't among the profiles.
+
+`schema` says which settings these are. `3` is a whole file, as this page describes. A file without
+`schema` is one of elamond 0.6.0 (settings schema 2), which was read over a layer built into the
+service; another number is a mistake (a file written for a newer elamond). A drop-in may say
+`schema = 3` too, and nothing else.
+
+### Settings from elamond 0.6.0
+
+0.6.0 read its settings over what was built into it: elamond.toml held only what differed. The
+first time elamond 0.6.1 or later starts with such a file (no `schema` in it), it writes the two
+together into a new, whole elamond.toml with `schema = 3`, and keeps the old one beside it as
+`elamond.toml.0.6.0`. The new file is what was built in, in its own words and comments, with every
+key of the old file in place of the one it overrode and every table of its own after them: the
+settings, and so what each phone shows, are the same as before. The drop-ins in elamond.d/ stay as
+they are and still add to it. The journal says what was done (`journalctl --user -u elamond`).
+
+That happens once, and only to settings that are sound: while they have a mistake, the service
+reads them as 0.6.0 did and reports it, and moves them over at the first start after they are
+mended. A file it can't write (a link into the Nix store, a file `ELAMON_CONFIG` names) it never
+moves, and reads as 0.6.0 did. The NixOS and Home Manager modules write `schema = 3` themselves
+([Nix](#nix)).
+
+### The defaults beside: defaults.toml
+
+The service keeps `~/.config/elamon/defaults.toml` beside your settings: the settings each version
+of elamond starts with, read-only, for you to compare and copy from. It isn't read as settings
+(only elamond.toml and elamond.d/ are). Its first line names the version that wrote it; when another
+version starts, it writes its own and keeps the one before as `defaults.toml.old`.
+
+| command | |
+|---|---|
+| `elamond defaults` | prints the settings elamond starts with: the starter file, without its first lines |
+| `elamond defaults --diff` | what in your settings is other than in those, and what changed in them between defaults.toml.old and this version: by table, `added`, `changed` (and which keys) or `removed` |
+| `elamond defaults TABLE` | one table of them, as TOML to copy into your settings: `dashboards.sensors`, `profiles.default`, `templates.sensor_table` |
+
+```
+$ elamond defaults --diff
+Your settings beside the defaults of elamond 0.6.1:
+  changed  (top level)          control, listen
+  changed  profiles.default     theme
+  added    profiles.owner
+  added    dashboards.desk
+  added    actions.mode
+  removed  dashboards.battery
+
+What changed in the defaults since elamond 0.6.0 (defaults.toml.old):
+  changed  dashboards.sensors   widgets
+
+Copy a table to start from: elamond defaults dashboards.sensors
+```
+
+A table the version before didn't have, or changed, is one your settings may want: the new version
+doesn't add it to them by itself.
+
+### Nix
+
+On NixOS and with Home Manager, `services.elamond.settings` holds the defaults with `mkDefault`,
+and `schema = 3`: what you set there overrides them key by key, a list (a dashboard's `widgets`)
+replacing theirs whole, and a table of your own (`dashboards.desk`, `profiles.owner`) adds to them.
+`services.elamond.defaults` holds them as they are, read-only. The settings are written into the
+Nix store and `ELAMON_CONFIG` names them (Home Manager links elamond.toml to them); the drop-ins in
+~/.config/elamon/elamond.d/, phones.toml among them, are still your own to write.
+
+## Phones
+
+Each paired phone has a profile of its own, in `~/.config/elamon/elamond.d/phones.toml`: a drop-in
+the service writes when a phone pairs, which is yours to edit like any other. A key you add to a
+phone's table changes how that phone looks, at once; `use` names the profile it starts from.
+
+```toml
+# Profiles of the paired phones, one each: elamond pair adds them (docs/config.md#phones).
+# Change how a phone looks here, key by key; `use` is the profile it starts from.
+
+# Galaxy S25, paired 2026-11-12 (0123abcd)
+[profiles.galaxy-s25]
+name = "Galaxy S25"
+use = "owner"
+theme = "dark"
+
+# Pixel 9, paired 2026-11-12 (4567cdef)
+[profiles.pixel-9]
+name = "Pixel 9"
+use = "default"
+```
+
+| when | phones.toml |
+|---|---|
+| `elamond pair` | a table for the phone, its id from the phone's name (`Galaxy S25` → `galaxy-s25`; one taken already gets `-2`, `-3`…; a name without a letter or digit of `a-z`, `0-9` → `phone`), with `name` (the phone's) and `use`: the profile `--profile` names, or `default_profile`; a comment above says which phone it is. The phone's entry among the paired ones (`elamond clients`) has it as its profile. |
+| `elamond pair --profile ID`, ID a phone's table that no paired phone has | the phone takes that table as its own, as it is, instead of a new one |
+| the same phone pairs again, with its key still good | the new entry takes the table the old one had, and the old entry is unpaired: the app shows its key to the service ([protocol](protocol.md#post-apiv1pair)) |
+| a phone pairs whose key is gone (the phone was reset, or its entry unpaired), and an unpaired phone of the same name had a table | `elamond pair` asks whether to give that table to it; `--yes` gives it none by name |
+| a phone gets a key of its own after Import pairings | a table for it, using the profile of the phone the key came from |
+| `elamond revoke` | the phone's table goes when it is as pairing wrote it (`name` and `use` alone) and no profile uses it; otherwise it stays, with a note, for a phone paired again to take |
+| the service starts, and phones paired before 0.6.1 have no table | each gets one, using the profile it had (`use = "owner"` for one that had `owner`) |
+
+`elamond clients profile ID PROFILE` still gives a phone any profile of the settings, one shared by
+several phones say; its own table stays in phones.toml, for `elamond clients profile ID <its table>`
+to give back. A phone whose profile is gone from the settings gets `default_profile`.
+
+The service writes phones.toml only from the lock the paired phones are kept under, in one step
+(a new file renamed over it), keeping its permissions (only yours, for a new one), comments and
+everything else in it as they were. A link there it leaves alone: a phone then pairs without a
+table, with `use`'s profile as its profile. Settings that wouldn't parse with a new table in, it
+doesn't write.
 
 Ids — of dashboards, actions, links, profiles, templates, widgets and action parameters — are 1 to
 32 characters `a-z`, `0-9`, `_` and `-`, starting with a letter or a digit. Ids with a dot are the
@@ -29,18 +170,21 @@ service's own (built-in actions, dashboards made by `for_each`).
 
 ## Top level
 
+The default is what a key left out is; the starter file writes most of them out.
+
 | key | type | default | |
 |---|---|---|---|
+| `schema` | `3` | | which settings these are ([above](#the-starter-file)); without it, a file of elamond 0.6.0 |
 | `listen` | list of addresses and interface names (letters, digits and `_.@-`) | `["::"]` | where the service listens ([guide](guide.md#where-the-service-listens)) |
 | `port` | integer | 47823 | |
-| `names` | list of host names | `[]` | names offered in the pairing link after the addresses |
+| `names` | list of host names | `[]` | names that reach this computer, offered after its addresses: in the pairing link, and to paired phones |
 | `name` | string | the host name | the computer's name in the app |
 | `mdns` | bool | `true` | announce the service on the local network |
 | `interval_ms` | integer, 250–10 000 | 1000 | the service's tick: how often it reads the computer |
-| `history_minutes` | integer | 10 | how far back graphs reach |
+| `history_minutes` | integer, 1–1440 | 10 | how far back graphs reach |
 | `control` | bool | `false` | let paired clients act on the computer, as far as their roles allow |
 | `default_role` | `glance` \| `monitor` \| `operate` \| `admin` | `admin` | the role of a client paired without `--role` |
-| `default_profile` | profile id | `default` | the profile of a client paired without `--profile`, and of one whose profile is gone |
+| `default_profile` | profile id | `default` | the profile a phone's own table uses when `elamond pair` isn't given `--profile`, and the profile of a phone whose profile is gone |
 | `links` | table of [links](#links) | | |
 | `actions` | table of [actions](#actions) | | |
 | `profiles` | table of [profiles](#profiles) | | |
@@ -139,8 +283,9 @@ Every action also needs control: `control = true`, and no `elamond control off`.
 ## Profiles
 
 How a client looks and behaves. The app saves none of this: it takes its profile from the computer
-with the dashboards. Each paired client has one (`elamond pair --profile ID`,
-`elamond clients profile ID PROFILE`); one without is in `default_profile`.
+with the dashboards. Each paired phone has one of its own in [phones.toml](#phones), which `use`s
+another (`elamond pair --profile ID`, or `default_profile`); `elamond clients profile ID PROFILE`
+gives it any other.
 
 ```toml
 [profiles.owner]
@@ -189,9 +334,10 @@ key as well. A profile that names a dashboard that doesn't exist is a mistake.
 ## Dashboards
 
 A dashboard is a page of widgets: a tab when a profile lists it, otherwise a page a widget opens
-(`open`), or the chips under the computer's name (a profile's `header`). The standard ones are
-`overview`, `processes`, `sensors` and `control`, the `header`, and the pages their tiles open:
-`cpu`, `memory`, `gpu.<key>`, `network`, `storage`, `battery`, `activity`.
+(`open`), or the chips under the computer's name (a profile's `header`). The standard ones, which
+[the starter file](#the-starter-file) has, are `overview`, `processes`, `sensors` and `control`,
+the `header`, and the pages their tiles open: `cpu`, `memory`, `gpu.<key>`, `network`, `storage`,
+`battery`, `activity`.
 
 ```toml
 [dashboards.power]

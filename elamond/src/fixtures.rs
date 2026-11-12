@@ -274,12 +274,17 @@ fn hello() {
 	check_compact("hello", &crate::ui::J::from(hello_body("0123456789abcdef0123456789abcdef", "fixture")));
 }
 
+/// Where the fixtures' computer is: its addresses on the local network and Tailscale, then names.
+pub fn endpoints() -> Vec<String> {
+	["192.0.2.10", "100.64.0.7", "desk.example.net", "desk.tail0000.ts.net"].map(String::from).to_vec()
+}
+
 /// What the fixtures' computer offers, as `ui`'s `service.features` says.
 const FEATURES: [&str; 6] = ["displays", "media", "power", "power_profiles", "processes", "units"];
 
 #[test]
 fn paired() {
-	let body = paired_body("token", "0123abcd", "0123456789abcdef0123456789abcdef", "fixture", Role::Admin, "owner");
+	let body = paired_body("token", "0123abcd", "0123456789abcdef0123456789abcdef", "fixture", Role::Admin, "galaxy-s25", &endpoints());
 	check_compact("pair", &crate::ui::J::from(body));
 }
 
@@ -377,6 +382,7 @@ fn ui_for(config: &crate::settings::Config, values: &crate::values::Values, role
 			interval_ms: info.interval_ms,
 			history_seconds: info.history_seconds,
 			features: features_of(&FEATURES, config.control),
+			endpoints: endpoints(),
 		},
 		control: crate::ui::Control { enabled: config.control, off_reason: (!config.control).then_some("settings") },
 		role,
@@ -445,7 +451,7 @@ fn stream_open_and_ui() {
 	check_compact("stream-open", &crate::ui::J::Obj(crate::stream::open_line("s1a2b3c4", &ui.version)));
 	let operate = ui_for(&config, &values, Role::Operate, "owner");
 	assert_ne!(operate.version, ui.version);
-	check_compact("stream-ui", &crate::ui::J::Obj(crate::stream::ui_line(&operate.version)));
+	check_compact("stream-ui", &crate::ui::J::Obj(crate::stream::ui_line(&operate.version, &endpoints())));
 }
 
 /// The requests the app sends read as the service reads them, and ask for what `ui.json` has.
@@ -461,6 +467,9 @@ fn requests() {
 	for (table, field) in &change.sort {
 		assert!(crate::stream::sorts_by(&ui, table, field.as_deref()), "{table} by {field:?}");
 	}
+	let pair: crate::server::PairRequest = serde_json::from_slice(&read("pair-request.json")).unwrap();
+	assert_eq!((pair.code.as_str(), pair.device.as_str()), ("123456", "Galaxy S25"));
+	assert_eq!(pair.previous, Some(crate::server::Previous { client_id: "0123abcd".into(), token: "token".into() }));
 	let request: crate::control::ActionRequest = serde_json::from_slice(&read("action-request.json")).unwrap();
 	let mode = ui.actions.iter().find(|a| a.id == "mode").unwrap();
 	let params = crate::actions::check_params(mode, &request.params).unwrap();
@@ -471,7 +480,8 @@ fn requests() {
 /// checks it shows as much as 0.5 did.
 #[test]
 fn ui_default() {
-	let config = crate::settings::Config::default();
+	// As the starter file has them, written as elamond.toml.
+	let config = crate::settings::read_sources(&[crate::settings::Source::new("elamond.toml", crate::settings::DEFAULTS)]).unwrap();
 	let values = values(&config);
 	check_compact("ui-default", &ui_for(&config, &values, Role::Admin, "default").doc);
 	// Every role gets a sound one: each tab there, each open leading to a dashboard it has, each

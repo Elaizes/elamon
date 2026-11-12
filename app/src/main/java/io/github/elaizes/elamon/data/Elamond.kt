@@ -26,10 +26,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
 
 class ElamondException(
@@ -275,13 +273,9 @@ class ElamondClient(
 		h.copy(name = cleanName(h.name))
 	}
 
-	suspend fun pair(code: String, device: String): PairResponse = exchange("/api/v1/pair", Limits.PAIR_TIMEOUT_MS) { c ->
+	suspend fun pair(code: String, device: String, previous: PreviousPairing? = null): PairResponse = exchange("/api/v1/pair", Limits.PAIR_TIMEOUT_MS) { c ->
 		c.requestMethod = "POST"
-		val body = buildJsonObject {
-			put("code", code)
-			put("device", device)
-		}
-		send(c, ProtocolJson.encodeToString(body))
+		send(c, ProtocolJson.encodeToString(PairRequest.serializer(), PairRequest(code, device, previous)))
 		checkStatus(c)
 		ProtocolJson.decodeFromString<PairResponse>(readBody(c, Limits.SMALL_BODY_MAX))
 	}

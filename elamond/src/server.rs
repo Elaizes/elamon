@@ -96,7 +96,7 @@ pub struct UiKey {
 
 /// A `ui` as built, and what it was built from.
 struct CachedUi {
-	stamp: (u64, u64, Option<&'static str>, u64),
+	stamp: (u64, u64, Option<&'static str>, u64, u64),
 	ui: Arc<Ui>,
 	used: Instant,
 }
@@ -180,6 +180,9 @@ pub struct Hub {
 	/// The widget types each client said it draws in its last `GET /api/v1/ui`, by its id and kind:
 	/// what its streams describe with.
 	draws: Mutex<HashMap<(String, String), Draws>>,
+	/// Where the computer is now, as paired phones are told (`endpoints`), and how often that changed.
+	endpoints: RwLock<Arc<Vec<String>>>,
+	endpoints_gen: AtomicU64,
 }
 
 /// The widget types a client draws; `None` for all of them.
@@ -241,6 +244,8 @@ impl Hub {
 			apps: Mutex::new(HashMap::new()),
 			app_note: cadence::APP_NOTE,
 			draws: Mutex::new(HashMap::new()),
+			endpoints: RwLock::new(Arc::new(Vec::new())),
+			endpoints_gen: AtomicU64::new(0),
 			dir,
 		}
 	}
@@ -436,6 +441,21 @@ impl Hub {
 		self.refresh_soon();
 	}
 
+	/// Where the computer is now: the addresses a phone could reach the service at, the local network
+	/// first, then names (`endpoints`).
+	pub fn endpoints(&self) -> Arc<Vec<String>> {
+		self.endpoints.read().map(|e| e.clone()).unwrap_or_else(|p| p.into_inner().clone())
+	}
+
+	/// Takes where the computer is now; a change goes to the phones as a new `ui`.
+	pub fn set_endpoints(&self, endpoints: Vec<String>) {
+		let mut e = self.endpoints.write().unwrap_or_else(|p| p.into_inner());
+		if **e != endpoints {
+			*e = Arc::new(endpoints);
+			self.endpoints_gen.fetch_add(1, Ordering::SeqCst);
+		}
+	}
+
 	/// Counts the settings taken up, and the times they stopped parsing.
 	pub fn config_gen(&self) -> u64 {
 		self.config_gen.load(Ordering::SeqCst)
@@ -484,6 +504,7 @@ impl Hub {
 			interval_ms: self.interval.as_millis() as u64,
 			history_seconds: (self.interval * cap as u32).as_secs(),
 			features: features_of(&frame.features, self.config().control),
+			endpoints: self.endpoints().to_vec(),
 		}
 	}
 
@@ -510,7 +531,7 @@ impl Hub {
 	/// in may have.
 	pub fn ui(&self, key: &UiKey, frame: &Frame) -> Arc<Ui> {
 		let ticks = (cadence::UI_REBUILD.as_millis() / self.interval.as_millis().max(1)).max(1) as u64;
-		let stamp = (frame.shape, self.config_gen(), self.off_reason(), frame.seq / ticks);
+		let stamp = (frame.shape, self.config_gen(), self.off_reason(), frame.seq / ticks, self.endpoints_gen.load(Ordering::SeqCst));
 		let now = Instant::now();
 		if let Some(c) = self.uis.lock().unwrap_or_else(|p| p.into_inner()).get_mut(key)
 			&& c.stamp == stamp
@@ -755,8 +776,8 @@ pub(crate) fn features_of(features: &[&'static str], control: bool) -> Vec<&'sta
 	f
 }
 
-pub(crate) fn paired_body(token: &str, client_id: &str, id: &str, name: &str, role: Role, profile: &str) -> serde_json::Value {
-	json!({ "token": token, "client_id": client_id, "id": id, "name": name, "role": role, "profile": profile })
+pub(crate) fn paired_body(token: &str, client_id: &str, id: &str, name: &str, role: Role, profile: &str, endpoints: &[String]) -> serde_json::Value {
+	json!({ "token": token, "client_id": client_id, "id": id, "name": name, "role": role, "profile": profile, "endpoints": endpoints })
 }
 
 /// The profile a client with `profile` in clients.json gets: its own, or `default_profile`.
@@ -767,10 +788,22 @@ fn profile_of(hub: &Hub, profile: Option<&str>) -> String {
 
 
 #[derive(Deserialize)]
-struct PairRequest {
-	code: String,
+pub(crate) struct PairRequest {
+	pub(crate) code: String,
 	#[serde(default)]
-	device: String,
+	pub(crate) device: String,
+	/// The entry this phone had here before and its token, from a phone that pairs again: the
+	/// proof that it is the same phone, whose own profile the new entry takes.
+	#[serde(default)]
+	#[allow(dead_code, reason = "taken up as pairing again keeps the profile")]
+	pub(crate) previous: Option<Previous>,
+}
+
+/// A phone's entry among the paired ones, and the token that proves it is that phone.
+#[derive(Deserialize, Debug, PartialEq)]
+pub(crate) struct Previous {
+	pub(crate) client_id: String,
+	pub(crate) token: String,
 }
 
 /// How an attempt at the pending code was judged.
@@ -916,7 +949,7 @@ async fn pair(
 			store::clear_pairing_code(&hub.dir, &code);
 			let profile = profile_of(&hub, client.profile.as_deref());
 			eprintln!("pairing: added \"{}\" ({}) as {} with the profile {profile} from {ip}", client.name, client.id, client.role.as_str());
-			Json(paired_body(&token, &client.id, &hub.id, &hub.name, client.role, &profile)).into_response()
+			Json(paired_body(&token, &client.id, &hub.id, &hub.name, client.role, &profile, &hub.endpoints())).into_response()
 		}
 		Err(e) => {
 			store::clear_pairing_code(&hub.dir, &code);
@@ -964,7 +997,7 @@ async fn rekey(
 					who.id
 				);
 				let profile = profile_of(&hub, client.profile.as_deref());
-				let response = Json(paired_body(&token, &client.id, &hub.id, &hub.name, client.role, &profile)).into_response();
+				let response = Json(paired_body(&token, &client.id, &hub.id, &hub.name, client.role, &profile, &hub.endpoints())).into_response();
 				Ok(Acted { response, note: Some(format!("id {}, {}", client.id, client.role.as_str())) })
 			}
 			Err(e) => {

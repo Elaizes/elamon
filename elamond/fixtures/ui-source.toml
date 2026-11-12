@@ -1,7 +1,8 @@
 # The settings that ui.json and stream-*.json describe: elamond's tests read this file with the
 # fixture readings (fixtures.rs) for an admin client of profile "owner" that draws every widget
 # type, and check that what they build is those files. Every widget type, key and kind of action
-# parameter is in here at least once.
+# parameter is in here at least once. A whole file of settings schema 3: nothing is read under it.
+schema = 3
 name = "fixture"
 control = true
 default_profile = "owner"
@@ -30,6 +31,25 @@ params.verify = { type = "bool", default = true, label = "Verify" }
 role = "admin"
 unlock = true
 timeout = 600
+
+[profiles.default]
+name = "Default"
+theme = "system"
+pure_black = false
+animations = true
+interval_ms = 1000
+fahrenheit = false
+network_bits = false
+confirm_actions = true
+unlock = { for = ["power", "signal", "actions", "units"], grace = "every_time" }
+dashboards = ["home"]
+header = "header"
+
+[profiles.default.android]
+dynamic_color = true
+blur = true
+haptics = true
+keep_screen_on = false
 
 [profiles.owner]
 use = "default"
@@ -289,9 +309,10 @@ row_actions = [
 title = "Not opened from a tab: left out"
 
 # The chips under the computer's name: the profile's `header` (the default profile's, "header",
-# which owner uses), here in place of the built-in one's widgets.
+# which owner uses).
 [dashboards.header]
 title = "Header"
+icon = "overview"
 
 [[dashboards.header.widgets]]
 id = "power"

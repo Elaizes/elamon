@@ -1,4 +1,5 @@
 {
   "type": "ui",
-  "ui": "9dba9136964df08d"
+  "ui": "6a7d1e47585ae145",
+  "endpoints": ["192.0.2.10", "100.64.0.7", "desk.example.net", "desk.tail0000.ts.net"]
 }

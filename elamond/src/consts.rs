@@ -192,6 +192,8 @@ pub mod limit {
 	pub const ACTIVITY_PER_FAMILY: usize = 100;
 	/// Phones paired at once, keys of their own included; pairing and `rekey` refuse more.
 	pub const PHONES_MAX: usize = 64;
+	/// Where the computer is (`endpoints`), addresses then names, as paired phones are told it.
+	pub const ENDPOINTS_MAX: usize = 16;
 	/// Lines the activity log's file grows to before it is rewritten with the last `ACTIVITY_MAX`.
 	pub const ACTIVITY_FILE_LINES: usize = 2 * ACTIVITY_MAX;
 	/// Characters in what an activity log entry says was asked, and in its message.

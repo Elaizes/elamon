@@ -1,0 +1,5 @@
+{
+  "code": "123456",
+  "device": "Galaxy S25",
+  "previous": { "client_id": "0123abcd", "token": "token" }
+}

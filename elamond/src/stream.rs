@@ -122,10 +122,11 @@ pub fn open_line(stream: &str, ui: &str) -> Obj {
 }
 
 /// The `ui` line, when the client's `ui` changed.
-pub fn ui_line(ui: &str) -> Obj {
+pub fn ui_line(ui: &str, endpoints: &[String]) -> Obj {
 	let mut o = Obj::new();
 	o.put("type", "ui");
 	o.put("ui", ui);
+	o.put("endpoints", J::Arr(endpoints.iter().map(J::from).collect()));
 	o
 }
 
@@ -283,7 +284,7 @@ impl Run {
 			let draws = self.fixed.clone().or_else(|| self.hub.draws_of(&who.id, &self.kind));
 			let ui = self.hub.ui(&self.hub.ui_key(&who, &self.kind, draws), &frame);
 			if ui.version != self.ui.version {
-				if !send(&tx, &mut end, line(ui_line(&ui.version))).await {
+				if !send(&tx, &mut end, line(ui_line(&ui.version, &self.hub.endpoints()))).await {
 					break;
 				}
 				self.set_ui(ui);

@@ -1,0 +1,54 @@
+# elamond.toml as elamond 0.6.0 had it: no `schema`, only what differs from what was built in.
+# The first start of 0.6.1 moves it to a whole file of schema 3 (settings-0.6.0-moved.toml, as
+# elamond writes it), and the settings read from the two are the same.
+
+control = true
+listen = ["eno1", "tailscale0"]
+names = ["desk.example.net"]
+
+# A link, with the unit phones may restart.
+[links.media]
+name = "Media"
+url = "http://{host}:8096"
+unit = "media.service"
+scope = "system"
+
+[actions.mode]
+name = "Mode"
+command = ["modectl", "{mode}"]
+params.mode = { choices = ["quiet", "loud"] }
+
+# Every phone: dark.
+[profiles.default]
+theme = "dark"
+
+[profiles.owner]
+use = "default"
+name = "Owner"
+pure_black = true
+dashboards = ["overview", "desk", "processes", "sensors", "control"]
+unlock = { for = ["power", "signal", "actions", "units"], grace = "1m" }
+
+[profiles.owner.android]
+dynamic_color = false
+
+# A built-in dashboard's title, changed.
+[dashboards.overview]
+title = "Home"
+
+# A built-in dashboard's widgets, replaced.
+[[dashboards.battery.widgets]]
+type = "gauge"
+value = "battery.percent"
+label = "Battery"
+
+[dashboards.desk]
+title = "Desk"
+icon = "laptop"
+
+[[dashboards.desk.widgets]]
+type = "select"
+action = "mode"
+param = "mode"
+label = "Mode"
+span = 4

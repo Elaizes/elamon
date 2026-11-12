@@ -1,12 +1,13 @@
 {
-  "version": "25d472c97e1b0573",
+  "version": "5b8dad916467c09e",
   "service": {
     "id": "0123456789abcdef0123456789abcdef",
     "name": "fixture",
     "version": "9.9.9",
     "interval_ms": 1000,
     "history_seconds": 600,
-    "features": ["control", "displays", "media", "power", "power_profiles", "processes", "units"]
+    "features": ["control", "displays", "media", "power", "power_profiles", "processes", "units"],
+    "endpoints": ["192.0.2.10", "100.64.0.7", "desk.example.net", "desk.tail0000.ts.net"]
   },
   "role": "admin",
   "control": { "enabled": true, "off_reason": null },
@@ -21,7 +22,8 @@
     "network_bits": false,
     "confirm_actions": true,
     "unlock": { "for": ["power", "signal", "actions", "units"], "grace": "1m" },
-    "android": { "dynamic_color": false, "blur": true, "haptics": true, "keep_screen_on": false }
+    "android": { "dynamic_color": false, "blur": true, "haptics": true, "keep_screen_on": false },
+    "source": { "file": "ui-source.toml", "line": 54 }
   },
   "tabs": ["home"],
   "header": "header",

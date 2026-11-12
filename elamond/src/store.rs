@@ -71,7 +71,15 @@ pub fn settings_files(dir: &Path, named: Option<PathBuf>) -> Vec<PathBuf> {
 /// Settings from what is built in, elamond.toml and the drop-ins; every mistake, one to a line,
 /// each with its file and line.
 pub fn load_config() -> Result<Config, String> {
-	crate::settings::load(&config_files()).map_err(|m| crate::settings::join_mistakes(&m))
+	let mut config = crate::settings::load(&config_files()).map_err(|m| crate::settings::join_mistakes(&m))?;
+	// Where a profile is, as a person finds it: within the settings' folder, from there.
+	let dir = config_dir();
+	for w in config.profile_sources.values_mut() {
+		if let Ok(within) = Path::new(&w.file).strip_prefix(&dir) {
+			w.file = within.display().to_string();
+		}
+	}
+	Ok(config)
 }
 
 /// What the settings files look like on disk now, to notice an edit. The resolved path is

@@ -54,6 +54,18 @@ data class Hello(
 @Serializable
 data class RekeyRequest(val device: String)
 
+/** Pairing with a code; [previous], this phone's entry on that computer and its token, when it pairs again with one it has. */
+@Serializable
+data class PairRequest(
+	val code: String,
+	val device: String,
+	val previous: PreviousPairing? = null,
+)
+
+/** The entry a phone had on a computer and its token: proof that it is the same phone pairing again. */
+@Serializable
+data class PreviousPairing(@SerialName("client_id") val clientId: String, val token: String)
+
 /** What pairing answers, and asking for a key of this phone's own (`POST /api/v1/rekey`). */
 @Serializable
 data class PairResponse(
@@ -65,6 +77,8 @@ data class PairResponse(
 	val role: String? = null,
 	/** The profile the phone looks and behaves by there; null when the service doesn't say. */
 	val profile: String? = null,
+	/** Where the computer is now: addresses a phone could reach it at, then names (16 at most). */
+	val endpoints: List<String> = emptyList(),
 )
 
 // ---- GET /api/v1/ui ---------------------------------------------------------------------------
@@ -104,6 +118,8 @@ data class ServiceInfo(
 	@SerialName("history_seconds") val historySeconds: Int = DEFAULT_HISTORY_SECONDS,
 	/** What this computer can offer at all, whatever this phone's role: told only to paired phones. */
 	val features: List<String> = emptyList(),
+	/** Where the computer is now: addresses a phone could reach it at, then names. */
+	val endpoints: List<String> = emptyList(),
 )
 
 @Serializable
@@ -127,7 +143,13 @@ data class Profile(
 	@SerialName("confirm_actions") val confirmActions: Boolean = true,
 	val unlock: UnlockProfile = UnlockProfile(),
 	val android: AndroidProfile = AndroidProfile(),
+	/** Where its table is in the computer's settings, for an admin to change it; null for other roles. */
+	val source: ProfileSource? = null,
 )
+
+/** A file of the computer's settings (from its settings folder when it is in it) and a line of it. */
+@Serializable
+data class ProfileSource(val file: String, val line: Int)
 
 @Serializable
 data class UnlockProfile(
@@ -302,7 +324,11 @@ data class DataLine(
 /** The client's `ui` changed: fetch it again when [ui] isn't the version held. */
 @Serializable
 @SerialName("ui")
-data class UiChanged(val ui: String) : StreamLine
+data class UiChanged(
+	val ui: String,
+	/** Where the computer is now, as `ui` has them. */
+	val endpoints: List<String> = emptyList(),
+) : StreamLine
 
 /**
  * A widget's state, every type's keys in one shape: [v] is a number, a string, a bool, null, or

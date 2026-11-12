@@ -1,12 +1,13 @@
 {
-  "version": "5c9de3620205bd8e",
+  "version": "c67a6b444663f71e",
   "service": {
     "id": "0123456789abcdef0123456789abcdef",
     "name": "fixture",
     "version": "9.9.9",
     "interval_ms": 1000,
     "history_seconds": 600,
-    "features": ["displays", "media", "power", "power_profiles", "processes", "units"]
+    "features": ["displays", "media", "power", "power_profiles", "processes", "units"],
+    "endpoints": ["192.0.2.10", "100.64.0.7", "desk.example.net", "desk.tail0000.ts.net"]
   },
   "role": "admin",
   "control": { "enabled": false, "off_reason": "settings" },
@@ -21,7 +22,8 @@
     "network_bits": false,
     "confirm_actions": true,
     "unlock": { "for": ["power", "signal", "actions", "units"], "grace": "every_time" },
-    "android": { "dynamic_color": true, "blur": true, "haptics": true, "keep_screen_on": false }
+    "android": { "dynamic_color": true, "blur": true, "haptics": true, "keep_screen_on": false },
+    "source": { "file": "elamond.toml", "line": 61 }
   },
   "tabs": ["overview", "processes", "sensors", "control"],
   "header": "header",

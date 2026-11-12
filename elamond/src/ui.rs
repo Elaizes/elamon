@@ -218,6 +218,8 @@ pub struct Service {
 	pub history_seconds: u64,
 	/// What the computer can offer at all, sorted: only for paired clients, not in `hello`.
 	pub features: Vec<&'static str>,
+	/// Where the computer is now: the addresses a phone could reach it at, then names.
+	pub endpoints: Vec<String>,
 }
 
 /// Whether clients may act, and why not.
@@ -915,7 +917,17 @@ pub fn build(input: &Input) -> Ui {
 	control.put("enabled", input.control.enabled);
 	control.put("off_reason", input.control.off_reason.map_or(J::Null, J::from));
 	doc.put("control", control);
-	doc.put("profile", profile_json(&profile, input.kind, input.service.interval_ms));
+	let mut profile_doc = profile_json(&profile, input.kind, input.service.interval_ms);
+	// Where to change it, for the person who may: a file and a line of the settings.
+	if input.role == Role::Admin
+		&& let Some(w) = input.config.profile_sources.get(&profile.id)
+	{
+		let mut s = Obj::new();
+		s.put("file", w.file.as_str());
+		s.put("line", w.line as u64);
+		profile_doc.put("source", s);
+	}
+	doc.put("profile", profile_doc);
 	doc.put("tabs", J::Arr(tabs.iter().map(J::from).collect()));
 	doc.put("header", header.as_ref().map_or(J::Null, J::from));
 	doc.put("dashboards", J::Arr(dashboards.iter().map(|d| J::Obj(ctx.dashboard_json(d))).collect()));
@@ -971,6 +983,7 @@ fn service_json(s: &Service) -> Obj {
 	o.put("interval_ms", s.interval_ms);
 	o.put("history_seconds", s.history_seconds);
 	o.put("features", J::Arr(s.features.iter().map(|f| J::from(*f)).collect()));
+	o.put("endpoints", J::Arr(s.endpoints.iter().map(J::from).collect()));
 	o
 }
 
@@ -1304,6 +1317,7 @@ pub mod tests {
 				interval_ms: info.interval_ms,
 				history_seconds: info.history_seconds,
 				features: vec!["processes"],
+				endpoints: Vec::new(),
 			},
 			control: Control { enabled: config.control, off_reason: (!config.control).then_some("settings") },
 			role,
@@ -1422,6 +1436,8 @@ pub mod tests {
 	#[test]
 	fn for_each_templates_and_groups_spread_out() {
 		let config = settings::read_sources(&[
+			// The standard Control with the fixture's actions.
+			settings::Source::new(settings::DEFAULTS_NAME, settings::DEFAULTS),
 			settings::Source::new("ui-source.toml", include_str!("../fixtures/ui-source.toml")),
 			settings::Source::new(
 				"more.toml",
@@ -1464,7 +1480,7 @@ label = "{item.label} at {item.rpm}"
 		let t_json = doc["dashboards"].as_array().unwrap().iter().find(|d| d["id"] == "t").unwrap().clone();
 		assert_eq!(t_json["widgets"][0]["label"], "Net rx");
 		assert_eq!(t_json["widgets"][2]["label"], "CPU at 2500 RPM");
-		// The built-in Control's group of the settings' actions: one button for each, in the one card.
+		// The standard Control's group of the settings' actions: one button for each, in the one card.
 		let control = ui.dashboard("control").unwrap();
 		let group = control.widgets.iter().find(|w| w.id == "control/actions").unwrap();
 		let buttons: Vec<(&str, Option<&str>)> = group.widgets.iter().map(|b| (b.id.as_str(), b.def.action.as_deref())).collect();

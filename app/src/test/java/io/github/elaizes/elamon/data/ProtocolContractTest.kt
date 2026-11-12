@@ -35,6 +35,7 @@ class ProtocolContractTest {
 	private val shapes: Map<String, KSerializer<*>> = mapOf(
 		"hello" to Hello.serializer(),
 		"pair" to PairResponse.serializer(),
+		"pair-request" to PairRequest.serializer(),
 		"ui" to UiDoc.serializer(),
 		"ui-default" to UiDoc.serializer(),
 		"stream-open" to StreamLine.serializer(),
@@ -165,6 +166,8 @@ class ProtocolContractTest {
 		assertEquals(fixture("subscribe"), ProtocolJson.encodeToJsonElement(Subscribe.serializer(), subscribe))
 		val action = ActionRequest(JsonObject(mapOf("mode" to JsonPrimitive("server"))))
 		assertEquals(fixture("action-request"), ProtocolJson.encodeToJsonElement(ActionRequest.serializer(), action))
+		val pair = PairRequest("123456", "Galaxy S25", PreviousPairing("0123abcd", "token"))
+		assertEquals(fixture("pair-request"), ProtocolJson.encodeToJsonElement(PairRequest.serializer(), pair))
 		// Each key of a change is optional: one left out isn't sent at all.
 		assertEquals("""{"dashboard":"cpu"}""", ProtocolJson.encodeToString(Subscribe.serializer(), Subscribe(dashboard = "cpu")))
 		assertEquals("""{"params":{}}""", ProtocolJson.encodeToString(ActionRequest.serializer(), ActionRequest()))
