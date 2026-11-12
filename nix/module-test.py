@@ -6,6 +6,9 @@ machine.wait_for_unit("multi-user.target")
 # Every request says which app it is, as the app does.
 APP = "-H 'Elamon-Client: android/0.6.0'"
 
+# Journal checks count with grep -c, which reads all journalctl writes: grep -q would stop at a
+# match and journalctl, cut off mid-write, fail the pipe.
+
 # The settings the module writes, which login shells name for the commands; systemd-run's don't.
 ELAMON_CONFIG = machine.succeed("grep -oh '/nix/store/[a-z0-9]*-elamond.toml' /etc/set-environment /etc/systemd/user/elamond.service | head -1").strip()
 assert ELAMON_CONFIG.startswith("/nix/store/"), ELAMON_CONFIG
@@ -39,8 +42,8 @@ def pair_code(unit, *args):
 	"""Runs `elamond pair --yes` as alice in a unit of its own and returns the code it prints."""
 	machine.succeed(f"systemd-run {AS_ALICE} --unit={unit} /run/current-system/sw/bin/timeout 120 /run/current-system/sw/bin/elamond pair --yes {' '.join(args)}")
 	pattern = "'^ +[0-9]{3} [0-9]{3} *$'"
-	machine.wait_until_succeeds(f"journalctl -u {unit} -o cat | grep -Eq {pattern}", timeout=30)
-	return machine.succeed(f"journalctl -u {unit} -o cat | grep -E {pattern} | head -1 | tr -d ' \\n'")
+	machine.wait_until_succeeds(f"journalctl -u {unit} -o cat | grep -Ec {pattern}", timeout=30)
+	return machine.succeed(f"journalctl -u {unit} -o cat | grep -E {pattern} | sed -n 1p | tr -d ' \\n'")
 
 with subtest("the greeter and users not listed run no service"):
 	machine.succeed("systemctl start user@990.service user@1001.service")
@@ -57,7 +60,7 @@ with subtest("the listed user's service takes the port, and says it speaks API 2
 
 with subtest("a phone pairs with the profile the settings in Nix give, and gets their dashboard and action"):
 	code = pair_code("pair", "--profile", "vm")
-	machine.wait_until_succeeds("journalctl -u pair -o cat | grep -Eq 'Profile: +vm — VM'", timeout=30)
+	machine.wait_until_succeeds("journalctl -u pair -o cat | grep -Ec 'Profile: +vm — VM'", timeout=30)
 	status, paired = call("POST", "/api/v1/pair", body={"code": code, "device": "Test phone"})
 	assert status == 200 and paired["role"] == "admin" and paired["profile"] == "vm", paired
 	auth = f"-H 'Authorization: Bearer {paired['token']}'"
@@ -100,7 +103,7 @@ with subtest("the action from Nix runs with its parameter, and a value it doesn'
 	assert call("POST", "/api/v1/actions/greet", auth, {"params": {"who": "mars"}}) == (400, {"error": "bad_param", "message": "who"})
 	assert call("POST", "/api/v1/actions/greet", auth, {"params": {"who": "world", "then": "x"}}) == (400, {"error": "bad_param", "message": "then"})
 	assert call("POST", "/api/v1/actions/nothing", auth, {}) == (404, {"error": "no_such_action"})
-	machine.succeed("journalctl _UID=1000 -o cat | grep -q 'control: Test phone ran \"Greet\"'")
+	machine.succeed("journalctl _UID=1000 -o cat | grep -c 'control: Test phone ran \"Greet\"'")
 
 with subtest("systemctl reload rereads the settings"):
 	# Nothing changes on disk here, so only the reload can add a reread to the log.
@@ -113,7 +116,7 @@ with subtest("systemctl reload rereads the settings"):
 with subtest("settings that stop parsing hold control off until they parse again"):
 	machine.succeed("su - alice -c 'echo \"control = \" > ~/.config/elamon/elamond.d/half.toml'")
 	machine.wait_until_succeeds(f"curl -sk {APP} {auth} https://localhost:47823/api/v1/ui | jq -e '.control.enabled == false and .control.off_reason == \"settings_unreadable\"'", timeout=30)
-	machine.succeed("journalctl _UID=1000 -o cat | grep -q \"settings: they don't parse\"")
+	machine.succeed("journalctl _UID=1000 -o cat | grep -c \"settings: they don't parse\"")
 	assert "don't parse" in machine.succeed("su - alice -c 'elamond control status'")
 	assert call("POST", "/api/v1/actions/greet", auth, {"params": {"who": "nix"}}) == (403, {"error": "control_disabled"})
 	machine.succeed("su - alice -c 'rm ~/.config/elamon/elamond.d/half.toml'")
@@ -151,8 +154,8 @@ with subtest("elamond clients profile changes what ui says, and an open stream h
 with subtest("elamond pair asks before a phone is let in: no turns it away, yes lets it in, and nothing to ask on stops it"):
 	# Under systemd-run its input is /dev/null: nobody can answer, so it doesn't pair at all.
 	machine.succeed(f"systemd-run {AS_ALICE} --unit=pair-unasked /run/current-system/sw/bin/elamond pair")
-	machine.wait_until_succeeds("journalctl -u pair-unasked -o cat | grep -q 'elamond pair --yes'", timeout=30)
-	machine.fail("journalctl -u pair-unasked -o cat | grep -Eq '^ +[0-9]{3} [0-9]{3} *$'")
+	machine.wait_until_succeeds("journalctl -u pair-unasked -o cat | grep -c 'elamond pair --yes'", timeout=30)
+	machine.fail("journalctl -u pair-unasked -o cat | grep -Ec '^ +[0-9]{3} [0-9]{3} *$'")
 	# A person who answers once asked, through a pipe.
 	machine.succeed("""cat > /tmp/answer.sh <<'EOF'
 #!/bin/sh
@@ -174,7 +177,7 @@ chmod 755 /tmp/answer.sh""")
 			assert (status, body) == (403, {"error": "pair_declined"}), (status, body)
 			assert device not in clients, clients
 			machine.wait_until_succeeds(f"grep -q 'turned away' {out}", timeout=30)
-			machine.succeed(f"journalctl _UID=1000 -o cat | grep -q 'pairing: \"{device}\" from .* not added: turned away at elamond pair'")
+			machine.succeed(f"journalctl _UID=1000 -o cat | grep -c 'pairing: \"{device}\" from .* not added: turned away at elamond pair'")
 		else:
 			assert status == 200 and body["role"] == "admin" and body["profile"] == "default", (status, body)
 			assert device in clients, clients
@@ -184,7 +187,7 @@ chmod 755 /tmp/answer.sh""")
 
 with subtest("a phone paired as glance sees the basics and may run nothing"):
 	code = pair_code("pair-glance", "--role", "glance")
-	machine.wait_until_succeeds("journalctl -u pair-glance -o cat | grep -q 'Role: *glance'", timeout=30)
+	machine.wait_until_succeeds("journalctl -u pair-glance -o cat | grep -c 'Role: *glance'", timeout=30)
 	status, paired = call("POST", "/api/v1/pair", body={"code": code, "device": "Glance phone"})
 	assert status == 200 and paired["role"] == "glance", paired
 	glance, glance_id = f"-H 'Authorization: Bearer {paired['token']}'", paired["client_id"]
@@ -204,7 +207,7 @@ with subtest("elamond control off stops every phone at once, until elamond contr
 	assert call("POST", "/api/v1/actions/greet", auth, greet) == (403, {"error": "control_disabled"})
 	assert ui(auth)["control"] == {"enabled": False, "off_reason": "held_off"}
 	machine.succeed("su - alice -c 'elamond control status' | grep 'held off'")
-	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -q 'control: held off'", timeout=30)
+	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -c 'control: held off'", timeout=30)
 	machine.succeed("su - alice -c 'elamond control on'")
 	assert call("POST", "/api/v1/actions/greet", auth, greet)[0] == 200
 
@@ -223,13 +226,13 @@ with subtest("elamond clients role takes effect at once, and the log shows what 
 	assert ("Test phone", "action Greet nix", "ok") in seen, rows
 	assert ("Test phone", "action Greet world", "control_disabled") in seen, rows
 	assert rows[0]["t"] >= rows[-1]["t"], rows
-	machine.succeed("journalctl _UID=1000 -o cat | grep -q '\"Glance phone\" (.*) is now monitor'")
+	machine.succeed("journalctl _UID=1000 -o cat | grep -c '\"Glance phone\" (.*) is now monitor'")
 
 with subtest("streams are in the journal: which phone, from where, for what, for how long"):
 	# One stream of a phone is logged in ten seconds; those in between are only counted.
-	opened = "journalctl _UID=1000 -o cat | grep -Eq 'stream: \"Test phone\" \\(admin\\) opened from [0-9a-f:.]+: dashboard processes, every [0-9]+ ms, processes'"
+	opened = "journalctl _UID=1000 -o cat | grep -Ec 'stream: \"Test phone\" \\(admin\\) opened from [0-9a-f:.]+: dashboard processes, every [0-9]+ ms, processes'"
 	machine.wait_until_succeeds(f"curl -sk --max-time 3 {APP} {auth} 'https://localhost:47823/api/v1/stream?dashboard=processes' >/dev/null; {opened}", timeout=60)
-	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -q 'stream: \"Test phone\" closed after [0-9]* s: connection closed'", timeout=30)
+	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -c 'stream: \"Test phone\" closed after [0-9]* s: connection closed'", timeout=30)
 
 with subtest("five wrong codes from one address shut it out of that code"):
 	code = pair_code("pair-guess")
@@ -269,7 +272,7 @@ with subtest("listen names interfaces: eth1 at once, dummy0 once it has an addre
 		machine.fail(f"curl -sk --max-time 3 https://{eth0}:47900/api/v1/hello")
 	journal = lambda: machine.succeed("journalctl -u second -o cat")
 	assert "dummy0 has no address yet" in journal(), journal()
-	machine.wait_until_succeeds("journalctl -u second -o cat | grep -qx 'mdns: announced on eth1'", timeout=30)
+	machine.wait_until_succeeds("journalctl -u second -o cat | grep -cx 'mdns: announced on eth1'", timeout=30)
 	# An interface that comes up after the service: taken within seconds.
 	machine.succeed("ip link add dummy0 type dummy && ip addr add 10.99.0.1/24 dev dummy0 && ip link set dummy0 up")
 	machine.wait_until_succeeds("curl -sk https://10.99.0.1:47900/api/v1/hello | jq -e '.name == \"Second\"'", timeout=30)
@@ -278,13 +281,13 @@ with subtest("listen names interfaces: eth1 at once, dummy0 once it has an addre
 	assert journal().count("mdns: announced on") == 1, journal()
 	# An address that goes away is let go, and the service goes on.
 	machine.succeed("ip addr del 10.99.0.1/24 dev dummy0")
-	machine.wait_until_succeeds("journalctl -u second -o cat | grep -q 'listen: no longer on 10.99.0.1:47900'", timeout=30)
+	machine.wait_until_succeeds("journalctl -u second -o cat | grep -c 'listen: no longer on 10.99.0.1:47900'", timeout=30)
 	machine.fail("ss -ltn | grep -q '10.99.0.1:47900'")
 	machine.succeed(f"curl -sk https://{eth1}:47900/api/v1/hello")
 
 with subtest("elamond pair offers the addresses listened on, and finds the service there"):
 	second("pair", "--yes", unit="second-pair")
-	machine.wait_until_succeeds("journalctl -u second-pair -o cat | grep -q 'Addresses:'", timeout=30)
+	machine.wait_until_succeeds("journalctl -u second-pair -o cat | grep -c 'Addresses:'", timeout=30)
 	out = machine.succeed("journalctl -u second-pair -o cat")
 	assert re.search(rf"Addresses: +{re.escape(eth1)}  port 47900$", out, re.M), out
 	assert "dummy0 once it has an address" in out and "isn't answering" not in out, out
@@ -304,7 +307,7 @@ chmod 755 /tmp/fakebin/tailscale""")
 	def offered(listen, unit):
 		machine.succeed(f"""printf '%s\\n' 'port = 47900' 'listen = {listen}' 'names = ["second.example.net"]' > /tmp/second/cfg/elamond.toml""")
 		second("pair", "--yes", unit=unit, path="/tmp/fakebin")
-		machine.wait_until_succeeds(f"journalctl -u {unit} -o cat | grep -q 'Waiting for the phone'", timeout=30)
+		machine.wait_until_succeeds(f"journalctl -u {unit} -o cat | grep -c 'Waiting for the phone'", timeout=30)
 		out = machine.succeed(f"journalctl -u {unit} -o cat")
 		machine.succeed(f"systemctl stop {unit}")
 		return out
@@ -328,7 +331,7 @@ with subtest("elamond rotate-cert: a new certificate signed by the old key, the 
 	machine.succeed(f"curl -sk --pinnedpubkey 'sha256//{old_key}' https://localhost:47823/api/v1/hello")
 	assert call("GET", "/api/v1/identity/rotations") == (200, [])
 	machine.succeed("su - alice -c 'elamond rotate-cert' | grep 'New certificate'")
-	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -q 'certificate: now'", timeout=30)
+	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -c 'certificate: now'", timeout=30)
 	new_fp = machine.succeed(served_fp).strip()
 	assert new_fp != old_fp
 	# What the phone pinned no longer holds...
@@ -423,7 +426,7 @@ with subtest("a phone that came by another's token gets a key of its own, and th
 	assert call("GET", "/api/v1/ui", shared) == (401, {"error": "unauthorized"})
 	assert ui(mine)["role"] == "admin"
 	activity(mine, ("Old phone", "phone added: New phone", "ok"))
-	machine.succeed("journalctl _UID=1000 -o cat | grep -q 'pairing: added \"New phone\" .* asked with the key of \"Old phone\"'")
+	machine.succeed("journalctl _UID=1000 -o cat | grep -c 'pairing: added \"New phone\" .* asked with the key of \"Old phone\"'")
 
 with subtest("elamond rotate-cert --no-statement: a new certificate that nothing leads to, for a key that may have leaked"):
 	before = machine.succeed(served_fp).strip()
