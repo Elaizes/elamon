@@ -1,8 +1,10 @@
 {
-  "api": 1,
+  "api": 2,
   "app": "elamon",
+  "features": ["control", "displays", "media", "power", "power_profiles", "processes", "units"],
   "id": "0123456789abcdef0123456789abcdef",
-  "min_app": "0.5.0",
+  "min_app": "0.6.0",
   "name": "fixture",
-  "version": "0.5.0"
+  "version": "0.6.0",
+  "widgets": 1
 }

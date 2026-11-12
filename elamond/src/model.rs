@@ -1,5 +1,5 @@
-//! What the service sends to the app. Field names are part of the protocol
-//! (see docs/protocol.md): add fields freely; a field keeps its name and its meaning.
+//! What the service reads of the computer, before it becomes values by address (`values`);
+//! `elamond snapshot` prints it as it is.
 
 use serde::Serialize;
 
@@ -10,12 +10,9 @@ pub struct Info {
 	pub name: String,
 	/// The version of elamond.
 	pub service_version: &'static str,
-	pub api: u32,
-	/// The oldest app version that understands this service.
-	pub min_app: &'static str,
 	/// Milliseconds between the service's readings; a stream can't be faster.
 	pub interval_ms: u64,
-	/// How far back `history` reaches, in seconds.
+	/// How far back the history reaches, in seconds.
 	pub history_seconds: u64,
 	pub os: String,
 	pub kernel: String,
@@ -26,12 +23,12 @@ pub struct Info {
 	pub memory_total: u64,
 	pub boot_time: u64,
 	pub gpus: Vec<GpuInfo>,
-	pub capabilities: Vec<&'static str>,
 }
 
 #[derive(Serialize, Clone, Debug)]
 pub struct GpuInfo {
-	/// PCI slot like "0000:01:00.0", stable across boots.
+	/// The device: a PCI slot like "0000:01:00.0", or a platform or USB device's name, stable
+	/// across boots.
 	pub id: String,
 	pub vendor: &'static str,
 	pub name: String,
@@ -40,8 +37,8 @@ pub struct GpuInfo {
 	pub boot_display: bool,
 }
 
-/// One reading of everything that changes. Processes and media are added per client, for
-/// those that asked for them (see `server::render_sample`).
+/// One reading of everything that changes; processes and media are read beside it, while some
+/// client's dashboard shows them.
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct Sample {
 	/// Unix time in milliseconds.
@@ -58,17 +55,8 @@ pub struct Sample {
 	pub disk_io: Vec<DiskIo>,
 	pub net: Vec<Net>,
 	pub displays: Vec<Display>,
-	/// Links to the web pages this computer hosts, while an app is connected.
+	/// Links to the web pages this computer hosts, as last looked.
 	pub links: Vec<crate::links::LinkStatus>,
-}
-
-impl Sample {
-	/// What a phone that only glances sees: no monitors and no links.
-	pub fn into_basic(mut self) -> Sample {
-		self.displays.clear();
-		self.links.clear();
-		self
-	}
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -248,31 +236,7 @@ pub struct Process {
 	pub gpu_mem: Option<u64>,
 }
 
-/// The last minutes of the main series, column by column, oldest first.
-#[derive(Serialize, Clone, Debug, Default)]
-pub struct History {
-	pub t: Vec<u64>,
-	pub cpu: Vec<f32>,
-	pub cpu_temp: Vec<Option<f32>>,
-	pub mem: Vec<u64>,
-	pub swap: Vec<u64>,
-	pub rx: Vec<f64>,
-	pub tx: Vec<f64>,
-	pub read: Vec<f64>,
-	pub write: Vec<f64>,
-	pub battery_power: Vec<Option<f32>>,
-	/// Per GPU id: usage and temperature, None while it sleeps.
-	pub gpus: Vec<GpuHistory>,
-}
-
-#[derive(Serialize, Clone, Debug, Default)]
-pub struct GpuHistory {
-	pub id: String,
-	pub usage: Vec<Option<f32>>,
-	pub temp: Vec<Option<f32>>,
-}
-
-/// One decimal is all the app shows and it keeps the JSON short.
+/// One decimal is all a client shows.
 pub fn r1(x: f32) -> f32 {
 	(x * 10.0).round() / 10.0
 }

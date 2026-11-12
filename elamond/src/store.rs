@@ -179,7 +179,7 @@ pub fn pretty_fingerprint(fp: &str) -> String {
 		.join(" ")
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Client {
 	pub id: String,
 	pub name: String,
@@ -193,6 +193,12 @@ pub struct Client {
 	/// another's token and got a key of its own. None for a phone paired with a code.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub from: Option<String>,
+	/// Its profile; none for `default_profile` (and one the settings no longer have is that too).
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub profile: Option<String>,
+	/// The app it said it is last (`Elamon-Client`), "android/0.6.0".
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub app: Option<String>,
 }
 
 pub const CLIENTS_FILE: &str = "clients.json";
@@ -277,8 +283,8 @@ impl std::fmt::Display for NotAdded {
 	}
 }
 
-/// Adds a phone with `role` to those paired in `dir` and returns its token.
-pub fn add_client_in(dir: &Path, name: &str, role: Role) -> Result<(Client, String), NotAdded> {
+/// Adds a phone with `role` and `profile` to those paired in `dir` and returns its token.
+pub fn add_client_in(dir: &Path, name: &str, role: Role, profile: Option<&str>) -> Result<(Client, String), NotAdded> {
 	let _lock = lock_clients(dir)?;
 	let clients = match load_clients_in(dir) {
 		Ok(c) => c,
@@ -286,25 +292,34 @@ pub fn add_client_in(dir: &Path, name: &str, role: Role) -> Result<(Client, Stri
 		Err(e) if e.kind() == io::ErrorKind::InvalidData => Vec::new(),
 		Err(e) => return Err(e.into()),
 	};
-	push_client(dir, clients, name, role, None)
+	push_client(dir, clients, name, role, profile, None)
 }
 
-/// Adds a phone with `role` beside those paired in `dir`, asked for with the token of the entry
-/// `from` (a key of its own for a phone that came by that token); returns its token. Only an entry
+/// Adds a phone beside those paired in `dir`, asked for with the token of the entry `from` (a key
+/// of its own for a phone that came by that token), with that entry's role and profile; returns its
+/// token. Only an entry
 /// paired with a code may ask, and only once, so one token gives one key of its own, however
 /// often it is copied. A file that doesn't parse is an error here, never a fresh start: that would
 /// unpair every other phone.
-pub fn add_client_from(dir: &Path, from: &str, name: &str, role: Role) -> Result<(Client, String), NotAdded> {
+pub fn add_client_from(dir: &Path, from: &str, name: &str) -> Result<(Client, String), NotAdded> {
 	let _lock = lock_clients(dir)?;
 	let clients = load_clients_in(dir)?;
 	let asking = clients.iter().find(|c| c.id == from).ok_or(NotAdded::Gone)?;
 	if asking.from.is_some() || clients.iter().any(|c| c.from.as_deref() == Some(from)) {
 		return Err(NotAdded::Rekeyed);
 	}
-	push_client(dir, clients, name, role, Some(from))
+	let (role, profile) = (asking.role, asking.profile.clone());
+	push_client(dir, clients, name, role, profile.as_deref(), Some(from))
 }
 
-fn push_client(dir: &Path, mut clients: Vec<Client>, name: &str, role: Role, from: Option<&str>) -> Result<(Client, String), NotAdded> {
+fn push_client(
+	dir: &Path,
+	mut clients: Vec<Client>,
+	name: &str,
+	role: Role,
+	profile: Option<&str>,
+	from: Option<&str>,
+) -> Result<(Client, String), NotAdded> {
 	if clients.len() >= limit::PHONES_MAX {
 		return Err(NotAdded::Full);
 	}
@@ -316,10 +331,31 @@ fn push_client(dir: &Path, mut clients: Vec<Client>, name: &str, role: Role, fro
 			break id;
 		}
 	};
-	let client = Client { id, name: sanitize_name(name), token_hash: sha256_hex(token.as_bytes()), created: now(), role, from: from.map(str::to_string) };
+	let client = Client {
+		id,
+		name: sanitize_name(name),
+		token_hash: sha256_hex(token.as_bytes()),
+		created: now(),
+		role,
+		from: from.map(str::to_string),
+		profile: profile.map(str::to_string),
+		app: None,
+	};
 	clients.push(client.clone());
 	save_clients_in(dir, &clients)?;
 	Ok((client, token))
+}
+
+/// Notes in clients.json that the phone `id` is the app `app` ("android/0.6.0"). Nothing is written
+/// when it says so already, when the phone is gone, or when the file doesn't parse.
+pub fn set_client_app(dir: &Path, id: &str, app: &str) -> io::Result<()> {
+	let _lock = lock_clients(dir)?;
+	let mut clients = load_clients_in(dir)?;
+	match clients.iter_mut().find(|c| c.id == id) {
+		Some(c) if c.app.as_deref() != Some(app) => c.app = Some(app.to_string()),
+		_ => return Ok(()),
+	}
+	save_clients_in(dir, &clients)
 }
 
 /// The family of the entry `id` among `clients`: the entry whose key it came by, following `from`
@@ -390,6 +426,9 @@ pub struct Pairing {
 	/// The role the phone that pairs with this code gets. A code with no role pairs an admin.
 	#[serde(default)]
 	pub role: Role,
+	/// The profile it gets; none for `default_profile`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub profile: Option<String>,
 	/// Wrong codes tried per address (see `address_key`).
 	#[serde(default)]
 	pub wrong: BTreeMap<String, u32>,
@@ -493,9 +532,9 @@ pub fn clear_pairing_code(dir: &Path, code: &str) {
 	}
 }
 
-/// A new code, uniformly random, for a phone with `role`, to be let in by the person at
-/// `elamond pair` when `confirm`.
-pub fn new_pairing(dir: &Path, role: Role, confirm: bool) -> io::Result<Pairing> {
+/// A new code, uniformly random, for a phone with `role` and `profile`, to be let in by the person
+/// at `elamond pair` when `confirm`.
+pub fn new_pairing(dir: &Path, role: Role, profile: Option<&str>, confirm: bool) -> io::Result<Pairing> {
 	let span = 10u32.pow(protocol::PAIRING_DIGITS);
 	let code = loop {
 		let n = u32::from_le_bytes(random_bytes::<4>());
@@ -504,7 +543,16 @@ pub fn new_pairing(dir: &Path, role: Role, confirm: bool) -> io::Result<Pairing>
 			break format!("{:0width$}", n % span, width = protocol::PAIRING_DIGITS as usize);
 		}
 	};
-	let p = Pairing { code, expires: now() + timeout::PAIRING_TTL_SECS, attempts: 0, role, wrong: BTreeMap::new(), confirm, ask: None };
+	let p = Pairing {
+		code,
+		expires: now() + timeout::PAIRING_TTL_SECS,
+		attempts: 0,
+		role,
+		profile: profile.map(str::to_string),
+		wrong: BTreeMap::new(),
+		confirm,
+		ask: None,
+	};
 	save_pairing(dir, &p)?;
 	Ok(p)
 }
@@ -688,7 +736,7 @@ mod tests {
 			let dir = dir.clone();
 			writers.push(std::thread::spawn(move || {
 				for i in 0..5 {
-					add_client_in(&dir, &format!("Phone {t}.{i}"), Role::Monitor).unwrap();
+					add_client_in(&dir, &format!("Phone {t}.{i}"), Role::Monitor, None).unwrap();
 				}
 			}));
 		}
@@ -720,13 +768,15 @@ mod tests {
 	#[test]
 	fn a_token_gives_one_key_of_its_own_and_the_phones_have_a_limit() {
 		let dir = scratch();
-		let (root, _) = add_client_in(&dir, "Old", Role::Operate).unwrap();
-		let (new, _) = add_client_from(&dir, &root.id, "New", Role::Operate).unwrap();
+		let (root, _) = add_client_in(&dir, "Old", Role::Operate, Some("owner")).unwrap();
+		let (new, _) = add_client_from(&dir, &root.id, "New").unwrap();
 		assert_eq!(new.from.as_deref(), Some(root.id.as_str()));
+		// With the role and the profile of the entry whose token asked.
+		assert_eq!((new.role, new.profile.as_deref()), (Role::Operate, Some("owner")));
 		// Once from the entry paired with a code, never from the one that came by it.
-		assert!(matches!(add_client_from(&dir, &root.id, "Again", Role::Operate), Err(NotAdded::Rekeyed)));
-		assert!(matches!(add_client_from(&dir, &new.id, "Third", Role::Operate), Err(NotAdded::Rekeyed)));
-		assert!(matches!(add_client_from(&dir, "gone", "Ghost", Role::Operate), Err(NotAdded::Gone)));
+		assert!(matches!(add_client_from(&dir, &root.id, "Again"), Err(NotAdded::Rekeyed)));
+		assert!(matches!(add_client_from(&dir, &new.id, "Third"), Err(NotAdded::Rekeyed)));
+		assert!(matches!(add_client_from(&dir, "gone", "Ghost"), Err(NotAdded::Gone)));
 		// A family: the entry the key came from, however far.
 		let list = load_clients_in(&dir).unwrap();
 		assert_eq!((family_of(&list, &new.id), family_of(&list, &root.id)), (root.id.clone(), root.id.clone()));
@@ -734,7 +784,7 @@ mod tests {
 		// Chains from before the limit, and loops written by hand, end.
 		let chain: Vec<Client> = [("a", None), ("b", Some("a")), ("c", Some("b")), ("x", Some("y")), ("y", Some("x"))]
 			.iter()
-			.map(|(id, from)| Client { id: id.to_string(), name: id.to_string(), token_hash: String::new(), created: 0, role: Role::Admin, from: from.map(str::to_string) })
+			.map(|(id, from)| Client { id: id.to_string(), name: id.to_string(), from: from.map(str::to_string), ..Default::default() })
 			.collect();
 		assert_eq!((family_of(&chain, "c"), family_of(&chain, "a"), family_of(&chain, "gone")), ("a".into(), "a".into(), "gone".into()));
 		assert_eq!(added_with(&chain, "a").iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["b", "c"]);
@@ -742,16 +792,16 @@ mod tests {
 		assert_eq!(added_with(&chain, "x").len(), 1);
 		// No more than the limit, by pairing or by a key of its own.
 		for i in list.len()..limit::PHONES_MAX {
-			add_client_in(&dir, &format!("Phone {i}"), Role::Glance).unwrap();
+			add_client_in(&dir, &format!("Phone {i}"), Role::Glance, None).unwrap();
 		}
-		assert!(matches!(add_client_in(&dir, "One more", Role::Glance), Err(NotAdded::Full)));
+		assert!(matches!(add_client_in(&dir, "One more", Role::Glance, None), Err(NotAdded::Full)));
 		let (spare, _) = {
 			let mut list = load_clients_in(&dir).unwrap();
 			list.retain(|c| c.id != new.id);
 			save_clients_in(&dir, &list).unwrap();
-			add_client_in(&dir, "Last", Role::Glance).unwrap()
+			add_client_in(&dir, "Last", Role::Glance, None).unwrap()
 		};
-		assert!(matches!(add_client_from(&dir, &spare.id, "Over", Role::Glance), Err(NotAdded::Full)));
+		assert!(matches!(add_client_from(&dir, &spare.id, "Over"), Err(NotAdded::Full)));
 		assert_eq!(load_clients_in(&dir).unwrap().len(), limit::PHONES_MAX);
 		fs::remove_dir_all(dir).unwrap();
 	}
@@ -784,7 +834,7 @@ mod tests {
 
 	#[test]
 	fn pairing_codes_expire_and_run_out() {
-		let p = Pairing { code: "123456".into(), expires: 100, attempts: 0, role: Role::Glance, wrong: BTreeMap::new(), confirm: true, ask: None };
+		let p = Pairing { code: "123456".into(), expires: 100, attempts: 0, role: Role::Glance, profile: None, wrong: BTreeMap::new(), confirm: true, ask: None };
 		assert!(p.usable(99));
 		assert!(!p.usable(100));
 		assert!(!Pairing { attempts: limit::PAIRING_ATTEMPTS, ..p }.usable(0));
@@ -792,7 +842,7 @@ mod tests {
 
 	#[test]
 	fn wrong_codes_are_counted_per_address_and_in_all() {
-		let mut p = Pairing { code: "123456".into(), expires: u64::MAX, attempts: 0, role: Role::Admin, wrong: BTreeMap::new(), confirm: false, ask: None };
+		let mut p = Pairing { code: "123456".into(), expires: u64::MAX, attempts: 0, role: Role::Admin, profile: None, wrong: BTreeMap::new(), confirm: false, ask: None };
 		for _ in 0..limit::PAIRING_ATTEMPTS_PER_ADDRESS {
 			assert_eq!(p.attempt("192.0.2.1", "000000"), Attempt::Wrong);
 		}
@@ -874,7 +924,7 @@ mod tests {
 
 		fs::write(&path, b"[{\"id\": broken").unwrap();
 		assert_eq!(read_json::<Vec<Client>>(&path).unwrap_err().kind(), io::ErrorKind::InvalidData);
-		let client = Client { id: "a".into(), name: "b".into(), token_hash: "c".into(), created: 1, role: Role::Admin, from: None };
+		let client = Client { id: "a".into(), name: "b".into(), token_hash: "c".into(), created: 1, ..Default::default() };
 		write_json::<Vec<Client>>(&path, &[client]).unwrap();
 
 		let names: Vec<String> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();

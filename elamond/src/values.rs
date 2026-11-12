@@ -630,6 +630,7 @@ impl Values {
 
 	/// The keys of a collection's items, in order: what decides which dashboards and widgets
 	/// `for_each` makes.
+	#[cfg(test)]
 	pub fn keys(&self, collection: &str) -> Vec<&str> {
 		self.collections.get(collection).map(|c| c.iter().map(|i| i.key.as_str()).collect()).unwrap_or_default()
 	}

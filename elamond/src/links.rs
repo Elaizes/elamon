@@ -1,10 +1,11 @@
 //! Links to the web pages this computer hosts: what a client opens, whether they answer, their units.
 //!
 //! Links come from the settings alone (`[links.<id>]`). links.json, where 0.5 kept the links added
-//! from the app, is only carried by backups now.
+//! from the app, is carried by backups, and turned into a drop-in of the settings once (`migrate`).
 
-use std::collections::HashMap;
+use std::collections::BTreeSet;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
 
 use serde::{Deserialize, Serialize};
@@ -33,21 +34,12 @@ pub struct LinkStatus {
 	pub url: String,
 	pub unit: Option<String>,
 	pub scope: String,
-	/// Added from the app, so the app may change or remove it: never, from 0.6 on.
-	pub editable: bool,
 	pub port: Option<u16>,
 	/// Something accepts connections on the port, seen from the computer itself.
 	pub up: Option<bool>,
 	/// Listening on loopback only: other devices can't open it.
 	pub local_only: bool,
 	pub unit_state: Option<String>,
-}
-
-#[derive(Serialize, Clone, Debug)]
-pub struct Listener {
-	pub port: u16,
-	pub local_only: bool,
-	pub process: Option<String>,
 }
 
 /// links.json in the data directory, which 0.5 kept the links added from the app in.
@@ -128,7 +120,6 @@ pub fn statuses(config: &store::Config) -> Vec<LinkStatus> {
 				name: l.name.clone(),
 				url: l.url.clone(),
 				unit: l.unit.clone(),
-				editable: false,
 				unit_state: None,
 			}
 		})
@@ -173,53 +164,6 @@ fn v6_loopback(hex: &str) -> bool {
 	}
 	let a = Ipv6Addr::from(bytes);
 	a.is_loopback() || a.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
-}
-
-/// Ports something listens on, with the program when it's this user's.
-pub fn detect() -> Vec<Listener> {
-	let socks = listening_sockets();
-	let owners = socket_owners();
-	let mut by_port: HashMap<u16, Listener> = HashMap::new();
-	for (port, loopback, inode) in socks {
-		let process = owners.get(&inode).cloned();
-		let e = by_port.entry(port).or_insert(Listener { port, local_only: true, process: None });
-		e.local_only &= loopback;
-		if e.process.is_none() {
-			e.process = process;
-		}
-	}
-	let mut v: Vec<Listener> = by_port.into_values().collect();
-	v.sort_by_key(|l| l.port);
-	v
-}
-
-/// Socket inode to program name, for the processes whose descriptors this user can read.
-fn socket_owners() -> HashMap<u64, String> {
-	let mut map = HashMap::new();
-	let Ok(procs) = fs::read_dir("/proc") else { return map };
-	for p in procs.flatten() {
-		let pid = p.file_name();
-		if !pid.to_string_lossy().bytes().all(|b| b.is_ascii_digit()) {
-			continue;
-		}
-		let Ok(fds) = fs::read_dir(p.path().join("fd")) else { continue };
-		let mut name = None;
-		for fd in fds.flatten() {
-			let Ok(target) = fs::read_link(fd.path()) else { continue };
-			let t = target.to_string_lossy();
-			let Some(inode) = t.strip_prefix("socket:[").and_then(|s| s.strip_suffix(']')) else { continue };
-			let Ok(inode) = inode.parse::<u64>() else { continue };
-			let name = name.get_or_insert_with(|| {
-				let comm = fs::read_to_string(p.path().join("comm")).unwrap_or_default().trim().to_string();
-				let argv0 = fs::read(p.path().join("cmdline"))
-					.ok()
-					.and_then(|c| c.split(|b| *b == 0).next().map(|a| String::from_utf8_lossy(a).into_owned()));
-				crate::collect::process_name(&comm, argv0.map(std::ffi::OsString::from).as_ref())
-			});
-			map.insert(inode, name.clone());
-		}
-	}
-	map
 }
 
 /// Whether `name` is a unit a phone could ever be let start, stop and restart: a service, its name
@@ -269,6 +213,143 @@ pub fn unit_refusal(config: &store::Config, unit: &str, scope: Option<&str>) -> 
 	let scope = scope.unwrap_or("user");
 	let on_a_link = config.links.values().any(|l| l.unit.as_deref() == Some(unit) && l.scope() == scope);
 	(!on_a_link).then(|| format!("no link in the settings names {unit} ({scope})"))
+}
+
+// ---- the links 0.5's app added -----------------------------------------------------------------
+
+/// The drop-in the links added from 0.5's app are written to, in the settings' elamond.d.
+pub const MIGRATED: &str = "links-from-app";
+
+/// A link's id from its name: `a-z`, `0-9`, `_` and `-`, at most 32, starting with a letter or a
+/// digit; `link` when nothing of the name is left; with `_2`, `_3`… when `taken` has it.
+fn id_from(name: &str, taken: &BTreeSet<String>) -> String {
+	let mut base = String::new();
+	for c in name.to_lowercase().chars() {
+		match c {
+			'a'..='z' | '0'..='9' | '_' | '-' => base.push(c),
+			_ if !base.is_empty() && !base.ends_with('_') => base.push('_'),
+			_ => {}
+		}
+	}
+	let mut base: String = base.trim_matches(|c| c == '_' || c == '-').chars().take(28).collect();
+	if base.is_empty() {
+		base = "link".into();
+	}
+	let mut id = base.clone();
+	let mut n = 2;
+	while taken.contains(&id) {
+		id = format!("{base}_{n}");
+		n += 1;
+	}
+	id
+}
+
+/// `dir/name.ext`, or `dir/name-2.ext`… when that is taken: never a file that is there.
+fn free_path(dir: &Path, name: &str, ext: &str) -> PathBuf {
+	let mut path = dir.join(format!("{name}{ext}"));
+	let mut n = 2;
+	while path.exists() || path.is_symlink() {
+		path = dir.join(format!("{name}-{n}{ext}"));
+		n += 1;
+	}
+	path
+}
+
+/// The settings drop-in for the links 0.5's app added, as `[links.<id>]` tables; ids made from the
+/// names, unique among themselves and `taken`. A link that isn't a web page's is left out, and so is
+/// a unit no link could have (with the reason); `None` when nothing is left.
+pub fn migrated_toml(list: &[LinkDef], taken: &BTreeSet<String>) -> (Option<String>, Vec<String>) {
+	let mut taken = taken.clone();
+	let mut notes = Vec::new();
+	let mut links = toml::Table::new();
+	for l in list {
+		let name = store::sanitize_name(&l.name);
+		if !web_url(&l.url) {
+			notes.push(format!("\"{name}\" left out: {} isn't a web page's address", l.url));
+			continue;
+		}
+		let id = id_from(&name, &taken);
+		taken.insert(id.clone());
+		let mut t = toml::Table::new();
+		t.insert("name".into(), name.clone().into());
+		t.insert("url".into(), l.url.clone().into());
+		if let Some(u) = l.unit.as_deref().filter(|u| !u.is_empty()) {
+			match unit_shape(u) {
+				Ok(()) => {
+					t.insert("unit".into(), u.into());
+					t.insert("scope".into(), (if l.scope.as_deref() == Some("system") { "system" } else { "user" }).into());
+				}
+				Err(why) => notes.push(format!("\"{name}\" keeps no unit: {u} {why}")),
+			}
+		}
+		links.insert(id, t.into());
+	}
+	if links.is_empty() {
+		return (None, notes);
+	}
+	let mut top = toml::Table::new();
+	top.insert("links".into(), links.into());
+	let body = toml::to_string(&top).unwrap_or_default();
+	let text = format!(
+		"# The links Elamon 0.5's app added, written here once by elamond 0.6 from links.json (which\n\
+		 # is now links.json.migrated beside it). Change or remove them here; the app no longer edits\n\
+		 # links. docs/config.md, Links.\n\n{body}"
+	);
+	(Some(text), notes)
+}
+
+/// Turns links.json in the data directory `data`, where 0.5 kept the links added from the app, into
+/// the settings drop-in elamond.d/links-from-app.toml in the config directory `config`, once:
+/// links.json becomes links.json.migrated. No file that is there is written over; a drop-in that
+/// wouldn't read as settings isn't written, and links.json stays. Says what it did in the journal.
+pub fn migrate(data: &Path, config: &Path, settings: Option<&store::Config>) {
+	let from = data.join(FILE);
+	if !from.exists() {
+		return;
+	}
+	let list: Vec<LinkDef> = match store::read_json(&from) {
+		Ok(Some(l)) => l,
+		Ok(None) => return,
+		Err(e) => {
+			eprintln!("links: {} doesn't read ({e}); its links stay there, out of the settings", from.display());
+			return;
+		}
+	};
+	let taken: BTreeSet<String> = settings.map(|c| c.links.keys().cloned().collect()).unwrap_or_default();
+	let (text, notes) = migrated_toml(&list, &taken);
+	for n in &notes {
+		eprintln!("links: from links.json, {n}");
+	}
+	let dropins = config.join(store::DROPIN_DIR);
+	let written = match text {
+		None => None,
+		Some(text) => {
+			if let Err(e) = crate::settings::read_sources(&[crate::settings::Source::new(format!("{MIGRATED}.toml"), text.clone())]) {
+				eprintln!("links: the links of links.json don't make sound settings, so they stay there: {}", crate::settings::join_mistakes(&e));
+				return;
+			}
+			let to = free_path(&dropins, MIGRATED, ".toml");
+			let wrote = fs::create_dir_all(&dropins).and_then(|_| fs::write(&to, text));
+			if let Err(e) = wrote {
+				eprintln!("links: can't write {} ({e}); the links added from the app stay in {}", to.display(), from.display());
+				return;
+			}
+			Some(to)
+		}
+	};
+	let aside = free_path(data, &format!("{FILE}.migrated"), "");
+	if let Err(e) = fs::rename(&from, &aside) {
+		eprintln!("links: can't move {} aside ({e})", from.display());
+	}
+	match written {
+		Some(to) => eprintln!(
+			"links: the {} link(s) added from the app are in the settings now, {}; links.json is {}",
+			list.len() - notes.iter().filter(|n| n.contains("left out")).count(),
+			to.display(),
+			aside.display()
+		),
+		None => eprintln!("links: links.json held no link to keep; it is {}", aside.display()),
+	}
 }
 
 #[cfg(test)]

@@ -2,10 +2,15 @@
 
 /// Names and sizes other programs rely on: changing one breaks paired phones or the app.
 pub mod protocol {
-	/// The API the app speaks. Fields are only ever added; a change that breaks clients raises it.
-	pub const API_VERSION: u32 = 1;
+	/// The API clients speak. Fields are only ever added; a change that breaks clients raises it.
+	pub const API_VERSION: u32 = 2;
+	/// The dictionary of widget types and their keys (`hello`'s `widgets`): it grows, a type or a
+	/// key added, never changed.
+	pub const WIDGETS_VERSION: u32 = 1;
 	/// The oldest app that understands this service; an older one asks to be updated.
-	pub const MIN_APP: &str = "0.5.0";
+	pub const MIN_APP: &str = "0.6.0";
+	/// The header a client says what it is in: `Elamon-Client: android/0.6.0`.
+	pub const CLIENT_HEADER: &str = "elamon-client";
 	/// The port the service listens on unless the settings say otherwise.
 	pub const DEFAULT_PORT: u16 = 47823;
 	/// What the service announces itself as over mDNS.
@@ -43,8 +48,14 @@ pub mod cadence {
 	pub const LINKS: Duration = Duration::from_secs(5);
 	/// The volume, which costs running a command.
 	pub const VOLUME: Duration = Duration::from_secs(2);
-	/// `info` is rebuilt: GPU names improve once NVML has been read.
+	/// The facts (the CPU's and the GPUs' names) are read again: GPU names improve once NVML has
+	/// been read.
 	pub const INFO: Duration = Duration::from_secs(10);
+	/// A client's `ui` is built again at least this often while the strings it fills in may have
+	/// changed; at once when anything else it depends on does.
+	pub const UI_REBUILD: Duration = Duration::from_secs(5);
+	/// A `ui` no client has asked for in this long is forgotten.
+	pub const UI_FORGET: Duration = Duration::from_secs(60);
 	/// The settings files, and `elamond control off`'s file, are looked at for edits; SIGHUP
 	/// rereads them at once. Acting requests look at `control off`'s file themselves.
 	pub const SETTINGS_POLL: Duration = Duration::from_secs(5);
@@ -65,7 +76,7 @@ pub mod cadence {
 	pub const INTERVAL_MAX: Duration = Duration::from_secs(10);
 	/// The slowest a stream may ask to be.
 	pub const STREAM_INTERVAL_MAX: Duration = Duration::from_secs(60);
-	/// Ticks a snapshot, or a stream's first sample, waits for a reading made for it.
+	/// Ticks a snapshot, or a stream's first line of a dashboard, waits for a reading made for it.
 	pub const FIRST_FRAME_TICKS: u32 = 3;
 	/// What `elamond snapshot` measures rates over.
 	pub const CLI_SNAPSHOT: Duration = Duration::from_secs(1);
@@ -155,8 +166,6 @@ pub mod limit {
 	pub const ART_MAX: usize = 4 * 1024 * 1024;
 	/// A process's command line is cut to this many bytes.
 	pub const CMD_MAX: usize = 400;
-	/// The most processes one request may ask for.
-	pub const PROCS_MAX: usize = 10_000;
 	/// History is kept within these many readings, whatever the settings say.
 	pub const HISTORY_MIN: usize = 10;
 	pub const HISTORY_MAX: usize = 7200;
@@ -189,9 +198,10 @@ pub mod limit {
 	pub const ROTATIONS_KEPT: usize = 5;
 	/// Addresses `elamond pair` tries, to tell whether the service runs.
 	pub const SERVICE_CHECK_ADDRS: usize = 3;
-	/// Bytes in the body of a request that may come before a phone is known (`pair`), or that
-	/// only names one (`rekey`).
-	pub const PAIR_BODY_MAX: usize = 4 * 1024;
+	/// Bytes in the body of a request: `pair`, `rekey`, an action's parameters, a stream's change.
+	pub const BODY_MAX: usize = 4 * 1024;
+	/// Streams one client holds open at once; a new one beyond these ends its oldest.
+	pub const STREAMS_PER_CLIENT: usize = 4;
 	/// Connections the service holds at once; more are closed as they come. The systemd units give
 	/// it far more descriptors than these take.
 	pub const CONNECTIONS_MAX: usize = 256;

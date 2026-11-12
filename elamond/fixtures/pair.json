@@ -2,6 +2,7 @@
   "client_id": "0123abcd",
   "id": "0123456789abcdef0123456789abcdef",
   "name": "fixture",
+  "profile": "owner",
   "role": "admin",
   "token": "token"
 }

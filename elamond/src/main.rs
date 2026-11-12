@@ -1,7 +1,6 @@
-//! elamond: serves this computer's metrics to the Elamon phone app.
+//! elamond: serves this computer's dashboards to the Elamon app, and runs what it is allowed to.
 
 mod access;
-#[allow(dead_code)] // the server uses it from API 2 on
 mod actions;
 mod activity;
 mod backup;
@@ -13,9 +12,7 @@ mod control;
 mod errors;
 #[cfg(test)]
 mod fixtures;
-#[allow(dead_code)] // the server uses it from API 2 on
 mod format;
-#[allow(dead_code)] // the server uses it from API 2 on
 mod history;
 mod identity;
 mod links;
@@ -26,12 +23,10 @@ mod names;
 mod server;
 mod settings;
 mod setup;
-#[allow(dead_code)] // the server uses it from API 2 on
 mod states;
 mod store;
-#[allow(dead_code)] // the server uses it from API 2 on
+mod stream;
 mod ui;
-#[allow(dead_code)] // the server uses it from API 2 on
 mod values;
 
 use std::io::IsTerminal;
@@ -54,11 +49,14 @@ elamond — serves this computer's metrics to the Elamon app
 
 Usage:
   elamond serve                        run the service (what the systemd unit does)
-  elamond pair [--role ROLE] [--yes]   show a code and QR to pair a phone, and ask before the phone
+  elamond pair [--role ROLE] [--profile ID] [--yes]
+                                       show a code and QR to pair a phone, and ask before the phone
                                        that gives it is let in (--yes: without asking)
-  elamond clients                      list paired phones and their roles
+  elamond clients                      list paired phones: role, profile and app
   elamond clients role <id|all> ROLE   change what a phone may do; --with-added: and the phones
                                        that got a key of their own with its token
+  elamond clients profile <id|all> ID  change how a phone looks and behaves (a profile of the
+                                       settings); --with-added as above
   elamond revoke <id|all>              unpair a phone; --with-added: and those phones too
   elamond control [off|on|status]      hold control off for every phone, or let go
   elamond rotate-cert                  a new certificate, which paired phones follow (routine renewal)
@@ -169,8 +167,10 @@ fn timing(config: &store::Config) -> (Duration, usize, Vec<String>) {
 }
 
 fn serve() -> Result<(), String> {
-	let config = store::load_config()?;
 	let dir = store::data_dir();
+	// Links the 0.5 app added go into the settings before they are read, once.
+	links::migrate(&dir, &store::config_dir(), store::load_config().ok().as_ref());
+	let config = store::load_config()?;
 	// Held until the service stops: `elamond restore` sees it, and the identity isn't read while
 	// a restore writes it.
 	let _held = hold_data_dir(&dir)?;
@@ -211,17 +211,14 @@ fn serve() -> Result<(), String> {
 	let mut collector = collect::Collector::new(every);
 	// This reading only primes the CPU counters. sysinfo ignores a second one within its
 	// minimum interval, which would leave the first published usage at zero, so wait that out.
-	collector.read(false, false);
+	collector.read(false, ui::Sources::default());
 	std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
-	let info = serde_json::to_string(&collector.info(&identity.id, &name, config.control && !held_off, interval, history_len));
-	let info = Arc::new(info.unwrap_or_default());
-	let first = Arc::new(server::Frame { sample: "{}".into(), basic: "{}".into(), media: None, processes: None, info, watched: false });
-	let (tx, rx) = watch::channel(first);
+	let (tx, rx) = watch::channel(Arc::new(server::Frame::empty()));
 	let hub = Arc::new(server::Hub::new(
 		identity.id.clone(),
 		name.clone(),
 		rx,
-		collect::HistoryRing::new(history_len),
+		history::Ring::new(history_len),
 		interval,
 		Arc::new(config.clone()),
 		dir.clone(),
@@ -241,7 +238,7 @@ fn serve() -> Result<(), String> {
 		let rt = runtime.handle().clone();
 		std::thread::Builder::new()
 			.name("collector".into())
-			.spawn(move || collect_loop(collector, hub, tx, every, id, name, rt))
+			.spawn(move || collect_loop(collector, hub, tx, every, id, name, history_len, rt))
 			.map_err(|e| e.to_string())?;
 	}
 
@@ -399,13 +396,24 @@ impl Upkeep {
 /// Looks at `elamond control off`'s file as often.
 async fn watch_settings(hub: Arc<server::Hub>) {
 	use tokio::signal::unix::{signal, SignalKind};
-	let Ok(mut hangup) = signal(SignalKind::hangup()) else {
-		return;
+	// Without SIGHUP, `systemctl reload` does nothing, but edits are still found by looking.
+	let mut hangup = match signal(SignalKind::hangup()) {
+		Ok(h) => Some(h),
+		Err(e) => {
+			eprintln!("settings: SIGHUP can't be caught here ({e}); edits are found within {} s", cadence::SETTINGS_POLL.as_secs());
+			None
+		}
 	};
 	let mut stamp = store::config_stamp();
 	loop {
+		let hup = async {
+			match hangup.as_mut() {
+				Some(h) => h.recv().await.is_some(),
+				None => std::future::pending().await,
+			}
+		};
 		let asked = tokio::select! {
-			_ = hangup.recv() => true,
+			got = hup => got,
 			_ = tokio::time::sleep(cadence::SETTINGS_POLL) => false,
 		};
 		hub.sync_control_off();
@@ -446,6 +454,7 @@ impl Drop for ExitOnPanic {
 	}
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_loop(
 	mut collector: collect::Collector,
 	hub: Arc<server::Hub>,
@@ -453,40 +462,62 @@ fn collect_loop(
 	every: Ticks,
 	id: String,
 	name: String,
+	history_len: usize,
 	rt: tokio::runtime::Handle,
 ) {
 	let _exit = ExitOnPanic;
-	let mut info = tx.borrow().info.clone();
-	let mut tick: u32 = 0;
+	let mut info = collector.info(&id, &name, hub.interval, history_len);
 	let mut extras = control::Extras::new(every);
+	let mut seq: u64 = 0;
+	// What the history ring keeps, and the settings and shape it was worked out for.
+	let mut tracked: (Option<(u64, u64)>, std::collections::BTreeSet<String>) = (None, Default::default());
 	loop {
 		let started = std::time::Instant::now();
-		let watched = hub.watchers.load(Ordering::SeqCst) > 0;
-		let want_procs = hub.proc_watchers.load(Ordering::SeqCst) > 0;
-		let want_media = hub.media_watchers.load(Ordering::SeqCst) > 0;
-		let mut reading = collector.read(watched, want_procs);
-		let media = extras.apply(&hub, &rt, watched, want_media, &mut reading.sample);
+		let wanted = hub.wanted();
+		let need = wanted.unwrap_or_default();
+		let mut reading = collector.read(wanted.is_some(), need);
+		let got = extras.apply(&hub, &rt, wanted.is_some(), need, &mut reading.sample);
+		// GPU names improve once NVML has been read, so the facts are read again now and then.
+		if reading.cards_changed || seq % u64::from(every.info) == 1 % u64::from(every.info) {
+			info = collector.info(&id, &name, hub.interval, history_len);
+		}
+		let config = hub.config();
+		let activity = hub.activity.newest(limit::ACTIVITY_MAX);
+		let values = values::read(&values::Reading {
+			sample: &reading.sample,
+			info: &info,
+			media: got.media.as_ref(),
+			processes: reading.processes.as_deref(),
+			activity: &activity,
+			actions: &config.actions,
+		});
+		let shape = server::shape_of(&values, &got.caps);
+		let stamp = Some((hub.config_gen(), shape));
+		if tracked.0 != stamp {
+			tracked = (stamp, ui::tracked(&config, &values));
+		}
 		if let Ok(mut h) = hub.history.lock() {
-			h.push(&reading.sample);
+			h.push(&values, &tracked.1);
 		}
-		// GPU names improve once NVML has been read, so info is rebuilt now and then.
-		if tick % every.info == 1 % every.info {
-			let fresh = serde_json::to_string(&collector.info(&id, &name, hub.control_on(), hub.interval, hub.history_len)).unwrap_or_default();
-			if fresh != *info {
-				info = Arc::new(fresh);
-			}
-		}
-		tick = tick.wrapping_add(1);
-		let sample = serde_json::to_string(&reading.sample).unwrap_or_else(|_| "{}".into());
-		let basic = serde_json::to_string(&reading.sample.into_basic()).unwrap_or_else(|_| "{}".into());
-		let frame = server::Frame {
-			sample,
-			basic,
-			media: media.and_then(|m| serde_json::to_string(&m).ok()),
-			processes: reading.processes.map(Arc::new),
-			info: info.clone(),
-			watched,
+		let read = ui::Sources {
+			processes: reading.processes.is_some(),
+			gpus: need.gpus,
+			displays: reading.displays,
+			..got.read
 		};
+		let mut features = vec!["processes"];
+		features.extend([
+			(got.caps.poweroff || got.caps.reboot || got.caps.suspend || got.caps.lock, "power"),
+			(!got.caps.power_profiles.is_empty(), "power_profiles"),
+			(got.caps.units, "units"),
+			(got.caps.media, "media"),
+			(collector.has_cards(), "displays"),
+			(collector.nvml(), "nvml"),
+		]
+		.into_iter()
+		.filter_map(|(on, f)| on.then_some(f)));
+		seq = seq.wrapping_add(1);
+		let frame = server::Frame { seq, values: Arc::new(values), shape, caps: Arc::new(got.caps), read, features: Arc::new(features) };
 		tx.send_replace(Arc::new(frame));
 		std::thread::sleep(hub.interval.saturating_sub(started.elapsed()));
 	}
@@ -598,14 +629,21 @@ fn ask_person(dir: &std::path::Path, ask: &store::Ask, role: Role, code: &str, l
 
 fn pair(args: &[String]) -> Result<(), String> {
 	let config = store::load_config()?;
-	let yes = args.iter().any(|a| a == "--yes");
-	let args: Vec<&str> = args.iter().map(String::as_str).filter(|a| *a != "--yes").collect();
-	let role = match args.as_slice() {
-		[] => config.default_role,
-		["--role", r] => role_arg(r)?,
-		[flag] if flag.starts_with("--role=") => role_arg(&flag["--role=".len()..])?,
-		_ => return Err(format!("usage: elamond pair [--role {}] [--yes]", Role::choices())),
-	};
+	let usage = || format!("usage: elamond pair [--role {}] [--profile ID] [--yes]", Role::choices());
+	let (mut role, mut profile, mut yes) = (None, None, false);
+	let mut rest = args.iter().map(String::as_str);
+	while let Some(a) = rest.next() {
+		match a {
+			"--yes" => yes = true,
+			"--role" => role = Some(role_arg(rest.next().ok_or_else(usage)?)?),
+			"--profile" => profile = Some(profile_arg(&config, rest.next().ok_or_else(usage)?)?),
+			_ if a.starts_with("--role=") => role = Some(role_arg(&a["--role=".len()..])?),
+			_ if a.starts_with("--profile=") => profile = Some(profile_arg(&config, &a["--profile=".len()..])?),
+			_ => return Err(usage()),
+		}
+	}
+	let role_given = role.is_some();
+	let role = role.unwrap_or(config.default_role);
 	if !yes && !can_answer() {
 		return Err("elamond pair asks you to let in the phone that gives its code, and there's no terminal to ask on.\n  \
 			 To let in whichever phone gives the code without asking, as a script would: elamond pair --yes"
@@ -621,7 +659,7 @@ fn pair(args: &[String]) -> Result<(), String> {
 			Vec::new()
 		}
 	};
-	let pairing = store::new_pairing(&dir, role, !yes).map_err(|e| format!("can't save the pairing code: {e}"))?;
+	let pairing = store::new_pairing(&dir, role, profile.as_deref(), !yes).map_err(|e| format!("can't save the pairing code: {e}"))?;
 	// Held while this runs: the service turns a phone away when no one is here to answer. Another
 	// `elamond pair` whose code this one just replaced lets go of it within moments.
 	let _held = match store::hold_pairing(&dir, timeout::PAIR_TAKE_OVER) {
@@ -704,10 +742,21 @@ fn pair(args: &[String]) -> Result<(), String> {
 	println!("  The app shows the same certificate digits when you pair by code; they must match.");
 	println!();
 	println!("  Role:         {} — {}", role.as_str(), role.describe());
-	if args.is_empty() {
+	if !role_given {
 		println!("                another: elamond pair --role {}", Role::choices());
 	}
 	println!("                later: elamond clients role ID ROLE");
+	let shown = config.profile(profile.as_deref().unwrap_or(&config.default_profile));
+	if shown.name == shown.id {
+		println!("  Profile:      {}", shown.id);
+	} else {
+		println!("  Profile:      {} — {}", shown.id, shown.name);
+	}
+	let others: Vec<&str> = config.profiles.keys().map(String::as_str).filter(|p| *p != shown.id).collect();
+	if profile.is_none() && !others.is_empty() {
+		println!("                another: elamond pair --profile {}", others.join("|"));
+	}
+	println!("                later: elamond clients profile ID PROFILE");
 	println!();
 	// Not where it listens on nothing yet: that says nothing either way.
 	let probe = plan.probe_addrs();
@@ -836,6 +885,15 @@ fn role_arg(s: &str) -> Result<Role, String> {
 	Role::parse(s).ok_or_else(|| format!("no role \"{s}\"; the roles are {}", Role::choices()))
 }
 
+/// A profile the settings have.
+fn profile_arg(config: &store::Config, s: &str) -> Result<String, String> {
+	if config.profiles.contains_key(s) {
+		return Ok(s.to_string());
+	}
+	let ids: Vec<&str> = config.profiles.keys().map(String::as_str).collect();
+	Err(format!("no profile \"{s}\" in the settings; the profiles are {}", ids.join(", ")))
+}
+
 /// `args` without `--with-added`, and whether it was there.
 fn with_added(args: &[String]) -> (Vec<&str>, bool) {
 	let flag = args.iter().any(|a| a == "--with-added");
@@ -866,14 +924,34 @@ fn choose<'a>(clients: &'a [store::Client], which: &str, with_added: bool) -> Re
 	Ok((chosen, added))
 }
 
-/// A phone as the commands list it: id, role, name and how it came.
-fn client_line(c: &store::Client, width: usize) -> String {
-	let pad = width.saturating_sub(c.name.chars().count());
-	let when = match &c.from {
-		Some(from) => format!("added {} with the key of {from}", format_date(c.created)),
-		None => format!("paired {}", format_date(c.created)),
+/// The phones as the commands list them, a line each: id, role, profile, name, the app it said it
+/// is last, and how it came. The profile is the one it gets (`default_profile` for one it has no
+/// longer), as far as the settings `config` parse.
+fn client_lines(clients: &[&store::Client], config: Option<&store::Config>) -> Vec<String> {
+	let profile = |c: &store::Client| -> String {
+		let Some(config) = config else { return c.profile.clone().unwrap_or_else(|| "default".into()) };
+		let got = config.profile(c.profile.as_deref().unwrap_or(&config.default_profile)).id;
+		match &c.profile {
+			Some(p) if *p != got => format!("{got} ({p} is gone)"),
+			_ => got,
+		}
 	};
-	format!("{}  {:<7}  {}{}  ({when})", c.id, c.role.as_str(), c.name, " ".repeat(pad))
+	let app = |c: &store::Client| c.app.as_deref().map_or_else(|| "-".to_string(), |a| a.replacen('/', " ", 1));
+	let rows: Vec<(String, String)> = clients.iter().map(|c| (profile(c), app(c))).collect();
+	let width = |f: &dyn Fn(usize) -> usize| (0..clients.len()).map(f).max().unwrap_or(0);
+	let (pw, nw, aw) = (width(&|i| rows[i].0.chars().count()), width(&|i| clients[i].name.chars().count()), width(&|i| rows[i].1.chars().count()));
+	clients
+		.iter()
+		.zip(&rows)
+		.map(|(c, (p, a))| {
+			let when = match &c.from {
+				Some(from) => format!("added {} with the key of {from}", format_date(c.created)),
+				None => format!("paired {}", format_date(c.created)),
+			};
+			let pad = |s: &str, w: usize| format!("{s}{}", " ".repeat(w.saturating_sub(s.chars().count())));
+			format!("{}  {:<7}  {}  {}  {}  ({when})", c.id, c.role.as_str(), pad(p, pw), pad(&c.name, nw), pad(a, aw))
+		})
+		.collect()
 }
 
 fn clients(args: &[String]) -> Result<(), String> {
@@ -881,19 +959,26 @@ fn clients(args: &[String]) -> Result<(), String> {
 	match args.as_slice() {
 		[] if !family => {}
 		["role", which, role] => return set_role(which, role_arg(role)?, family),
-		_ => return Err(format!("usage: elamond clients, or elamond clients role <id|all> <{}> [--with-added]", Role::choices())),
+		["profile", which, profile] => return set_profile(which, profile, family),
+		_ => {
+			return Err(format!(
+				"usage: elamond clients, elamond clients role <id|all> <{}> [--with-added], or elamond clients profile <id|all> <profile> [--with-added]",
+				Role::choices()
+			));
+		}
 	}
 	let clients = paired()?;
 	if clients.is_empty() {
 		println!("No phones are paired. Pair one with `elamond pair`.");
 		return Ok(());
 	}
-	let width = clients.iter().map(|c| c.name.chars().count()).max().unwrap_or(0);
-	for c in &clients {
-		println!("{}", client_line(c, width));
+	let config = store::load_config().ok();
+	for line in client_lines(&clients.iter().collect::<Vec<_>>(), config.as_ref()) {
+		println!("{line}");
 	}
 	println!();
 	println!("Change what a phone may do: elamond clients role <id|all> <{}>", Role::choices());
+	println!("Change how it looks and behaves: elamond clients profile <id|all> <profile>");
 	Ok(())
 }
 
@@ -927,14 +1012,51 @@ fn set_role(which: &str, role: Role, family: bool) -> Result<(), String> {
 		_ => println!("Now {}: {}. The service applies it at once, open streams included.", role.as_str(), changed.join(", ")),
 	}
 	println!("  {}: {}", role.as_str(), role.describe());
+	print_left(&left);
+	Ok(())
+}
+
+/// The phones added with the key of one changed and left as they were.
+fn print_left(left: &[store::Client]) {
 	if !left.is_empty() {
 		println!();
 		println!("Added with its key, and left as they are (--with-added changes them too):");
-		let width = left.iter().map(|c| c.name.chars().count()).max().unwrap_or(0);
-		for c in &left {
-			println!("  {}", client_line(c, width));
+		let config = store::load_config().ok();
+		for line in client_lines(&left.iter().collect::<Vec<_>>(), config.as_ref()) {
+			println!("  {line}");
 		}
 	}
+}
+
+/// `elamond clients profile`: a profile the settings have, for the phones `which` names.
+fn set_profile(which: &str, profile: &str, family: bool) -> Result<(), String> {
+	let config = store::load_config()?;
+	let profile = profile_arg(&config, profile)?;
+	let _lock = lock_clients()?;
+	let mut clients = paired()?;
+	if clients.is_empty() {
+		return Err("no phones are paired".into());
+	}
+	let (chosen, left) = choose(&clients, which, family)?;
+	let left: Vec<store::Client> = left.into_iter().cloned().collect();
+	let mut changed = Vec::new();
+	for c in clients.iter_mut().filter(|c| chosen.contains(&c.id)) {
+		if c.profile.as_deref() != Some(profile.as_str()) {
+			c.profile = Some(profile.clone());
+			changed.push(c.name.clone());
+		}
+	}
+	if !changed.is_empty() {
+		store::save_clients(&clients).map_err(|e| e.to_string())?;
+	}
+	let name = config.profile(&profile).name;
+	let named = if name == profile { profile.clone() } else { format!("{profile} ({name})") };
+	match changed.len() {
+		0 if chosen.len() == 1 => println!("That phone already has {named}."),
+		0 => println!("They already have {named}."),
+		_ => println!("Now with {named}: {}. The service applies it at once, open streams included.", changed.join(", ")),
+	}
+	print_left(&left);
 	Ok(())
 }
 
@@ -1051,9 +1173,9 @@ fn revoke(args: &[String]) -> Result<(), String> {
 		println!();
 		println!("  ! STILL PAIRED: these got a key of their own with the token of the phone just unpaired,");
 		println!("  ! or of one that did:");
-		let width = left.iter().map(|c| c.name.chars().count()).max().unwrap_or(0);
-		for c in &left {
-			println!("  !   {}", client_line(c, width));
+		let config = store::load_config().ok();
+		for line in client_lines(&left, config.as_ref()) {
+			println!("  !   {line}");
 		}
 		println!("  ! After Import pairings on a new phone, that is the new phone. If you don't know them, or the");
 		println!("  ! phone was lost or stolen, unpair them too: elamond revoke {which} --with-added");
@@ -1065,10 +1187,11 @@ fn snapshot() -> Result<(), String> {
 	let config = store::load_config()?;
 	let (interval, history_len, _) = timing(&config);
 	let mut c = collect::Collector::new(Ticks::new(cadence::CLI_SNAPSHOT));
-	c.read(true, true);
+	let all = ui::Sources { processes: true, media: true, volume: true, gpus: true, displays: true, links: true };
+	c.read(true, all);
 	std::thread::sleep(cadence::CLI_SNAPSHOT);
-	let reading = c.read(true, true);
-	let info = c.info("-", &machine_name(&config), config.control, interval, history_len);
+	let reading = c.read(true, all);
+	let info = c.info("-", &machine_name(&config), interval, history_len);
 	let mut procs = reading.processes.unwrap_or_default();
 	procs.sort_by(|a, b| b.cpu.total_cmp(&a.cpu));
 	procs.truncate(limit::SNAPSHOT_TOP);
@@ -1130,6 +1253,7 @@ mod tests {
 			created: 0,
 			role: Role::Admin,
 			from: from.map(str::to_string),
+			..Default::default()
 		};
 		let list = [c("old", None), c("new", Some("old")), c("newer", Some("new")), c("other", None)];
 		let ids = |r: Result<(Vec<String>, Vec<&store::Client>), String>| {

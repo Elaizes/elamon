@@ -4,7 +4,7 @@ mod display;
 pub mod gpu;
 pub mod sysfs;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -14,7 +14,8 @@ use sysinfo::{
 };
 
 use crate::consts::cadence::Ticks;
-use crate::consts::{limit, protocol};
+use crate::consts::limit;
+use crate::ui::Sources;
 use crate::model::*;
 use sysfs::{read, read_num};
 
@@ -24,6 +25,8 @@ pub struct Collector {
 	disks: Disks,
 	users: Users,
 	cards: Vec<gpu::Card>,
+	/// The DRM cards there were when `cards` was last made, to notice one that comes or goes.
+	card_names: Vec<String>,
 	gpus: gpu::GpuReader,
 	every: Ticks,
 	last: Instant,
@@ -54,6 +57,10 @@ struct NetMeta {
 pub struct Reading {
 	pub sample: Sample,
 	pub processes: Option<Vec<Process>>,
+	/// The monitors in `sample` were read for it, not kept from before.
+	pub displays: bool,
+	/// GPUs came or went since the reading before.
+	pub cards_changed: bool,
 }
 
 /// A process's running totals: CPU time in milliseconds, bytes read and written.
@@ -86,6 +93,7 @@ impl Collector {
 			disks: Disks::new_with_refreshed_list().expect("disk information is unavailable"),
 			users: Users::new_with_refreshed_list().expect("user information is unavailable"),
 			cards: gpu::cards(),
+			card_names: gpu::card_names(),
 			gpus: gpu::GpuReader::new(),
 			every,
 			last: Instant::now(),
@@ -105,7 +113,17 @@ impl Collector {
 		}
 	}
 
-	pub fn info(&self, id: &str, name: &str, control: bool, interval: std::time::Duration, history_len: usize) -> Info {
+	/// Whether there are GPUs whose monitors DRM tells of.
+	pub fn has_cards(&self) -> bool {
+		!self.cards.is_empty()
+	}
+
+	/// Whether NVML could read the NVIDIA GPUs there are, as far as is known without waking them.
+	pub fn nvml(&self) -> bool {
+		self.cards.iter().any(|c| c.info.driver == "nvidia") && self.gpus.nvml_usable()
+	}
+
+	pub fn info(&self, id: &str, name: &str, interval: std::time::Duration, history_len: usize) -> Info {
 		let cpu_model = self
 			.sys
 			.cpus()
@@ -123,8 +141,6 @@ impl Collector {
 			id: id.to_string(),
 			name: name.to_string(),
 			service_version: env!("CARGO_PKG_VERSION"),
-			api: protocol::API_VERSION,
-			min_app: protocol::MIN_APP,
 			interval_ms: interval.as_millis() as u64,
 			history_seconds: (interval * history_len as u32).as_secs(),
 			os: sysfs::os_name().or_else(|| System::long_os_version().ok()).unwrap_or_else(|| "Linux".into()),
@@ -136,26 +152,37 @@ impl Collector {
 			memory_total: self.sys.total_memory(),
 			boot_time: System::boot_time().unwrap_or(0),
 			gpus,
-			capabilities: {
-				let mut c = vec!["processes", "displays", "history", "sensors", "links", "media"];
-				if control {
-					c.push("control");
-				}
-				c
-			},
 		}
 	}
 
-	/// `watched`: an app is connected, so heavier sources (NVML, DRM) are worth reading.
-	/// `want_procs`: some app shows the process list. The first reading after a tick without
-	/// one only sets where the processes' rates count from, and has no processes.
-	pub fn read(&mut self, watched: bool, want_procs: bool) -> Reading {
+	/// `watched`: some client looks, so the cheaper sources are read every tick rather than now
+	/// and then. `need`: what the dashboards on screen need of the costlier ones: NVML, DRM, the
+	/// processes (the media and links are `control::Extras`'). The first reading of processes
+	/// after a tick without them only sets where their rates count from, and has none.
+	/// Whether the GPUs changed since the reading before is in `Reading::cards_changed`.
+	pub fn read(&mut self, watched: bool, need: Sources) -> Reading {
 		let now = Instant::now();
 		let secs = now.duration_since(self.last).as_secs_f64().max(0.001);
 		self.last = now;
 		let slow = self.tick.is_multiple_of(self.every.slow);
 		if self.tick % self.every.rescan == self.every.rescan - 1 {
 			self.sensor_set = sysfs::SensorSet::scan();
+		}
+		// A driver loaded late, an eGPU or a DisplayLink dock: looked for now and then, and found
+		// within seconds of its card appearing.
+		let mut cards_changed = false;
+		if slow {
+			let names = gpu::card_names();
+			if names != self.card_names || self.tick % self.every.rescan == self.every.rescan - 1 {
+				let before: Vec<String> = self.cards.iter().map(|c| c.info.id.clone()).collect();
+				self.cards = gpu::cards();
+				self.card_names = names;
+				cards_changed = before != self.cards.iter().map(|c| c.info.id.clone()).collect::<Vec<_>>();
+				if cards_changed {
+					self.displays_fresh = false;
+					self.sensor_set = sysfs::SensorSet::scan();
+				}
+			}
 		}
 		self.tick = self.tick.wrapping_add(1);
 
@@ -193,26 +220,27 @@ impl Collector {
 			swap_used: self.sys.used_swap(),
 		};
 
-		if !watched {
+		// NVML wakes a sleeping GPU and keeps it awake: only while a dashboard shows GPU values.
+		if !need.gpus {
 			self.gpus.release();
 		}
-		let gpus = self.gpus.read(&self.cards, watched);
+		let gpus = self.gpus.read(&self.cards, need.gpus);
 
 		if slow || self.cached_disks.is_empty() {
 			self.disks.refresh(true);
 			self.cached_disks = disks(&self.disks);
 		}
-		if watched && (slow || !self.displays_fresh) {
+		if need.displays && (slow || !self.displays_fresh) {
 			self.cached_displays = display::displays(&self.cards);
 			self.displays_fresh = true;
-		} else if !watched {
+		} else if !need.displays {
 			self.displays_fresh = false;
 		}
 		if slow {
 			self.users.refresh();
 		}
 
-		let processes = if want_procs { self.processes() } else { None };
+		let processes = if need.processes { self.processes() } else { None };
 
 		let sample = Sample {
 			t: SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
@@ -230,7 +258,7 @@ impl Collector {
 			displays: self.cached_displays.clone(),
 			links: Vec::new(),
 		};
-		Reading { sample, processes }
+		Reading { sample, processes, displays: self.displays_fresh, cards_changed }
 	}
 
 	/// CPU and disk rates are worked out here from each process's totals over the real time
@@ -455,93 +483,6 @@ fn disks(disks: &Disks) -> Vec<Disk> {
 	v
 }
 
-/// The main series over the last minutes, kept so the app's charts are full the moment it connects.
-pub struct HistoryRing {
-	cap: usize,
-	points: VecDeque<Point>,
-}
-
-struct Point {
-	t: u64,
-	cpu: f32,
-	cpu_temp: Option<f32>,
-	mem: u64,
-	swap: u64,
-	rx: f64,
-	tx: f64,
-	read: f64,
-	write: f64,
-	battery_power: Option<f32>,
-	gpus: Vec<(String, Option<f32>, Option<f32>)>,
-}
-
-impl HistoryRing {
-	pub fn new(cap: usize) -> Self {
-		HistoryRing { cap, points: VecDeque::with_capacity(cap) }
-	}
-
-	pub fn capacity(&self) -> usize {
-		self.cap
-	}
-
-	pub fn push(&mut self, s: &Sample) {
-		if self.points.len() == self.cap {
-			self.points.pop_front();
-		}
-		// Virtual links mirror real traffic (bridges, VPN over Wi-Fi); counting them would double it.
-		let real = |n: &&Net| n.kind == "wired" || n.kind == "wireless";
-		self.points.push_back(Point {
-			t: s.t,
-			cpu: s.cpu.usage,
-			cpu_temp: s.cpu.temp,
-			mem: s.memory.used,
-			swap: s.memory.swap_used,
-			rx: s.net.iter().filter(real).map(|n| n.rx).sum(),
-			tx: s.net.iter().filter(real).map(|n| n.tx).sum(),
-			read: s.disk_io.iter().map(|d| d.read).sum(),
-			write: s.disk_io.iter().map(|d| d.write).sum(),
-			battery_power: s.battery.as_ref().and_then(|b| b.power),
-			gpus: s.gpus.iter().map(|g| (g.id.clone(), g.usage, g.temp)).collect(),
-		});
-	}
-
-	pub fn export(&self) -> History {
-		let p = &self.points;
-		let mut ids: Vec<String> = Vec::new();
-		for point in p {
-			for (id, _, _) in &point.gpus {
-				if !ids.contains(id) {
-					ids.push(id.clone());
-				}
-			}
-		}
-		let gpus = ids
-			.into_iter()
-			.map(|id| {
-				let find = |point: &Point| point.gpus.iter().find(|g| g.0 == id).map(|g| (g.1, g.2));
-				GpuHistory {
-					usage: p.iter().map(|pt| find(pt).and_then(|g| g.0)).collect(),
-					temp: p.iter().map(|pt| find(pt).and_then(|g| g.1)).collect(),
-					id,
-				}
-			})
-			.collect();
-		History {
-			t: p.iter().map(|x| x.t).collect(),
-			cpu: p.iter().map(|x| x.cpu).collect(),
-			cpu_temp: p.iter().map(|x| x.cpu_temp).collect(),
-			mem: p.iter().map(|x| x.mem).collect(),
-			swap: p.iter().map(|x| x.swap).collect(),
-			rx: p.iter().map(|x| x.rx).collect(),
-			tx: p.iter().map(|x| x.tx).collect(),
-			read: p.iter().map(|x| x.read).collect(),
-			write: p.iter().map(|x| x.write).collect(),
-			battery_power: p.iter().map(|x| x.battery_power).collect(),
-			gpus,
-		}
-	}
-}
-
 /// "wired", "wireless", "vpn" or "virtual" (bridges, containers).
 pub fn net_kind(name: &str) -> &'static str {
 	let dir = Path::new("/sys/class/net").join(name);
@@ -589,44 +530,5 @@ mod tests {
 		// Counters don't go backwards, and the share never passes the whole CPU.
 		assert_eq!(before.since(now, 1.0, 1), (0.0, 0.0, 0.0));
 		assert_eq!(now.since(ProcUse::default(), 0.5, 1).0, 100.0);
-	}
-
-	fn sample(t: u64, cpu: f32, nets: &[(&'static str, f64)], gpu: Option<f32>) -> Sample {
-		Sample {
-			t,
-			cpu: Cpu { usage: cpu, ..Default::default() },
-			net: nets
-				.iter()
-				.map(|&(kind, rx)| Net {
-					name: kind.to_string(),
-					kind,
-					up: true,
-					addrs: Vec::new(),
-					rx,
-					tx: 0.0,
-					rx_total: 0,
-					tx_total: 0,
-					speed: None,
-				})
-				.collect(),
-			gpus: gpu.map(|u| Gpu { id: "g".into(), usage: Some(u), ..Default::default() }).into_iter().collect(),
-			..Default::default()
-		}
-	}
-
-	#[test]
-	fn history_keeps_the_newest_points() {
-		let mut ring = HistoryRing::new(2);
-		ring.push(&sample(1, 10.0, &[], None));
-		ring.push(&sample(2, 20.0, &[("wired", 100.0), ("vpn", 100.0)], Some(5.0)));
-		ring.push(&sample(3, 30.0, &[("wireless", 7.0)], None));
-		let h = ring.export();
-		assert_eq!(h.t, [2, 3]);
-		assert_eq!(h.cpu, [20.0, 30.0]);
-		// VPN traffic is already counted on the link it runs over.
-		assert_eq!(h.rx, [100.0, 7.0]);
-		assert_eq!(h.gpus.len(), 1);
-		assert_eq!(h.gpus[0].usage, [Some(5.0), None]);
-		assert_eq!(HistoryRing::new(3).export().t.len(), 0);
 	}
 }

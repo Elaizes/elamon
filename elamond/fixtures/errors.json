@@ -1,7 +1,15 @@
 [
   {
-    "error": "not_found",
-    "status": 404
+    "error": "bad_param",
+    "status": 400
+  },
+  {
+    "error": "bad_sort",
+    "status": 400
+  },
+  {
+    "error": "unknown_signal",
+    "status": 400
   },
   {
     "error": "unauthorized",
@@ -16,60 +24,8 @@
     "status": 403
   },
   {
-    "error": "storage",
-    "status": 500
-  },
-  {
-    "error": "control_disabled",
+    "error": "pair_declined",
     "status": 403
-  },
-  {
-    "error": "not_permitted",
-    "status": 403
-  },
-  {
-    "error": "failed",
-    "status": 502
-  },
-  {
-    "error": "unknown_signal",
-    "status": 400
-  },
-  {
-    "error": "no_such_process",
-    "status": 404
-  },
-  {
-    "error": "no_such_action",
-    "status": 404
-  },
-  {
-    "error": "empty_command",
-    "status": 400
-  },
-  {
-    "error": "no_art",
-    "status": 404
-  },
-  {
-    "error": "no_such_link",
-    "status": 404
-  },
-  {
-    "error": "no_unit",
-    "status": 400
-  },
-  {
-    "error": "not_allowed",
-    "status": 403
-  },
-  {
-    "error": "too_many_requests",
-    "status": 429
-  },
-  {
-    "error": "process_changed",
-    "status": 409
   },
   {
     "error": "too_many_phones",
@@ -80,7 +36,55 @@
     "status": 403
   },
   {
-    "error": "pair_declined",
+    "error": "control_disabled",
     "status": 403
+  },
+  {
+    "error": "not_permitted",
+    "status": 403
+  },
+  {
+    "error": "not_allowed",
+    "status": 403
+  },
+  {
+    "error": "not_found",
+    "status": 404
+  },
+  {
+    "error": "no_such_process",
+    "status": 404
+  },
+  {
+    "error": "no_such_action",
+    "status": 404
+  },
+  {
+    "error": "no_such_dashboard",
+    "status": 404
+  },
+  {
+    "error": "no_such_stream",
+    "status": 404
+  },
+  {
+    "error": "no_art",
+    "status": 404
+  },
+  {
+    "error": "process_changed",
+    "status": 409
+  },
+  {
+    "error": "too_many_requests",
+    "status": 429
+  },
+  {
+    "error": "storage",
+    "status": 500
+  },
+  {
+    "error": "failed",
+    "status": 502
   }
 ]

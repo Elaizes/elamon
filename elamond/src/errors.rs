@@ -5,97 +5,102 @@ use axum::http::StatusCode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ErrorCode {
-	/// No such path.
-	NotFound,
+	/// A parameter of an action is wrong, missing or unknown; `message` names it.
+	BadParam,
+	/// A table asked for an order that isn't among its `sorts`.
+	BadSort,
+	UnknownSignal,
 	/// No token, or one that no paired phone has.
 	Unauthorized,
 	/// Pairing without a code pending.
 	NoPairing,
 	/// Pairing with a wrong code.
 	WrongCode,
-	/// A state file couldn't be written.
-	Storage,
-	/// The request changes the computer and `control` is off.
-	ControlDisabled,
-	/// polkit or the kernel refused, or the process is one the service won't signal.
-	NotPermitted,
-	/// What was asked failed; `message` says why.
-	Failed,
-	UnknownSignal,
-	NoSuchProcess,
-	NoSuchAction,
-	/// An action with an empty command in the settings.
-	EmptyCommand,
-	/// The player has no cover in a local file, or no such player.
-	NoArt,
-	/// No link with that id.
-	NoSuchLink,
-	/// The link has no unit to start or stop.
-	NoUnit,
-	/// The phone's role doesn't allow it; see `access::Role`.
-	NotAllowed,
-	/// Too many acting requests from this phone, or too many wrong pairing codes from this address.
-	TooManyRequests,
-	/// A signal named the process's start time, and the process with that pid started at another.
-	ProcessChanged,
+	/// The person at `elamond pair` turned the phone away, didn't answer in time, or stopped it.
+	PairDeclined,
 	/// Pairing or `rekey` while the most phones there may be are paired.
 	TooManyPhones,
 	/// `rekey` from an entry that came by `rekey` itself, or that asked once already.
 	RekeyRefused,
-	/// The person at `elamond pair` turned the phone away, didn't answer in time, or stopped it.
-	PairDeclined,
+	/// The request changes the computer and `control` is off.
+	ControlDisabled,
+	/// polkit or the kernel refused, or the process is one the service won't signal.
+	NotPermitted,
+	/// The phone's role doesn't allow it; see `access::Role`.
+	NotAllowed,
+	/// No such path.
+	NotFound,
+	NoSuchProcess,
+	/// No such action on this computer.
+	NoSuchAction,
+	/// No such dashboard in the client's `ui`.
+	NoSuchDashboard,
+	/// No open stream of this client with that id.
+	NoSuchStream,
+	/// The player has no cover in a local file, or no such player.
+	NoArt,
+	/// A signal named the process's start time, and the process with that pid started at another.
+	ProcessChanged,
+	/// Too many acting requests from this phone, or too many wrong pairing codes from this address.
+	TooManyRequests,
+	/// A state file couldn't be written.
+	Storage,
+	/// What was asked failed; `message` says why.
+	Failed,
 }
 
 impl ErrorCode {
-	/// Every code, for elamond/fixtures/errors.json.
+	/// Every code, in the order of docs/protocol.md, for elamond/fixtures/errors.json.
 	#[cfg(test)]
-	pub const ALL: [ErrorCode; 21] = [
-		ErrorCode::NotFound,
+	pub const ALL: [ErrorCode; 22] = [
+		ErrorCode::BadParam,
+		ErrorCode::BadSort,
+		ErrorCode::UnknownSignal,
 		ErrorCode::Unauthorized,
 		ErrorCode::NoPairing,
 		ErrorCode::WrongCode,
-		ErrorCode::Storage,
-		ErrorCode::ControlDisabled,
-		ErrorCode::NotPermitted,
-		ErrorCode::Failed,
-		ErrorCode::UnknownSignal,
-		ErrorCode::NoSuchProcess,
-		ErrorCode::NoSuchAction,
-		ErrorCode::EmptyCommand,
-		ErrorCode::NoArt,
-		ErrorCode::NoSuchLink,
-		ErrorCode::NoUnit,
-		ErrorCode::NotAllowed,
-		ErrorCode::TooManyRequests,
-		ErrorCode::ProcessChanged,
+		ErrorCode::PairDeclined,
 		ErrorCode::TooManyPhones,
 		ErrorCode::RekeyRefused,
-		ErrorCode::PairDeclined,
+		ErrorCode::ControlDisabled,
+		ErrorCode::NotPermitted,
+		ErrorCode::NotAllowed,
+		ErrorCode::NotFound,
+		ErrorCode::NoSuchProcess,
+		ErrorCode::NoSuchAction,
+		ErrorCode::NoSuchDashboard,
+		ErrorCode::NoSuchStream,
+		ErrorCode::NoArt,
+		ErrorCode::ProcessChanged,
+		ErrorCode::TooManyRequests,
+		ErrorCode::Storage,
+		ErrorCode::Failed,
 	];
 
 	fn parts(self) -> (&'static str, StatusCode) {
 		match self {
-			ErrorCode::NotFound => ("not_found", StatusCode::NOT_FOUND),
+			ErrorCode::BadParam => ("bad_param", StatusCode::BAD_REQUEST),
+			ErrorCode::BadSort => ("bad_sort", StatusCode::BAD_REQUEST),
+			ErrorCode::UnknownSignal => ("unknown_signal", StatusCode::BAD_REQUEST),
 			ErrorCode::Unauthorized => ("unauthorized", StatusCode::UNAUTHORIZED),
 			ErrorCode::NoPairing => ("no_pairing", StatusCode::FORBIDDEN),
 			ErrorCode::WrongCode => ("wrong_code", StatusCode::FORBIDDEN),
-			ErrorCode::Storage => ("storage", StatusCode::INTERNAL_SERVER_ERROR),
-			ErrorCode::ControlDisabled => ("control_disabled", StatusCode::FORBIDDEN),
-			ErrorCode::NotPermitted => ("not_permitted", StatusCode::FORBIDDEN),
-			ErrorCode::Failed => ("failed", StatusCode::BAD_GATEWAY),
-			ErrorCode::UnknownSignal => ("unknown_signal", StatusCode::BAD_REQUEST),
-			ErrorCode::NoSuchProcess => ("no_such_process", StatusCode::NOT_FOUND),
-			ErrorCode::NoSuchAction => ("no_such_action", StatusCode::NOT_FOUND),
-			ErrorCode::EmptyCommand => ("empty_command", StatusCode::BAD_REQUEST),
-			ErrorCode::NoArt => ("no_art", StatusCode::NOT_FOUND),
-			ErrorCode::NoSuchLink => ("no_such_link", StatusCode::NOT_FOUND),
-			ErrorCode::NoUnit => ("no_unit", StatusCode::BAD_REQUEST),
-			ErrorCode::NotAllowed => ("not_allowed", StatusCode::FORBIDDEN),
-			ErrorCode::TooManyRequests => ("too_many_requests", StatusCode::TOO_MANY_REQUESTS),
-			ErrorCode::ProcessChanged => ("process_changed", StatusCode::CONFLICT),
+			ErrorCode::PairDeclined => ("pair_declined", StatusCode::FORBIDDEN),
 			ErrorCode::TooManyPhones => ("too_many_phones", StatusCode::FORBIDDEN),
 			ErrorCode::RekeyRefused => ("rekey_refused", StatusCode::FORBIDDEN),
-			ErrorCode::PairDeclined => ("pair_declined", StatusCode::FORBIDDEN),
+			ErrorCode::ControlDisabled => ("control_disabled", StatusCode::FORBIDDEN),
+			ErrorCode::NotPermitted => ("not_permitted", StatusCode::FORBIDDEN),
+			ErrorCode::NotAllowed => ("not_allowed", StatusCode::FORBIDDEN),
+			ErrorCode::NotFound => ("not_found", StatusCode::NOT_FOUND),
+			ErrorCode::NoSuchProcess => ("no_such_process", StatusCode::NOT_FOUND),
+			ErrorCode::NoSuchAction => ("no_such_action", StatusCode::NOT_FOUND),
+			ErrorCode::NoSuchDashboard => ("no_such_dashboard", StatusCode::NOT_FOUND),
+			ErrorCode::NoSuchStream => ("no_such_stream", StatusCode::NOT_FOUND),
+			ErrorCode::NoArt => ("no_art", StatusCode::NOT_FOUND),
+			ErrorCode::ProcessChanged => ("process_changed", StatusCode::CONFLICT),
+			ErrorCode::TooManyRequests => ("too_many_requests", StatusCode::TOO_MANY_REQUESTS),
+			ErrorCode::Storage => ("storage", StatusCode::INTERNAL_SERVER_ERROR),
+			ErrorCode::Failed => ("failed", StatusCode::BAD_GATEWAY),
 		}
 	}
 
@@ -114,7 +119,6 @@ pub mod reason {
 	pub const UNKNOWN_ACTION: &str = "unknown_action";
 	pub const UNKNOWN_OPERATION: &str = "unknown_operation";
 	pub const UNKNOWN_PLAYER: &str = "unknown_player";
-	pub const UNKNOWN_PROFILE: &str = "unknown_profile";
 	pub const NO_VALUE: &str = "no_value";
 	pub const NO_TRACK: &str = "no_track";
 	pub const NO_SESSION: &str = "no_session";

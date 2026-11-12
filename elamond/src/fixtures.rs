@@ -1,23 +1,23 @@
 //! Every JSON shape the service sends, with each optional field filled in, kept in
-//! elamond/fixtures/. The app's tests read the same files, so a field missing or under another
-//! name on either side fails a build rather than reading as zero on a phone.
+//! elamond/fixtures/, and the requests clients send checked against what the service reads. The
+//! app's tests read the same files, so a field missing or under another name on either side fails
+//! a build rather than reading as zero on a phone.
 //!
 //! After a deliberate change to the protocol: `ELAMON_BLESS=1 cargo test`, then commit the
 //! files with the change.
 
 use std::path::Path;
-use std::sync::Arc;
 
 use serde::Serialize;
 
-use crate::access::{allowed, Role};
+use crate::access::Role;
 use crate::activity::Entry;
-use crate::bus::{Player, PowerCaps, Profiles};
-use crate::control::{ActionInfo, ActionResult, ControlInfo, Media, Volume};
+use crate::bus::Player;
+use crate::control::{ActionResult, Media, Volume};
 use crate::errors::ErrorCode;
-use crate::links::{LinkStatus, Listener};
+use crate::links::LinkStatus;
 use crate::model::*;
-use crate::server::{hello_body, paired_body, render_sample, Frame, Want};
+use crate::server::{hello_body, paired_body};
 
 fn check(name: &str, value: &impl Serialize) {
 	write_or_compare(name, serde_json::to_string_pretty(value).unwrap() + "\n");
@@ -109,8 +109,6 @@ pub fn info() -> Info {
 		id: "0123456789abcdef0123456789abcdef".into(),
 		name: "fixture".into(),
 		service_version: "9.9.9",
-		api: crate::consts::protocol::API_VERSION,
-		min_app: "9.9.0",
 		interval_ms: 1000,
 		history_seconds: 600,
 		os: "NixOS 26.11".into(),
@@ -128,7 +126,6 @@ pub fn info() -> Info {
 			driver: "nvidia".into(),
 			boot_display: false,
 		}],
-		capabilities: vec!["processes", "displays", "history", "sensors", "links", "media", "control"],
 	}
 }
 
@@ -223,7 +220,6 @@ fn link() -> LinkStatus {
 		url: "http://{host}:8080".into(),
 		unit: some("some.service"),
 		scope: "system".into(),
-		editable: false,
 		port: Some(8080),
 		up: Some(true),
 		local_only: false,
@@ -273,69 +269,16 @@ pub fn processes() -> Vec<Process> {
 	}]
 }
 
-pub fn history() -> History {
-	History {
-		t: vec![1_700_000_000_000, 1_700_000_001_000],
-		cpu: vec![10.0, 11.0],
-		cpu_temp: vec![Some(50.0), None],
-		mem: vec![8_000_000_000, 8_100_000_000],
-		swap: vec![0, 1_000_000],
-		rx: vec![100.5, 200.5],
-		tx: vec![10.5, 20.5],
-		read: vec![1.5, 2.5],
-		write: vec![3.5, 4.5],
-		battery_power: vec![Some(12.0), None],
-		gpus: vec![GpuHistory { id: "0000:01:00.0".into(), usage: vec![Some(30.0), None], temp: vec![Some(60.0), None] }],
-	}
-}
-
 #[test]
 fn hello() {
-	check("hello", &hello_body("0123456789abcdef0123456789abcdef", "fixture"));
+	let features = ["displays", "media", "power", "power_profiles", "processes", "units"];
+	check_compact("hello", &crate::ui::J::from(hello_body("0123456789abcdef0123456789abcdef", "fixture", &features, true)));
 }
 
 #[test]
 fn paired() {
-	check("pair", &paired_body("token", "0123abcd", "0123456789abcdef0123456789abcdef", "fixture", Role::Admin));
-}
-
-#[test]
-fn info_and_history() {
-	check("info", &info());
-	check("history", &history());
-}
-
-fn frame() -> Frame {
-	Frame {
-		sample: serde_json::to_string(&sample()).unwrap(),
-		basic: serde_json::to_string(&sample().into_basic()).unwrap(),
-		media: Some(serde_json::to_string(&media()).unwrap()),
-		processes: Some(Arc::new(processes())),
-		info: Arc::new(String::new()),
-		watched: true,
-	}
-}
-
-#[test]
-fn sample_with_processes() {
-	let want = Want { procs: 10, sort: None, media: true, basic: false };
-	let line: serde_json::Value = serde_json::from_str(&render_sample(&frame(), &want, false)).unwrap();
-	check("sample", &line);
-}
-
-/// What a phone that only glances gets when it asks for the same: no processes, monitors,
-/// links or media.
-#[test]
-fn sample_for_a_glance() {
-	let want = Want { procs: 10, sort: None, media: true, basic: false }.allowed(Role::Glance);
-	let line: serde_json::Value = serde_json::from_str(&render_sample(&frame(), &want, false)).unwrap();
-	for gone in ["processes", "process_count", "media"] {
-		assert!(line.get(gone).is_none(), "{gone}");
-	}
-	for empty in ["displays", "links"] {
-		assert_eq!(line[empty], serde_json::json!([]), "{empty}");
-	}
-	check("sample-glance", &line);
+	let body = paired_body("token", "0123abcd", "0123456789abcdef0123456789abcdef", "fixture", Role::Admin, "owner");
+	check_compact("pair", &crate::ui::J::from(body));
 }
 
 #[test]
@@ -345,42 +288,10 @@ fn errors() {
 	check("errors", &list);
 }
 
+/// What an action the settings add answers.
 #[test]
-fn control() {
-	check(
-		"control",
-		&ControlInfo {
-			enabled: true,
-			off_reason: None,
-			power: PowerCaps { poweroff: "yes".into(), reboot: "yes".into(), suspend: "challenge".into(), lock: true },
-			profiles: Some(Profiles { active: "balanced".into(), available: vec!["power-saver".into(), "balanced".into()] }),
-			actions: vec![ActionInfo { id: "0123456789ab".into(), name: "Some action".into(), confirm: true }],
-			volume: true,
-			role: Role::Admin,
-			allowed: allowed(Role::Admin, true),
-		},
-	);
-	// Off because the settings stopped parsing: what any role sees then.
-	check(
-		"control-off",
-		&ControlInfo {
-			enabled: false,
-			off_reason: Some("settings_unreadable"),
-			power: PowerCaps::default(),
-			profiles: None,
-			actions: Vec::new(),
-			volume: false,
-			role: Role::Operate,
-			allowed: allowed(Role::Operate, false),
-		},
-	);
-	check("action-result", &ActionResult { exit_code: Some(0), timed_out: false, output: "done\n".into() });
-	check("detected", &vec![Listener { port: 8080, local_only: true, process: some("some") }]);
-}
-
-#[test]
-fn activity_log() {
-	check("log", &log());
+fn action_result() {
+	check("action-result", &ActionResult { ok: true, exit_code: Some(0), timed_out: false, output: "done\n".into() });
 }
 
 /// The activity log, newest first.
@@ -421,7 +332,6 @@ pub fn sample_for(config: &crate::settings::Config) -> Sample {
 			url: l.url.clone(),
 			unit: l.unit.clone(),
 			scope: l.scope().into(),
-			editable: false,
 			port: crate::links::port_of(&l.url),
 			up: Some(true),
 			local_only: false,
@@ -474,24 +384,23 @@ fn ui_for(config: &crate::settings::Config, values: &crate::values::Values, role
 }
 
 /// The history ring the fixtures' graphs are drawn from: two points, a value missing at the second.
-fn ring() -> crate::history::Ring {
+pub fn ring() -> crate::history::Ring {
 	let mut ring = crate::history::Ring::new(600);
-	let h = history();
-	for (i, t) in h.t.iter().enumerate() {
-		let points = [
-			("cpu.usage", Some(h.cpu[i] as f64)),
-			("cpu.temp", h.cpu_temp[i].map(f64::from)),
-			("mem.used", Some(h.mem[i] as f64)),
-			("swap.used", Some(h.swap[i] as f64)),
-			("net.rx", Some(h.rx[i])),
-			("net.tx", Some(h.tx[i])),
-			("disk.read", Some(h.read[i])),
-			("disk.write", Some(h.write[i])),
-			("battery.power", h.battery_power[i].map(f64::from)),
-			("gpu.nvidia.usage", h.gpus[0].usage[i].map(f64::from)),
-			("gpu.nvidia.temp", h.gpus[0].temp[i].map(f64::from)),
-		];
-		ring.push_points(*t, points.into_iter().map(|(a, x)| (a.to_string(), x)));
+	let points: [(&str, [Option<f64>; 2]); 11] = [
+		("cpu.usage", [Some(10.0), Some(11.0)]),
+		("cpu.temp", [Some(50.0), None]),
+		("mem.used", [Some(8_000_000_000.0), Some(8_100_000_000.0)]),
+		("swap.used", [Some(0.0), Some(1_000_000.0)]),
+		("net.rx", [Some(100.5), Some(200.5)]),
+		("net.tx", [Some(10.5), Some(20.5)]),
+		("disk.read", [Some(1.5), Some(2.5)]),
+		("disk.write", [Some(3.5), Some(4.5)]),
+		("battery.power", [Some(12.0), None]),
+		("gpu.nvidia.usage", [Some(30.0), None]),
+		("gpu.nvidia.temp", [Some(60.0), None]),
+	];
+	for (i, t) in [1_700_000_000_000, 1_700_000_001_000].into_iter().enumerate() {
+		ring.push_points(t, points.iter().map(|(a, x)| (a.to_string(), x[i])));
 	}
 	ring
 }
@@ -519,6 +428,38 @@ fn stream_data() {
 	check_compact("stream-data", &crate::ui::J::Obj(crate::states::data(t, home, header, &s, Some(history))));
 	let detail = ui.dashboard("detail").unwrap();
 	check_compact("stream-data-detail", &crate::ui::J::Obj(crate::states::data(t + 1000, detail, header, &s, None)));
+}
+
+/// The `open` line of a stream with `ui.json`'s version, and the `ui` line a stream sends when its
+/// client's `ui` changes: here its role, to `operate`.
+#[test]
+fn stream_open_and_ui() {
+	let config = ui_source();
+	let values = values(&config);
+	let ui = ui_for(&config, &values, Role::Admin, "owner");
+	check_compact("stream-open", &crate::ui::J::Obj(crate::stream::open_line("s1a2b3c4", &ui.version)));
+	let operate = ui_for(&config, &values, Role::Operate, "owner");
+	assert_ne!(operate.version, ui.version);
+	check_compact("stream-ui", &crate::ui::J::Obj(crate::stream::ui_line(&operate.version)));
+}
+
+/// The requests the app sends read as the service reads them, and ask for what `ui.json` has.
+#[test]
+fn requests() {
+	let read = |name: &str| std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join(name)).unwrap();
+	let config = ui_source();
+	let values = values(&config);
+	let ui = ui_for(&config, &values, Role::Admin, "owner");
+	let change: crate::stream::Change = serde_json::from_slice(&read("subscribe.json")).unwrap();
+	assert!(ui.dashboard(change.dashboard.as_deref().unwrap()).is_some());
+	assert_eq!(change.interval, Some(2000));
+	for (table, field) in &change.sort {
+		assert!(crate::stream::sorts_by(&ui, table, field), "{table} by {field}");
+	}
+	let request: crate::control::ActionRequest = serde_json::from_slice(&read("action-request.json")).unwrap();
+	let mode = ui.actions.iter().find(|a| a.id == "mode").unwrap();
+	let params = crate::actions::check_params(mode, &request.params).unwrap();
+	assert_eq!(crate::actions::command(&config.actions["mode"], &params), ["modectl", "server"]);
 }
 
 /// The built-in dashboards and profile, for an admin, with the fixture readings: what the app

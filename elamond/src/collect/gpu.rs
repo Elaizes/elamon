@@ -1,4 +1,6 @@
-//! GPUs: found through DRM in sysfs, measured through NVML (NVIDIA) or sysfs (AMD, Intel).
+//! GPUs: found through DRM in sysfs, measured through NVML (NVIDIA) or sysfs (AMD, Intel). Those
+//! that aren't PCI devices (ARM boards' vc4, panfrost or rockchip, DisplayLink docks over USB) are
+//! GPUs too, of vendor `other`, named after their driver.
 //!
 //! A hybrid laptop powers its discrete GPU down when nothing uses it. Opening it through
 //! NVML wakes it and keeps it awake, so a sleeping GPU is reported as such and left alone,
@@ -19,7 +21,7 @@ pub struct Card {
 	pub info: GpuInfo,
 	/// /sys/class/drm/cardN
 	pub drm: PathBuf,
-	/// The PCI device directory.
+	/// The device's directory: a PCI one, or a platform or USB device's.
 	pub device: PathBuf,
 }
 
@@ -29,38 +31,76 @@ impl Card {
 	}
 }
 
+/// The DRM cards there are now (`card0`, `card1`…), to notice one that comes or goes.
+pub fn card_names() -> Vec<String> {
+	let mut names: Vec<String> = dir_entries("/sys/class/drm").into_iter().map(|(n, _)| n).filter(|n| is_card(n)).collect();
+	names.sort();
+	names
+}
+
+fn is_card(name: &str) -> bool {
+	name.starts_with("card") && !name.contains('-')
+}
+
+/// Drivers of firmware framebuffers and virtual displays: not GPUs.
+const NOT_GPUS: [&str; 6] = ["simple-framebuffer", "simpledrm", "efi-framebuffer", "vesa-framebuffer", "ofdrm", "vkms"];
+
+/// What people call the GPU behind a driver that isn't on PCI.
+fn driver_name(driver: &str) -> String {
+	match driver {
+		"vc4" => "Broadcom VideoCore".into(),
+		"v3d" => "Broadcom V3D".into(),
+		"panfrost" | "panthor" => "Arm Mali".into(),
+		"lima" => "Arm Mali (Lima)".into(),
+		"rockchip-drm" | "rockchip" => "Rockchip display".into(),
+		"msm" | "msm_drm" => "Qualcomm Adreno".into(),
+		"etnaviv" => "Vivante".into(),
+		"tegra" | "tegra-host1x" => "NVIDIA Tegra".into(),
+		"udl" | "evdi" => "DisplayLink".into(),
+		"sun4i-drm" => "Allwinner display".into(),
+		"meson-drm" => "Amlogic display".into(),
+		"" => "GPU".into(),
+		other => other.to_string(),
+	}
+}
+
 pub fn cards() -> Vec<Card> {
 	let pci_names = PciNames::load();
 	let mut cards = Vec::new();
 	for (name, path) in dir_entries("/sys/class/drm") {
-		if !name.starts_with("card") || name.contains('-') {
+		if !is_card(&name) {
 			continue;
 		}
 		let Ok(device) = fs::canonicalize(path.join("device")) else { continue };
-		// simpledrm and other firmware framebuffers are not GPUs.
-		let Some(vendor_id) = read(device.join("vendor")) else { continue };
 		let driver = link_name(device.join("driver")).unwrap_or_default();
+		if NOT_GPUS.contains(&driver.as_str()) {
+			continue;
+		}
 		let Some(slot) = device.file_name().map(|s| s.to_string_lossy().into_owned()) else { continue };
-		let vendor = match vendor_id.as_str() {
-			"0x10de" => "nvidia",
-			"0x1002" => "amd",
-			"0x8086" => "intel",
+		let vendor_id = read(device.join("vendor"));
+		let vendor = match vendor_id.as_deref() {
+			Some("0x10de") => "nvidia",
+			Some("0x1002") => "amd",
+			Some("0x8086") => "intel",
 			_ => "other",
 		};
-		let device_id = read(device.join("device")).unwrap_or_default();
-		let name = read(device.join("product_name"))
-			.or_else(|| pci_names.lookup(&vendor_id, &device_id))
-			.unwrap_or_else(|| {
-				let v = match vendor {
-					"nvidia" => "NVIDIA",
-					"amd" => "AMD",
-					"intel" => "Intel",
-					_ => "",
-				};
-				format!("{v} GPU {}:{}", vendor_id.trim_start_matches("0x"), device_id.trim_start_matches("0x"))
-					.trim()
-					.to_string()
-			});
+		let name = match &vendor_id {
+			// A PCI device: its own name, the PCI database's, or its numbers.
+			Some(vendor_id) => {
+				let device_id = read(device.join("device")).unwrap_or_default();
+				read(device.join("product_name")).or_else(|| pci_names.lookup(vendor_id, &device_id)).unwrap_or_else(|| {
+					let v = match vendor {
+						"nvidia" => "NVIDIA",
+						"amd" => "AMD",
+						"intel" => "Intel",
+						_ => "",
+					};
+					format!("{v} GPU {}:{}", vendor_id.trim_start_matches("0x"), device_id.trim_start_matches("0x")).trim().to_string()
+				})
+			}
+			// A platform or USB device has no PCI ids: its driver says what it is.
+			None => driver_name(&driver),
+		};
 		let boot_display = read_num::<u8>(device.join("boot_vga")) == Some(1);
 		if cards.iter().any(|c: &Card| c.info.id == slot) {
 			continue;
@@ -88,6 +128,11 @@ impl GpuReader {
 	/// Lets NVIDIA GPUs sleep again; called when no app is connected.
 	pub fn release(&mut self) {
 		self.nvml = None;
+	}
+
+	/// Whether NVML loaded, or hasn't been tried: it is only opened while a dashboard shows GPUs.
+	pub fn nvml_usable(&self) -> bool {
+		!self.nvml_failed
 	}
 
 	/// The marketing name NVML reports, better than the PCI database's.

@@ -25,12 +25,10 @@ impl Ring {
 		self.cap
 	}
 
+	#[cfg(test)]
+	#[allow(clippy::len_without_is_empty)]
 	pub fn len(&self) -> usize {
 		self.t.len()
-	}
-
-	pub fn is_empty(&self) -> bool {
-		self.t.is_empty()
 	}
 
 	/// The values of `tracked` (`ui::tracked`) in a reading.

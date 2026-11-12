@@ -58,6 +58,7 @@ impl Obj {
 		}
 	}
 
+	#[cfg(test)]
 	pub fn get(&self, key: &str) -> Option<&J> {
 		self.0.iter().find(|(k, _)| k == key).map(|(_, v)| v)
 	}
@@ -71,10 +72,7 @@ impl Obj {
 		self.0.is_empty()
 	}
 
-	pub fn len(&self) -> usize {
-		self.0.len()
-	}
-
+	#[cfg(test)]
 	pub fn keys(&self) -> impl Iterator<Item = &str> {
 		self.0.iter().map(|(k, _)| k.as_str())
 	}
@@ -88,15 +86,9 @@ impl Obj {
 }
 
 impl J {
+	#[cfg(test)]
 	pub fn to_value(&self) -> Value {
 		serde_json::to_value(self).unwrap_or_default()
-	}
-
-	pub fn as_obj(&self) -> Option<&Obj> {
-		match self {
-			J::Obj(o) => Some(o),
-			_ => None,
-		}
 	}
 }
 
@@ -286,25 +278,113 @@ impl Dashboard {
 		out
 	}
 
-	/// The costlier sources its widgets need read: the collections of its tables and bars, and
-	/// whether it shows media.
-	pub fn needs(&self) -> Needs {
-		let mut n = Needs::default();
+	/// The costlier sources its widgets need read: the collections of their tables and bars, and the
+	/// addresses they show, are judged by or hold in their strings.
+	pub fn needs(&self) -> Sources {
+		let mut n = Sources::default();
 		for w in self.all_widgets() {
-			if let Some(s) = &w.def.source {
-				n.collections.insert(s.clone());
+			let d = &w.def;
+			if let Some(s) = &d.source {
+				n.collection(s);
 			}
-			n.media |= w.kind == "media" || w.def.value.as_deref().is_some_and(|v| v.starts_with("volume."));
+			if w.kind == "media" {
+				n.media = true;
+				n.volume = true;
+			}
+			for a in addresses(d) {
+				n.address(a);
+			}
+			let mut texts: Vec<&str> = [&d.label, &d.caption, &d.text, &d.empty].into_iter().flatten().map(String::as_str).collect();
+			for i in d.items.iter().flatten() {
+				texts.extend([&i.label, &i.text, &i.empty].into_iter().flatten().map(String::as_str));
+				for a in [&i.value, &i.when].into_iter().flatten() {
+					n.address(a);
+				}
+			}
+			for t in texts {
+				for p in format::placeholders(t) {
+					n.address(format::split_placeholder(p.inner).0);
+				}
+			}
+			if let Some(a) = &d.when {
+				n.address(a);
+			}
 		}
 		n
 	}
 }
 
-/// What a dashboard on screen needs read.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Needs {
-	pub collections: BTreeSet<String>,
+/// The costlier sources the collector reads only while a dashboard some client has on screen needs
+/// them: the rest it reads every tick.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Sources {
+	/// The process list, whose rates take two readings.
+	pub processes: bool,
+	/// MPRIS players.
 	pub media: bool,
+	/// The default output's volume, which costs running a command.
+	pub volume: bool,
+	/// NVML, which wakes a sleeping NVIDIA GPU and keeps it awake.
+	pub gpus: bool,
+	/// Monitors, from the DRM card nodes.
+	pub displays: bool,
+	/// Whether links answer, and the states of their units.
+	pub links: bool,
+}
+
+impl Sources {
+	/// What either needs.
+	pub fn union(self, o: Sources) -> Sources {
+		Sources {
+			processes: self.processes || o.processes,
+			media: self.media || o.media,
+			volume: self.volume || o.volume,
+			gpus: self.gpus || o.gpus,
+			displays: self.displays || o.displays,
+			links: self.links || o.links,
+		}
+	}
+
+	/// Whether a reading made with these has everything `need` asks for.
+	pub fn covers(self, need: Sources) -> bool {
+		self.union(need) == self
+	}
+
+	fn collection(&mut self, name: &str) {
+		match name {
+			"processes" => self.processes = true,
+			"gpus" => self.gpus = true,
+			"displays" => self.displays = true,
+			"links" => self.links = true,
+			_ => {}
+		}
+	}
+
+	fn address(&mut self, a: &str) {
+		let head = a.split('.').next().unwrap_or("");
+		match head {
+			"gpu" => self.gpus = true,
+			"displays" => self.displays = true,
+			"volume" => self.volume = true,
+			"link" => self.links = true,
+			_ => {}
+		}
+	}
+
+	/// The words for the journal: "processes, media".
+	pub fn words(self) -> Vec<&'static str> {
+		[
+			(self.processes, "processes"),
+			(self.media, "media"),
+			(self.volume, "volume"),
+			(self.gpus, "GPUs"),
+			(self.displays, "monitors"),
+			(self.links, "links"),
+		]
+		.into_iter()
+		.filter_map(|(on, w)| on.then_some(w))
+		.collect()
+	}
 }
 
 /// What `GET /api/v1/ui` answers, and what the stream needs of it.
@@ -1307,7 +1387,8 @@ label = "{item.label} at {item.rpm}"
 		let buttons: Vec<(&str, Option<&str>)> = group.widgets.iter().map(|b| (b.id.as_str(), b.def.action.as_deref())).collect();
 		assert_eq!(buttons, [("control/actions/0.backup", Some("backup")), ("control/actions/0.fan", Some("fan")), ("control/actions/0.mode", Some("mode"))]);
 		assert_eq!(group.widgets[2].def.icon.as_deref(), Some("leaf"));
-		assert!(control.needs().collections.contains("links") && control.needs().media);
+		let needs = control.needs();
+		assert!(needs.links && needs.media && needs.volume && !needs.processes, "{needs:?}");
 	}
 
 	#[test]

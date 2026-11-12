@@ -1,9 +1,9 @@
-//! Who may do what: each paired phone's role, the things a role allows, and how often a phone
-//! may act.
+//! Who may do what: each paired phone's role, and how often a phone may act.
 //!
 //! Roles go `glance` < `monitor` < `operate` < `admin`, each allowing what the one before does
-//! and more. Acting on the computer also needs control: `control = true` in the settings and
-//! no `elamond control off`, whatever the role.
+//! and more: what each sees is decided value by value (`values::address_role`), what each may run
+//! action by action (`actions::Spec::role`). Acting on the computer also needs control:
+//! `control = true` in the settings and no `elamond control off`, whatever the role.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -56,98 +56,6 @@ impl Role {
 	pub fn choices() -> String {
 		Role::ALL.map(Role::as_str).join("|")
 	}
-
-	pub fn may(self, can: Can) -> bool {
-		self >= can.role()
-	}
-}
-
-/// One thing a phone may be allowed. `GET /api/v1/control` lists those this phone may do now
-/// by these names (`allowed`), so the app can leave out the rest.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Can {
-	/// Processes in samples, with their commands and users.
-	Processes,
-	/// Monitors in samples.
-	Displays,
-	/// Links in samples and in `GET /api/v1/links`, the ports in use and the units to pick from.
-	Links,
-	/// Media players in samples, and their covers.
-	MediaRead,
-	/// The activity log.
-	Log,
-	/// Adding, changing and removing links. It only changes what the app lists, so it never
-	/// needed control.
-	LinksEdit,
-	/// Starting, stopping and restarting the links' units.
-	Units,
-	/// Playing, pausing, skipping and seeking.
-	Media,
-	/// The computer's volume.
-	Volume,
-	/// The power profile.
-	Profile,
-	/// The actions in the settings.
-	Actions,
-	/// Shutting down, restarting, sleeping and locking.
-	Power,
-	/// Quitting and killing processes.
-	Signal,
-}
-
-impl Can {
-	pub const ALL: [Can; 13] = [
-		Can::Processes,
-		Can::Displays,
-		Can::Links,
-		Can::MediaRead,
-		Can::Log,
-		Can::LinksEdit,
-		Can::Units,
-		Can::Media,
-		Can::Volume,
-		Can::Profile,
-		Can::Actions,
-		Can::Power,
-		Can::Signal,
-	];
-
-	pub fn name(self) -> &'static str {
-		match self {
-			Can::Processes => "processes",
-			Can::Displays => "displays",
-			Can::Links => "links",
-			Can::MediaRead => "media.read",
-			Can::Log => "log",
-			Can::LinksEdit => "links.edit",
-			Can::Units => "units",
-			Can::Media => "media",
-			Can::Volume => "volume",
-			Can::Profile => "profile",
-			Can::Actions => "actions",
-			Can::Power => "power",
-			Can::Signal => "signal",
-		}
-	}
-
-	/// The lowest role that may.
-	pub fn role(self) -> Role {
-		match self {
-			Can::Processes | Can::Displays | Can::Links | Can::MediaRead | Can::Log => Role::Monitor,
-			Can::LinksEdit | Can::Units | Can::Media | Can::Volume | Can::Profile | Can::Actions => Role::Operate,
-			Can::Power | Can::Signal => Role::Admin,
-		}
-	}
-
-	/// Acts on the computer, so only while control is on.
-	pub fn needs_control(self) -> bool {
-		!matches!(self, Can::Processes | Can::Displays | Can::Links | Can::MediaRead | Can::Log | Can::LinksEdit)
-	}
-}
-
-/// What a phone with `role` may do while control is `control`, by name.
-pub fn allowed(role: Role, control: bool) -> Vec<&'static str> {
-	Can::ALL.into_iter().filter(|c| role.may(*c) && (control || !c.needs_control())).map(Can::name).collect()
 }
 
 /// The paired phone a request comes from.
@@ -156,6 +64,10 @@ pub struct Caller {
 	pub id: String,
 	pub name: String,
 	pub role: Role,
+	/// Its profile in clients.json; `default_profile` when none, or one the settings don't have.
+	pub profile: Option<String>,
+	/// The app it said it is last, as clients.json has it ("android/0.6.0").
+	pub app: Option<String>,
 	/// The entry its key came from (`store::family_of`), its own id for a phone paired with a
 	/// code: the rate of acting and the share of the activity log are the family's.
 	pub family: String,
@@ -228,25 +140,6 @@ mod tests {
 		assert_eq!(Role::parse("Admin"), None);
 		assert_eq!(Role::default(), Role::Admin);
 		assert_eq!(Role::choices(), "glance|monitor|operate|admin");
-	}
-
-	#[test]
-	fn what_each_role_is_allowed() {
-		assert!(allowed(Role::Glance, true).is_empty());
-		assert_eq!(allowed(Role::Monitor, true), ["processes", "displays", "links", "media.read", "log"]);
-		assert_eq!(allowed(Role::Monitor, false), allowed(Role::Monitor, true));
-		assert_eq!(
-			allowed(Role::Operate, true),
-			["processes", "displays", "links", "media.read", "log", "links.edit", "units", "media", "volume", "profile", "actions"]
-		);
-		// Without control only reading, and the list of links.
-		assert_eq!(allowed(Role::Operate, false), ["processes", "displays", "links", "media.read", "log", "links.edit"]);
-		assert_eq!(allowed(Role::Admin, false), allowed(Role::Operate, false));
-		assert_eq!(allowed(Role::Admin, true).len(), Can::ALL.len());
-		let names: Vec<&str> = Can::ALL.iter().map(|c| c.name()).collect();
-		for (i, n) in names.iter().enumerate() {
-			assert!(!names[..i].contains(n), "{n} twice");
-		}
 	}
 
 	#[test]

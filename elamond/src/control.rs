@@ -1,11 +1,13 @@
-//! Acting on the computer from the app: power, profiles, processes, actions, media, links.
+//! Acting on the computer: `POST /api/v1/actions/{id}` (docs/protocol.md) runs a built-in action
+//! (power, the power profile, signals, the links' units, media, the volume) or one the settings
+//! add; and what the collector reads through D-Bus and commands for the values.
 //!
-//! Every acting request goes through `Hub::act`: the phone's rate, its role, then control
-//! (`control = true` in elamond.toml and no `elamond control off`) for all but the list of
-//! links, which only changes what the app shows. Each is recorded in the activity log, let
-//! through or not; those let through are also logged to the journal with the phone's name.
+//! Every acting request goes through `Hub::act_as`: the phone's rate, its role, then control
+//! (`control = true` in the settings and no `elamond control off`). Each is recorded in the
+//! activity log, let through or not; those let through are also logged to the journal with the
+//! phone's name.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::future::Future;
 use std::io::Read;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -15,22 +17,25 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use axum::Json;
+use axum::body::Bytes;
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Map, Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-use crate::access::{self, Can, Caller, Rate, Role};
+use crate::access::{Caller, Rate, Role};
+use crate::actions::{self, Caps, Spec};
 use crate::activity::{self, Entry};
-use crate::bus::{self, Bus, Player, PowerCaps, Profiles, Scope};
+use crate::bus::{Player, PowerCaps, Profiles, Scope};
 use crate::consts::cadence::{self, Ticks};
 use crate::consts::{limit, timeout};
 use crate::errors::{reason, ErrorCode};
-use crate::model::Sample;
-use crate::server::{error, failed, Hub};
 use crate::links::{self, LinkStatus};
+use crate::model::Sample;
+use crate::server::{body_of, error, error_with, ClientApp, Hub};
+use crate::ui::Sources;
 
 /// What an acting request answered, and a word on how it went for the activity log.
 pub struct Acted {
@@ -50,8 +55,8 @@ impl From<Response> for Acted {
 	}
 }
 
-/// An acting request turned down or failed: the code it is answered and logged with, and for
-/// `failed` what went wrong.
+/// An acting request turned down or failed: the code it is answered and logged with, and what
+/// failed (`failed`) or which parameter is wrong (`bad_param`).
 #[derive(Debug, PartialEq)]
 pub struct Refusal {
 	code: ErrorCode,
@@ -73,8 +78,8 @@ impl From<ErrorCode> for Refusal {
 impl IntoResponse for Refusal {
 	fn into_response(self) -> Response {
 		match self.message {
-			Some(m) if self.code == ErrorCode::Failed => failed(m),
-			_ => error(self.code),
+			Some(m) => error_with(self.code, m),
+			None => error(self.code),
 		}
 	}
 }
@@ -88,11 +93,6 @@ fn done(result: Result<(), String>) -> Result<Acted, Refusal> {
 }
 
 impl Hub {
-	/// 403 `not_allowed` unless the phone's role lets it see `can`.
-	pub fn refuse_read(&self, who: &Caller, can: Can) -> Option<Response> {
-		(!who.role.may(can)).then(|| error(ErrorCode::NotAllowed))
-	}
-
 	/// Whether phones may act right now: the settings, and `elamond control off`'s file looked
 	/// at afresh, so holding control off takes effect from the next request.
 	pub fn control_now(&self) -> bool {
@@ -100,26 +100,20 @@ impl Hub {
 		self.control_on()
 	}
 
-	/// An acting request from `who`, described for the log as `what`: refused when the phone
-	/// acts too often (429 `too_many_requests`), when its role doesn't allow `can` (403
-	/// `not_allowed`) or when `can` needs control and it is off (403 `control_disabled`), in
-	/// that order; otherwise `work` runs. Either way it goes in the activity log, except the
-	/// refusals for acting too often after the first in a row, which would only crowd it.
-	pub async fn act(&self, who: &Caller, can: Can, what: String, work: impl Future<Output = Result<Acted, Refusal>>) -> Response {
-		self.act_as(who, Some(can), what, work).await
-	}
-
-	/// `act` for a request that may need no role at all (`None`), and so no control either: only
-	/// the rate and the log apply.
-	pub async fn act_as(&self, who: &Caller, can: Option<Can>, what: String, work: impl Future<Output = Result<Acted, Refusal>>) -> Response {
+	/// An acting request from `who`, described for the log as `what`: refused when the phone acts
+	/// too often (429 `too_many_requests`), when its role is below `need` (403 `not_allowed`) or,
+	/// with `control`, when control is off (403 `control_disabled`), in that order; otherwise
+	/// `work` runs. Either way it goes in the activity log, except the refusals for acting too
+	/// often after the first in a row, which would only crowd it.
+	pub async fn act_as(&self, who: &Caller, need: Option<Role>, control: bool, what: String, work: impl Future<Output = Result<Acted, Refusal>>) -> Response {
 		// One rate for a phone and the keys of their own its token gave.
 		let rate = self.rate.lock().map(|mut r| r.take(&who.family, Instant::now())).unwrap_or(Rate::Allowed);
-		let outcome = match (rate, can) {
-			(Rate::Refused { first: false }, _) => return error(ErrorCode::TooManyRequests),
-			(Rate::Refused { first: true }, _) => Err(ErrorCode::TooManyRequests.into()),
-			(Rate::Allowed, Some(can)) if !who.role.may(can) => Err(ErrorCode::NotAllowed.into()),
-			(Rate::Allowed, Some(can)) if can.needs_control() && !self.control_now() => Err(ErrorCode::ControlDisabled.into()),
-			(Rate::Allowed, _) => work.await,
+		let outcome = match rate {
+			Rate::Refused { first: false } => return error(ErrorCode::TooManyRequests),
+			Rate::Refused { first: true } => Err(ErrorCode::TooManyRequests.into()),
+			Rate::Allowed if need.is_some_and(|r| who.role < r) => Err(ErrorCode::NotAllowed.into()),
+			Rate::Allowed if control && !self.control_now() => Err(ErrorCode::ControlDisabled.into()),
+			Rate::Allowed => work.await,
 		};
 		let (result, message, response) = match outcome {
 			Ok(a) => ("ok".to_string(), a.note, a.response),
@@ -138,127 +132,210 @@ impl Hub {
 	}
 }
 
-#[derive(Serialize)]
-pub(crate) struct ControlInfo {
-	/// Control is on: `control = true` in settings that parse, and no `elamond control off`.
-	pub(crate) enabled: bool,
-	/// Why it is off, when it is: `settings` (`control = false`), `held_off` (`elamond control off`)
-	/// or `settings_unreadable` (the settings files stopped parsing; off until they parse again).
-	pub(crate) off_reason: Option<&'static str>,
-	pub(crate) power: PowerCaps,
-	pub(crate) profiles: Option<Profiles>,
-	pub(crate) actions: Vec<ActionInfo>,
-	pub(crate) volume: bool,
-	/// The asking phone's role, and what it may do now (`access::Can` by name).
-	pub(crate) role: Role,
-	pub(crate) allowed: Vec<&'static str>,
+// ---- actions ---------------------------------------------------------------------------
+
+/// `POST /api/v1/actions/{id}`.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct ActionRequest {
+	pub params: Map<String, Value>,
 }
 
-#[derive(Serialize)]
-pub(crate) struct ActionInfo {
-	pub(crate) id: String,
-	pub(crate) name: String,
-	pub(crate) confirm: bool,
+/// What an action the settings add answered: how its command ended, and what it wrote.
+#[derive(Serialize, Debug)]
+pub(crate) struct ActionResult {
+	pub(crate) ok: bool,
+	pub(crate) exit_code: Option<i32>,
+	pub(crate) timed_out: bool,
+	pub(crate) output: String,
 }
 
-/// What the app may offer on this computer right now, to this phone: power, profiles, actions
-/// and the volume only as far as its role allows them, so even an app from before roles shows
-/// no more than the phone may use.
-pub async fn info(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>) -> Response {
-	hub.sync_control_off();
-	let off_reason = hub.off_reason();
-	let enabled = off_reason.is_none();
-	let may = |c: Can| enabled && who.role.may(c);
-	let power = if may(Can::Power) { hub.bus.power_caps().await } else { PowerCaps::default() };
-	let profiles = if may(Can::Profile) { hub.bus.profiles().await } else { None };
-	let actions = if may(Can::Actions) {
-		hub.config().actions.iter().map(|(id, a)| ActionInfo { id: id.clone(), name: a.name.clone(), confirm: a.confirm }).collect()
-	} else {
-		Vec::new()
+/// Runs an action of the client's `ui`: 404 `no_such_action` for one the computer doesn't have
+/// (or can't do), 403 `not_allowed` for one the client's role may not run, 403 `control_disabled`
+/// while control is off, 400 `bad_param` naming the first parameter that is wrong.
+pub async fn action(
+	State(hub): State<Arc<Hub>>,
+	Extension(who): Extension<Caller>,
+	Extension(app): Extension<ClientApp>,
+	Path(id): Path<String>,
+	body: Bytes,
+) -> Response {
+	let req: ActionRequest = match body_of(&body) {
+		Ok(r) => r,
+		Err(r) => return *r,
 	};
-	let volume = may(Can::Volume) && tokio::task::spawn_blocking(volume_get).await.ok().flatten().is_some();
-	let allowed = access::allowed(who.role, enabled);
-	Json(ControlInfo { enabled, off_reason, power, profiles, actions, volume, role: who.role, allowed }).into_response()
-}
-
-#[derive(Deserialize)]
-pub struct LogQuery {
-	limit: Option<usize>,
-}
-
-/// The activity log, newest first.
-pub async fn log(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Query(q): Query<LogQuery>) -> Response {
-	if let Some(r) = hub.refuse_read(&who, Can::Log) {
-		return r;
-	}
-	Json(hub.activity.newest(q.limit.unwrap_or(limit::ACTIVITY_MAX))).into_response()
-}
-
-#[derive(Deserialize)]
-pub struct PowerReq {
-	action: String,
-}
-
-pub async fn power(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Json(r): Json<PowerReq>) -> Response {
-	hub.act(&who, Can::Power, format!("power {}", r.action), async {
-		if Bus::power_method(&r.action).is_none() {
-			return Err(Refusal::failed(reason::UNKNOWN_ACTION));
-		}
-		eprintln!("control: {} asked to {}", who.name, r.action);
-		done(hub.bus.power(&r.action).await)
-	})
-	.await
-}
-
-#[derive(Deserialize)]
-pub struct ProfileReq {
-	profile: String,
-}
-
-pub async fn profile(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Json(r): Json<ProfileReq>) -> Response {
-	hub.act(&who, Can::Profile, format!("profile {}", r.profile), async {
-		let Some(profiles) = hub.bus.profiles().await else {
-			return Err(Refusal::failed(reason::NO_POWER_PROFILES));
+	let config = hub.config();
+	let frame = hub.frame.borrow().clone();
+	let ui = hub.ui(&hub.ui_key(&who, &app.kind, hub.draws_of(&who.id, &app.kind)), &frame);
+	// One the computer can do that the role may not run is refused as such, not as unknown.
+	let spec = ui.actions.iter().find(|s| s.id == id).cloned().or_else(|| actions::available(&config, &frame.caps).into_iter().find(|s| s.id == id));
+	let what = what_of(&id, spec.as_ref(), &req.params, &config);
+	let (need, control) = match &spec {
+		Some(s) => (Some(s.role), true),
+		None => (None, false),
+	};
+	hub.act_as(&who, need, control, what, async {
+		let Some(spec) = spec else {
+			return Err(ErrorCode::NoSuchAction.into());
 		};
-		if !profiles.available.contains(&r.profile) {
-			return Err(Refusal::failed(reason::UNKNOWN_PROFILE));
-		}
-		eprintln!("control: {} set the power profile to {}", who.name, r.profile);
-		let res = hub.bus.set_profile(&r.profile).await;
+		let params = actions::check_params(&spec, &req.params).map_err(|p| Refusal { code: ErrorCode::BadParam, message: Some(p) })?;
+		let result = run_spec(&hub, &who, &spec, &params, &config).await;
 		hub.refresh_soon();
-		done(res)
+		result
 	})
 	.await
 }
 
-#[derive(Deserialize)]
-pub struct SignalReq {
-	pid: i32,
-	/// "term" asks the process to quit, "kill" ends it outright.
-	signal: String,
-	/// When the process started (Unix s, as in samples): if the pid now belongs to a process
-	/// that started at another time, nothing is signalled.
-	start: Option<u64>,
+/// A parameter's value as words: `server`, `40`, `true`.
+fn word(v: &Value) -> String {
+	match v {
+		Value::String(s) => s.clone(),
+		other => other.to_string(),
+	}
 }
 
-pub async fn signal(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Json(r): Json<SignalReq>) -> Response {
-	let what = match proc_field(r.pid, "comm") {
-		Some(name) if r.pid > 0 => format!("signal {} {} {}", r.signal, r.pid, name.trim()),
-		_ => format!("signal {} {}", r.signal, r.pid),
-	};
-	hub.act(&who, Can::Signal, what, async {
-		let sig = match r.signal.as_str() {
-			"term" => libc::SIGTERM,
-			"kill" => libc::SIGKILL,
-			_ => return Err(ErrorCode::UnknownSignal.into()),
-		};
-		if protected(r.pid) {
-			return Err(ErrorCode::NotPermitted.into());
+/// What the activity log says was asked: `power reboot`, `profile balanced`,
+/// `signal term 1234 firefox`, `unit restart nginx.service`, `media play_pause`, `volume 40 %`,
+/// `action Mode server`.
+fn what_of(id: &str, spec: Option<&Spec>, params: &Map<String, Value>, config: &crate::settings::Config) -> String {
+	let p = |k: &str| params.get(k).map(word).unwrap_or_default();
+	if let Some(name) = id.strip_prefix("power.") {
+		return format!("power {name}");
+	}
+	if let Some(op) = id.strip_prefix("unit.") {
+		let link = p("link");
+		let unit = config.links.get(&link).and_then(|l| l.unit.clone()).unwrap_or(link);
+		return format!("unit {op} {unit}");
+	}
+	match id {
+		"profile.set" => format!("profile {}", p("profile")),
+		"process.signal" => {
+			let pid = params.get("pid").and_then(Value::as_i64).and_then(|p| i32::try_from(p).ok());
+			match pid.filter(|p| *p > 0).and_then(|p| proc_field(p, "comm")) {
+				Some(name) => format!("signal {} {} {}", p("signal"), p("pid"), name.trim()),
+				None => format!("signal {} {}", p("signal"), p("pid")),
+			}
 		}
-		send_signal(r.pid, sig, r.start, hub.boot_time, || eprintln!("control: {} sent {} to pid {}", who.name, r.signal, r.pid))?;
-		Ok(Acted::ok())
-	})
-	.await
+		"media.seek" => format!("media seek {}", p("position")),
+		"volume.set" => {
+			let mut what = "volume".to_string();
+			if let Some(l) = params.get("level").and_then(Value::as_f64) {
+				what.push_str(&format!(" {l:.0} %"));
+			}
+			if let Some(m) = params.get("muted").and_then(Value::as_bool) {
+				what.push_str(if m { " muted" } else { " unmuted" });
+			}
+			what
+		}
+		_ if id.starts_with("media.") => format!("media {}", &id["media.".len()..]),
+		_ => match (config.actions.get(id), spec) {
+			(Some(a), Some(s)) => {
+				let mut words = vec![format!("action {}", a.name)];
+				for param in &s.params {
+					if let Some(v) = params.get(&param.id).or(param.default.as_ref()) {
+						words.push(word(v));
+					}
+				}
+				words.join(" ")
+			}
+			(Some(a), None) => format!("action {}", a.name),
+			_ => format!("action {id}"),
+		},
+	}
+}
+
+/// Runs an action whose parameters `params` were checked.
+async fn run_spec(hub: &Hub, who: &Caller, spec: &Spec, params: &BTreeMap<String, Value>, config: &crate::settings::Config) -> Result<Acted, Refusal> {
+	let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
+	let id = spec.id.as_str();
+	if let Some(name) = id.strip_prefix("power.") {
+		eprintln!("control: {} asked to {name}", who.name);
+		return done(hub.bus.power(name).await);
+	}
+	if let Some(op) = id.strip_prefix("unit.") {
+		let Some(link) = config.links.get(&text("link")) else {
+			return Err(Refusal { code: ErrorCode::BadParam, message: Some("link".into()) });
+		};
+		let Some(unit) = link.unit.clone() else {
+			return Err(Refusal { code: ErrorCode::BadParam, message: Some("link".into()) });
+		};
+		if let Some(why) = links::unit_refusal(config, &unit, Some(link.scope())) {
+			eprintln!("control: {} asked to {op} {unit}, refused: {why}", who.name);
+			return Err(ErrorCode::NotAllowed.into());
+		}
+		eprintln!("control: {} asked to {op} {unit}", who.name);
+		return done(hub.bus.unit_op(Scope::parse(Some(link.scope())), &unit, op).await);
+	}
+	match id {
+		"profile.set" => {
+			let profile = text("profile");
+			eprintln!("control: {} set the power profile to {profile}", who.name);
+			done(hub.bus.set_profile(&profile).await)
+		}
+		"process.signal" => {
+			let Some(pid) = params.get("pid").and_then(Value::as_i64).and_then(|p| i32::try_from(p).ok()) else {
+				return Err(Refusal { code: ErrorCode::BadParam, message: Some("pid".into()) });
+			};
+			let signal = text("signal");
+			let sig = match signal.as_str() {
+				"term" => libc::SIGTERM,
+				"kill" => libc::SIGKILL,
+				_ => return Err(ErrorCode::UnknownSignal.into()),
+			};
+			if protected(pid) {
+				return Err(ErrorCode::NotPermitted.into());
+			}
+			let start = params.get("start").and_then(Value::as_u64);
+			send_signal(pid, sig, start, hub.boot_time, || eprintln!("control: {} sent {signal} to pid {pid}", who.name))?;
+			Ok(Acted::ok())
+		}
+		"media.play_pause" | "media.next" | "media.previous" => {
+			let (player, op) = (text("player"), &id["media.".len()..]);
+			eprintln!("control: {} asked {player} to {op}", who.name);
+			done(hub.bus.player_op(&player, op, None).await)
+		}
+		"media.seek" => {
+			let (player, position) = (text("player"), params.get("position").and_then(Value::as_f64));
+			eprintln!("control: {} asked {player} to seek to {} s", who.name, position.unwrap_or_default());
+			done(hub.bus.player_op(&player, "seek", position).await)
+		}
+		"volume.set" => {
+			let level = params.get("level").and_then(Value::as_f64).map(|l| (l / 100.0) as f32);
+			let muted = params.get("muted").and_then(Value::as_bool);
+			if level.is_none() && muted.is_none() {
+				return Err(Refusal::failed(reason::NO_VALUE));
+			}
+			if let Some(l) = level {
+				eprintln!("control: {} set the volume to {:.0} %", who.name, l * 100.0);
+			}
+			if let Some(m) = muted {
+				eprintln!("control: {} {} the sound", who.name, if m { "muted" } else { "unmuted" });
+			}
+			done(tokio::task::spawn_blocking(move || volume_set(level, muted)).await.unwrap_or_else(|e| Err(e.to_string())))
+		}
+		_ => {
+			let Some(a) = config.actions.get(id) else {
+				return Err(ErrorCode::NoSuchAction.into());
+			};
+			let command = actions::command(a, params);
+			let Some((program, args)) = command.split_first() else {
+				return Err(Refusal::failed("the action has no command"));
+			};
+			eprintln!("control: {} ran \"{}\"", who.name, a.name);
+			let limit = Duration::from_secs(a.timeout).clamp(timeout::ACTION_MIN, timeout::ACTION_MAX);
+			match run_action(program, args, limit).await {
+				Ok(r) => {
+					let note = match (r.timed_out, r.exit_code) {
+						(true, _) => "timed out".to_string(),
+						(false, Some(c)) => format!("exit {c}"),
+						(false, None) => "ended by a signal".to_string(),
+					};
+					Ok(Acted { response: Json(r).into_response(), note: Some(note) })
+				}
+				Err(e) => Err(Refusal::failed(e.to_string())),
+			}
+		}
+	}
 }
 
 /// Signals `pid`, if it is still the process that started at `start` (when given) by the
@@ -348,51 +425,6 @@ fn tgid(status: &str) -> Option<i32> {
 	status.lines().find_map(|l| l.strip_prefix("Tgid:"))?.trim().parse().ok()
 }
 
-#[derive(Deserialize)]
-pub struct ActionReq {
-	id: String,
-}
-
-#[derive(Serialize, Debug)]
-pub(crate) struct ActionResult {
-	pub(crate) exit_code: Option<i32>,
-	pub(crate) timed_out: bool,
-	pub(crate) output: String,
-}
-
-pub async fn action(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Json(r): Json<ActionReq>) -> Response {
-	let config = hub.config();
-	let found = config.actions.get(&r.id);
-	let what = format!("action {}", found.map_or(r.id.as_str(), |a| a.name.as_str()));
-	hub.act(&who, Can::Actions, what, async {
-		let Some(a) = found else {
-			return Err(ErrorCode::NoSuchAction.into());
-		};
-		// API 1 sends no parameters: each takes its default, and one without can't run.
-		let params = crate::actions::check_params(&crate::actions::settings_spec(&r.id, a), &serde_json::Map::new())
-			.map_err(|p| Refusal::failed(format!("the parameter {p} has no default")))?;
-		let command = crate::actions::command(a, &params);
-		let Some((program, args)) = command.split_first() else {
-			return Err(ErrorCode::EmptyCommand.into());
-		};
-		eprintln!("control: {} ran \"{}\"", who.name, a.name);
-		let limit = Duration::from_secs(a.timeout).clamp(timeout::ACTION_MIN, timeout::ACTION_MAX);
-		let result = run_action(program, args, limit).await;
-		hub.refresh_soon();
-		match result {
-			Ok(r) => {
-				let note = match (r.timed_out, r.exit_code) {
-					(true, _) => "timed out".to_string(),
-					(false, Some(c)) => format!("exit {c}"),
-					(false, None) => "ended by a signal".to_string(),
-				};
-				Ok(Acted { response: Json(r).into_response(), note: Some(note) })
-			}
-			Err(e) => Err(Refusal::failed(e.to_string())),
-		}
-	})
-	.await
-}
 
 /// Runs an action's command in a process group of its own: on a timeout, or when the request
 /// goes away mid-run, everything it started is killed with it rather than left orphaned. The
@@ -432,7 +464,7 @@ async fn run_action(program: &str, args: &[String], limit: Duration) -> std::io:
 		group.0 = None;
 	}
 	drop(group);
-	Ok(ActionResult { exit_code: status.and_then(|s| s.code()), timed_out, output: capture.text() })
+	Ok(ActionResult { ok: true, exit_code: status.and_then(|s| s.code()), timed_out, output: capture.text() })
 }
 
 /// Kills a process group when dropped, unless its number has been taken out.
@@ -494,6 +526,7 @@ impl Capture {
 	}
 }
 
+
 // ---- media ---------------------------------------------------------------------------
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -510,73 +543,15 @@ pub struct Volume {
 }
 
 #[derive(Deserialize)]
-pub struct MediaReq {
-	player: String,
-	op: String,
-	value: Option<f64>,
-}
-
-pub async fn media(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Json(r): Json<MediaReq>) -> Response {
-	let what = match r.value {
-		Some(v) => format!("media {} {v}", r.op),
-		None => format!("media {}", r.op),
-	};
-	hub.act(&who, Can::Media, what, async {
-		if !bus::is_player(&r.player) {
-			return Err(Refusal::failed(reason::UNKNOWN_PLAYER));
-		}
-		if !Bus::is_player_op(&r.op) {
-			return Err(Refusal::failed(reason::UNKNOWN_OPERATION));
-		}
-		match r.value {
-			Some(v) => eprintln!("control: {} asked {} to {} {v}", who.name, r.player, r.op),
-			None => eprintln!("control: {} asked {} to {}", who.name, r.player, r.op),
-		}
-		let res = hub.bus.player_op(&r.player, &r.op, r.value).await;
-		hub.refresh_soon();
-		done(res)
-	})
-	.await
-}
-
-#[derive(Deserialize)]
-pub struct VolumeReq {
-	level: Option<f32>,
-	muted: Option<bool>,
-}
-
-pub async fn volume(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Json(r): Json<VolumeReq>) -> Response {
-	let mut what = "volume".to_string();
-	if let Some(l) = r.level {
-		what.push_str(&format!(" {:.0} %", l.clamp(0.0, 1.0) * 100.0));
-	}
-	if let Some(m) = r.muted {
-		what.push_str(if m { " muted" } else { " unmuted" });
-	}
-	hub.act(&who, Can::Volume, what, async {
-		if let Some(l) = r.level {
-			eprintln!("control: {} set the volume to {:.0} %", who.name, l.clamp(0.0, 1.0) * 100.0);
-		}
-		if let Some(m) = r.muted {
-			eprintln!("control: {} {} the sound", who.name, if m { "muted" } else { "unmuted" });
-		}
-		let res = tokio::task::spawn_blocking(move || volume_set(r.level, r.muted)).await.unwrap_or_else(|e| Err(e.to_string()));
-		hub.refresh_soon();
-		done(res)
-	})
-	.await
-}
-
-#[derive(Deserialize)]
 pub struct ArtQuery {
 	player: String,
 }
 
-/// A player's cover. Seeing it is reading the media, like the players in samples, so it needs
-/// the role for that but not control.
+/// A player's cover. Seeing it is reading the media, like the players in `media` widgets, so it
+/// needs the role for that but not control.
 pub async fn art(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Query(q): Query<ArtQuery>) -> Response {
-	if let Some(r) = hub.refuse_read(&who, Can::MediaRead) {
-		return r;
+	if who.role < Role::Monitor {
+		return error(ErrorCode::NotAllowed);
 	}
 	match hub.bus.player_art(&q.player).await {
 		Some((bytes, kind)) => ([(header::CONTENT_TYPE, kind), (header::CACHE_CONTROL, "no-store")], bytes).into_response(),
@@ -686,107 +661,6 @@ fn locate(name: &str, dirs: &[std::path::PathBuf]) -> Option<std::path::PathBuf>
 	dirs.iter().map(|d| d.join(name)).find(|p| p.is_file())
 }
 
-// ---- links -----------------------------------------------------------------------------
-
-pub async fn links_list(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>) -> Response {
-	if let Some(r) = hub.refuse_read(&who, Can::Links) {
-		return r;
-	}
-	Json(hub.link_statuses().await).into_response()
-}
-
-#[derive(Deserialize)]
-pub struct UnitReq {
-	op: String,
-}
-
-pub async fn link_unit(
-	State(hub): State<Arc<Hub>>,
-	Extension(who): Extension<Caller>,
-	Path(id): Path<String>,
-	Json(r): Json<UnitReq>,
-) -> Response {
-	let config = hub.config();
-	let found = links::all(&config).into_iter().find(|(lid, _)| *lid == id).map(|(_, l)| l.clone());
-	let what = format!("unit {} {}", r.op, found.as_ref().and_then(|l| l.unit.as_deref()).unwrap_or(&id));
-	hub.act(&who, Can::Units, what, async {
-		let Some(link) = found else {
-			return Err(ErrorCode::NoSuchLink.into());
-		};
-		let Some(unit) = link.unit.clone() else { return Err(ErrorCode::NoUnit.into()) };
-		if Bus::unit_method(&r.op).is_none() {
-			return Err(Refusal::failed(reason::UNKNOWN_OPERATION));
-		}
-		if let Some(why) = links::unit_refusal(&hub.config(), &unit, Some(link.scope())) {
-			eprintln!("control: {} asked to {} {unit}, refused: {why}", who.name, r.op);
-			return Err(ErrorCode::NotAllowed.into());
-		}
-		eprintln!("control: {} asked to {} {unit}", who.name, r.op);
-		let res = hub.bus.unit_op(Scope::parse(Some(link.scope())), &unit, &r.op).await;
-		hub.refresh_soon();
-		done(res)
-	})
-	.await
-}
-
-pub async fn detected(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>) -> Response {
-	if let Some(r) = hub.refuse_read(&who, Can::Links) {
-		return r;
-	}
-	let list = tokio::task::spawn_blocking(links::detect).await.unwrap_or_default();
-	Json(list).into_response()
-}
-
-// ---- what the stream carries -------------------------------------------------------------
-
-/// The slower, D-Bus-backed parts of a sample, refreshed by the collector thread.
-pub struct Extras {
-	links: Vec<LinkStatus>,
-	profiles: Option<Profiles>,
-	volume: Option<Volume>,
-	every: Ticks,
-	tick: u32,
-	/// What the previous tick was read for, to read at once what an app just asked for.
-	was_watched: bool,
-	had_media: bool,
-}
-
-impl Extras {
-	pub fn new(every: Ticks) -> Self {
-		Extras { links: Vec::new(), profiles: None, volume: None, every, tick: 0, was_watched: false, had_media: false }
-	}
-
-	/// Fills in links and power profiles while an app is connected, and returns the media
-	/// for the apps that asked for it. Called once per tick off the async runtime.
-	pub fn apply(&mut self, hub: &Hub, rt: &tokio::runtime::Handle, watched: bool, want_media: bool, sample: &mut Sample) -> Option<Media> {
-		// An action asked for a fresh look; that waits for someone to look.
-		let urgent = watched && hub.refresh.swap(false, Ordering::SeqCst);
-		if watched && (urgent || !self.was_watched || self.tick.is_multiple_of(self.every.links)) {
-			self.links = rt.block_on(hub.link_statuses());
-			self.profiles = rt.block_on(hub.bus.profiles());
-		}
-		let media = if want_media {
-			let players = rt.block_on(hub.bus.players());
-			if urgent || !self.had_media || self.tick.is_multiple_of(self.every.volume) {
-				self.volume = if hub.control_on() { volume_get() } else { None };
-			}
-			Some(Media { players, volume: self.volume.clone() })
-		} else {
-			None
-		};
-		self.was_watched = watched;
-		self.had_media = want_media;
-		self.tick = self.tick.wrapping_add(1);
-		if watched {
-			sample.links = self.links.clone();
-			if let Some(p) = &self.profiles {
-				sample.power.ppd_profile = Some(p.active.clone());
-				sample.power.ppd_profiles = p.available.clone();
-			}
-		}
-		media
-	}
-}
 
 impl Hub {
 	/// Link statuses with their units' states.
@@ -803,6 +677,107 @@ impl Hub {
 		}
 		list
 	}
+}
+
+
+// ---- what the collector reads through D-Bus and commands ---------------------------------
+
+/// The slower parts of a reading, each at its own pace: the links' states, the power profiles, the
+/// players and the volume, and what the computer can do. What isn't read on a tick stays as last
+/// read, so the values (and a client's `ui`) don't come and go as dashboards do.
+pub struct Extras {
+	links: Vec<LinkStatus>,
+	profiles: Option<Profiles>,
+	power: PowerCaps,
+	media: Option<Media>,
+	/// The volume could be read, last it was tried.
+	volume: bool,
+	every: Ticks,
+	tick: u32,
+	/// What the previous tick was read for, to read at once what a client just asked for.
+	was_any: bool,
+	was: Sources,
+}
+
+/// What `Extras::apply` gives a reading.
+pub struct Got {
+	pub media: Option<Media>,
+	pub caps: Caps,
+	/// What of `Sources` it read afresh.
+	pub read: Sources,
+}
+
+impl Extras {
+	pub fn new(every: Ticks) -> Self {
+		Extras {
+			links: Vec::new(),
+			profiles: None,
+			power: PowerCaps::default(),
+			media: None,
+			volume: false,
+			every,
+			tick: 0,
+			was_any: false,
+			was: Sources::default(),
+		}
+	}
+
+	/// Reads what is due while clients look (`any`) at dashboards that need `need`, and puts the
+	/// links and the power profiles in `sample`. Called once per tick off the async runtime.
+	pub fn apply(&mut self, hub: &Hub, rt: &tokio::runtime::Handle, any: bool, need: Sources, sample: &mut Sample) -> Got {
+		// After an action, or new settings, a fresh look at everything.
+		let urgent = hub.refresh.swap(false, Ordering::SeqCst);
+		let rescan = self.tick == 0 || urgent || self.tick.is_multiple_of(self.every.rescan);
+		let every = |n: u32| self.tick.is_multiple_of(n);
+		if rescan {
+			self.power = rt.block_on(hub.bus.power_caps());
+		}
+		if rescan || (need.links && (!self.was.links || every(self.every.links))) {
+			self.links = rt.block_on(hub.link_statuses());
+		}
+		if rescan || (any && (!self.was_any || every(self.every.links))) {
+			self.profiles = rt.block_on(hub.bus.profiles());
+		}
+		let mut read = Sources { links: need.links, ..Default::default() };
+		let sound = need.volume || need.media;
+		let mut media = self.media.take().unwrap_or_default();
+		if need.media {
+			media.players = rt.block_on(hub.bus.players());
+			read.media = true;
+		}
+		if rescan || (sound && (!(self.was.volume || self.was.media) || every(self.every.volume))) {
+			media.volume = volume_get();
+			self.volume = media.volume.is_some();
+		}
+		read.volume = sound;
+		self.media = Some(media);
+		self.was_any = any;
+		self.was = need;
+		self.tick = self.tick.wrapping_add(1);
+
+		sample.links = self.links.clone();
+		if let Some(p) = &self.profiles {
+			sample.power.ppd_profile = Some(p.active.clone());
+			sample.power.ppd_profiles = p.available.clone();
+		}
+		let mut caps = Caps::from_power(&self.power);
+		caps.power_profiles = self.profiles.as_ref().map(|p| p.available.clone()).unwrap_or_default();
+		caps.units = systemd_runs();
+		caps.media = session_bus();
+		caps.volume = self.volume;
+		Got { media: self.media.clone(), caps, read }
+	}
+}
+
+/// Whether systemd runs the computer, for the links' units.
+fn systemd_runs() -> bool {
+	std::path::Path::new("/run/systemd/system").exists()
+}
+
+/// Whether there is a session bus to find media players on.
+fn session_bus() -> bool {
+	std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_some()
+		|| std::env::var_os("XDG_RUNTIME_DIR").is_some_and(|d| std::path::Path::new(&d).join("bus").exists())
 }
 
 #[cfg(test)]

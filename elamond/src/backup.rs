@@ -1034,7 +1034,7 @@ mod tests {
 	}
 
 	fn client(name: &str, token: &str, role: Role) -> store::Client {
-		store::Client { id: store::sha256_hex(name.as_bytes())[..8].into(), name: name.into(), token_hash: store::sha256_hex(token.as_bytes()), created: 1, role, from: None }
+		store::Client { id: store::sha256_hex(name.as_bytes())[..8].into(), name: name.into(), token_hash: store::sha256_hex(token.as_bytes()), created: 1, role, ..Default::default() }
 	}
 
 	/// A service that has been used: rotated once, two phones, a link, a log, control held off.

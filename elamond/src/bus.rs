@@ -431,11 +431,6 @@ impl Bus {
 		})
 	}
 
-	/// The operations the app may ask a player for.
-	pub fn is_player_op(op: &str) -> bool {
-		matches!(op, "play_pause" | "next" | "previous" | "volume" | "seek")
-	}
-
 	pub async fn player_op(&self, id: &str, op: &str, value: Option<f64>) -> Result<(), String> {
 		if !is_player(id) {
 			return Err(reason::UNKNOWN_PLAYER.into());
