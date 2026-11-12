@@ -58,7 +58,8 @@ Usage:
                                        show a code and QR to pair a phone, and ask before the phone
                                        that gives it is let in (--yes: without asking); it gets a
                                        profile of its own in elamond.d/phones.toml, using ID
-  elamond clients                      list paired phones: role, profile and app
+  elamond clients                      list paired phones: role, profile, app and the address each
+                                       came from last
   elamond clients role <id|all> ROLE   change what a phone may do; --with-added: and the phones
                                        that got a key of their own with its token
   elamond clients profile <id|all> ID  change how a phone looks and behaves (a profile of the
@@ -94,10 +95,11 @@ Usage:
   elamond --version
 
 Roles, each allowing what the one before does and more:
-  glance   the basics: CPU, memory, temperatures, disks, network and battery
-  monitor  everything there is to see: processes, monitors, links, media, the log
-  operate  links and their units, media, the power profile and actions
-  admin    power and ending processes
+  glance   the basics: CPU, memory, GPUs, temperatures, fans, disks, network, battery and power;
+           no processes, monitors, links or media
+  monitor  everything there is to see: processes, monitors, links, media, the activity log
+  operate  also the units of links, media and the volume, the power profile and actions
+  admin    also powering off, restarting, sleeping, locking, and ending processes
 
 Settings: ~/.config/elamon/elamond.toml and elamond.d/   State: ~/.local/share/elamon/
 ";

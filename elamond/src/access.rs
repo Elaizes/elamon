@@ -45,10 +45,10 @@ impl Role {
 	/// What the role allows, for people at the terminal.
 	pub fn describe(self) -> &'static str {
 		match self {
-			Role::Glance => "the basics: CPU, memory, temperatures, disks, network and battery; no processes, monitors or links",
+			Role::Glance => "the basics: CPU, memory, GPUs, temperatures, fans, disks, network, battery and power; no processes, monitors, links or media",
 			Role::Monitor => "sees everything, changes nothing",
-			Role::Operate => "also links and their units, media, the power profile and actions",
-			Role::Admin => "everything, power and ending processes included",
+			Role::Operate => "also the units of links, media and the volume, the power profile and actions",
+			Role::Admin => "everything: powering off, restarting, sleeping, locking and ending processes too",
 		}
 	}
 
