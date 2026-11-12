@@ -1996,9 +1996,11 @@ dashboards = ["overview", "control"]
 	async fn a_stream_its_client_doesnt_read_holds_one_change_and_still_ends() {
 		let (hub, tx) = hub(true);
 		let _ticks = ticking(&hub, tx);
-		// Opened and never read: its task is held up once its lines fill what waits to be sent.
-		let mut stalled = Lines::open(&hub, "/api/v1/stream", "t-admin").await;
+		// Opened and never read: its task is held up once its lines fill what waits to be sent, a
+		// line every 300 ms here.
+		let mut stalled = Lines::open(&hub, "/api/v1/stream?interval=250", "t-admin").await;
 		let id = stalled.next().await.unwrap()["stream"].as_str().unwrap().to_string();
+		tokio::time::sleep(Duration::from_millis(2000)).await;
 		let path = format!("/api/v1/stream/{id}");
 		for i in 0..10_000 {
 			let body = if i % 2 == 0 { r#"{"dashboard":"control","interval":1000}"# } else { r#"{"dashboard":"overview","interval":2000,"sort":{"processes/table":"mem"}}"# };
