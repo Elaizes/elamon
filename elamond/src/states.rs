@@ -216,6 +216,9 @@ fn bars_state(d: &Widget, s: &States, o: &mut Obj) {
 		})
 		.collect();
 	o.put("levels", J::Arr(levels));
+	if let Some(Bound::Name(a)) = &d.max {
+		o.put("max", s.view.get(a).map_or(J::Null, |x| J::from(x.v.json())));
+	}
 }
 
 /// Orders two values of a field: numbers by size, texts without regard to case; missing last.

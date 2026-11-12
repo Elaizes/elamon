@@ -366,7 +366,7 @@ A widget's state:
 |---|---|
 | `value`, `gauge`, `meter`, `status` | `{ "v": 42.5, "text": "On battery", "level": "warning", "blend": 0.4, "max": 16000000000, "caption": "4.1 GiB of 16 GiB" }`: `v` the value (number, string, bool or `null` when missing) in the widget's unit; `text` when `map` gave it a word, or the value is missing and the widget has `empty` (filled in); `level` and `blend` ([levels](config.md#levels)); `max` when it is an address; `caption` filled in |
 | `graph` | `{ "v": [1.5, 0.2], "max": 16000000000, "text": "Asleep" }`, the newest point of each series, at the line's `t`; `max` when it is an address; `text`, the widget's `empty` while the first series has no value |
-| `bars` | `{ "v": [12.5, 80.0, …], "labels": ["0", "1", …], "levels": ["normal", "critical", …] }` |
+| `bars` | `{ "v": [12.5, 80.0, …], "labels": ["0", "1", …], "levels": ["normal", "critical", …] }`; `max` when it is an address |
 | `list` | `{ "items": [{ "v": …, "text": …, "level": … }] }`, in the order of `items` |
 | `table` | `{ "rows": [{ "key": "4242", "level": "normal", "f": { "pid": 4242, "name": "firefox", … } }], "total": 312 }`: at most `limit` rows in the table's order, each with the fields its columns, `expand`, `row_open` and `row_actions` need; `total`, how many there are in all |
 | `button` | `{ "enabled": true }` |
