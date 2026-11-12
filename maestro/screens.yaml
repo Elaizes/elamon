@@ -58,7 +58,7 @@ appId: io.github.elaizes.elamon.debug
     direction: DOWN
 - tapOn: "CPU"
 - extendedWaitUntil:
-    visible: "Model"
+    visible: "Cores"
     timeout: 10000
 - takeScreenshot: 10-cpu-detail
 - swipe:
