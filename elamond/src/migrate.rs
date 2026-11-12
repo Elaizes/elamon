@@ -462,12 +462,12 @@ fn uncomment_examples(doc: &mut DocumentMut, from: &mut DocumentMut) {
 		let root = doc.as_table_mut();
 		let Some((mut hk, _)) = root.get_key_value_mut(&holder) else { continue };
 		let prefix = text_of(hk.leaf_decor().prefix());
-		let start = prefix.lines().scan(0, |at, l| {
+		let mut start = prefix.lines().scan(0, |at, l| {
 			let here = *at;
 			*at += l.len() + 1;
 			Some((here, l))
 		});
-		let Some((at, line)) = start.into_iter().find(|(_, l)| l.starts_with(&example)) else { continue };
+		let Some((at, line)) = start.find(|(_, l)| l.starts_with(&example)) else { continue };
 		let (above, below) = (&prefix[..at], &prefix[(at + line.len() + 1).min(prefix.len())..]);
 		hk.leaf_decor_mut().set_prefix(below.to_string());
 		let mut key = from_key.clone();

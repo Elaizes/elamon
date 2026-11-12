@@ -40,6 +40,27 @@
 
 			defaultPackage = pkgs: self.packages.${pkgs.stdenv.hostPlatform.system}.elamond;
 
+			# The settings elamond starts with (the starter file, defaults.toml), as Nix reads them.
+			defaultSettings = builtins.fromTOML (builtins.readFile ./elamond/src/defaults.toml);
+
+			# What the modules put in `settings` themselves: the defaults, each value (a list whole) at
+			# mkDefault, so what is set there overrides them key by key, a list replacing theirs whole;
+			# and `schema = 3`, a whole file.
+			settingsDefaults = lib: lib.mapAttrsRecursive (_: lib.mkDefault) defaultSettings // { schema = 3; };
+
+			# The read-only option that shows the defaults as they are.
+			defaultsOption = lib: toml: lib.mkOption {
+				type = toml.type;
+				readOnly = true;
+				default = defaultSettings;
+				defaultText = lib.literalMD "the settings elamond starts with: `elamond defaults` prints them";
+				description = ''
+					The settings elamond starts with, which `settings` holds at mkDefault: the standard
+					dashboards, the `default` profile, the templates and the top-level keys, as
+					`elamond defaults` prints them. For reading and copying from.
+				'';
+			};
+
 			# The settings a module writes, as `elamond check` reads them while they are built: a mistake
 			# in a dashboard or an action fails `nixos-rebuild`, `home-manager switch` and `nix flake
 			# check`, naming its line, rather than the service that would have read them.
@@ -54,7 +75,7 @@
 				'';
 
 			# What the settings option shows: a dashboard, an action with a parameter, a link and a
-			# profile, as docs/config.md has them in TOML.
+			# profile, as docs/config.md has them in TOML, and one key of a standard dashboard changed.
 			settingsExample = lib: lib.literalExpression ''
 				{
 					control = true;
@@ -72,7 +93,8 @@
 							{ type = "select"; action = "fan"; param = "speed"; label = "Fan"; }
 						];
 					};
-					profiles.owner = { theme = "dark"; dashboards = [ "overview" "power" "processes" "control" ]; };
+					profiles.owner = { use = "default"; theme = "dark"; dashboards = [ "overview" "power" "processes" "control" ]; };
+					dashboards.overview.title = "Home";
 				}
 			'';
 
@@ -146,17 +168,22 @@
 							default = { };
 							example = settingsExample lib;
 							description = ''
-								elamond.toml for every user's service, settings schema 2 as docs/config.md has it in
+								elamond.toml for every user's service, settings schema 3 as docs/config.md has it in
 								TOML (`[dashboards.<id>]` is `dashboards.<id>`, `[[dashboards.<id>.widgets]]` a list
-								of attribute sets); empty keeps each user's own ~/.config/elamon/elamond.toml. Each
-								user's ~/.config/elamon/elamond.d/*.toml still adds to it. `elamond check` reads it as
-								it is built, so a mistake fails the build with its line; `elamond defaults` prints the
-								built-in dashboards to start from. A change restarts the services. It lands in the Nix
-								store, which every user can read: keep secrets (a link's URL with a password in it, a
-								token among an action's arguments) out of it, in a drop-in only its user can read
-								(chmod 600).
+								of attribute sets). It holds the settings elamond starts with (`defaults`) at
+								mkDefault, and `schema = 3`: what you set overrides them key by key, a list (a
+								dashboard's `widgets`) replacing theirs whole, and a table of your own adds to them;
+								`lib.mkForce` on a table (`dashboards`) leaves theirs out. The services read it
+								through ELAMON_CONFIG, and so not a user's own ~/.config/elamon/elamond.toml; each
+								user's ~/.config/elamon/elamond.d/*.toml still adds to it, phones.toml among them,
+								where each phone paired has a profile of its own. `elamond check` reads it as it is
+								built, so a mistake fails the build with its line. A change restarts the services. It
+								lands in the Nix store, which every user can read: keep secrets (a link's URL with a
+								password in it, a token among an action's arguments) out of it, in a drop-in only its
+								user can read (chmod 600).
 							'';
 						};
+						defaults = defaultsOption lib toml;
 						settingsFile = lib.mkOption {
 							type = lib.types.package;
 							readOnly = true;
@@ -218,10 +245,11 @@
 					};
 
 					config = lib.mkMerge [
+						{ services.elamond.settings = settingsDefaults lib; }
 						(lib.mkIf cfg.enable {
 							environment.systemPackages = [ cfg.package ];
 							# `elamond pair`, `snapshot` and `clients` read the same settings as the service.
-							environment.variables = lib.mkIf (cfg.settings != { }) { ELAMON_CONFIG = "${configFile}"; };
+							environment.variables.ELAMON_CONFIG = "${configFile}";
 							systemd.user.services.elamond = {
 								description = "Elamon service";
 								wantedBy = [ "default.target" ];
@@ -233,8 +261,9 @@
 								enableDefaultPath = false;
 								environment = {
 									PATH = "/run/wrappers/bin:%h/.nix-profile/bin:/etc/profiles/per-user/%u/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin";
-								} // lib.optionalAttrs (cfg.settings != { }) { ELAMON_CONFIG = "${configFile}"; };
-								restartTriggers = lib.optional (cfg.settings != { }) configFile;
+									ELAMON_CONFIG = "${configFile}";
+								};
+								restartTriggers = [ configFile ];
 								# A broken identity or setting fails at once; ten tries in five minutes, then stop.
 								startLimitIntervalSec = 300;
 								startLimitBurst = 10;
@@ -325,36 +354,45 @@
 							default = { };
 							example = settingsExample lib;
 							description = ''
-								Written to ~/.config/elamon/elamond.toml, settings schema 2 as docs/config.md has it in
-								TOML; a change restarts the service; empty leaves that file alone. `elamond check`
-								reads it as it is built, so a mistake fails `home-manager switch` with its line. It
-								lands in the Nix store, which every user can read: keep secrets (a link's URL with a
-								password in it, a token among an action's arguments) in a drop-in in
-								~/.config/elamon/elamond.d only you can read (chmod 600).
+								Written to ~/.config/elamon/elamond.toml, settings schema 3 as docs/config.md has it in
+								TOML. It holds the settings elamond starts with (`defaults`) at mkDefault, and
+								`schema = 3`: what you set overrides them key by key, a list (a dashboard's
+								`widgets`) replacing theirs whole, and a table of your own adds to them;
+								`lib.mkForce` on a table (`dashboards`) leaves theirs out. An elamond.toml of your own
+								there is in the way: move what is yours into a drop-in, ~/.config/elamon/elamond.d/*.toml,
+								which adds to it as phones.toml does (each phone paired has a profile of its own
+								there). A change restarts the service. `elamond check` reads it as it is built, so a
+								mistake fails `home-manager switch` with its line. It lands in the Nix store, which
+								every user can read: keep secrets (a link's URL with a password in it, a token among
+								an action's arguments) in a drop-in only you can read (chmod 600).
 							'';
 						};
+						defaults = defaultsOption lib toml;
 					};
-					config = lib.mkIf cfg.enable {
-						home.packages = [ cfg.package ];
-						xdg.configFile."elamon/elamond.toml" = lib.mkIf (cfg.settings != { }) { source = configFile; };
-						systemd.user.services.elamond = {
-							Unit = {
-								Description = "Elamon service";
-								# A new elamond.toml restarts the service: port, interval and history only apply at start.
-								X-Restart-Triggers = lib.optional (cfg.settings != { }) "${configFile}";
-								StartLimitIntervalSec = 300;
-								StartLimitBurst = 10;
+					config = lib.mkMerge [
+						{ services.elamond.settings = settingsDefaults lib; }
+						(lib.mkIf cfg.enable {
+							home.packages = [ cfg.package ];
+							xdg.configFile."elamon/elamond.toml".source = configFile;
+							systemd.user.services.elamond = {
+								Unit = {
+									Description = "Elamon service";
+									# A new elamond.toml restarts the service: port, interval and history only apply at start.
+									X-Restart-Triggers = [ "${configFile}" ];
+									StartLimitIntervalSec = 300;
+									StartLimitBurst = 10;
+								};
+								Service = {
+									ExecStart = "${cfg.package}/bin/elamond serve";
+									ExecReload = "${pkgs.coreutils}/bin/kill -HUP $MAINPID";
+									Restart = "on-failure";
+									RestartSec = 5;
+									LimitNOFILE = 8192;
+								};
+								Install.WantedBy = [ "default.target" ];
 							};
-							Service = {
-								ExecStart = "${cfg.package}/bin/elamond serve";
-								ExecReload = "${pkgs.coreutils}/bin/kill -HUP $MAINPID";
-								Restart = "on-failure";
-								RestartSec = 5;
-								LimitNOFILE = 8192;
-							};
-							Install.WantedBy = [ "default.target" ];
-						};
-					};
+						})
+					];
 				};
 
 			# The same under the name Home Manager now looks for.
@@ -372,7 +410,8 @@
 						# The test reaches the service over loopback, which the firewall always lets through.
 						firewallInterfaces = [ "eth1" "wg0" ];
 						users = [ "alice" ];
-						# A dashboard, an action with a parameter and a profile, in Nix.
+						# A dashboard, an action with a parameter and a profile, in Nix, beside the defaults
+						# the module adds.
 						settings = {
 							actions.greet = {
 								name = "Greet";
