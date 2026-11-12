@@ -9,10 +9,11 @@
         {
           "key": "4242",
           "level": "normal",
-          "f": { "pid": 4242, "name": "some", "cpu": 3.5, "mem": 123456789, "cmd": "/usr/bin/some --flag", "start": 1700000100 }
+          "f": { "name": "some", "cpu": 3.5, "mem": 123456789, "cmd": "/usr/bin/some --flag", "start": 1700000100, "pid": 4242 }
         }
       ],
       "total": 1
-    }
+    },
+    "header/power": { "v": false, "text": "On battery", "level": "warning" }
   }
 }

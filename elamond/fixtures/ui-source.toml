@@ -286,3 +286,15 @@ row_actions = [
 
 [dashboards.unused]
 title = "Not opened from a tab: left out"
+
+# The chips under the computer's name: the profile's `header` (the default profile's, "header",
+# which owner uses), here in place of the built-in one's widgets.
+[dashboards.header]
+title = "Header"
+
+[[dashboards.header.widgets]]
+id = "power"
+type = "status"
+value = "power.on_ac"
+map = { "true" = "On AC power", "false" = "On battery" }
+levels = { "false" = "warning" }

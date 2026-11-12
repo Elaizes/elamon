@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::access::Role;
 use crate::bus::PowerCaps;
@@ -232,38 +232,6 @@ pub fn available(config: &Config, caps: &Caps) -> Vec<Spec> {
 	built_in.chain(config.actions.iter().map(|(id, a)| settings_spec(id, a))).collect()
 }
 
-/// A parameter as `ui` describes it.
-pub fn param_json(p: &Param) -> Value {
-	let mut o = serde_json::Map::new();
-	o.insert("id".into(), p.id.clone().into());
-	o.insert("kind".into(), p.kind.name().into());
-	o.insert("label".into(), p.label.clone().into());
-	match &p.kind {
-		ParamKind::Choice(c) => {
-			o.insert("choices".into(), c.iter().map(|(v, l)| json!({ "value": v, "label": l })).collect());
-		}
-		ParamKind::Range { min, max, step, unit } => {
-			o.insert("min".into(), Value::Number(min.clone()));
-			o.insert("max".into(), Value::Number(max.clone()));
-			o.insert("step".into(), Value::Number(step.clone()));
-			if let Some(u) = unit {
-				o.insert("unit".into(), u.clone().into());
-			}
-		}
-		ParamKind::Number { unit: Some(u) } => {
-			o.insert("unit".into(), u.clone().into());
-		}
-		_ => {}
-	}
-	if p.optional {
-		o.insert("optional".into(), true.into());
-	}
-	if let Some(d) = &p.default {
-		o.insert("default".into(), d.clone());
-	}
-	Value::Object(o)
-}
-
 /// Whether `x` is on a step of `step` from `min` (to a millionth of a step).
 fn on_step(x: f64, min: f64, step: f64) -> bool {
 	if step <= 0.0 {
@@ -347,6 +315,7 @@ pub fn whole_param(arg: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use serde_json::json;
 
 	fn config() -> Config {
 		settings::read_sources(&[settings::Source::new("test.toml", include_str!("../fixtures/ui-source.toml"))]).unwrap()

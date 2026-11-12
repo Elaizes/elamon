@@ -15,6 +15,8 @@ mod errors;
 mod fixtures;
 #[allow(dead_code)] // the server uses it from API 2 on
 mod format;
+#[allow(dead_code)] // the server uses it from API 2 on
+mod history;
 mod identity;
 mod links;
 mod listen;
@@ -23,7 +25,11 @@ mod model;
 mod names;
 mod server;
 mod settings;
+#[allow(dead_code)] // the server uses it from API 2 on
+mod states;
 mod store;
+#[allow(dead_code)] // the server uses it from API 2 on
+mod ui;
 #[allow(dead_code)] // the server uses it from API 2 on
 mod values;
 

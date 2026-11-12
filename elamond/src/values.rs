@@ -1148,6 +1148,12 @@ fn convert(v: &V, unit: &str, network: bool, units: Units) -> (V, Option<&'stati
 	}
 }
 
+/// A number `address` had, in a profile's units.
+pub fn in_units(address: &str, x: f64, units: Units) -> f64 {
+	let unit = address_def(address).map_or("", |d| d.unit);
+	convert(&V::Float(x), unit, address.starts_with("net."), units).0.num().unwrap_or(x)
+}
+
 fn convert_limits(l: &Limits, unit: &str, network: bool, units: Units) -> Limits {
 	match unit {
 		"°C" if units.fahrenheit => l.map(to_f, 9.0 / 5.0),

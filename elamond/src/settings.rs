@@ -40,7 +40,6 @@ pub const SCOPES: [&str; 2] = ["user", "system"];
 /// The roles an action may ask for.
 pub const ACTION_ROLES: [&str; 2] = ["operate", "admin"];
 /// The widgets that are 4 columns wide unless they say otherwise.
-#[allow(dead_code)] // for ui, next
 pub const WIDE: [&str; 6] = ["graph", "table", "list", "group", "media", "text"];
 
 // ---- the settings, typed ------------------------------------------------------------------
@@ -177,7 +176,6 @@ pub struct UnlockDef {
 
 /// A profile, its `use` chain followed.
 #[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)] // for ui, next
 pub struct Profile {
 	pub id: String,
 	pub name: String,
@@ -378,7 +376,6 @@ impl Config {
 	}
 
 	/// The profile `id` with its `use` chain followed; `default_profile` for one that isn't there.
-	#[allow(dead_code)] // for ui, next
 	pub fn profile(&self, id: &str) -> Profile {
 		let id = if self.profiles.contains_key(id) { id } else { self.default_profile.as_str() };
 		let mut chain: Vec<&ProfileDef> = Vec::new();

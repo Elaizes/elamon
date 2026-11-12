@@ -1,0 +1,910 @@
+{
+  "version": "ca6e404a39ad02f0",
+  "service": {
+    "id": "0123456789abcdef0123456789abcdef",
+    "name": "fixture",
+    "version": "9.9.9",
+    "interval_ms": 1000,
+    "history_seconds": 600
+  },
+  "role": "admin",
+  "control": { "enabled": false, "off_reason": "settings" },
+  "profile": {
+    "id": "default",
+    "name": "Default",
+    "theme": "system",
+    "pure_black": false,
+    "animations": true,
+    "interval_ms": 1000,
+    "fahrenheit": false,
+    "network_bits": false,
+    "confirm_actions": true,
+    "unlock": { "for": ["power", "signal", "actions", "units"], "grace": "every_time" },
+    "android": { "dynamic_color": true, "blur": true, "haptics": true, "keep_screen_on": false }
+  },
+  "tabs": ["overview", "processes", "sensors", "control"],
+  "header": "header",
+  "dashboards": [
+    {
+      "id": "overview",
+      "title": "Overview",
+      "icon": "overview",
+      "widgets": [
+        {
+          "id": "overview/cpu",
+          "type": "gauge",
+          "span": 2,
+          "label": "CPU",
+          "icon": "chip",
+          "color": "cpu",
+          "open": "cpu",
+          "caption": true,
+          "unit": "%",
+          "format": "percent",
+          "min": 0,
+          "max": 100
+        },
+        {
+          "id": "overview/memory",
+          "type": "gauge",
+          "span": 2,
+          "label": "Memory",
+          "icon": "memory",
+          "color": "memory",
+          "open": "memory",
+          "caption": true,
+          "unit": "%",
+          "format": "percent",
+          "min": 0,
+          "max": 100
+        },
+        {
+          "id": "overview/gpus.nvidia",
+          "type": "value",
+          "span": 2,
+          "label": "Some GPU",
+          "icon": "gpu",
+          "color": "gpu",
+          "open": "gpu.nvidia",
+          "caption": true,
+          "unit": "%",
+          "format": "percent",
+          "spark": true
+        },
+        {
+          "id": "overview/temperature",
+          "type": "value",
+          "span": 2,
+          "label": "Temperature",
+          "icon": "thermometer",
+          "color": "hot",
+          "open": "sensors",
+          "caption": true,
+          "unit": "°C",
+          "format": "temp",
+          "spark": true
+        },
+        {
+          "id": "overview/network",
+          "type": "graph",
+          "span": 4,
+          "label": "Network",
+          "icon": "network",
+          "color": "rx",
+          "open": "network",
+          "caption": true,
+          "series": [
+            { "label": "Download", "color": "rx", "unit": "B/s", "format": "rate" },
+            { "label": "Upload", "color": "tx", "unit": "B/s", "format": "rate" }
+          ],
+          "range": 600,
+          "height": "small",
+          "floor": 65536
+        },
+        {
+          "id": "overview/storage",
+          "type": "table",
+          "span": 4,
+          "label": "Storage",
+          "icon": "storage",
+          "color": "read",
+          "open": "storage",
+          "caption": true,
+          "source": "disks",
+          "columns": [
+            { "field": "mount", "format": "text", "grow": true },
+            { "field": "available", "label": "free", "unit": "B", "format": "bytes" },
+            { "field": "percent", "unit": "%", "format": "percent", "bar": { "max": 100 } }
+          ],
+          "sorts": [],
+          "search": false,
+          "hide_empty": false
+        },
+        {
+          "id": "overview/battery",
+          "type": "meter",
+          "span": 4,
+          "label": "Battery",
+          "icon": "battery",
+          "color": "battery",
+          "open": "battery",
+          "caption": true,
+          "unit": "%",
+          "format": "percent",
+          "min": 0,
+          "max": 100
+        }
+      ]
+    },
+    {
+      "id": "processes",
+      "title": "Processes",
+      "icon": "processes",
+      "widgets": [
+        {
+          "id": "processes/table",
+          "type": "table",
+          "span": 4,
+          "source": "processes",
+          "columns": [
+            { "field": "name", "format": "text", "grow": true },
+            { "field": "cpu", "label": "CPU", "unit": "%", "format": "percent", "bar": { "max": 25 } },
+            { "field": "mem", "label": "Memory", "unit": "B", "format": "bytes" }
+          ],
+          "sort": { "field": "cpu", "desc": true },
+          "sorts": ["cpu", "mem", "gpu", "io"],
+          "search": true,
+          "hide_empty": false,
+          "row_actions": [
+            { "action": "process.signal", "label": "Quit", "params": { "pid": "{pid}", "signal": "term", "start": "{start}" } },
+            { "action": "process.signal", "label": "Force kill", "params": { "pid": "{pid}", "signal": "kill", "start": "{start}" } }
+          ],
+          "expand": [
+            { "field": "cmd", "label": "Command", "format": "text" },
+            { "field": "user", "label": "User", "format": "text" },
+            { "field": "pid", "label": "PID", "format": "integer" },
+            { "field": "ppid", "label": "Parent", "format": "integer" },
+            { "field": "status", "label": "State", "format": "text" },
+            { "field": "start", "label": "Started", "unit": "s", "format": "time" },
+            { "field": "read", "label": "Disk read", "unit": "B/s", "format": "rate" },
+            { "field": "write", "label": "Disk write", "unit": "B/s", "format": "rate" },
+            { "field": "gpu", "label": "GPU", "unit": "%", "format": "percent" },
+            { "field": "gpu_mem", "label": "GPU memory", "unit": "B", "format": "bytes" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sensors",
+      "title": "Sensors",
+      "icon": "thermometer",
+      "widgets": [
+        {
+          "id": "sensors/cpu",
+          "type": "table",
+          "span": 4,
+          "label": "Processor",
+          "icon": "chip",
+          "color": "cpu",
+          "source": "temps",
+          "columns": [
+            { "field": "label", "format": "text", "grow": true },
+            { "field": "value", "unit": "°C", "format": "temp", "bar": { "max": "crit" } }
+          ],
+          "sort": { "field": "label", "desc": false },
+          "sorts": [],
+          "search": false,
+          "hide_empty": true,
+          "expand": [
+            { "field": "chip", "label": "Chip", "format": "text" },
+            { "field": "high", "label": "High", "unit": "°C", "format": "temp" },
+            { "field": "crit", "label": "Critical", "unit": "°C", "format": "temp" }
+          ]
+        },
+        {
+          "id": "sensors/gpu",
+          "type": "table",
+          "span": 4,
+          "label": "Graphics",
+          "icon": "gpu",
+          "color": "gpu",
+          "source": "temps",
+          "columns": [
+            { "field": "label", "format": "text", "grow": true },
+            { "field": "value", "unit": "°C", "format": "temp", "bar": { "max": "crit" } }
+          ],
+          "sort": { "field": "label", "desc": false },
+          "sorts": [],
+          "search": false,
+          "hide_empty": true,
+          "expand": [
+            { "field": "chip", "label": "Chip", "format": "text" },
+            { "field": "high", "label": "High", "unit": "°C", "format": "temp" },
+            { "field": "crit", "label": "Critical", "unit": "°C", "format": "temp" }
+          ]
+        },
+        {
+          "id": "sensors/storage",
+          "type": "table",
+          "span": 4,
+          "label": "Storage",
+          "icon": "storage",
+          "color": "read",
+          "source": "temps",
+          "columns": [
+            { "field": "label", "format": "text", "grow": true },
+            { "field": "value", "unit": "°C", "format": "temp", "bar": { "max": "crit" } }
+          ],
+          "sort": { "field": "label", "desc": false },
+          "sorts": [],
+          "search": false,
+          "hide_empty": true,
+          "expand": [
+            { "field": "chip", "label": "Chip", "format": "text" },
+            { "field": "high", "label": "High", "unit": "°C", "format": "temp" },
+            { "field": "crit", "label": "Critical", "unit": "°C", "format": "temp" }
+          ]
+        },
+        {
+          "id": "sensors/wireless",
+          "type": "table",
+          "span": 4,
+          "label": "Wireless",
+          "icon": "network",
+          "color": "rx",
+          "source": "temps",
+          "columns": [
+            { "field": "label", "format": "text", "grow": true },
+            { "field": "value", "unit": "°C", "format": "temp", "bar": { "max": "crit" } }
+          ],
+          "sort": { "field": "label", "desc": false },
+          "sorts": [],
+          "search": false,
+          "hide_empty": true,
+          "expand": [
+            { "field": "chip", "label": "Chip", "format": "text" },
+            { "field": "high", "label": "High", "unit": "°C", "format": "temp" },
+            { "field": "crit", "label": "Critical", "unit": "°C", "format": "temp" }
+          ]
+        },
+        {
+          "id": "sensors/battery",
+          "type": "table",
+          "span": 4,
+          "label": "Battery",
+          "icon": "battery",
+          "color": "battery",
+          "source": "temps",
+          "columns": [
+            { "field": "label", "format": "text", "grow": true },
+            { "field": "value", "unit": "°C", "format": "temp", "bar": { "max": "crit" } }
+          ],
+          "sort": { "field": "label", "desc": false },
+          "sorts": [],
+          "search": false,
+          "hide_empty": true,
+          "expand": [
+            { "field": "chip", "label": "Chip", "format": "text" },
+            { "field": "high", "label": "High", "unit": "°C", "format": "temp" },
+            { "field": "crit", "label": "Critical", "unit": "°C", "format": "temp" }
+          ]
+        },
+        {
+          "id": "sensors/board",
+          "type": "table",
+          "span": 4,
+          "label": "Board",
+          "icon": "thermometer",
+          "color": "hot",
+          "source": "temps",
+          "columns": [
+            { "field": "label", "format": "text", "grow": true },
+            { "field": "value", "unit": "°C", "format": "temp", "bar": { "max": "crit" } }
+          ],
+          "sort": { "field": "label", "desc": false },
+          "sorts": [],
+          "search": false,
+          "hide_empty": true,
+          "expand": [
+            { "field": "chip", "label": "Chip", "format": "text" },
+            { "field": "high", "label": "High", "unit": "°C", "format": "temp" },
+            { "field": "crit", "label": "Critical", "unit": "°C", "format": "temp" }
+          ]
+        },
+        {
+          "id": "sensors/other",
+          "type": "table",
+          "span": 4,
+          "label": "Other",
+          "icon": "thermometer",
+          "color": "hot",
+          "source": "temps",
+          "columns": [
+            { "field": "label", "format": "text", "grow": true },
+            { "field": "value", "unit": "°C", "format": "temp", "bar": { "max": "crit" } }
+          ],
+          "sort": { "field": "label", "desc": false },
+          "sorts": [],
+          "search": false,
+          "hide_empty": true,
+          "expand": [
+            { "field": "chip", "label": "Chip", "format": "text" },
+            { "field": "high", "label": "High", "unit": "°C", "format": "temp" },
+            { "field": "crit", "label": "Critical", "unit": "°C", "format": "temp" }
+          ]
+        },
+        {
+          "id": "sensors/fans",
+          "type": "table",
+          "span": 4,
+          "label": "Fans",
+          "icon": "fan",
+          "source": "fans",
+          "columns": [
+            { "field": "label", "format": "text", "grow": true },
+            { "field": "rpm", "unit": "RPM", "format": "rpm", "bar": { "max": "top" } }
+          ],
+          "sorts": [],
+          "search": false,
+          "hide_empty": true
+        }
+      ]
+    },
+    {
+      "id": "control",
+      "title": "Control",
+      "icon": "control",
+      "widgets": [
+        {
+          "id": "control/links",
+          "type": "table",
+          "span": 4,
+          "label": "Links",
+          "icon": "globe",
+          "source": "links",
+          "columns": [
+            { "field": "name", "format": "text", "grow": true },
+            { "field": "unit_state", "label": "Unit", "format": "text" },
+            { "field": "up", "format": "text" }
+          ],
+          "sorts": [],
+          "search": false,
+          "hide_empty": true,
+          "row_open": "url",
+          "expand": [
+            { "field": "url", "label": "Address", "format": "text" },
+            { "field": "unit", "label": "Unit", "format": "text" },
+            { "field": "port", "label": "Port", "format": "integer" }
+          ]
+        },
+        { "id": "control/media", "type": "media", "span": 4, "label": "Media", "icon": "music" },
+        {
+          "id": "control/profile",
+          "type": "select",
+          "span": 4,
+          "label": "Power profile",
+          "icon": "bolt",
+          "color": "battery",
+          "action": "profile.set",
+          "param": "profile"
+        },
+        {
+          "id": "control/power",
+          "type": "group",
+          "span": 4,
+          "label": "Power",
+          "icon": "power",
+          "color": "hot",
+          "collapsed": false,
+          "widgets": [
+            { "id": "control/power/0", "type": "button", "span": 1, "label": "Lock", "icon": "lock", "action": "power.lock" },
+            { "id": "control/power/1", "type": "button", "span": 1, "label": "Sleep", "icon": "moon", "action": "power.suspend" },
+            { "id": "control/power/2", "type": "button", "span": 1, "label": "Restart", "icon": "restart", "action": "power.reboot" },
+            { "id": "control/power/3", "type": "button", "span": 1, "label": "Shut down", "icon": "power", "action": "power.poweroff" }
+          ]
+        },
+        {
+          "id": "control/displays",
+          "type": "table",
+          "span": 4,
+          "label": "Displays",
+          "icon": "monitor",
+          "caption": true,
+          "collapsed": true,
+          "source": "displays",
+          "columns": [
+            { "field": "name", "format": "text", "grow": true },
+            { "field": "state", "format": "text" },
+            { "field": "mode", "format": "text" }
+          ],
+          "sorts": [],
+          "search": false,
+          "hide_empty": true,
+          "expand": [
+            { "field": "connector", "label": "Port", "format": "text" },
+            { "field": "gpu", "label": "GPU", "format": "text" },
+            { "field": "size", "label": "Size", "format": "text" },
+            { "field": "preferred", "label": "Best mode", "format": "text" },
+            { "field": "max_refresh", "label": "Fastest", "unit": "Hz", "format": "{:.0}" },
+            { "field": "position", "label": "Position", "format": "text" },
+            { "field": "year", "label": "Made", "format": "integer" }
+          ]
+        },
+        { "id": "control/activity", "type": "button", "span": 4, "label": "Activity log", "icon": "clock", "open": "activity" }
+      ]
+    },
+    {
+      "id": "header",
+      "title": "Header",
+      "icon": "overview",
+      "widgets": [
+        { "id": "header/os", "type": "status", "span": 2, "format": "text" },
+        { "id": "header/uptime", "type": "text", "span": 4, "level": "normal" },
+        { "id": "header/power", "type": "status", "span": 2, "format": "bool" },
+        { "id": "header/profile", "type": "status", "span": 2, "format": "text" }
+      ]
+    },
+    {
+      "id": "cpu",
+      "title": "CPU",
+      "icon": "chip",
+      "widgets": [
+        {
+          "id": "cpu/load",
+          "type": "graph",
+          "span": 4,
+          "label": "Load",
+          "icon": "chip",
+          "color": "cpu",
+          "series": [{ "label": "CPU", "color": "cpu", "unit": "%", "format": "percent" }],
+          "range": 600,
+          "height": "medium",
+          "min": 0,
+          "max": 100
+        },
+        {
+          "id": "cpu/cores",
+          "type": "bars",
+          "span": 4,
+          "label": "Cores",
+          "icon": "chip",
+          "color": "cpu",
+          "unit": "%",
+          "format": "percent",
+          "max": 100
+        },
+        {
+          "id": "cpu/details",
+          "type": "list",
+          "span": 4,
+          "label": "Details",
+          "icon": "overview",
+          "items": [
+            { "label": "Model", "format": "text" },
+            { "label": "Cores", "format": "text" },
+            { "label": "Temperature", "unit": "°C", "format": "temp" },
+            { "label": "Clock (average / top)", "format": "text" },
+            { "label": "Load average", "format": "text" },
+            { "label": "Uptime", "unit": "s", "format": "duration" }
+          ]
+        },
+        {
+          "id": "cpu/top",
+          "type": "table",
+          "span": 4,
+          "label": "Top processes",
+          "icon": "processes",
+          "open": "processes",
+          "source": "processes",
+          "columns": [
+            { "field": "name", "format": "text", "grow": true },
+            { "field": "cpu", "unit": "%", "format": "percent" },
+            { "field": "mem", "unit": "B", "format": "bytes" }
+          ],
+          "sort": { "field": "cpu", "desc": true },
+          "sorts": [],
+          "search": false,
+          "hide_empty": false
+        }
+      ]
+    },
+    {
+      "id": "memory",
+      "title": "Memory",
+      "icon": "memory",
+      "widgets": [
+        {
+          "id": "memory/use",
+          "type": "graph",
+          "span": 4,
+          "label": "Memory use",
+          "icon": "memory",
+          "color": "memory",
+          "series": [
+            { "label": "RAM", "color": "memory", "unit": "B", "format": "bytes" },
+            { "label": "Swap", "color": "swap", "unit": "B", "format": "bytes" }
+          ],
+          "range": 600,
+          "height": "medium",
+          "min": 0
+        },
+        {
+          "id": "memory/details",
+          "type": "list",
+          "span": 4,
+          "label": "Details",
+          "icon": "overview",
+          "items": [
+            { "label": "Used", "format": "text" },
+            { "label": "Available", "unit": "B", "format": "bytes" },
+            { "label": "Swap", "format": "text" }
+          ]
+        },
+        {
+          "id": "memory/top",
+          "type": "table",
+          "span": 4,
+          "label": "Top processes",
+          "icon": "processes",
+          "open": "processes",
+          "source": "processes",
+          "columns": [
+            { "field": "name", "format": "text", "grow": true },
+            { "field": "cpu", "unit": "%", "format": "percent" },
+            { "field": "mem", "unit": "B", "format": "bytes" }
+          ],
+          "sort": { "field": "mem", "desc": true },
+          "sorts": [],
+          "search": false,
+          "hide_empty": false
+        }
+      ]
+    },
+    {
+      "id": "gpu.nvidia",
+      "title": "Some GPU",
+      "icon": "gpu",
+      "widgets": [
+        {
+          "id": "gpu.nvidia/load",
+          "type": "graph",
+          "span": 4,
+          "label": "Load",
+          "icon": "gpu",
+          "color": "gpu",
+          "series": [{ "label": "Load", "color": "gpu", "unit": "%", "format": "percent" }],
+          "range": 600,
+          "height": "medium",
+          "min": 0,
+          "max": 100
+        },
+        {
+          "id": "gpu.nvidia/temp",
+          "type": "graph",
+          "span": 4,
+          "label": "Temperature",
+          "icon": "thermometer",
+          "color": "hot",
+          "series": [{ "label": "Temperature", "color": "hot", "unit": "°C", "format": "temp" }],
+          "range": 600,
+          "height": "medium",
+          "floor": 60
+        },
+        {
+          "id": "gpu.nvidia/details",
+          "type": "list",
+          "span": 4,
+          "label": "Details",
+          "icon": "overview",
+          "items": [
+            { "label": "Name", "format": "text" },
+            { "label": "Driver", "format": "text" },
+            { "label": "State", "format": "text" },
+            { "label": "Memory", "format": "text" },
+            { "label": "Clock", "format": "text" },
+            { "label": "Memory clock", "unit": "MHz", "format": "mhz" },
+            { "label": "Power", "unit": "W", "format": "watts" },
+            { "label": "Fan", "unit": "%", "format": "percent" }
+          ]
+        },
+        {
+          "id": "gpu.nvidia/top",
+          "type": "table",
+          "span": 4,
+          "label": "Top processes",
+          "icon": "processes",
+          "open": "processes",
+          "source": "processes",
+          "columns": [
+            { "field": "name", "format": "text", "grow": true },
+            { "field": "gpu", "unit": "%", "format": "percent" },
+            { "field": "gpu_mem", "unit": "B", "format": "bytes" }
+          ],
+          "sort": { "field": "gpu", "desc": true },
+          "sorts": [],
+          "search": false,
+          "hide_empty": false
+        }
+      ]
+    },
+    {
+      "id": "network",
+      "title": "Network",
+      "icon": "network",
+      "widgets": [
+        {
+          "id": "network/traffic",
+          "type": "graph",
+          "span": 4,
+          "label": "Traffic",
+          "icon": "network",
+          "color": "rx",
+          "series": [
+            { "label": "Download", "color": "rx", "unit": "B/s", "format": "rate" },
+            { "label": "Upload", "color": "tx", "unit": "B/s", "format": "rate" }
+          ],
+          "range": 600,
+          "height": "medium",
+          "floor": 65536
+        },
+        {
+          "id": "network/interfaces",
+          "type": "table",
+          "span": 4,
+          "label": "Interfaces",
+          "icon": "network",
+          "source": "net",
+          "columns": [
+            { "field": "name", "format": "text", "grow": true },
+            { "field": "kind", "format": "text" },
+            { "field": "rx", "label": "↓", "unit": "B/s", "format": "rate" },
+            { "field": "tx", "label": "↑", "unit": "B/s", "format": "rate" }
+          ],
+          "sorts": [],
+          "search": false,
+          "hide_empty": false,
+          "expand": [
+            { "field": "rx_total", "label": "Received", "unit": "B", "format": "bytes" },
+            { "field": "tx_total", "label": "Sent", "unit": "B", "format": "bytes" },
+            { "field": "speed", "label": "Link speed", "unit": "Mbit/s", "format": "integer" },
+            { "field": "addrs", "label": "Addresses", "format": "text" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "storage",
+      "title": "Storage",
+      "icon": "storage",
+      "widgets": [
+        {
+          "id": "storage/throughput",
+          "type": "graph",
+          "span": 4,
+          "label": "Throughput",
+          "icon": "storage",
+          "color": "read",
+          "series": [
+            { "label": "Read", "color": "read", "unit": "B/s", "format": "rate" },
+            { "label": "Write", "color": "write", "unit": "B/s", "format": "rate" }
+          ],
+          "range": 600,
+          "height": "medium",
+          "floor": 1048576
+        },
+        {
+          "id": "storage/devices",
+          "type": "table",
+          "span": 4,
+          "label": "Devices",
+          "icon": "storage",
+          "source": "disk_io",
+          "columns": [
+            { "field": "name", "format": "text", "grow": true },
+            { "field": "read", "label": "↓", "unit": "B/s", "format": "rate" },
+            { "field": "write", "label": "↑", "unit": "B/s", "format": "rate" }
+          ],
+          "sorts": [],
+          "search": false,
+          "hide_empty": true
+        },
+        {
+          "id": "storage/disks",
+          "type": "table",
+          "span": 4,
+          "label": "File systems",
+          "icon": "storage",
+          "source": "disks",
+          "columns": [
+            { "field": "mount", "format": "text", "grow": true },
+            { "field": "available", "label": "free", "unit": "B", "format": "bytes" },
+            { "field": "percent", "unit": "%", "format": "percent", "bar": { "max": 100 } }
+          ],
+          "sorts": [],
+          "search": false,
+          "hide_empty": false,
+          "expand": [
+            { "field": "used", "label": "Used", "unit": "B", "format": "bytes" },
+            { "field": "total", "label": "Size", "unit": "B", "format": "bytes" },
+            { "field": "fs", "label": "File system", "format": "text" },
+            { "field": "device", "label": "Device", "format": "text" }
+          ]
+        },
+        {
+          "id": "storage/top",
+          "type": "table",
+          "span": 4,
+          "label": "Top processes",
+          "icon": "processes",
+          "open": "processes",
+          "source": "processes",
+          "columns": [
+            { "field": "name", "format": "text", "grow": true },
+            { "field": "read", "unit": "B/s", "format": "rate" },
+            { "field": "write", "unit": "B/s", "format": "rate" }
+          ],
+          "sort": { "field": "io", "desc": true },
+          "sorts": [],
+          "search": false,
+          "hide_empty": false
+        }
+      ]
+    },
+    {
+      "id": "battery",
+      "title": "Battery",
+      "icon": "battery",
+      "widgets": [
+        {
+          "id": "battery/power",
+          "type": "graph",
+          "span": 4,
+          "label": "Power draw",
+          "icon": "bolt",
+          "color": "battery",
+          "series": [{ "label": "Power", "color": "battery", "unit": "W", "format": "watts" }],
+          "range": 600,
+          "height": "medium",
+          "floor": 5
+        },
+        {
+          "id": "battery/details",
+          "type": "list",
+          "span": 4,
+          "label": "Details",
+          "icon": "battery",
+          "items": [
+            { "label": "Charge", "unit": "%", "format": "percent" },
+            { "label": "State", "format": "text" },
+            { "label": "Power", "unit": "W", "format": "watts" },
+            { "label": "Time", "format": "text" },
+            { "label": "Energy now", "unit": "Wh", "format": "wh" },
+            { "label": "Full charge", "unit": "Wh", "format": "wh" },
+            { "label": "Design capacity", "unit": "Wh", "format": "wh" },
+            { "label": "Health", "unit": "%", "format": "percent" },
+            { "label": "Charge cycles", "format": "integer" },
+            { "label": "Model", "format": "text" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "activity",
+      "title": "Activity log",
+      "icon": "clock",
+      "widgets": [
+        {
+          "id": "activity/log",
+          "type": "table",
+          "span": 4,
+          "source": "activity",
+          "columns": [
+            { "field": "what", "format": "text", "grow": true },
+            { "field": "result", "format": "text" },
+            { "field": "t", "unit": "ms", "format": "time" }
+          ],
+          "sort": { "field": "t", "desc": true },
+          "sorts": [],
+          "search": true,
+          "hide_empty": false,
+          "expand": [{ "field": "phone", "label": "Phone", "format": "text" }, { "field": "message", "label": "Message", "format": "text" }]
+        }
+      ]
+    }
+  ],
+  "actions": [
+    { "id": "power.poweroff", "name": "Shut down", "kind": "power", "icon": "power", "confirm": true, "unlock": true, "params": [] },
+    { "id": "power.reboot", "name": "Restart", "kind": "power", "icon": "restart", "confirm": true, "unlock": true, "params": [] },
+    { "id": "power.suspend", "name": "Sleep", "kind": "power", "icon": "moon", "confirm": true, "unlock": true, "params": [] },
+    { "id": "power.lock", "name": "Lock", "kind": "power", "icon": "lock", "confirm": true, "unlock": true, "params": [] },
+    {
+      "id": "profile.set",
+      "name": "Power profile",
+      "kind": "profile",
+      "icon": "bolt",
+      "confirm": false,
+      "unlock": false,
+      "params": [
+        {
+          "id": "profile",
+          "kind": "choice",
+          "label": "Profile",
+          "choices": [
+            { "value": "power-saver", "label": "Power saver" },
+            { "value": "balanced", "label": "Balanced" },
+            { "value": "performance", "label": "Performance" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "process.signal",
+      "name": "Signal",
+      "kind": "signal",
+      "icon": "processes",
+      "confirm": true,
+      "unlock": true,
+      "params": [
+        { "id": "pid", "kind": "integer", "label": "Process" },
+        {
+          "id": "signal",
+          "kind": "choice",
+          "label": "Signal",
+          "choices": [{ "value": "term", "label": "Quit" }, { "value": "kill", "label": "Force kill" }]
+        },
+        { "id": "start", "kind": "integer", "label": "Started", "optional": true }
+      ]
+    },
+    {
+      "id": "media.play_pause",
+      "name": "Play or pause",
+      "kind": "media",
+      "icon": "play",
+      "confirm": false,
+      "unlock": false,
+      "params": [{ "id": "player", "kind": "string", "label": "Player" }]
+    },
+    {
+      "id": "media.next",
+      "name": "Next",
+      "kind": "media",
+      "icon": "next",
+      "confirm": false,
+      "unlock": false,
+      "params": [{ "id": "player", "kind": "string", "label": "Player" }]
+    },
+    {
+      "id": "media.previous",
+      "name": "Previous",
+      "kind": "media",
+      "icon": "previous",
+      "confirm": false,
+      "unlock": false,
+      "params": [{ "id": "player", "kind": "string", "label": "Player" }]
+    },
+    {
+      "id": "media.seek",
+      "name": "Seek",
+      "kind": "media",
+      "icon": "play",
+      "confirm": false,
+      "unlock": false,
+      "params": [
+        { "id": "player", "kind": "string", "label": "Player" },
+        { "id": "position", "kind": "number", "label": "Position", "unit": "s" }
+      ]
+    },
+    {
+      "id": "volume.set",
+      "name": "Volume",
+      "kind": "media",
+      "icon": "volume",
+      "confirm": false,
+      "unlock": false,
+      "params": [
+        { "id": "level", "kind": "range", "label": "Level", "min": 0, "max": 100, "step": 1, "unit": "%", "optional": true },
+        { "id": "muted", "kind": "bool", "label": "Muted", "optional": true }
+      ]
+    }
+  ]
+}
