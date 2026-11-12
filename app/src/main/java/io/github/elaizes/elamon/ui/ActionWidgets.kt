@@ -347,7 +347,7 @@ fun SelectWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 					verticalArrangement = Arrangement.spacedBy(Space.xsPlus),
 				) {
 					if (action?.id == PROFILE_SET) Icon(profileIcon(c.value), null, tint = fg)
-					Text(name, style = MaterialTheme.typography.labelLarge, color = fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+					Text(name, style = MaterialTheme.typography.labelMedium, color = fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
 				}
 			}
 			// The last row's choices as wide as the others.
