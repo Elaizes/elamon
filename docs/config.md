@@ -137,7 +137,12 @@ use = "default"
 | a phone pairs whose key is gone (the phone was reset, or its entry unpaired), and an unpaired phone of the same name had a table | `elamond pair` asks whether to give that table to it; `--yes` gives it none by name, nor does `--profile`, which decides |
 | a phone on Elamon 0.6.1 gets a key of its own after Import pairings | a table for it, using the profile of the phone the key came from |
 | `elamond revoke` | the phone's table goes when it is as pairing wrote it (`name` and `use` alone) and nothing else has it: no profile uses it, it isn't `default_profile`, no other phone has it as its profile; otherwise it stays, with a note, for a phone paired again to take |
-| the service starts, and phones paired before 0.6.1 have no table | each gets one, using the profile it had (`use = "owner"` for one that had `owner`) |
+| the phone forgets the computer (*Forget computer* in the app, [`unpair`](protocol.md#post-apiv1unpair)) | its entry is unpaired, and its table stays, always, with a note above it (`# Unpaired 2026-11-15; kept for a phone paired again (elamond pair offers it to one named "Galaxy S25").`): paired again, the phone is offered it by name |
+
+`elamond check` names each table of phones.toml that no paired phone has as its own: when it was
+unpaired (from its note), and that `elamond pair` offers it to a phone of the same name, or that it
+can be taken out. A table a phone has as its profile without it being its own (`elamond clients
+profile`), or that a profile uses, isn't named.
 
 `elamond clients profile ID PROFILE` still gives a phone any profile of the settings, one shared by
 several phones say; its own table stays in phones.toml, for `elamond clients profile ID <its table>`

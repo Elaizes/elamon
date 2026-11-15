@@ -169,7 +169,8 @@ the service answers 401 `{ "error": "unauthorized" }`. A phone removed with `ela
 
 The token is all the service knows a phone by: whatever the app asks before using it (unlocking
 the phone, say) only the app enforces, so a token copied off a phone works without it. That is
-what `elamond revoke` is for. A phone that holds another's token (the app before 0.6.2 carried
+what `elamond revoke` is for, and what a phone that forgets the computer asks itself
+([`unpair`](#post-apiv1unpair)). A phone that holds another's token (the app before 0.6.2 carried
 one over with Export pairings) is the phone it was given to until it asks for a key of its own
 ([`rekey`](#post-apiv1rekey)); afterwards each is an entry of its own, the new one *added with the
 key of* the old. The two are a family: they share one share of the activity log. `elamond revoke
@@ -202,6 +203,23 @@ others pair). 403 `too_many_phones` when 64 phones are paired. It needs no contr
 in the [activity log](#activity-log) as `phone added: <device>` under the phone that asked, with the
 new entry's id and role in `message`. 500 `storage` when the list of phones can't be written, or no
 longer parses (it is never written over); 413 for a body over 4 KiB.
+
+### `POST /api/v1/unpair`
+
+A phone that forgets the computer unpairs itself: the entry whose token asks is unpaired, as
+`elamond revoke` of it alone would, and nothing else: never the entries added with its key, which
+stay paired. Any role may ask, and it needs no control (it works with `control = false` and after
+`elamond control off`). No body is read.
+
+200 `{ "ok": true }`: from then on its token gets 401 and any stream it has open ends. Its own
+table in [phones.toml](config.md#phones) stays, whatever is in it, with a note above it
+(`# Unpaired <date>; kept for a phone paired again (elamond pair offers it to one named "<name>").`),
+so that `elamond pair` offers it to the phone when it pairs again. The service's journal says
+`pairing: "<name>" (<id>) unpaired itself`. 500 `storage` when the list of phones can't be written,
+or no longer parses (it is never written over).
+
+A service before 0.6.2 answers 404 `not_found`; a client then forgets the computer all the same and
+says to run `elamond revoke` there, as it does when it can't reach the computer.
 
 ## A new certificate
 
