@@ -1,5 +1,11 @@
 package io.github.elaizes.elamon.ui
 
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
 import kotlin.math.abs
 import kotlin.math.max
 import io.github.elaizes.elamon.Points
@@ -104,4 +110,109 @@ fun Points.peak(tStart: Long): Float {
 		if (!v.isNaN() && (top.isNaN() || v > top)) top = v
 	}
 	return top
+}
+
+// ---- time axes -----------------------------------------------------------------------------------
+
+/** How a time axis's labels read: a time of day, a day, a month, a year. */
+enum class TickUnit { Time, Day, Month, Year }
+
+/** A time axis's labels: when each falls (Unix ms), and how they read. */
+data class Ticks(val unit: TickUnit, val times: List<Long>)
+
+/** A step between labels: [n] of [unit], each label at a round local moment of it. */
+private class TickStep(val unit: ChronoUnit, val n: Int, val reads: TickUnit)
+
+private val TICK_STEPS = listOf(
+	TickStep(ChronoUnit.MINUTES, 1, TickUnit.Time),
+	TickStep(ChronoUnit.MINUTES, 2, TickUnit.Time),
+	TickStep(ChronoUnit.MINUTES, 5, TickUnit.Time),
+	TickStep(ChronoUnit.MINUTES, 10, TickUnit.Time),
+	TickStep(ChronoUnit.MINUTES, 15, TickUnit.Time),
+	TickStep(ChronoUnit.MINUTES, 30, TickUnit.Time),
+	TickStep(ChronoUnit.HOURS, 1, TickUnit.Time),
+	TickStep(ChronoUnit.HOURS, 2, TickUnit.Time),
+	TickStep(ChronoUnit.HOURS, 3, TickUnit.Time),
+	TickStep(ChronoUnit.HOURS, 6, TickUnit.Time),
+	TickStep(ChronoUnit.HOURS, 12, TickUnit.Time),
+	TickStep(ChronoUnit.DAYS, 1, TickUnit.Day),
+	TickStep(ChronoUnit.DAYS, 2, TickUnit.Day),
+	TickStep(ChronoUnit.WEEKS, 1, TickUnit.Day),
+	TickStep(ChronoUnit.WEEKS, 2, TickUnit.Day),
+	TickStep(ChronoUnit.MONTHS, 1, TickUnit.Month),
+	TickStep(ChronoUnit.MONTHS, 2, TickUnit.Month),
+	TickStep(ChronoUnit.MONTHS, 3, TickUnit.Month),
+	TickStep(ChronoUnit.MONTHS, 6, TickUnit.Month),
+	TickStep(ChronoUnit.YEARS, 1, TickUnit.Year),
+	TickStep(ChronoUnit.YEARS, 2, TickUnit.Year),
+	TickStep(ChronoUnit.YEARS, 5, TickUnit.Year),
+	TickStep(ChronoUnit.YEARS, 10, TickUnit.Year),
+)
+
+/**
+ * The labels of a time axis from [start] to [end] (Unix ms), at most [most] of them: at round
+ * moments of the clock in [zone] (every 6 hours from midnight, each Monday, each first of a month),
+ * the shortest step that keeps to [most]. None when [most] is under 1 or the axis spans nothing.
+ */
+fun timeTicks(start: Long, end: Long, most: Int, zone: ZoneId): Ticks {
+	val none = Ticks(TickUnit.Time, emptyList())
+	if (most < 1 || end <= start) return none
+	for (step in TICK_STEPS) {
+		// Times past what a calendar holds come from a broken answer: no labels rather than a crash.
+		val times = runCatching { ticksOf(step, start, end, most, zone) }.getOrElse { return none } ?: continue
+		return Ticks(step.reads, times)
+	}
+	return none
+}
+
+/** [step]'s moments from [start] to [end], by the local clock in [zone]; null past [most]. */
+private fun ticksOf(step: TickStep, start: Long, end: Long, most: Int, zone: ZoneId): List<Long>? {
+	var at = firstTick(step, LocalDateTime.ofInstant(Instant.ofEpochMilli(start), zone))
+	val out = ArrayList<Long>(most)
+	while (true) {
+		val ms = at.atZone(zone).toInstant().toEpochMilli()
+		if (ms > end) return out
+		if (ms >= start) {
+			if (out.size == most) return null
+			out += ms
+		}
+		at = at.plus(step.n.toLong(), step.unit)
+	}
+}
+
+/** The round moment of [step] at or before [t]: its unit's start, on a multiple of [TickStep.n]. */
+private fun firstTick(step: TickStep, t: LocalDateTime): LocalDateTime {
+	val day = t.toLocalDate().atStartOfDay()
+	return when (step.unit) {
+		ChronoUnit.MINUTES -> t.truncatedTo(ChronoUnit.MINUTES).withMinute(t.minute - t.minute % step.n)
+		ChronoUnit.HOURS -> t.truncatedTo(ChronoUnit.HOURS).withHour(t.hour - t.hour % step.n)
+		ChronoUnit.DAYS -> day.minusDays(Math.floorMod(day.toLocalDate().toEpochDay(), step.n.toLong()))
+		ChronoUnit.WEEKS -> day.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).let { monday ->
+			// Every other Monday counted from the epoch's first, so the labels don't move as the window does.
+			monday.minusWeeks(Math.floorMod(Math.floorDiv(monday.toLocalDate().toEpochDay() - FIRST_MONDAY, DAYS_PER_WEEK), step.n.toLong()))
+		}
+		ChronoUnit.MONTHS -> day.withDayOfMonth(1).let { it.withMonth(it.monthValue - (it.monthValue - 1) % step.n) }
+		else -> day.withDayOfYear(1).let { it.withYear(it.year - Math.floorMod(it.year, step.n)) }
+	}
+}
+
+/** 1970-01-05, the epoch's first Monday, as a day of the epoch. */
+private const val FIRST_MONDAY = 4L
+private const val DAYS_PER_WEEK = 7L
+
+/**
+ * Where the labels of an axis [width] wide go: each centred on its moment's x in [xs], [widths]
+ * wide, kept inside the axis; one that would come closer than [gap] to the one before is left
+ * out. Each shown label's index and left edge.
+ */
+fun axisLabels(xs: FloatArray, widths: FloatArray, width: Float, gap: Float): List<Pair<Int, Float>> {
+	val out = ArrayList<Pair<Int, Float>>(xs.size)
+	var right = Float.NEGATIVE_INFINITY
+	for (i in xs.indices) {
+		val left = (xs[i] - widths[i] / 2).coerceIn(0f, max(0f, width - widths[i]))
+		if (left < right + gap) continue
+		out += i to left
+		right = left + widths[i]
+	}
+	return out
 }

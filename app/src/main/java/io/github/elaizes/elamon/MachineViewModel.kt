@@ -41,6 +41,7 @@ import io.github.elaizes.elamon.data.ElamondException
 import io.github.elaizes.elamon.data.Hello
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.StreamOpen
+import io.github.elaizes.elamon.data.TimelineHistory
 import io.github.elaizes.elamon.data.Subscribe
 import io.github.elaizes.elamon.data.UiCache
 import io.github.elaizes.elamon.data.UiChanged
@@ -75,6 +76,21 @@ data class MachineState(
 	val compat: Compat = Compat.Ok,
 	/** With [Conn.Offline]: the addresses and names the computer was looked for at last, in vain. */
 	val tried: List<String> = emptyList(),
+	/** The graphs and timelines shown over a long range instead of live, by widget id. */
+	val ranges: Map<String, RangeView> = emptyMap(),
+)
+
+/** A graph or timeline shown over a long range: which one, and how asking the computer for it went. */
+data class RangeView(
+	val range: HistoryRange,
+	/** Asked for, not answered yet. */
+	val loading: Boolean = true,
+	/** The computer couldn't give it: the live view stays, saying so. */
+	val failed: Boolean = false,
+	/** A graph's buckets: how long each is; a stream's point joins them only once one has passed. */
+	val stepMs: Long = 0,
+	/** A timeline's segments over the range. */
+	val timeline: TimelineHistory? = null,
 )
 
 /** What the stream is asked for: the dashboard on screen, how often, and the tables asked for another order than their own. */
@@ -193,6 +209,10 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 
 	/** The graphs' and sparks' points, by widget id. */
 	private val hists = HashMap<String, Hist>()
+
+	/** The points of the graphs shown over a long range, by widget id; and what asks the computer for them. */
+	private val longHists = HashMap<String, Hist>()
+	private val fetches = HashMap<String, Job>()
 	private var histCount = 0L
 
 	private val _actions = MutableStateFlow(ActionsState())
@@ -257,7 +277,11 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		if (v) {
 			stopping?.cancel()
 			stopping = null
-			if (job?.isActive != true) start()
+			if (job?.isActive != true) {
+				start()
+				// Back on the screen: the long ranges are asked for again, to reach to now.
+				for ((id, view) in _state.value.ranges) fetchRange(id, view.range)
+			}
 		} else if (job?.isActive == true && stopping == null) {
 			stopping = viewModelScope.launch {
 				delay(Limits.STOP_GRACE_MS)
@@ -290,6 +314,73 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 
 	/** The points of the graph or spark [widget]; null until it has any. */
 	fun hist(widget: String): Hist? = hists[widget]
+
+	/** The points of the graph [widget] over the long range it shows; null while it shows none, or has none yet. */
+	fun longHist(widget: String): Hist? = longHists[widget]
+
+	/**
+	 * Shows the graph or timeline [w] over [range], asked of the computer, the stream's points
+	 * joining it as they come; null shows it live again.
+	 */
+	fun showRange(w: Widget, range: HistoryRange?) {
+		fetches.remove(w.id)?.cancel()
+		longHists.remove(w.id)
+		if (range == null) {
+			_state.update { it.copy(ranges = it.ranges - w.id) }
+			return
+		}
+		_state.update { it.copy(ranges = it.ranges + (w.id to RangeView(range))) }
+		fetchRange(w.id, range)
+	}
+
+	/**
+	 * Asks the computer for [id] over [range], once the stream works. Asked again, what the screen
+	 * has stays until the answer, and stays when there is none; asked the first time, no answer
+	 * leaves the live view, saying so.
+	 */
+	private fun fetchRange(id: String, range: HistoryRange) {
+		fetches.remove(id)?.cancel()
+		fetches[id] = viewModelScope.launch {
+			withTimeoutOrNull(Limits.REQUEST_TIMEOUT_MS.toLong()) { _state.first { it.conn == Conn.Live } }
+			val w = _state.value.ui?.let { findWidget(it, id) }
+			try {
+				val c = client() ?: throw ElamondException(ElamondException.Kind.Unreachable)
+				when (w?.type) {
+					"graph" -> {
+						val a = c.graphHistory(id, range.key)
+						val count = w.series?.size?.coerceAtLeast(1) ?: 1
+						// The range's buckets reach from its start to now.
+						val h = Hist(count, (a.to - a.from).coerceAtLeast(a.stepMs)).apply {
+							stepHintMs = a.stepMs
+							replace(a.entry)
+						}
+						if (_state.value.ranges[id]?.range != range) return@launch
+						longHists[id] = h
+						histCount++
+						settle(id, range) { it.copy(loading = false, failed = false, stepMs = a.stepMs) }
+					}
+					"timeline" -> {
+						val a = c.timelineHistory(id, range.key)
+						settle(id, range) { it.copy(loading = false, failed = false, timeline = a) }
+					}
+					else -> throw ElamondException(ElamondException.Kind.NotFound)
+				}
+			} catch (e: CancellationException) {
+				throw e
+			} catch (e: Exception) {
+				val had = longHists[id] != null || _state.value.ranges[id]?.timeline != null
+				settle(id, range) { it.copy(loading = false, failed = !had) }
+			}
+		}
+	}
+
+	/** Changes how [id] shows its long range while that is still [range]: an answer for one left since is late. */
+	private fun settle(id: String, range: HistoryRange, change: (RangeView) -> RangeView) {
+		_state.update { s ->
+			val v = s.ranges[id]?.takeIf { it.range == range } ?: return@update s
+			s.copy(ranges = s.ranges + (id to change(v)), histVersion = histCount)
+		}
+	}
 
 	fun retry() {
 		if (!visible) return
@@ -494,6 +585,15 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 			w.copy(dashboard = d, intervalMs = interval, sorts = sorts)
 		}
 		for (h in hists.values) h.stepHintMs = interval.toLong()
+		// A long range stays only while the widget still offers it.
+		val gone = _state.value.ranges.filter { (id, v) -> findWidget(clean, id)?.ranges?.contains(v.range.key) != true }.keys
+		if (gone.isNotEmpty()) {
+			for (id in gone) {
+				fetches.remove(id)?.cancel()
+				longHists.remove(id)
+			}
+			_state.update { it.copy(ranges = it.ranges - gone) }
+		}
 		if (!fresh) return
 		viewModelScope.launch { cache.putUi(machineId, clean, ticket) }
 		val saved = store.get(machineId) ?: return
@@ -517,7 +617,11 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 				h.windowMs = window
 				h.stepHintMs = wanted.value.intervalMs.toLong()
 				val s = line.widgets[w.id]
-				h.take(line.t, if (graph) s?.numbers.orEmpty() else listOf(s?.number), line.history?.get(w.id))
+				val values = if (graph) s?.numbers.orEmpty() else listOf(s?.number)
+				h.take(line.t, values, line.history?.get(w.id))
+				// Over a long range, a point to a bucket.
+				val step = _state.value.ranges[w.id]?.stepMs
+				if (step != null) longHists[w.id]?.appendEvery(line.t, values, step)
 			}
 		}
 		histCount++

@@ -46,6 +46,7 @@ import io.github.elaizes.elamon.MachineViewModel
 import io.github.elaizes.elamon.Points
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.Settings
+import io.github.elaizes.elamon.rangeChips
 import io.github.elaizes.elamon.data.Grid
 import io.github.elaizes.elamon.data.Series
 import io.github.elaizes.elamon.data.UniqueKeys
@@ -452,6 +453,15 @@ private fun GraphWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 		return
 	}
 	val single = series.size == 1
+	// Over a long range, the computer's history of it, the stream's points joining it; live otherwise,
+	// and where the computer couldn't give it.
+	val chips = rangeChips(window, w.ranges)
+	val view = scope.machine.ranges[w.id]?.takeIf { v -> chips.any { it.range == v.range } }
+	val long = view?.takeUnless { it.failed }
+	val lh = if (long != null) scope.vm.longHist(w.id) else null
+	val shown = if (long == null) chart else chart.mapIndexed { i, c ->
+		ChartSeries(lh?.points(i) ?: NoPoints(long.range.ms ?: window), c.color, name = c.name, value = c.value, format = c.format)
+	}
 	WidgetSection(
 		scope,
 		w,
@@ -461,15 +471,20 @@ private fun GraphWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 			{ now.firstOrNull()?.let { RollingText(Fmt.number(it, first.format, first.unit), MaterialTheme.typography.titleLarge, color = colors[0]) } }
 		} else null,
 	) {
+		if (chips.isNotEmpty()) RangeChips(chips, long?.range) { scope.vm.showRange(w, it) }
 		if (empty != null) Text(empty, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		RangeNote(view, chips, has = lh != null)
 		LineChart(
-			chart,
+			shown,
 			maxValue = maxValue,
 			minScale = floor,
 			binary = binary,
 			height = if (w.height == "large") ChartStyle.large else ChartStyle.detail,
 			label = { v -> Fmt.number(v.toDouble(), first.format, first.unit) },
+			span = long?.let { v -> rangeLabel(chips.first { it.range == v.range }) },
+			moment = if (long != null) ::moment else null,
 		)
+		if (lh != null && lh.size > 0) TimeAxis(lh.lastTime - lh.windowMs, lh.lastTime)
 		if (!single) {
 			@OptIn(ExperimentalLayoutApi::class)
 			FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.l), verticalArrangement = Arrangement.spacedBy(Space.xs)) {

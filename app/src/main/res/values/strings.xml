@@ -266,8 +266,21 @@
 	<string name="err_bad_sort">That table can\'t be sorted that way</string>
 	<string name="err_bad_param">The computer didn\'t take the value of “%1$s”</string>
 	<!-- 0.7: the long history and a station's commands -->
-	<string name="err_no_such_widget">That graph is no longer in what this computer shows this phone</string>
+	<string name="err_no_such_widget">That graph or timeline is no longer in what this computer shows this phone</string>
 	<string name="err_confirm_required">The computer asks for this command to be typed in before it runs</string>
+	<!-- The chips over a graph or timeline: its own span, live ("10 min", "24 h"), then the long ranges. -->
+	<string name="range_seconds">%1$d s</string>
+	<string name="range_minutes">%1$d min</string>
+	<string name="range_hours">%1$d h</string>
+	<plurals name="range_days">
+		<item quantity="one">%1$d day</item>
+		<item quantity="other">%1$d days</item>
+	</plurals>
+	<string name="range_year">Year</string>
+	<string name="range_all">All</string>
+	<string name="range_loading">Loading…</string>
+	<!-- A long range the computer couldn't give: "Couldn't load 7 days. Showing the live readings." -->
+	<string name="range_failed">Couldn\'t load %1$s. Showing the live readings.</string>
 	<string name="done_ran">%1$s: done</string>
 	<string name="action_prompt">%1$s on %2$s</string>
 	<string name="action_question">%1$s?</string>

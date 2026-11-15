@@ -80,7 +80,9 @@ class ChartSeries(
  * point sits where its moment falls whatever the update interval. A long pause breaks the line.
  * Dragging a finger along it shows the values at the nearest moment. [maxValue] fixes the scale
  * (100 for percentages); otherwise it follows the data with headroom, to round numbers ([binary]
- * for bytes) unless [round] is off. A screen reader hears each named series' newest value and peak.
+ * for bytes) unless [round] is off. A screen reader hears each named series' newest value and peak,
+ * over [span] (the window's length unless given). A touch reads the moment as [moment] says (how
+ * long ago, unless given).
  */
 @Composable
 fun LineChart(
@@ -94,6 +96,8 @@ fun LineChart(
 	grid: Boolean = true,
 	label: ((Float) -> String)? = null,
 	interactive: Boolean = true,
+	span: String? = null,
+	moment: ((Long) -> String)? = null,
 ) {
 	val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = Alpha.GRID)
 	val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -127,7 +131,7 @@ fun LineChart(
 	} else Modifier
 
 	// Worked out only when something asks, so a phone without a screen reader doesn't pay for it.
-	val summary = Modifier.semantics { chartDescription(res, series)?.let { contentDescription = it } }
+	val summary = Modifier.semantics { chartDescription(res, series, span)?.let { contentDescription = it } }
 
 	Canvas(modifier.fillMaxWidth().height(height).then(touch).then(summary)) {
 		val w = size.width
@@ -173,7 +177,7 @@ fun LineChart(
 		drawLine(labelColor.copy(alpha = Alpha.CROSSHAIR), Offset(x, 0f), Offset(x, h), strokeWidth = ChartStyle.crosshair.toPx())
 		val tip = cache.tip
 		tip.setLength(0)
-		tip.append(Fmt.ago(res, ((tLast - t) / 1000).coerceAtLeast(0)))
+		tip.append(moment?.invoke(t) ?: Fmt.ago(res, ((tLast - t) / 1000).coerceAtLeast(0)))
 		for (k in series.indices) {
 			val s = series[k]
 			val p = s.points
@@ -316,7 +320,7 @@ private fun DrawScope.drawSeries(s: ChartSeries, tr: Tracer, stroke: Stroke, sca
 }
 
 /** What a chart says to a screen reader: each named series' newest value and its peak, over the time it spans. */
-private fun chartDescription(res: Resources, series: List<ChartSeries>): String? {
+private fun chartDescription(res: Resources, series: List<ChartSeries>, span: String?): String? {
 	val first = series.firstOrNull() ?: return null
 	val tLast = series.maxOf { it.points.lastTime() }
 	val window = first.points.windowMs
@@ -328,7 +332,7 @@ private fun chartDescription(res: Resources, series: List<ChartSeries>): String?
 		else res.getString(R.string.a11y_chart_series, name, value(now), value(s.points.peak(tLast - window)))
 	}
 	if (parts.isEmpty()) return null
-	return res.getString(R.string.a11y_chart, Fmt.duration(window / 1000), parts.joinToString(res.getString(R.string.a11y_list_separator)))
+	return res.getString(R.string.a11y_chart, span ?: Fmt.duration(window / 1000), parts.joinToString(res.getString(R.string.a11y_list_separator)))
 }
 
 /** A compact chart without grid or labels, for tiles; [name] and [value] are what a screen reader hears. */
