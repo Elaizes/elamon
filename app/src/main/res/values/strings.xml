@@ -279,8 +279,8 @@
 	<string name="range_year">Year</string>
 	<string name="range_all">All</string>
 	<string name="range_loading">Loading…</string>
-	<!-- A long range the computer couldn't give: "Couldn't load 7 days. Showing the live readings." -->
-	<string name="range_failed">Couldn\'t load %1$s. Showing the live readings.</string>
+	<!-- A long range the computer couldn't give, by its chip: "Couldn't load “7 days”. Showing the live readings." -->
+	<string name="range_failed">Couldn\'t load “%1$s”. Showing the live readings.</string>
 	<!-- A timeline: when a UPS or a power station was on line, on battery, or nothing was known. -->
 	<string name="timeline_line">On line</string>
 	<string name="timeline_battery">On battery</string>
