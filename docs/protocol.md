@@ -2,8 +2,8 @@
 
 elamond, the Elamon service, serves HTTPS on port 47823. Its certificate is self-signed; clients
 identify the service by the SHA-256 of that certificate (lowercase hex, 64 characters), not by a
-name. A certificate the service renews, it signs over with the one before
-([certificate rotation](#certificate-rotation)).
+name. The certificate holds until `elamond rotate-cert` replaces it with another
+([a new certificate](#a-new-certificate)), which every phone is then paired again with.
 
 All bodies are JSON. Clients must ignore fields they don't know: new fields are added without
 changing the API number. A field keeps its name and its meaning for as long as the API number stays
@@ -67,8 +67,7 @@ The service announces `_elamon._tcp` over mDNS with TXT records:
 Only on the local network: on wired and wireless interfaces (and bridges, bonds and VLANs
 over them) that the service listens on, with the addresses it listens on there; never on a VPN
 or on a bridge for containers or virtual machines. Where none of its interfaces is one of those,
-it announces nothing. After a [certificate rotation](#certificate-rotation), `fp` is the new
-certificate's.
+it announces nothing.
 
 ## Pairing
 
@@ -116,11 +115,9 @@ it pinned for that computer and to its token; the one that worked last stays the
 None of them makes a computer of another: whatever answers there is accepted only with the paired
 id and certificate.
 
-An address may try 5 wrong codes; after that it is answered 429 `too_many_requests`, whatever it
-sends, for as long as the code lives (an IPv6 address counts by its /64). Other addresses can still
-pair until 20 wrong codes in all use the code up. Attempts are judged one at a time, and each wrong
-one is answered after a second; neither that second nor a phone waiting to be let in (below) holds
-up anyone else's attempt.
+20 wrong codes in all, from wherever they come, use the code up. Attempts are judged one at a
+time, and each wrong one is answered after a second; neither that second nor a phone waiting to be
+let in (below) holds up anyone else's attempt.
 
 The person at the computer lets the phone in. A phone that gives the right code is shown
 at the running `elamond pair` (`Phone "<device>" from <address> asks to pair as <role>. Allow?
@@ -143,8 +140,7 @@ At most 64 phones are paired at once, keys of their own ([`rekey`](#post-apiv1re
 after up to 90 seconds while the person at `elamond pair` decides.
 403: `{ "error": "wrong_code" }`, `{ "error": "no_pairing" }` when no code is pending (or a phone
 that gave it waits to be let in), `{ "error": "pair_declined" }` when the phone wasn't let in,
-`{ "error": "too_many_phones" }` when 64 are paired already; 429 `{ "error": "too_many_requests" }`
-from an address that tried too many wrong codes; 413 for a body over 4 KiB. `device` is cleaned
+`{ "error": "too_many_phones" }` when 64 are paired already; 413 for a body over 4 KiB. `device` is cleaned
 (controls and Unicode format characters taken out, 64 characters kept) and is `Phone` when nothing
 is left.
 
@@ -173,20 +169,20 @@ the service answers 401 `{ "error": "unauthorized" }`. A phone removed with `ela
 
 The token is all the service knows a phone by: whatever the app asks before using it (unlocking
 the phone, say) only the app enforces, so a token copied off a phone works without it. That is
-what `elamond revoke` is for. The app can carry the token to another phone (Export
-pairings, sealed with a passphrase). Until that phone asks for a key of its own
-([`rekey`](#post-apiv1rekey)), which the app does at its first connection after the import, the
-service sees it as the phone the token was given to; afterwards each is an entry of its own, the
-new one *added with the key of* the old. The two are a family: they share one rate of acting and
-one share of the activity log. `elamond revoke ID` of the old one leaves the new one paired and
-names it loudly; `elamond revoke ID --with-added` unpairs the whole family (by the old one's id
-even once it is gone), and `elamond clients role ID ROLE --with-added` changes all their roles.
-`elamond backup` and `elamond restore` carry the service's side: its id, certificate and key, and
-the hashes of the tokens, so a restored service accepts the tokens it gave out before.
+what `elamond revoke` is for. A phone that holds another's token (the app before 0.6.2 carried
+one over with Export pairings) is the phone it was given to until it asks for a key of its own
+([`rekey`](#post-apiv1rekey)); afterwards each is an entry of its own, the new one *added with the
+key of* the old. The two are a family: they share one share of the activity log. `elamond revoke
+ID` of the old one leaves the new one paired and names it loudly; `elamond revoke ID --with-added`
+unpairs the whole family (by the old one's id even once it is gone), and `elamond clients role ID
+ROLE --with-added` changes all their roles. `elamond backup` and `elamond restore` carry the
+service's side: its id, certificate and key, and the hashes of the tokens, so a restored service
+accepts the tokens it gave out before.
 
 ### `POST /api/v1/rekey`
 
-A key of its own for a phone that holds another's token, as one does after Import pairings.
+A key of its own for a phone that holds another's token, as one did after Import pairings in the
+app before 0.6.2.
 
 ```json
 { "device": "Phone name" }
@@ -202,75 +198,20 @@ entries added with its key.
 Any role may ask, and none is raised (a `role` in the body is ignored). A token gives one key of
 its own: only an entry paired with a code may ask, and once; the entry that asked again, or the
 new one, gets 403 `rekey_refused` (so a token copied to several phones gives one of them a key; the
-others pair). 403 `too_many_phones` when 64 phones are paired. It needs no control, but counts as
-acting: it is limited as acting is, the family's one rate ([how often](#how-often)), and recorded
+others pair). 403 `too_many_phones` when 64 phones are paired. It needs no control, but is recorded
 in the [activity log](#activity-log) as `phone added: <device>` under the phone that asked, with the
 new entry's id and role in `message`. 500 `storage` when the list of phones can't be written, or no
-longer parses (it is never written over); 413 for a body over 4 KiB. The app asks each computer
-it imported at the first connection to it that works. After `rekey_refused` or `too_many_phones`
-it keeps the shared token, so there the two phones stay one entry and revoking it cuts off both,
-and doesn't ask again until the app is restarted: asking again won't change them. After any other
-failure it asks again at a later connection.
+longer parses (it is never written over); 413 for a body over 4 KiB.
 
-## Certificate rotation
+## A new certificate
 
-`elamond rotate-cert` gives the service a new key and certificate. Before the old key
-is deleted, it signs a statement that the new certificate follows the old one. The service keeps
-the last 5 statements and presents the new certificate within seconds (from the next connection;
-those open keep theirs). Its id stays the same.
-
-That is for routine renewal. A key that may have leaked mustn't vouch for its successor:
-`elamond rotate-cert --no-statement` gives a new key and certificate that no statement leads to,
-deleting the old key and the statements kept so far, so the route below answers `[]` and every
-phone sees the certificate changed. Whoever has the old key can still pose as the computer to the
-phones that pinned it, so they are unpaired and paired again.
-
-### `GET /api/v1/identity/rotations` (no token)
-
-The statements that lead to the certificate the service presents, oldest first; `[]` when it was
-never rotated:
-
-```json
-[{ "format": "elamon-rotate-v1", "old_fp": "<sha256>", "new_fp": "<sha256>", "t": 1794396297,
-   "old_cert": "<base64 DER>", "signature": "<base64 DER>" }]
-```
-
-| field | |
-|---|---|
-| `format` | the version of the signed text; only `elamon-rotate-v1` so far |
-| `old_fp` | SHA-256 of `old_cert`, lowercase hex |
-| `new_fp` | SHA-256 of the certificate that replaced it |
-| `t` | Unix time of the rotation, seconds |
-| `old_cert` | the old certificate, DER, standard base64 with padding |
-| `signature` | ECDSA P-256 with SHA-256 (DER-encoded, as `SHA256withECDSA` gives it) by the old certificate's key over the signed text, standard base64 |
-
-The signed text is these four lines in UTF-8, joined by `\n`, with no newline after the last:
-
-    elamon-rotate-v1
-    <old_fp>
-    <new_fp>
-    <t>
-
-The route needs no token, like `hello` and `pair`: every statement proves itself, and a phone
-needs them before it can trust the service enough to send its token. Every shape is in
-[`rotations.json`](../elamond/fixtures/rotations.json), a real chain of three.
-
-### Following a rotation
-
-A client that meets another certificate than the one it pinned (`P`) on a computer it paired
-with, before it reports the certificate changed:
-
-1. reads `/api/v1/identity/rotations` over a connection that accepts any certificate and keeps
-   the one presented (`C`), on an address where `hello` gives the paired id;
-2. finds the statement whose `old_fp` is `P` and, from there on, checks each: `format` is one it
-   knows, `old_fp` is where the one before ended (`P` for the first), SHA-256 of `old_cert` is
-   `old_fp`, and `signature` verifies under `old_cert`'s public key (a P-256 key) over the signed
-   text;
-3. stops with success at the first statement whose `new_fp` is `C`: it pins `C` in place of `P`
-   and goes on. Anything else, a broken step or a chain that never reaches `C`, means the
-   certificate changed.
-
-A phone that missed rotations follows as long as the one it pinned is among the last 5.
+`elamond rotate-cert` gives the service a new key and certificate, deleting the old key; its id
+stays the same. The service presents the new certificate within seconds (from the next connection;
+those open keep theirs). Nothing leads a phone from the certificate it pinned to the new one: every
+phone sees the certificate changed, and is unpaired (`elamond revoke`) and paired again. Services
+before 0.6.2 also signed a new certificate over with the old one, served at
+`GET /api/v1/identity/rotations`; that route is gone (404 `not_found`), and an app that asks it
+reports the certificate changed.
 
 ## Roles
 
@@ -500,8 +441,8 @@ the wrong kind, or one the action hasn't, is 400 `bad_param` with the parameter'
 timed out): `ok` says it ran, `exit_code` (`null` when a signal ended it) and `timed_out` how it
 ended. 404 `no_such_action` for an id the computer doesn't have or can't do now; 403 `not_allowed`
 for one it can that the client's role may not run (so not in its `ui`), `control_disabled`,
-`not_permitted`; 409 `process_changed`; 429 `too_many_requests`; 502 `failed` with a `message`.
-They are checked in this order: the rate, the role, control, then the parameters.
+`not_permitted`; 409 `process_changed`; 502 `failed` with a `message`.
+They are checked in this order: the role, control, then the parameters.
 
 `process.signal` with `start` signals only the process that started then: if the pid now belongs to
 another, 409 `process_changed`; a negative `start` is 400 `bad_param`. `unit.*` act on the unit of the link given, only one the settings
@@ -512,17 +453,9 @@ name; system units also need polkit's leave ([the guide](guide.md#power-the-prof
 The cover (PNG, JPEG or WebP, 4 MiB at most), when the player has it in a local file; for roles that
 see media. 404 `no_art`.
 
-### How often
-
-A client may make 10 acting requests (actions, and [`rekey`](#post-apiv1rekey)) in a row, then one
-more each second; beyond that it gets 429 `too_many_requests`. Reading isn't counted. The rate is a
-family's: a client and the keys of their own its token gave share it.
-
 ### Connections
 
-The service holds 256 connections at once, and 16 from one address (an IPv6 one by its /64) that
-haven't yet made a request with a paired client's token; more are closed as they come, before the
-TLS handshake. A connection has 10 seconds for its TLS handshake, then 15 for its first request,
+A connection has 10 seconds for its TLS handshake, then 15 for its first request,
 and 15 for the headers of each request after it, an idle wait between requests included: a client
 reconnects as it would after any closed connection. A stream, once its headers are read, isn't
 bound by these. A client has 4 streams open at most; a fifth ends its oldest.
@@ -542,7 +475,7 @@ Clients read it as the `activity` collection (role `monitor`). Each entry:
 
 `what` reads like `power reboot`, `profile balanced`, `signal term 1234 firefox`,
 `action Mode server`, `unit restart nginx.service`, `media play_pause`, `volume 40 %`,
-`phone added: Pixel 9`. Of a run of 429 refusals only the first is recorded. Requests that were let
+`phone added: Pixel 9`. Requests that were let
 through are also in the journal (`journalctl --user -u elamond`).
 
 ## Errors
@@ -557,7 +490,6 @@ Errors are `{ "error": "<code>" }`, some with a `message`, with these statuses (
 | 403 | `no_pairing`, `wrong_code`, `pair_declined`, `too_many_phones` (64 are paired), `rekey_refused`, `control_disabled`, `not_permitted` (polkit refused, or a protected process), `not_allowed` (the client's role doesn't allow it) |
 | 404 | `not_found`, `no_such_process`, `no_such_action`, `no_such_dashboard`, `no_such_stream`, `no_art` |
 | 409 | `process_changed` |
-| 429 | `too_many_requests` |
 | 500 | `storage` |
 | 502 | `failed`, with `message` |
 
