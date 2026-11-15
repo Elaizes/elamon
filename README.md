@@ -2,9 +2,9 @@
 
 Watch and control a Linux computer from your Android phone, live.
 
-> **A personal project.** Elamon is made for its author's computer and a friend's, both on NixOS,
-> and grows with what the two of them need: what comes next is decided by that, not by requests.
-> Still, nothing in it is tied to them. Every change is built and tested on NixOS (a VM test of
+> **A personal project.** Elamon is made for its author's own use, on NixOS, and grows with what
+> that needs: what comes next is decided by that, not by requests. Still, nothing in it is tied to
+> one computer. Every change is built and tested on NixOS (a VM test of
 > the module) and on Debian, Ubuntu, Fedora, Arch and openSUSE Tumbleweed (the service installed
 > and started in each), so it should work on yours too. Use it if it fits; there is no support
 > beyond the guide, and settings and the protocol may still change between versions: update the
@@ -136,7 +136,7 @@ dashboards and profiles: [docs/config.md](docs/config.md).
 
 ## Where it's going
 
-Next, as its two users need them: a UPS's state, history and controls (through NUT), readings of
+Next, as they're needed: a UPS's state, history and controls (through NUT), readings of
 our own and the system journal, notifications through ntfy, and controlling monitors under
 Hyprland. Not planned: the
 service for Windows or macOS, app stores (the app is the APK in each release), a web version.

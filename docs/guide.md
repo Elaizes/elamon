@@ -1,7 +1,7 @@
 # Elamon user guide
 
-> **A personal project.** Elamon is made for two computers on NixOS, its author's and a friend's,
-> and grows with what they need. It isn't tied to them, though: every change is built and tested
+> **A personal project.** Elamon is made for its author's own use, on NixOS, and grows with what
+> that needs. It isn't tied to one computer, though: every change is built and tested
 > on NixOS and on Debian, Ubuntu, Fedora, Arch and openSUSE Tumbleweed, so it should work for you
 > too. This guide is all the support there is; settings and the protocol may still change between
 > versions, so update the app and the service together.
