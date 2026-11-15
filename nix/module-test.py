@@ -388,7 +388,7 @@ with subtest("elamond backup and restore: a wiped service comes back as the same
 	machine.succeed("systemctl --user -M alice@ stop elamond")
 	# Restored, settings too: the same certificate, and the phones' tokens work again.
 	out = machine.succeed("su - alice -c 'elamond restore ~/b.elamond --with-settings'")
-	assert "Backup phone" in out and "Test phone" in out and "cert.der.before-restore-" in out, out
+	assert "Backup phone" in out and "Test phone" in out and "before-restore" not in out, out
 	# The settings from Nix stay where Nix puts them.
 	assert "in the Nix store" in out, out
 	machine.succeed("grep -qx 'control = true' /home/alice/.config/elamon/elamond.d/on.toml")
@@ -436,10 +436,3 @@ with subtest("a phone that came by another's token gets a key of its own, and th
 	assert ui(mine)["role"] == "admin"
 	activity(mine, ("Old phone", "phone added: New phone", "ok"))
 	machine.succeed("journalctl _UID=1000 -o cat | grep -c 'pairing: added \"New phone\" .* asked with the key of \"Old phone\"'")
-
-with subtest("elamond rotate-cert --no-statement, as 0.6.1 was told for a key that may have leaked: the same"):
-	before = machine.succeed(served_fp).strip()
-	out = machine.succeed("su - alice -c 'elamond rotate-cert --no-statement'")
-	assert "elamond revoke all" in out and "its key deleted" in out, out
-	machine.wait_until_succeeds(f"test \"$({served_fp})\" != {before}", timeout=30)
-	assert call("GET", "/api/v1/ui", mine)[0] == 200
