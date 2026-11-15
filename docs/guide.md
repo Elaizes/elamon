@@ -906,8 +906,7 @@ listen = ["192.0.2.10", "fd7a:115c::1"]    # these addresses
   address, name or QR code.
 
 **Where the service keeps its state:** `~/.local/share/elamon`. That's its id and certificate, the
-certificates before it with their signatures (`rotations.json`, [section 10](#a-new-certificate)),
-the paired phones (only hashes of their keys, their roles and profiles, and the app each last
+paired phones (only hashes of their keys, their roles and profiles, and the app each last
 reported), a pending pairing code, the activity log and `elamond control off`'s mark. Deleting that
 folder unpairs every phone and gives the service a new certificate, unless a backup of it is
 restored ([section 8](#backing-up-the-service)).
@@ -1086,8 +1085,8 @@ command = ["/path/to/backup"]           command = ["/path/to/backup"]
 ### Backing up the service
 
 What makes the service the same computer to its phones is in `~/.local/share/elamon`: its id, its
-certificate and key with the rotations behind them, the paired phones, the activity log and
-`elamond control off`'s mark. Lose it, and every phone has to pair again. Keep a copy:
+certificate and key, the paired phones, the activity log and `elamond control off`'s mark. Lose it,
+and every phone has to pair again. Keep a copy:
 
 ```sh
 elamond backup ~/elamond.backup
@@ -1103,8 +1102,7 @@ elamond backup ~/elamond.backup
   made without `--plain`). Restore one of those with elamond 0.6.1, or make a new backup.
 
 A backup holds the certificate's key as it was then. After `elamond rotate-cert`, older backups
-still hold the old key. Delete those you don't need, and all of them if you rotated because the key
-may have leaked ([section 10](#a-new-certificate)).
+still hold the old key: delete them ([section 10](#a-new-certificate)).
 
 ### A new computer, or reinstalling
 
@@ -1137,8 +1135,6 @@ What `elamond restore` does:
   aren't paired there now, including any you unpaired since, lost or stolen ones too. It lists them
   and stops. `--with-old-phones` restores them anyway.
 - Control held off by `elamond control off` stays off, whatever the backup says.
-- A backup whose certificate was since replaced by `elamond rotate-cert` is restored with a warning.
-  If it was replaced because the key may have leaked, don't use that backup.
 
 `elamond restore --force` writes under a running service. That service presents the restored
 certificate within a few seconds and knows the restored phones at once, but keeps the id and
@@ -1204,7 +1200,7 @@ do about those marked `!`. To see what the service reads without the app, run `e
 | The computer isn't under *Found on this network* | Same network, and UDP 5353 open on the computer. VPNs and many guest Wi-Fi networks block discovery, and the service announces itself only on wired and wireless interfaces it listens on (`mdns: announced on …` in the journal). Add it by address or name instead: `elamond pair` prints them. |
 | The app can't connect | Check `elamond setup --check`, `systemctl --user status elamond` and `journalctl --user -u elamond -e`. TCP 47823 must be open, and the phone must reach an address the service listens on (`listen: on …` in the journal). |
 | It works only while you're logged in | `sudo loginctl enable-linger YOUR_USER`, as `elamond setup` prints it. |
-| *The computer's certificate changed* | The service's data was deleted or the system reinstalled. Restore a backup ([section 8](#a-new-computer-or-reinstalling)), or forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` the app follows by itself; after `--no-statement`, every phone says this and pairs again ([section 10](#a-new-certificate)). |
+| *The computer's certificate changed* | The service's data was deleted or the system reinstalled. Restore a backup ([section 8](#a-new-computer-or-reinstalling)), or forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` every phone says this: pair it again ([section 10](#a-new-certificate)). |
 | *Control is off* | Set `control = true` in `elamond.toml` or a drop-in; the service takes it up within a few seconds. If it's set, `elamond control status` tells whether `elamond control off` holds it off, or whether the settings stopped parsing. |
 | Pairing ends with the phone turned away | Answer `y` at `elamond pair` within 90 seconds, and keep it running until the phone is paired ([section 3](#3-pair-the-phone)). |
 | *This phone's role on the computer doesn't allow that* | `elamond clients` shows the phone's role, `elamond clients role ID ROLE` changes it ([section 6](#6-roles-who-may-do-what)). An action may ask for `admin` (`role` in its settings). |
@@ -1226,16 +1222,14 @@ do about those marked `!`. To see what the service reads without the app, run `e
 **Connection and keys**
 
 - Everything goes over TLS. The service's certificate is self-signed. The app pins it when pairing
-  and refuses any other afterwards, except one the pinned certificate's key signed
-  (`elamond rotate-cert`, [below](#a-new-certificate)).
+  and refuses any other afterwards ([a new certificate](#a-new-certificate) means pairing again).
 - Each phone holds its own random 256-bit key; the service keeps only its SHA-256. Keys stay out of
   Android backups.
 - A pairing code works for five minutes, one attempt at a time, each wrong one answered after a
   second. Five wrong ones shut that address out; twenty in all use the code up. The phone that gives
   the right code is let in only when you say so at `elamond pair` (unless it runs with `--yes`).
-- Without a key, the service answers only which service it is (`hello`: name, id and version),
-  pairing, and the statements that lead from one certificate to the next (`identity/rotations`),
-  which prove themselves.
+- Without a key, the service answers only which service it is (`hello`: name, id and version) and
+  pairing.
 - It holds 256 connections at once, 16 from one address until one shows a phone's key, and drops a
   connection that says nothing within seconds, so a flood of them doesn't keep the phones out.
 - The key is all the computer knows a phone by. Unlocking the phone before an action is enforced by
@@ -1287,31 +1281,20 @@ do about those marked `!`. To see what the service reads without the app, run `e
 
 ### A new certificate
 
+The certificate is good until the year 4096 and pinned by its fingerprint: it needs no renewing.
+If its key may have been copied off the computer, give the service a new one:
+
 ```sh
-elamond rotate-cert
+elamond rotate-cert   # a new certificate and key; the old key deleted, the id kept
+elamond revoke all    # the keys phones sent to a computer that may not have been this one
+elamond pair          # each phone again; the app replaces the computer it had
 ```
 
-This gives the service a new certificate and key; do it from time to time.
-
-- Before the old key is deleted, it signs the new certificate's fingerprint. The service shows that
-  signature to any phone that asks.
-- A phone that meets the new certificate checks the signature against the certificate it pinned and
-  moves to the new one by itself, saying *The computer's certificate was renewed*. Nothing needs
-  pairing again.
 - The running service presents the new certificate within a few seconds (at once with
   `systemctl --user reload elamond`). Connections already open keep the old one until they end.
-- The last five rotations are kept, so a phone that was away for one or two still follows. One that
-  missed more says *The computer's certificate changed*: pair it again.
-- Deleting `~/.local/share/elamon` is not a rotation: it unpairs every phone.
-
-That is routine renewal, and only that. **If the key may have been copied off the computer,** a
-phone mustn't follow what it signs: whoever has it could sign their own certificate. Then:
-
-```sh
-elamond rotate-cert --no-statement   # a new certificate nothing leads to; the old key deleted unused
-elamond revoke all                   # the keys phones sent to a computer that may not have been this one
-elamond pair                         # each phone again; the app replaces the computer it had
-```
-
-Every phone then says the certificate changed. The old key lives on in backups made before (with
-`elamond backup`). Delete them, as `elamond rotate-cert` reminds you.
+- Every phone says *The computer's certificate changed* until it is paired again.
+- The old key lives on in backups made before (with `elamond backup`). Delete them, as
+  `elamond rotate-cert` reminds you.
+- Up to 0.6.1, `elamond rotate-cert` signed the new certificate with the old key and phones followed
+  it without pairing again. 0.6.2 no longer does; `--no-statement`, which 0.6.1 took for a
+  certificate nothing signed, is still accepted and changes nothing.

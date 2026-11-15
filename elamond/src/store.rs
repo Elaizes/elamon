@@ -4,7 +4,7 @@
 //! Settings:  $XDG_CONFIG_HOME/elamon/elamond.toml, then elamond.d/*.toml beside it (phones.toml
 //!            among them); defaults.toml beside them is for reading, not read
 //! State:     $XDG_DATA_HOME/elamon/{id, cert.der, key.der, clients.json, pairing.json,
-//!            control-off.json, activity.jsonl, rotations.json}
+//!            control-off.json, activity.jsonl}
 
 use std::collections::BTreeMap;
 use std::fs;

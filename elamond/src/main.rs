@@ -67,9 +67,8 @@ Usage:
   elamond revoke <id|all>              unpair a phone, and take its profile out of phones.toml when
                                        nothing else has it; --with-added: and those phones too
   elamond control [off|on|status]      hold control off for every phone, or let go
-  elamond rotate-cert                  a new certificate, which paired phones follow (routine renewal)
-  elamond rotate-cert --no-statement   a new certificate nothing vouches for, after a leaked key:
-                                       phones pair again
+  elamond rotate-cert                  a new certificate and key, after a leaked key; every phone
+                                       pairs again
   elamond backup FILE                  save the identity, the paired phones and the rest to FILE,
                                        unencrypted, for only you to read
   elamond restore FILE                 put a backup back, the service stopped (--force: running);
@@ -241,7 +240,6 @@ fn serve() -> Result<(), String> {
 		dir.clone(),
 		place,
 	));
-	hub.set_rotations(identity::chain_to(&served_rotations(&dir), &identity.fingerprint));
 
 	let runtime = tokio::runtime::Builder::new_multi_thread()
 		.worker_threads(2)
@@ -333,14 +331,6 @@ fn tls_with(cert: &[u8], key: &[u8]) -> Result<rustls::ServerConfig, String> {
 	Ok(tls)
 }
 
-/// The rotations kept, or none, said so, when their file can't be read.
-fn served_rotations(dir: &std::path::Path) -> Vec<identity::Rotation> {
-	identity::rotations(dir).unwrap_or_else(|e| {
-		eprintln!("certificate: {e}\n  phones that meet a new certificate can't follow it and pair again");
-		Vec::new()
-	})
-}
-
 /// What the service keeps in step with the computer while it runs: the addresses it listens on,
 /// where it is announced and where paired phones are told it is, as interfaces come and go, and
 /// the certificate it presents, after `elamond rotate-cert`.
@@ -409,7 +399,6 @@ impl Upkeep {
 		match loaded {
 			Ok((tls, id)) => {
 				self.tls.reload_from_config(Arc::new(tls));
-				self.hub.set_rotations(identity::chain_to(&served_rotations(&self.dir), &id.fingerprint));
 				if let Some(a) = &mut self.announcer {
 					a.set_fingerprint(&id.fingerprint);
 				}
@@ -1201,37 +1190,21 @@ fn control(what: Option<&str>) -> Result<(), String> {
 	Ok(())
 }
 
-/// `elamond rotate-cert`: a new certificate and key, the old key signing that the new certificate
-/// follows it before it is deleted, for routine renewal; with `--no-statement` nothing signed, for
-/// a key that may have leaked. The service presents the new one within seconds.
+/// `elamond rotate-cert`: a new certificate and key, the old key deleted and the id kept; every
+/// phone sees the certificate changed and is paired again. The service presents it within seconds.
 fn rotate_cert(args: &[String]) -> Result<(), String> {
-	let unsigned = match args {
-		[] => false,
-		[flag] if flag == "--no-statement" => true,
-		_ => return Err("usage: elamond rotate-cert [--no-statement]".into()),
-	};
-	let dir = store::data_dir();
-	if unsigned {
-		let (old_fp, new_fp) = identity::renew_unsigned(&dir)?;
-		println!("New certificate:  {}", store::pretty_fingerprint(&new_fp));
-		println!("Old certificate:  {} (its key deleted, nothing signed with it)", store::pretty_fingerprint(&old_fp));
-		println!();
-		println!("Paired phones will say the computer's certificate changed: nothing vouches for the new one.");
-		println!("If the old key may have leaked, whoever has it can still pose as this computer to the phones");
-		println!("that trust it, and learn their keys. Unpair them all and pair each again:");
-		println!("  elamond revoke all");
-		println!("  elamond pair          (for each phone; the app replaces the computer it had)");
-	} else {
-		let r = identity::rotate(&dir)?;
-		println!("New certificate:  {}", store::pretty_fingerprint(&r.new_fp));
-		println!("Old certificate:  {}", store::pretty_fingerprint(&r.old_fp));
-		println!();
-		println!("The old certificate's key signed the new one and was then deleted. Paired phones check");
-		println!("that signature the next time they connect and move to the new certificate by themselves.");
-		println!("This is for routine renewal: if the old key may have leaked, phones mustn't follow what it");
-		println!("signed. Then run `elamond rotate-cert --no-statement` and pair the phones again.");
+	// --no-statement: what 0.6.1 was told for this; its docs and habits still say it.
+	if !(args.is_empty() || args == ["--no-statement"]) {
+		return Err("usage: elamond rotate-cert".into());
 	}
-	println!("A running service presents the new certificate within a few seconds.");
+	let (old_fp, new_fp) = identity::renew(&store::data_dir())?;
+	println!("New certificate:  {}", store::pretty_fingerprint(&new_fp));
+	println!("Old certificate:  {} (its key deleted)", store::pretty_fingerprint(&old_fp));
+	println!();
+	println!("A running service presents the new certificate within a few seconds, and every paired phone");
+	println!("says the computer's certificate changed. Unpair them all, then pair each again:");
+	println!("  elamond revoke all");
+	println!("  elamond pair          (for each phone; the app replaces the computer it had)");
 	println!();
 	println!("Older keys live on in backups made before now (elamond backup); delete those you don't need.");
 	Ok(())

@@ -29,9 +29,6 @@ pub mod protocol {
 	pub const PAIRING_DIGITS: u32 = 6;
 	/// Addresses and names in a pairing link: the app reads no more than these.
 	pub const PAIR_HOSTS_MAX: usize = 8;
-	/// What a statement that one certificate follows another starts with, and what its `format`
-	/// says: the version of the text signed. The app follows only those it knows.
-	pub const ROTATION_FORMAT: &str = "elamon-rotate-v1";
 }
 
 /// How often things are read, as time rather than ticks: `Ticks` turns them into ticks of the
@@ -200,8 +197,6 @@ pub mod limit {
 	pub const WHAT_MAX: usize = 200;
 	/// Processes shown by `elamond snapshot`.
 	pub const SNAPSHOT_TOP: usize = 10;
-	/// Certificate rotations kept, the newest last: a phone that missed more than these pairs again.
-	pub const ROTATIONS_KEPT: usize = 5;
 	/// Addresses `elamond pair` tries, to tell whether the service runs.
 	pub const SERVICE_CHECK_ADDRS: usize = 3;
 	/// Bytes in the body of a request: `pair`, `rekey`, an action's parameters, a stream's change.

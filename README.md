@@ -94,8 +94,7 @@ and UDP 5353 for finding the computer by itself. The service can listen on chose
 (`listen = ["tailscale0"]`), and announces itself only on the local network. Its pairing QR code
 carries the computer's Tailscale name and names you give (`names = [...]`) after its addresses, so
 the phone still finds it when they change. Everything is encrypted, a phone is paired only when
-you let it in at the computer, each phone has its own key that the computer can revoke, the
-computer's certificate can be renewed without pairing again (`elamond rotate-cert`), and the
+you let it in at the computer, each phone has its own key that the computer can revoke, and the
 service only acts on the computer when told it may, starting and stopping only the units its
 settings name ([security](docs/guide.md#10-security)).
 

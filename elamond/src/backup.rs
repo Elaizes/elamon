@@ -1,7 +1,7 @@
 //! `elamond backup` and `elamond restore`: what makes this service the same computer to the phones
-//! paired with it — its id, its certificate and key with the rotations behind them, the paired
-//! phones, the activity log and `elamond control off` — in one file, and the settings files beside
-//! them, which go back only when asked.
+//! paired with it — its id, its certificate and key, the paired phones, the activity log and
+//! `elamond control off` — in one file, and the settings files beside them, which go back only when
+//! asked.
 //!
 //! A backup is three parts: the line "elamond-backup", a line of JSON (`Header`) with the payload's
 //! SHA-256, and the payload, JSON (`Payload`). It isn't encrypted: the file is written for its owner
@@ -35,11 +35,9 @@ const PLAIN: &str = "none";
 /// a computer whose control was held off is never open in between; the identity before the phones
 /// that trust it; the key before the certificate, as a running service takes up a new cert.der with
 /// the key beside it. The pending pairing code is never carried.
-const STATE_FILES: [&str; 8] = [
+const STATE_FILES: [&str; 6] = [
 	store::CONTROL_OFF_FILE,
 	identity::ID_FILE,
-	identity::ROTATIONS_FILE,
-	identity::NEXT_FILE,
 	identity::KEY_FILE,
 	identity::CERT_FILE,
 	store::CLIENTS_FILE,
@@ -47,8 +45,9 @@ const STATE_FILES: [&str; 8] = [
 ];
 
 /// State files older elamonds carried that this one no longer uses: left out of a restore, as
-/// nothing reads them, and not named as a newer elamond's. links.json: 0.5's links added from the app.
-const RETIRED_FILES: [&str; 1] = ["links.json"];
+/// nothing reads them, and not named as a newer elamond's. links.json: 0.5's links added from the
+/// app; rotations.json and next-identity.json: 0.6.1's signed certificate rotations.
+const RETIRED_FILES: [&str; 3] = ["links.json", "rotations.json", "next-identity.json"];
 
 /// The second line of a backup.
 #[derive(Serialize, Deserialize)]
@@ -200,8 +199,6 @@ pub struct Summary {
 	pub phones: Vec<store::Client>,
 	/// Entries in the activity log.
 	pub activity: usize,
-	/// Certificate rotations kept.
-	pub rotations: usize,
 	pub control_off: bool,
 	/// Files in the backup this elamond doesn't know, which are left out.
 	pub unknown: Vec<String>,
@@ -219,10 +216,6 @@ pub fn verify(c: &Contents, with_settings: bool) -> Result<Summary, String> {
 		return Err("the backup lacks the certificate or its key".into());
 	};
 	crate::tls_with(cert, key).map_err(|e| format!("the certificate and key in the backup don't load together ({e})"))?;
-	let rotations = parsed::<Vec<identity::Rotation>>(c, identity::ROTATIONS_FILE)?.map_or(0, |r| r.len());
-	if c.state.get(identity::NEXT_FILE).is_some_and(|b| !identity::next_reads(b)) {
-		return Err(format!("{} in the backup doesn't read", identity::NEXT_FILE));
-	}
 	let phones = parsed::<Vec<store::Client>>(c, store::CLIENTS_FILE)?.unwrap_or_default();
 	let activity = file(activity::FILE)
 		.map(|b| String::from_utf8_lossy(b).lines().filter(|l| serde_json::from_str::<activity::Entry>(l).is_ok()).count())
@@ -240,7 +233,6 @@ pub fn verify(c: &Contents, with_settings: bool) -> Result<Summary, String> {
 		fingerprint: store::sha256_hex(cert),
 		phones,
 		activity,
-		rotations,
 		control_off: c.state.contains_key(store::CONTROL_OFF_FILE),
 		unknown: c.state.keys().filter(|k| !STATE_FILES.contains(&k.as_str()) && !RETIRED_FILES.contains(&k.as_str())).cloned().collect(),
 	})
@@ -463,11 +455,6 @@ pub fn restore(args: &[String]) -> Result<(), String> {
 			names.join("\n    ")
 		));
 	}
-	if let Some(t) = retired(&summary.fingerprint, &dir) {
-		eprintln!("  ! This backup's certificate was replaced here by `elamond rotate-cert` on {}. Restoring it", crate::format_date(t));
-		eprintln!("  ! brings back the key it retired: phones that moved on say the certificate changed. If it was");
-		eprintln!("  ! replaced because the key may have leaked, stop and don't use this backup.");
-	}
 
 	// Held while writing: a service that starts meanwhile waits for the restore to end.
 	let lock = match store::lock_data_dir(&dir) {
@@ -559,11 +546,6 @@ fn returning(phones: &[store::Client], dir: &Path) -> Vec<store::Client> {
 	}
 }
 
-/// When `elamond rotate-cert` replaced the certificate `fp` in `dir`, if it did there.
-fn retired(fp: &str, dir: &Path) -> Option<u64> {
-	identity::rotations(dir).ok()?.iter().find(|r| r.old_fp == fp).map(|r| r.t)
-}
-
 fn print_summary(s: &Summary) {
 	println!("  Computer id:   {}", s.id);
 	println!("  Certificate:   {}", store::pretty_fingerprint(&s.fingerprint));
@@ -581,9 +563,6 @@ fn print_summary(s: &Summary) {
 		println!("  Phones:        {}", phones.join("\n                 "));
 	}
 	println!("  Activity log:  {} entries", s.activity);
-	if s.rotations > 0 {
-		println!("  Rotations:     {} kept, for phones that missed one", s.rotations);
-	}
 	if s.control_off {
 		println!("  Control:       held off by `elamond control off`");
 	}
@@ -628,11 +607,10 @@ mod tests {
 		store::Client { id: store::sha256_hex(name.as_bytes())[..8].into(), name: name.into(), token_hash: store::sha256_hex(token.as_bytes()), created: 1, role, ..Default::default() }
 	}
 
-	/// A service that has been used: rotated once, two phones, a log, control held off.
+	/// A service that has been used: two phones, a log, control held off.
 	fn used_service() -> PathBuf {
 		let dir = scratch();
 		identity::Identity::load_or_create(&dir).unwrap();
-		identity::rotate(&dir).unwrap();
 		store::save_clients_in(&dir, &[client("Pixel", "token-a", Role::Admin), client("Tablet", "token-b", Role::Glance)]).unwrap();
 		let log = activity::Activity::load(&dir);
 		for i in 0..3 {
@@ -675,10 +653,10 @@ mod tests {
 		assert_eq!(contents.service_version, env!("CARGO_PKG_VERSION"));
 		let summary = verify(&contents, false).unwrap();
 		assert_eq!((summary.id.as_str(), summary.fingerprint.as_str()), (before.id.as_str(), before.fingerprint.as_str()));
-		assert_eq!((summary.phones.len(), summary.activity, summary.rotations, summary.control_off), (2, 3, 1, true));
+		assert_eq!((summary.phones.len(), summary.activity, summary.control_off), (2, 3, true));
 		restore_into(&contents, &to, None).unwrap();
 
-		// The same computer: id, certificate, key, the chain behind it and every phone's token.
+		// The same computer: id, certificate, key and every phone's token.
 		let after = identity::Identity::load_or_create(&to).unwrap();
 		assert_eq!((&after.id, &after.fingerprint, &after.key_der), (&before.id, &before.fingerprint, &before.key_der));
 		for name in STATE_FILES.iter().filter(|n| from.join(n).exists()) {
@@ -750,8 +728,6 @@ mod tests {
 			(with(identity::CERT_FILE, None), "lacks the certificate"),
 			(with(identity::ID_FILE, Some(b" \n")), "no service id"),
 			(with(store::CLIENTS_FILE, Some(b"[{\"id\":")), "clients.json in the backup"),
-			(with(identity::ROTATIONS_FILE, Some(b"[1]")), "rotations.json in the backup"),
-			(with(identity::NEXT_FILE, Some(b"{\"cert\":\"!\",\"key\":\"\"}")), "next-identity.json in the backup"),
 		] {
 			let e = verify(&c, false).err().unwrap();
 			assert!(e.contains(why), "{why}: {e}");
@@ -769,18 +745,20 @@ mod tests {
 
 	#[test]
 	fn state_the_backup_doesnt_have_is_taken_away() {
-		// A backup from before any phone, control or rotation, onto a computer with all of them.
+		// A backup from before any phone or control, onto a computer with both.
 		let from = scratch();
 		identity::Identity::load_or_create(&from).unwrap();
 		let mut c = collect(&from, &[]).unwrap();
-		// 0.6.1 still carried 0.5's links.json: nothing reads it, so it isn't written or named.
-		c.state.insert("links.json".into(), b"[]".to_vec());
+		// 0.6.1 still carried 0.5's links.json and its signed rotations: nothing reads them, so
+		// they aren't written or named.
+		for name in RETIRED_FILES {
+			c.state.insert(name.into(), b"[]".to_vec());
+		}
 		assert!(verify(&c, false).unwrap().unknown.is_empty());
 		let to = used_service();
 		restore_into(&c, &to, None).unwrap();
-		assert!(!to.join("links.json").exists());
+		assert!(RETIRED_FILES.iter().all(|name| !to.join(name).exists()));
 		assert!(store::load_clients_in(&to).unwrap().is_empty());
-		assert!(identity::rotations(&to).unwrap().is_empty());
 		assert!(!to.join("clients.json").exists());
 		// Control held off stays so: a restore never lets go of it.
 		assert!(store::control_held_off(&to));
@@ -789,7 +767,7 @@ mod tests {
 	}
 
 	#[test]
-	fn phones_unpaired_since_and_retired_keys_are_named() {
+	fn phones_unpaired_since_are_named() {
 		let from = used_service();
 		let summary = verify(&collect(&from, &[]).unwrap(), false).unwrap();
 		// A fresh install has no phones to compare with: all come back.
@@ -808,10 +786,6 @@ mod tests {
 		rekeyed[0].token_hash = store::sha256_hex(b"another");
 		store::save_clients_in(&to, &rekeyed).unwrap();
 		assert_eq!(returning(&summary.phones, &to).len(), 1);
-		// A certificate rotated away here is named, with when.
-		assert_eq!(retired(&summary.fingerprint, &from), None);
-		let before = identity::rotations(&from).unwrap()[0].clone();
-		assert_eq!(retired(&before.old_fp, &from), Some(before.t));
 		// Only a file is read, and not past the limit.
 		assert!(read_backup(&to).unwrap_err().contains("isn't a file"));
 		let fifo = to.join("fifo");

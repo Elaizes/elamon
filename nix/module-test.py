@@ -345,34 +345,25 @@ chmod 755 /tmp/fakebin/tailscale""")
 	assert re.search(r"Names: +second\.example\.net$", out, re.M), out
 	machine.succeed("ip link del tailscale0")
 
-with subtest("elamond rotate-cert: a new certificate signed by the old key, the phone's pairing kept"):
+with subtest("elamond rotate-cert: a new certificate and key, the id kept; a phone that pinned the old one is turned away"):
 	served_fp = "openssl s_client -connect localhost:47823 </dev/null 2>/dev/null | openssl x509 -outform DER | sha256sum | cut -d' ' -f1"
 	served_key = "openssl s_client -connect localhost:47823 </dev/null 2>/dev/null | openssl x509 -pubkey -noout | openssl pkey -pubin -outform DER | openssl dgst -sha256 -binary | base64"
 	old_fp = machine.succeed(served_fp).strip()
 	old_key = machine.succeed(served_key).strip()
 	machine.succeed(f"curl -sk --pinnedpubkey 'sha256//{old_key}' https://localhost:47823/api/v1/hello")
-	assert call("GET", "/api/v1/identity/rotations") == (200, [])
-	machine.succeed("su - alice -c 'elamond rotate-cert' | grep 'New certificate'")
+	service_id = call("GET", "/api/v1/hello")[1]["id"]
+	out = machine.succeed("su - alice -c 'elamond rotate-cert'")
+	assert "New certificate" in out and "elamond revoke all" in out, out
 	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -c 'certificate: now'", timeout=30)
 	new_fp = machine.succeed(served_fp).strip()
 	assert new_fp != old_fp
-	# What the phone pinned no longer holds...
+	# What the phone pinned no longer holds, and nothing leads from it to the new one.
 	machine.fail(f"curl -sk --pinnedpubkey 'sha256//{old_key}' https://localhost:47823/api/v1/hello")
-	# ...but the service shows, with no token, how the new certificate follows from it.
-	status, chain = call("GET", "/api/v1/identity/rotations")
-	assert status == 200 and len(chain) == 1, chain
-	step = chain[0]
-	assert (step["format"], step["old_fp"], step["new_fp"]) == ("elamon-rotate-v1", old_fp, new_fp), step
-	machine.succeed(f"echo {step['old_cert']} | base64 -d > /tmp/old.der && echo {step['signature']} | base64 -d > /tmp/sig")
-	machine.succeed(f"printf '%s\\n%s\\n%s\\n%s' {step['format']} {old_fp} {new_fp} {step['t']} > /tmp/signed")
-	assert machine.succeed("sha256sum /tmp/old.der").split()[0] == old_fp
-	machine.succeed("openssl x509 -inform DER -in /tmp/old.der -pubkey -noout > /tmp/old.pem")
-	machine.succeed("openssl dgst -sha256 -verify /tmp/old.pem -signature /tmp/sig /tmp/signed")
-	# The same phone, its token unchanged, carries on.
-	assert call("GET", "/api/v1/ui", auth)[0] == 200
-	# And the chain outlives a restart.
+	assert call("GET", "/api/v1/identity/rotations") == (404, {"error": "not_found"})
+	assert call("GET", "/api/v1/hello")[1]["id"] == service_id
+	# The new certificate outlives a restart.
 	machine.succeed("systemctl --user -M alice@ restart elamond")
-	machine.wait_until_succeeds("curl -sk https://localhost:47823/api/v1/identity/rotations | jq -e 'length == 1'", timeout=60)
+	machine.wait_until_succeeds("curl -sk https://localhost:47823/api/v1/hello", timeout=60)
 	assert machine.succeed(served_fp).strip() == new_fp
 
 with subtest("elamond backup and restore: a wiped service comes back as the same computer, its phones paired"):
@@ -412,8 +403,7 @@ with subtest("elamond backup and restore: a wiped service comes back as the same
 	assert machine.succeed(served_fp).strip() == fp
 	assert call("GET", "/api/v1/ui", kept)[0] == 200
 	assert call("GET", "/api/v1/ui", auth)[0] == 200
-	# With the rotation phones follow, and the drop-in that turned control on.
-	assert len(call("GET", "/api/v1/identity/rotations")[1]) == 1
+	# And the drop-in that turned control on.
 	assert ui(kept)["control"]["enabled"]
 
 with subtest("a phone that came by another's token gets a key of its own, and the old phone is revoked alone"):
@@ -447,10 +437,9 @@ with subtest("a phone that came by another's token gets a key of its own, and th
 	activity(mine, ("Old phone", "phone added: New phone", "ok"))
 	machine.succeed("journalctl _UID=1000 -o cat | grep -c 'pairing: added \"New phone\" .* asked with the key of \"Old phone\"'")
 
-with subtest("elamond rotate-cert --no-statement: a new certificate that nothing leads to, for a key that may have leaked"):
+with subtest("elamond rotate-cert --no-statement, as 0.6.1 was told for a key that may have leaked: the same"):
 	before = machine.succeed(served_fp).strip()
 	out = machine.succeed("su - alice -c 'elamond rotate-cert --no-statement'")
-	assert "elamond revoke all" in out and "nothing signed with it" in out, out
+	assert "elamond revoke all" in out and "its key deleted" in out, out
 	machine.wait_until_succeeds(f"test \"$({served_fp})\" != {before}", timeout=30)
-	assert call("GET", "/api/v1/identity/rotations") == (200, [])
 	assert call("GET", "/api/v1/ui", mine)[0] == 200
