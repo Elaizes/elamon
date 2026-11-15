@@ -180,7 +180,6 @@ object Motion {
 	const val DIGIT_FADE = 200
 }
 
-/** How see-through things are. */
 object Alpha {
 	/** Bars where blur is off: almost opaque. */
 	const val GLASS_SOLID = 0.94f
@@ -233,7 +232,6 @@ object Alpha {
 	const val FADE_END = 0.6f
 }
 
-/** Frosted glass. */
 object Blur {
 	val glass = 26.dp
 	const val NOISE = 0.04f

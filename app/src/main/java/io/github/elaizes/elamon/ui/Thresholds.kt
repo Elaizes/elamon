@@ -5,7 +5,6 @@ package io.github.elaizes.elamon.ui
  * (docs/config.md, "Levels"): it sends each value's level and how far it has turned toward the next.
  */
 object Thresholds {
-	/** The top of a percentage scale. */
 	const val PERCENT = 100f
 
 	/** Room above the highest point, so a line doesn't run along the top. */

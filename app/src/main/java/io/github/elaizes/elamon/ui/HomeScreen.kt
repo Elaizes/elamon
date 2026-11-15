@@ -146,7 +146,6 @@ data class HomeStat(
 	val blend: Double?,
 )
 
-/** How many figures a computer's card shows. */
 private const val HOME_STATS = 3
 
 /**

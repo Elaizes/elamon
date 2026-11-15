@@ -273,7 +273,6 @@ data class PairTarget(
 	}
 }
 
-/** What a pairing link turned out to be. */
 sealed interface PairLink {
 	data class Target(val target: PairTarget) : PairLink
 

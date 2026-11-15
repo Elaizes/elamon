@@ -42,7 +42,6 @@ object Limits {
 
 	// ---- pacing -----------------------------------------------------------------------------------
 
-	/** How often the home screen reads each computer. */
 	const val HOME_POLL_MS = 5_000L
 
 	/** How long a stopped screen keeps its stream: enough for a rotation. */
@@ -62,7 +61,6 @@ object Limits {
 
 	// ---- pairing ----------------------------------------------------------------------------------
 
-	/** Digits in a pairing code. */
 	const val PAIRING_DIGITS = 6
 
 	/** Hex digits of the service's id, and of its certificate's fingerprint. */

@@ -100,7 +100,6 @@ fun tableRows(scope: DashScope, w: Widget): List<TableRow> {
 /** The column whose text takes the room left: the one that grows, or the first. */
 private fun growColumn(w: Widget): TableColumn? = w.columns.orEmpty().let { c -> c.firstOrNull { it.grow } ?: c.firstOrNull() }
 
-/** The column drawn as a bar, where one is. */
 private fun barColumn(w: Widget): TableColumn? = w.columns?.firstOrNull { it.bar != null }
 
 /** A cell's text: its value by its column's format and unit; a dash while it is missing. */

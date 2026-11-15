@@ -174,7 +174,6 @@ private fun decodeArt(bytes: ByteArray, sizePx: Int): Bitmap? {
 /** Every widget of [widgets], those in groups included, depth first. */
 fun allWidgets(widgets: List<Widget>): List<Widget> = widgets.flatMap { listOf(it) + allWidgets(it.widgets.orEmpty()) }
 
-/** The widget [id] of any of [ui]'s dashboards. */
 fun findWidget(ui: UiDoc, id: String): Widget? = ui.dashboards.firstNotNullOfOrNull { d -> allWidgets(d.widgets).find { it.id == id } }
 
 /**

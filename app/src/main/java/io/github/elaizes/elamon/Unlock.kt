@@ -60,7 +60,6 @@ data class Gate(val before: Before, val noLockScreen: Boolean = false)
  * and for what kind, and whether a phone without a screen lock was explained.
  */
 data class UnlockMemory(val unlockedAt: Long? = null, val unlockedFor: Guarded? = null, val explained: Boolean = false) {
-	/** Unlocked for [kind] at [now]. */
 	fun unlocked(kind: Guarded, now: Long): UnlockMemory = copy(unlockedAt = now, unlockedFor = kind)
 
 	/** The screen went off or the app to the background: the next action asks again. */

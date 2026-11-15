@@ -30,7 +30,6 @@ fun Points.lastTime(): Long = if (size == 0) Long.MIN_VALUE else t(size - 1)
  * screen state that has to tell a redraw apart. Main thread only.
  */
 class Hist(val seriesCount: Int, windowMs: Long = DEFAULT_HISTORY_SECONDS * 1000L) {
-	/** How far back the series reach. */
 	var windowMs: Long = windowMs.coerceAtLeast(MIN_WINDOW_MS)
 		set(value) {
 			val w = value.coerceAtLeast(MIN_WINDOW_MS)

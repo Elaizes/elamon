@@ -89,7 +89,6 @@ object Fmt {
 
 	fun bool(b: Boolean): String = if (b) YES else NO
 
-	/** A number by [format] and [unit]. */
 	fun number(v: Double, format: String?, unit: String?, field: String? = null): String {
 		val (n, u) = parts(v, format, unit, field)
 		return withUnit(n, u)

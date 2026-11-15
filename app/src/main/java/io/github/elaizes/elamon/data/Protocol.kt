@@ -62,7 +62,6 @@ data class PairRequest(
 @Serializable
 data class PreviousPairing(@SerialName("client_id") val clientId: String, val token: String)
 
-/** What pairing answers. */
 @Serializable
 data class PairResponse(
 	val token: String,
@@ -454,7 +453,6 @@ data class Ok(val ok: Boolean = true)
 /** A JSON value as a number: a number, or null for anything else. */
 fun JsonElement?.number(): Double? = (this as? JsonPrimitive)?.takeIf { !it.isString && it !is JsonNull }?.doubleOrNull
 
-/** A JSON value as a bool, or null. */
 fun JsonElement?.bool(): Boolean? = (this as? JsonPrimitive)?.takeIf { !it.isString && it !is JsonNull }?.booleanOrNull
 
 /** A JSON value as text: a string as it is, a number or bool written out; null for null, a list or an object. */

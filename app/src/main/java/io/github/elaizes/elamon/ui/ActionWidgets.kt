@@ -93,7 +93,6 @@ class ActionLauncher(
 	private val computer: String,
 	private val res: Resources,
 	private val tap: () -> Unit,
-	/** The form on screen, if any. */
 	val form: MutableState<FormRequest?>,
 	val running: ActionsState,
 ) {
@@ -530,5 +529,4 @@ fun ControlOff(reason: String?) {
 	}
 }
 
-/** A colour at the alpha of a disabled control. */
 fun Color.disabled(enabled: Boolean): Color = if (enabled) this else copy(alpha = Alpha.DISABLED)

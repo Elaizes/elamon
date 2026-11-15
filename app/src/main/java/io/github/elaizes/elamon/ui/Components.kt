@@ -78,7 +78,6 @@ fun Section(
 	}
 }
 
-/** An icon on a tinted disc. */
 @Composable
 fun IconBadge(icon: ImageVector, accent: Color, size: Dp = Sizes.badge) {
 	Box(
@@ -205,7 +204,6 @@ fun Pill(text: String, color: Color = MaterialTheme.colorScheme.primary, modifie
 	}
 }
 
-/** A coloured dot and a name, for chart legends. */
 @Composable
 fun Legend(color: Color, text: String, modifier: Modifier = Modifier) {
 	Row(modifier, verticalAlignment = Alignment.CenterVertically) {

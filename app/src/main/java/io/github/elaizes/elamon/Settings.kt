@@ -92,7 +92,6 @@ class Settings private constructor(context: Context) {
 
 	fun setFolded(machine: String, widget: String, folded: Boolean) = state.edit { putBoolean("$FOLDED$machine/$widget", folded) }
 
-	/** The tab last shown for the computer [machine]. */
 	fun lastTab(machine: String): String? = state.getString("$TAB$machine", null)
 
 	fun setLastTab(machine: String, tab: String) = state.edit { putString("$TAB$machine", tab) }

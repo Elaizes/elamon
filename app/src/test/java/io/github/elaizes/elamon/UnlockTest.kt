@@ -25,7 +25,6 @@ class UnlockTest {
 		memory: UnlockMemory = UnlockMemory(),
 	) = gate(kind, confirm, unlock, grace, lockScreen, now, memory)
 
-	/** Unlocked for [kind] at [at]. */
 	private fun unlockedFor(kind: Guarded, at: Long) = UnlockMemory().unlocked(kind, at)
 
 	@Test

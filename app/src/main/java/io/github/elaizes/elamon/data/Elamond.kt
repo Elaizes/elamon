@@ -202,7 +202,6 @@ class ElamondClient(
 			}
 		}
 
-	/** Sends [body] as JSON. */
 	private fun send(c: HttpURLConnection, body: String) {
 		c.doOutput = true
 		c.setRequestProperty("Content-Type", "application/json")
@@ -300,7 +299,6 @@ class ElamondClient(
 		// the failed read that follows is that cancellation, not a lost computer.
 		closeOnCancel(close = { c.disconnect() }) {
 			call { checkStatus(c) }
-			// Line by line.
 			val reader = call { c.inputStream.bufferedReader() }
 			while (true) {
 				currentCoroutineContext().ensureActive()

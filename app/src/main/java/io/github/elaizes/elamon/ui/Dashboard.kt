@@ -58,7 +58,6 @@ import io.github.elaizes.elamon.data.shown
 class DashScope(
 	val machineId: String,
 	val ui: UiDoc,
-	/** The dashboard on screen. */
 	val dashboard: String,
 	/** Its widgets' states, by id, from the last data line; empty until the first. */
 	val states: Map<String, WidgetState>,

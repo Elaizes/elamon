@@ -136,7 +136,6 @@ class Guard(private val activity: FragmentActivity, val state: GuardState) {
 		}
 	}
 
-	/** The confirmation's button. */
 	fun confirmed() {
 		val p = state.confirming ?: return
 		state.confirming = null
