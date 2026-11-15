@@ -19,8 +19,9 @@ put back from somewhere. Only the built-in actions (`power.*`, `profile.set`, `u
 with elamond itself, being what it can do rather than settings.
 
 A table with an id (`[dashboards.power]`, `[actions.mode]`, `[links.jellyfin]`,
-`[profiles.owner]`, `[templates.history]`) merges with the one of the same id before it, key by
-key; a list (`widgets`, `listen`, `dashboards` in a profile) replaces the one before it whole.
+`[profiles.owner]`, `[templates.history]`, `[sources.eco]`) merges with the one of the same id
+before it, key by key, as `[history]` does; a list (`widgets`, `listen`, `dashboards` in a profile,
+`commands` of a source) replaces the one before it whole.
 So a drop-in can add a dashboard, change one key of one in elamond.toml, or replace its widgets.
 
 `elamond check [FILE]` reads the settings as the service would and names the file and line of each
@@ -29,7 +30,8 @@ one; `elamond schema` prints the JSON Schema of these settings, for editors that
 one (taplo, Even Better TOML: `#:schema` at the top of the file, as the starter files have it);
 `elamond defaults` prints the
 settings elamond starts with ([below](#the-defaults-beside-defaultstoml)); `elamond values` lists
-the values this computer has now.
+the values this computer has now, and `elamond values <source>` those of a
+[UPS source](#sources).
 
 ## The starter file
 
@@ -40,8 +42,8 @@ elamond starts with, in two files:
   the role and profile new phones get), each with a line on what it does, commented-out examples of
   a link and an action, and the `default` profile;
 - `elamond.d/dashboards.toml` (unless one is there already): every standard dashboard (`header`,
-  `overview`, `processes`, `sensors`, `control`, and the pages their tiles open) and the templates
-  they use.
+  `overview`, `ups`, `processes`, `sensors`, `control`, and the pages their tiles open) and the
+  templates they use.
 
 Together they are the whole of the settings, as one file would be: nothing is built in under
 them. Both are yours from then on: elamond never writes them again. Each begins with a line for
@@ -171,9 +173,9 @@ phone's table, which phone has it and that it was unpaired, when another phone t
 link there it leaves alone: a phone then pairs without a table, with `use`'s profile as its
 profile. Settings that wouldn't parse with a new table in, it doesn't write.
 
-Ids — of dashboards, actions, links, profiles, templates, widgets and action parameters — are 1 to
-32 characters `a-z`, `0-9`, `_` and `-`, starting with a letter or a digit. Ids with a dot are the
-service's own (built-in actions, dashboards made by `for_each`).
+Ids — of dashboards, actions, links, profiles, templates, widgets, action parameters and sources
+— are 1 to 32 characters `a-z`, `0-9`, `_` and `-`, starting with a letter or a digit. Ids with a
+dot are the service's own (built-in actions, a station's actions, dashboards made by `for_each`).
 
 ## Top level
 
@@ -197,6 +199,8 @@ The default is what a key left out is; the starter file writes most of them out.
 | `profiles` | table of [profiles](#profiles) | | |
 | `dashboards` | table of [dashboards](#dashboards) | | |
 | `templates` | table of [templates](#templates) | | |
+| `sources` | table of [sources](#sources) | | UPSes and power stations |
+| `history` | [table](#the-long-history) | | how long the hourly history is kept |
 
 Settings schema 1 (elamond 0.5 and before) had `[[links]]`, `[[actions]]` and `units`; they are
 refused with a note on what replaces them: `[links.<id>]`, `[actions.<id>]`, and a unit named on
@@ -222,6 +226,124 @@ scope = "system"
 | `unit` | string | | a systemd service unit clients may start, stop and restart (`unit.*` actions) |
 | `scope` | `user` \| `system` | `user` | the unit's |
 | `icon` | [icon](#icons) | `globe` | |
+
+## Sources
+
+A UPS or a power station, as a NUT server (upsd) serves it: elamond reads it through the
+upst-core library (of the upst project), shows its values beside the computer's
+([values](#a-sources-values)), keeps their [history](#the-long-history), and runs the station's
+commands and settings the source allows ([station actions](#station-actions)). Any UPS NUT has a
+driver for is served by upsd; an EcoFlow station by nutflow, a NUT server of its own. Settings
+without sources are as they were before elamond 0.7.
+
+```toml
+[sources.eco]
+kind = "nut"
+ups = "ups"
+capacity_wh = 2048
+user = "elamon"
+password_file = "/home/me/.config/elamon/nut.password"
+commands = ["outlet.*.load.*", "beeper.*"]
+settings = ["experimental.battery.charge.max", "experimental.output.xboost"]
+outlets."1".critical = true
+```
+
+| key | type | default | |
+|---|---|---|---|
+| `kind` | `"nut"` | required | the only kind there is |
+| `ups` | string, 1–64 characters, no spaces | required | the UPS's name on upsd, as in `upsc ups@localhost` |
+| `host` | string | `"localhost"` | where upsd is |
+| `port` | integer, 1–65 535 | 3493 | |
+| `capacity_wh` | number above 0 | | the battery's energy, for `<id>.estimate.watts` (nutflow reports no rating to guess it from) |
+| `interval_ms` | integer, 200–60 000 | 1000 | how often upsd is asked while some client has a dashboard (or the header) on screen that shows one of the source's values |
+| `background_ms` | integer, `interval_ms`–60 000 | 10 000, or `interval_ms` when that is more | how often otherwise, while its history is kept or a graph or timeline of the settings shows it; when neither, upsd isn't asked at all |
+| `history` | bool | `true` | keep the [long history](#the-long-history) of every number the source has |
+| `recorder` | a socket path, or `host[:port]` | | an `upst record` to fill the history and the timeline from, with what happened while elamond wasn't watching |
+| `user`, `password_file` | string; an absolute path | | the NUT user that runs commands and settings, and the file whose first line is its password: both or neither |
+| `commands` | list of patterns | `[]` | the station's commands clients may run; `*` stands for any run of characters (`outlet.*.load.*`), as in nutflow's `allow` |
+| `settings` | list of patterns | `[]` | the station's writable variables clients may set |
+| `role` | `operate` \| `admin` | `admin` | the least role that may run the source's commands and settings |
+| `outlets."<N>".critical` | bool | `false` | an outlet that powers this computer: its commands but the one that turns it on are typed in |
+
+The id names the source's values (`eco.battery.charge`) and its dashboard (`ups.eco`). It is an
+id as others are, but it may not be the first part of one of the computer's addresses (`cpu`,
+`mem`, `swap`, `gpu`, `temp`, `fan`, `fans`, `disk`, `disk_io`, `net`, `battery`, `power`,
+`volume`, `link`, `system`, `displays`), nor `item`. `elamond check` also finds: another `kind`
+(`only kind = "nut" in this version`); `user` without `password_file` or the other way round, or a
+relative `password_file`; `commands` or `settings` without them; a pattern of anything but `a-z`,
+`0-9`, `.`, `_`, `-` and `*`; an outlet that isn't a whole number, or a key there but `critical`;
+a `recorder` that is empty. It never connects to upsd: what the station has, it doesn't check.
+
+The password file is yours to write, readable by you alone (`chmod 600`). elamond reads its first
+line each time it runs a command or a setting, and the password goes nowhere else: not to
+clients, the journal, errors, `elamond values` or `elamond check`, nor backups. A file that is
+missing, unreadable or that others may read is a warning in `elamond check` (on NixOS the build
+checks the settings where the file isn't), and an action of the source then fails (`failed`,
+saying which). Keep it out of `elamond.d/` as a `.toml`, which would be read as settings:
+`elamond check` warns of that too. The NUT user is upsd's (`upsd.users`, with `instcmds` and
+`actions = SET`) or nutflow's (with `allow`), and needs no more than `commands` and `settings` name.
+
+Commands and settings are offered only as the station offers them, as far as `commands` and
+`settings` allow: a phone sends a command's name or a setting's value, never anything the service
+didn't check against both.
+
+On NixOS and with Home Manager:
+
+```nix
+services.elamond.settings.sources.eco = {
+  kind = "nut";
+  ups = "ups";
+  user = "elamon";
+  password_file = "/run/secrets/elamon-nut";   # a secret outside the Nix store (sops-nix, agenix…)
+  commands = [ "outlet.*.load.*" ];
+  outlets."1".critical = true;
+};
+```
+
+`elamond values eco` asks upsd itself (for 5 seconds at most) and prints the source's values as
+the service would name them, each with its unit, format and role, then the station's commands and
+writable settings, with their lists or ranges and whether `commands` and `settings` allow them;
+the estimates and the timeline come from the running service. `elamond values` alone ends with a
+line naming the sources (`UPS sources: eco (elamond values eco)`).
+
+## The long history
+
+Graphs reach back further than `history_minutes`: the service keeps every value a graph or a
+spark of the settings shows, and every number of each source with `history = true` (256 a
+source at most), at three steps, each point the mean of the readings in it:
+
+| step | kept | |
+|---|---|---|
+| 10 seconds | a day | the `1h` and `24h` ranges |
+| 5 minutes | 30 days | `7d` and `30d` |
+| an hour | for good, or `keep` days | `1y` and `all` |
+
+```toml
+[history]
+keep = "all"   # or a number of days, 30 or more: hourly points older than that go
+```
+
+| key | type | default | |
+|---|---|---|---|
+| `keep` | `"all"`, or an integer of days, 30 or more | `"all"` | how long the hourly points are kept; the others keep their windows |
+
+It is in `~/.local/share/elamon/history/` (the service's data folder), a file for each value and
+step, 8 bytes a point, and a file of power changes for each source. The service writes it every
+5 minutes and as it stops, never more often and without waiting for the disk, so a crash loses
+those minutes at most; it trims each file to its window as it goes, and after a restart the
+graphs start from it. A value takes about 0.3 MB its first year and 70 KB a year after: a
+computer's graphs some 4 MB, a power station's ninety-odd numbers some 25 MB the first year and
+6 MB a year after. `elamond check` says how much there is:
+`history: 12.3 MiB in 274 files (oldest 2026-11-16), not in backups`.
+
+It isn't in backups: `elamond backup` leaves it out, as it is large and nothing the service needs
+to be the same computer to its phones; copy the folder to keep it. Deleting it loses the long
+ranges and nothing else.
+
+With a `recorder`, at each start a source fills in the history and the timeline from where it
+left off, from what `upst record` kept meanwhile (all of it the first time), and starts its
+estimates from the last hour of it. A recorder that can't be reached, or that doesn't know the
+UPS, is one line in the journal; the source works without it.
 
 ## Actions
 
@@ -275,9 +397,34 @@ parameter without `default` must be given.
 | `media.play_pause`, `media.next`, `media.previous` | `media` | operate | `player`: string | MPRIS |
 | `media.seek` | `media` | operate | `player`: string; `position`: number, seconds | |
 | `volume.set` | `media` | operate | `level`: range 0–100 (%), optional; `muted`: bool, optional | the default output |
+| `nut.command.<source>` | `nut` | the source's `role` | `cmd`: choice of the station's commands `commands` allows | [below](#station-actions) |
+| `nut.set.<source>.<variable>` | `nut` | the source's `role` | `value`: choice or range, as the station has it | |
 
 Actions the settings add are of kind `actions`. The kind is what a profile's `unlock.for` names.
 Every action also needs control: `control = true`, and no `elamond control off`.
+
+### Station actions
+
+A [source](#sources) with `commands` adds `nut.command.<source>`, whose one parameter `cmd` is a
+choice of the commands the station offers that a pattern of `commands` matches, each labelled as
+upsd describes it (`Turn off AC outlets, group 2`). With `settings`, each writable variable a
+pattern matches that takes a list of values (`ENUM`) or a range (`RANGE`) is an action
+`nut.set.<source>.<variable>` with one parameter `value`, the list as a choice or the range on a
+step of 1 in the variable's unit; one of another kind isn't offered, and the journal says so once.
+They come once upsd has said what the station offers, and stay while it can't be reached; until
+then the widgets that run them are left out, and so is a toggle whose `on` or `off` isn't among
+them.
+
+Each asks before it runs. One that cuts this computer's power has to be typed in on the phone,
+whatever the profile's `confirm_actions`: a command on an outlet with `critical = true` but the one
+that turns it on (`outlet.1.load.off`), and a command upst-core counts as dangerous that isn't
+about one outlet (`load.off`, `shutdown.*`, `calibrate.start`…). Turning any other outlet off is
+asked as other actions are. The service refuses one that wasn't typed in, so an app before 0.7
+can't run it.
+
+A source's actions run one at a time, each answered once the station says it did it (or why not),
+25 seconds at most: an upsd that can't say whether the station did it counts as a failure. The
+activity log has them as `nut eco outlet.2.load.off` and `nut eco experimental.battery.charge.max 90`.
 
 ## Profiles
 
@@ -311,7 +458,7 @@ The part every client reads:
 | `fahrenheit` | bool | `false` | temperatures in °F: the service sends them so |
 | `network_bits` | bool | `false` | network rates in bits per second: the service sends them so |
 | `confirm_actions` | bool | `true` | ask before actions that ask (`confirm`); off, only unlocking still asks |
-| `unlock.for` | list of kinds | `["power", "signal", "actions", "units"]` | action kinds the client unlocks the phone for first: `power`, `signal`, `actions`, `units`, `profile`, `media` |
+| `unlock.for` | list of kinds | `["power", "nut", "signal", "actions", "units"]` | action kinds the client unlocks the phone for first: `power`, `nut` (a station's), `signal`, `actions`, `units`, `profile`, `media`; settings written before 0.7 list theirs without `nut`, which a station's actions then don't unlock for until it is added |
 | `unlock.grace` | `every_time` \| `1m` \| `5m` | `every_time` | how long an unlock covers later actions of its kind or a lesser one |
 | `dashboards` | list of dashboard ids | `["overview", "processes", "sensors", "control"]` | the client's tabs, in order; those the client's role can't see are left out |
 | `header` | dashboard id | `header` | widgets shown as small chips under the computer's name on every tab; `""` for none |
@@ -334,9 +481,24 @@ key as well. A profile that names a dashboard that doesn't exist is a mistake.
 
 A dashboard is a page of widgets: a tab when a profile lists it, otherwise a page a widget opens
 (`open`), or the chips under the computer's name (a profile's `header`). The standard ones, which
-[the starter file](#the-starter-file) has, are `overview`, `processes`, `sensors` and `control`,
-the `header`, and the pages their tiles open: `cpu`, `memory`, `gpu.<key>`, `network`, `storage`,
-`battery`, `activity`.
+[the starter file](#the-starter-file) has, are `overview`, `ups`, `processes`, `sensors` and
+`control`, the `header`, and the pages their tiles open: `cpu`, `memory`, `gpu.<key>`, `network`,
+`storage`, `battery`, `activity`.
+
+`ups` is one dashboard for each [source](#sources) (`for_each = "ups"`: `ups.eco`, titled by the
+station's model), and none without one: the starter's `default` profile has it as its second tab
+(`["overview", "ups", "processes", "sensors", "control"]`), so a source needs nothing but its
+`[sources.<id>]`. It shows what the station has and leaves out what it hasn't, the same for a UPS
+and an EcoFlow: the status, with how long it has been so and its flags; the charge, with the time
+left; a timeline of the power; the power in and out, and the solar inputs when there are; the
+battery's charge and discharge limits, health, capacity, voltage and current, with the estimates
+to empty and to full; the outlets; the voltages, frequencies and temperatures; graphs of the
+charge and the power; the model and firmware. Below, once the source has `commands` or
+`settings`, a switch for each outlet and the beeper, and sliders and choices for the station's
+settings (the charge limits, the charging power, X-Boost, timeouts, the display). To change it,
+`elamond defaults dashboards.ups` gives the table to copy. With two sources, each one's switches
+list the outlets of both. Settings started before 0.7 have no `ups` dashboard: copy it the same
+way into `elamond.d/dashboards.toml`, and add `"ups"` to the profile's `dashboards`.
 
 ```toml
 [dashboards.power]
@@ -372,12 +534,12 @@ Every widget takes:
 |---|---|---|---|
 | `type` | one of the types below | required (or from `use`) | |
 | `id` | id | its place in the list, from 0 | unique within the dashboard (or group) |
-| `span` | 1–4 | 2, or 4 for `graph`, `table`, `list`, `group`, `media` and `text` | |
+| `span` | 1–4 | 2, or 4 for `graph`, `table`, `list`, `group`, `media`, `text` and `timeline` | |
 | `label` | string | | its title |
 | `icon` | [icon](#icons) | | |
 | `color` | [colour](#colours) | | its accent |
 | `role` | role | the least role its values and action need | the least role that sees it |
-| `when` | address | | shown only while that value exists on this computer |
+| `when` | address | | shown only while that value exists on this computer; a source's value, once the source has had it ([below](#a-sources-values)) |
 | `open` | dashboard id | | tapping it opens that dashboard |
 | `caption` | string | | a line under it, which may hold values |
 | `collapsed` | bool | | a `group` or `table` that can be folded, and starts folded; the client remembers it after |
@@ -414,12 +576,13 @@ the clock on a computer without a CPU temperature); a string left empty isn't sh
 | `gauge` | a ring | `min` (0), `max` (number or address; the address's own) |
 | `meter` | a bar | `min`, `max` |
 | `status` | a state as a coloured word | `map`, `levels` |
-| `graph` | lines over time, the newest values above them | `values` (list of addresses), `labels` (one per value), `colors` (one per value), `range` (seconds, at most `history_minutes`; all of it by default), `height` (`small`, `medium`, `large`), `min`, `max` (a fixed scale, a number or an address; it grows to fit otherwise), `floor` (the least the scale goes down to), `empty` (shown while the first value is missing) |
+| `graph` | lines over time, the newest values above them | `values` (list of addresses), `labels` (one per value), `colors` (one per value), `range` (seconds, at most `history_minutes`; all of it by default), `height` (`small`, `medium`, `large`), `min`, `max` (a fixed scale, a number or an address; it grows to fit otherwise), `floor` (the least the scale goes down to), `empty` (shown while the first value is missing), `ranges` (bool, `true` by default: a `medium` or `large` graph offers the [long history](#the-long-history), 1 hour to all of it, beside its own `range`; a `small` one never does) |
+| `timeline` | when a source was on line, on battery, or nothing was known, as a bar | `source` (required: a source's id, or `{item}` in a dashboard with `for_each = "ups"`), `range` (seconds, 600–2 592 000; 86 400, a day, by default), `ranges` (bool, `true` by default, as a graph's) |
 | `list` | rows of a label and a value | `items`: list of `{ label, value, text, format, unit, map, empty, when }`: `value` an address, or `text` a string that holds values (each may `for_each`); a row with nothing to show is left out |
 | `bars` | one bar per item of a collection | `source`, `field`, `max` (number or address), `labels` (the field under each bar; none by default) |
 | `table` | rows from a [collection](#collections) | `source`, `columns`, `sort`, `sorts`, `search`, `limit`, `filter`, `hide_empty`, `row_open`, `row_actions`, `expand` (below) |
 | `button` | runs an action, or opens a dashboard | `action`, `params` (fixed values), `open` |
-| `toggle` | a switch | `value` (the state now), `action`, `param` (the parameter it sets), `on`, `off` (its values; `true`/`false` by default) |
+| `toggle` | a switch | `value` (the state now), `action`, `param` (the parameter it sets), `on`, `off` (its values; `true`/`false` by default), `map` (the state read through it: `{ on = "outlet.1.load.on", off = "outlet.1.load.off" }` for a switch whose values are commands) |
 | `select` | one of an action's choices | `value` (the choice now), `action`, `param` |
 | `slider` | a number in an action's range | `value`, `action`, `param` |
 | `text` | words | `text` (may hold values), `level` |
@@ -444,7 +607,11 @@ A `table`:
 | `expand` | list of `{ field, label, format, unit, map }` | what a row shows when opened |
 
 A widget whose action the client's role may not run, or the computer can't do, is left out; with
-control off they stay, disabled.
+control off they stay, disabled. So is a toggle whose `on` or `off` its action doesn't take (a
+station's command it doesn't offer, or `commands` doesn't allow).
+
+A `timeline` reaches an app before 0.7 as a `text`: the source's status and how long it has been
+so (`On battery · 12 min`), coloured by the status.
 
 ### Templates
 
@@ -538,6 +705,42 @@ anything else becoming `_`.
 | a disk's I/O, a network interface | its name | `nvme0n1`, `wlp2s0` |
 | a link | its id | `jellyfin` |
 
+### A source's values
+
+A [source](#sources) has a value for each variable its station reports, named
+`<id>.<variable>` as NUT names it (`eco.battery.charge`, `eco.outlet.2.realpower`,
+`eco.experimental.input.dc.1.realpower`): whatever the station has, `elamond values eco` lists. A
+number is a number, anything else text. The unit comes from the name, as upst-core reads it: `V`
+for a `voltage`, `A` a `current`, `Hz` a `frequency`, `°C` a `temperature`, `W` a `realpower`, `VA`
+another `power`, `%` a `charge`, `load`, `humidity` or `efficiency`, `s` a `runtime`, `delay`,
+`timer` or `uptime`, `Ah` a battery's `capacity`; and the format from the unit: `percent`, `temp`,
+`watts`, `duration`, `number` for other numbers (`230.5 V`), `text`. Their role is `glance`, but
+`monitor` for the driver's (`driver.*`), serial numbers, versions, vendor and product ids, dates
+and `.id`s.
+
+Beside them, what the service makes of them:
+
+| address | unit | format | |
+|---|---|---|---|
+| `<id>.status` | | `text` | `On line`, `On battery`, `Low battery`, `Overload`, `On bypass`, `Output off`, `Forced shutdown`, `No status`, `Unknown`; while upsd isn't read, `Connecting`, `No data` (upsd answers, the station doesn't) or `Unreachable`. It has a level of its own, by the worst of its flags as upst-core weighs them (on battery, on bypass, output off, discharging, replace battery: `warning`; low battery, overload, forced shutdown, alarm: `critical`), else `normal`; `No data` is `warning`, `Unreachable` `critical`, `Connecting` `normal` |
+| `<id>.status.power` | | `text` | `line` (on line, or on bypass), `battery`, `none`: as the timeline has it |
+| `<id>.status.flags` | | `text` | the status's other flags, joined by ` · ` (`Charging · Replace battery`); missing when there are none |
+| `<id>.status.since` | s | `duration` | how long it has been on line, or on battery |
+| `<id>.link` | | `text` | `connecting`, `up`, `stale` (upsd answers, without data), `down` |
+| `<id>.link.error` | | `text` | why not `up` (role `monitor`) |
+| `<id>.estimate.watts` | W | `watts` | the draw (or the charging power) from how fast the charge goes, with `capacity_wh` |
+| `<id>.estimate.to_empty`, `.to_full`, `.to_low` | s | `duration` | from how fast the charge goes: to 0 %, to 100 %, to `battery.charge.low`; each while it can tell |
+
+Its numbers carry limits as the computer's do: `<id>.battery.charge` the battery's, `<id>.ups.load`
+a load's, temperatures a temperature's ([levels](#levels)).
+
+A station's values come and go: nutflow leaves out a reading it hasn't had for a while, an outlet
+that is off has no voltage, and while upsd isn't read the source has only `<id>.status`,
+`<id>.status.power` and the `link`. So that its dashboard keeps its shape, a `when` or a list
+row that names a source's value holds once the source has had that value since elamond started,
+up to 256 values a source, for a role that sees it; the widget then shows `—`. One the source has
+never had leaves the widget out, as for the computer's.
+
 ### Collections
 
 Lists of things, for `table` and `for_each`, each item with a `key` and fields:
@@ -556,6 +759,8 @@ Lists of things, for `table` and `for_each`, each item with a `key` and fields:
 | `links` | monitor | `id`, `name`, `url`, `unit`, `scope`, `port`, `up`, `local_only`, `unit_state` |
 | `activity` | monitor | `t` (ms), `phone`, `what`, `result`, `message` |
 | `actions` | operate | the actions the settings add (not the built-in ones) that the role may run: `key` (the id), `name`, `icon` |
+| `ups` | glance | one for each [source](#sources), from the start, whether upsd answers or not: `key` (its id), `name` (`device.model`, else `ups.model`, else its id), `model`, `mfr`, `status`, `power`, `link` (as `<id>.status`, `.status.power`, `.link`), `ecoflow` (bool: an EcoFlow station) |
+| `outlets` | glance | one for each outlet a source has had since elamond started (`outlet.<N>.*`), by source and number, kept while upsd isn't read: `key` (`<id>.<N>`), `source` (the id), `id` (N), `desc`, `status` (`on`, `off`), `realpower` (W), `voltage` (V), `current` (A), `switchable` (bool), `critical` (bool, from the settings) |
 
 A row's `level`, where its collection has one (`temps` by value, `processes` by CPU, `disks` by
 percent, `cores` and `gpus` by usage), comes with it. In a string, `{item.<field>}` is written by
@@ -571,7 +776,8 @@ colours it alike:
 |---|---|---|---|
 | `cpu.usage`, `mem.percent`, `swap.percent`, `gpu.*.usage`, `gpu.*.mem_percent`, `disk.*.percent` | above 75 | above 90 | 0 |
 | temperatures | the sensor's `high`, or 20 below critical, never under 40 | the sensor's `crit`, or `high`, or 95 | 20 |
-| `battery.percent` | below 30 | below 15 | 0 |
+| `battery.percent`, a source's `battery.charge` | below 30 | below 15 | 0 |
+| a source's `ups.load` | above 75 | above 90 | 0 |
 | `processes` rows by `cpu` (a quarter of the CPU is a lot already) | above 18.75 | above 22.5 | 0 |
 | anything else | — | — | |
 
@@ -580,8 +786,8 @@ colours it alike:
 limits one by one; an address given there is read now, in the client's units.
 
 What has a level: a number with limits, judged by them; a number without is `normal`, but a
-duration, a moment or a text has none. A widget with `levels` gives each mapped value its level
-there, `normal` for the rest.
+duration, a moment or a text has none, unless it has a level of its own (a source's `status`). A
+widget with `levels` gives each mapped value its level there, `normal` for the rest.
 
 ### Formats
 

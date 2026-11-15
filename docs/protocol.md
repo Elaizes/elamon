@@ -18,7 +18,9 @@ new kind of widget.
 
 Every shape below, with each optional field filled in, is in
 [`elamond/fixtures`](../elamond/fixtures): the service's tests write those files and the app's
-tests read them, so the two can't drift apart.
+tests read them, so the two can't drift apart. Those elamond 0.7 adds are in
+[`elamond/fixtures/0.7`](../elamond/fixtures/0.7) until the service writes them and the app reads
+them ([below](#what-came-with-elamond-07)).
 
 ## Versions and what each side can do
 
@@ -26,14 +28,18 @@ tests read them, so the two can't drift apart.
   nothing of API 1 is served any more, and a client that sees another `api` than its own asks for
   the app or the service to be updated.
 - `widgets` (in `hello`) is the version of the dictionary of widget types and their keys. It grows:
-  a type or a key is added, never changed.
+  a type or a key is added, never changed. 1 came with elamond 0.6; 2 with 0.7, which added the
+  type `timeline` and the key `ranges` of `graph` and `timeline` (with
+  [`/history`](#get-apiv1history) behind it). A client needs it for nothing it draws, as the
+  service describes only the types the client lists and a client ignores keys it doesn't know; it
+  says which dictionary the service speaks, so a client can tell why it never sees a type.
 - `min_app` is the oldest app version that understands this service.
 - `version` is the service's own.
 
 ### `GET /api/v1/hello` (no token)
 
 ```json
-{ "app": "elamon", "api": 2, "widgets": 1, "id": "…", "name": "…", "version": "0.6.0", "min_app": "0.6.0" }
+{ "app": "elamon", "api": 2, "widgets": 2, "id": "…", "name": "…", "version": "0.7.0", "min_app": "0.6.0" }
 ```
 
 Anyone on the network may ask, so it says which service this is and which versions it speaks, and
@@ -53,6 +59,42 @@ What widget types a client draws it says in `GET /api/v1/ui?widgets=…`; the se
 dashboards with those alone ([below](#what-a-client-cant-draw)), in that `ui` and in what the
 client's streams and snapshots send from then on. A type the service doesn't know is left out, as
 if the client hadn't listed it.
+
+### What came with elamond 0.7
+
+UPSes and power stations ([sources](config.md#sources)), the long history behind graphs, and
+running a station's commands. The API stays 2: all of it is fields a client may ignore, a widget
+type a client that doesn't list it never gets, and a request it needn't make.
+
+| new | where |
+|---|---|
+| `ups` in `service.features` | [`ui`](#get-apiv1ui) |
+| `ranges` of `graph` and `timeline`; [`GET /api/v1/history`](#get-apiv1history) | [widgets in `ui`](#widgets-in-ui) |
+| the widget type `timeline`, its state `segments` | [`ui`](#widgets-in-ui), [the stream](#get-apiv1stream) |
+| the `level` of a source's own value (`eco.status`) in a widget's state | [the stream](#get-apiv1stream) |
+| a toggle's `v` read through its `map` | [the stream](#get-apiv1stream) |
+| actions of kind `nut`; `confirm_text` in a choice and in the request; 403 `confirm_required` | [station actions](#station-actions-kind-nut) |
+| 404 `no_such_widget` | [`/history`](#get-apiv1history), [errors](#errors) |
+
+What an app of 0.6.2 or before sees of a 0.7 service: what it saw before, and the source's
+dashboards drawn with the types it knows. A `timeline` reaches it as a `text` (it doesn't list the
+type); `ranges`, `ups`, a choice's `confirm_text` and `segments` it ignores; it unlocks for a `nut`
+action as for `actions`, as for any kind it doesn't know, and the toggles, sliders and selects of a
+station work as any other. A command that needs typing it can't send: the service
+answers 403 `confirm_required`, which it shows by its code.
+
+An app of 0.7 with an older service: no `ranges` come, so it offers no long ranges; there is no
+`timeline` to draw, nor `confirm_text` to ask for.
+
+The fixtures 0.7 adds are in `elamond/fixtures/0.7/`: `ui-ups-source.toml` (the settings), with the
+station they are read with in its comments; `ui-ups.json` (its `ui` for an admin `android` client);
+`stream-ups.json` (a `data` line of its dashboard); `history.json` and `history-timeline.json`
+(`/history` of its graph and of its timeline); `action-request-typed.json` (a command typed in).
+They move up beside the others once the service writes them and the app reads them. Then, with the
+service at 0.7.0, these change as well: `hello.json` (`version` 0.7.0, `widgets` 2), `errors.json`
+(`no_such_widget` and `confirm_required` added), `ui.json` (its medium graph gains `ranges`, and so
+its `version`, which `stream-open.json` and `stream-ui.json` carry), and `ui-default.json` (each
+graph but the small ones gains `ranges`; the default profile's `unlock.for` gains `nut`).
 
 ## Discovery
 
@@ -238,10 +280,10 @@ Each paired client has a role. They are ordered, each allowing what the one befo
 
 | role | sees | may run |
 |---|---|---|
-| `glance` | the basics: CPU, memory, GPUs, temperatures, fans, disks, disk I/O, network, battery, power, the system | nothing |
-| `monitor` | everything there is to read: also processes with their commands and users, monitors, links, media with their covers, the activity log | nothing |
-| `operate` | | actions of kind `profile`, `units`, `media` and `actions` |
-| `admin` | | `power` and `signal` too |
+| `glance` | the basics: CPU, memory, GPUs, temperatures, fans, disks, disk I/O, network, battery, power, the system, UPSes | nothing |
+| `monitor` | everything there is to read: also processes with their commands and users, monitors, links, media with their covers, the activity log, a UPS's driver, serial numbers and versions | nothing |
+| `operate` | | actions of kind `profile`, `units`, `media` and `actions`, and `nut` of a source whose `role` is `operate` |
+| `admin` | | `power`, `signal` and `nut` too |
 
 Any role may ask for a key of its own ([`rekey`](#post-apiv1rekey)), which keeps that role.
 
@@ -271,13 +313,13 @@ client whose profile the settings no longer have gets `default_profile`.
 
 What the client shows: its profile, its tabs, the dashboards and the actions, all as far as its role
 goes. Query: `widgets`, the widget types the client draws, comma-separated
-(`widgets=value,gauge,meter,status,graph,list,table,button,toggle,select,slider,text,group,media`).
+(`widgets=value,gauge,meter,status,graph,list,table,button,toggle,select,slider,text,group,media,timeline`).
 
 ```json
 {
   "version": "5c1f0e2a9d3b7a41",
-  "service": { "id": "…", "name": "…", "version": "0.6.1", "interval_ms": 1000, "history_seconds": 600,
-               "features": ["control", "media", "power", "power_profiles", "processes", "units"],
+  "service": { "id": "…", "name": "…", "version": "0.7.0", "interval_ms": 1000, "history_seconds": 600,
+               "features": ["control", "media", "power", "power_profiles", "processes", "units", "ups"],
                "endpoints": ["192.0.2.10", "100.64.0.7", "desk.example.net"] },
   "role": "admin",
   "control": { "enabled": true, "off_reason": null },
@@ -303,7 +345,8 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
   sorted: `control` (`control = true` in the settings), `power` (logind can power off, restart,
   sleep or lock), `power_profiles` (power-profiles-daemon or tuned-ppd), `units` (systemd), `media`
   (a session bus for MPRIS), `processes`, `displays` (a GPU whose monitors DRM tells of), `nvml` (an
-  NVIDIA GPU NVML can read). A client ignores those it doesn't know.
+  NVIDIA GPU NVML can read), `ups` (the settings have a [source](config.md#sources), whether
+  upsd answers or not). A client ignores those it doesn't know.
 - `service.endpoints`: where the computer is now ([pairing](#where-the-computer-is-endpoints)).
 - `profile` holds the part every client reads, and the part for this client's kind (`android`)
   only. For an `admin`, `source` says where the profile's table is, for the person to change it:
@@ -320,8 +363,11 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
   the action's own, the profile's `confirm_actions` and `unlock.for` already applied. A client asks
   before running an action with `confirm`, unlocks the phone first for one with `unlock` (within the
   profile's `unlock.grace`, an unlock for a kind covers the kinds after it in
-  `power`, `signal`, `actions`, `units`, `profile`, `media`), and asks for the values of `params` a
-  widget doesn't fix.
+  `power`, `nut`, `signal`, `actions`, `units`, `profile`, `media`), and asks for the values of
+  `params` a widget doesn't fix. A choice with `confirm_text` is asked to be typed in
+  ([station actions](#station-actions-kind-nut)). The built-in actions come first, in their order,
+  then the [station actions](#station-actions-kind-nut) by source and the command one before the
+  settings by variable, then the settings' own by id.
 - `control.off_reason`: `null` while control is on, else `settings` (`control = false`),
   `held_off` (`elamond control off`) or `settings_unreadable` (the settings files stopped
   parsing; the service keeps those it read before). While it's off, action widgets are drawn
@@ -339,7 +385,8 @@ reads, beside `id`, `type`, `span`, `label`, `icon`, `color` and `open`:
 |---|---|
 | `value`, `gauge`, `meter`, `status` | `unit`, `format`, `min`, `max` (a number; one that changes comes in the state), `spark` (`value`) |
 | `bars` | `unit`, `format`, `max` |
-| `graph` | `series: [{ label, color, unit, format }]`, `range` (s), `height`, `min`, `max`, `floor` |
+| `graph` | `series: [{ label, color, unit, format }]`, `range` (s), `height`, `min`, `max`, `floor`, `ranges` |
+| `timeline` | `range` (s), `ranges` |
 | `list` | `items: [{ label, unit, format }]` |
 | `table` | `source`, `columns: [{ field, label, format, unit, bar: { max }, grow }]` (`max` a number, a field or `"top"`), `sort: { field, desc }`, `sorts`, `sort_labels` (field → the label of its chip; a field without one, its column's label or the field), `search` (bool), `search_fields` (the fields a client searches, when `search`: rows carry them), `hide_empty`, `row_open`, `row_actions: [{ action, label, params }]`, `expand: [{ field, label, format, unit }]` |
 | `button` | `action`, `params`, `open` |
@@ -350,13 +397,27 @@ reads, beside `id`, `type`, `span`, `label`, `icon`, `color` and `open`:
 | every type | `caption` (`true` when it holds values: its text comes in the state), `collapsed` (`table`) |
 | `media` | |
 
+`ranges` is `["1h", "24h", "7d", "30d", "1y", "all"]`, on a `graph` (not a `small` one) and on a
+`timeline`, unless the widget's settings say `ranges = false`: the long ranges
+[`/history`](#get-apiv1history) answers for it. A client offers them beside the widget's own
+`range`, which the stream fills as before: say chips `10 min` (its own), `1 h`, `24 h`, `7 days`,
+`30 days`, `Year`, `All`, leaving out one as long as its own. On a long one it fetches `/history`,
+draws its points over that window, adds a stream's point only once `step_ms` has passed since the
+newest it has, and fetches again when it comes back to the screen. Which one is chosen is the
+client's to keep, not the service's.
+
+A `toggle`'s `on` and `off` are values its action's `param` takes: one the action doesn't take (a
+station's command it doesn't offer, or `commands` doesn't allow) leaves the toggle out.
+
 ### What a client can't draw
 
 A widget type the client didn't list in `widgets` is replaced by the nearest it did: `gauge` and
 `meter` (and `status`) by `value`, `select` by buttons in a `group` (each button's id
 `<id>/<value>`), `slider` by `select` or those buttons (11 of its values at most), a `group` by
-the widgets in it… and where there's none, by a `text` with `level` `warning` saying the app needs
-updating to show it. An unknown key on a known type, a client ignores.
+the widgets in it, a `timeline` by a `text` that holds its source's status and how long it has
+been so (`"{eco.status} · {eco.status.since:duration}"`, `On battery · 12 min`), its state's
+`level` the status's… and where there's none, by a `text` with `level` `warning` saying the app
+needs updating to show it. An unknown key on a known type, a client ignores.
 
 ## `GET /api/v1/stream`
 
@@ -390,24 +451,35 @@ A widget's state:
 
 | type | state |
 |---|---|
-| `value`, `gauge`, `meter`, `status` | `{ "v": 42.5, "text": "On battery", "level": "warning", "blend": 0.4, "max": 16000000000, "caption": "4.1 GiB of 16 GiB" }`: `v` the value (number, string, bool or `null` when missing) in the widget's unit; `text` when `map` gave it a word, or the value is missing and the widget has `empty` (filled in); `level` and `blend` ([levels](config.md#levels)); `max` when it is an address; `caption` filled in |
+| `value`, `gauge`, `meter`, `status` | `{ "v": 42.5, "text": "On battery", "level": "warning", "blend": 0.4, "max": 16000000000, "caption": "4.1 GiB of 16 GiB" }`: `v` the value (number, string, bool or `null` when missing) in the widget's unit; `text` when `map` gave it a word, or the value is missing and the widget has `empty` (filled in); `level` and `blend` ([levels](config.md#levels)), or, for a widget without `levels` and limits, the level a value has of its own (a source's `eco.status`, `On battery`: `warning`); `max` when it is an address; `caption` filled in |
 | `graph` | `{ "v": [1.5, 0.2], "max": 16000000000, "text": "Asleep" }`, the newest point of each series, at the line's `t`; `max` when it is an address; `text`, the widget's `empty` while the first series has no value |
 | `bars` | `{ "v": [12.5, 80.0, …], "labels": ["0", "1", …], "levels": ["normal", "critical", …] }`; `max` when it is an address |
 | `list` | `{ "items": [{ "v": …, "text": …, "level": … }] }`, in the order of `items` |
 | `table` | `{ "rows": [{ "key": "4242", "level": "normal", "f": { "pid": 4242, "name": "firefox", … } }], "total": 312 }`: at most `limit` rows in the table's order, each with the fields its columns, `expand`, `row_open` and `row_actions` need; `total`, how many there are in all |
 | `button` | `{ "enabled": true }` |
 | any, with a `caption` that holds values | `"caption": "…"` beside the rest |
-| `toggle`, `select`, `slider` | `{ "v": "server", "enabled": true }` |
+| `toggle`, `select`, `slider` | `{ "v": "server", "enabled": true }`; a toggle's `v` read through its `map` when it has one (`on` → `outlet.1.load.on`), a value the map hasn't as it is |
 | `text` | `{ "text": "…", "level": "normal" }` when it holds values |
 | `group` | none |
 | `media` | `{ "players": [ … ], "volume": { "level": 40.0, "muted": false } }` (%) |
+| `timeline` | `{ "segments": [{ "from": 1699992000000, "to": 1699999280000, "state": "line" }, …] }` (below) |
+
+A timeline's `segments` cover its `range` back from the line's `t` (Unix ms), oldest first, each
+from where the one before ends: `line` (on line, or on bypass), `battery`, or `none` where nothing
+is known (before the source was first read, while elamond didn't run, while upsd couldn't be
+reached). Segments shorter than a 400th of the range that come one after another are made one,
+`battery` if any of them was, else `none` if any was, else `line`; one short segment alone stays
+as it is, and a client draws every segment a pixel or two wide at least. Neighbours of one state
+are one segment.
 
 Numbers in states come rounded to one decimal (`blend` to three); a client formats them by the
 widget's `format` and `unit` ([config.md](config.md#formats)).
 
 `history`: `{ "<widget id>": { "t": [ … ], "v": [[ … ], [ … ]] } }` for each `graph` and each
 `value` with `spark`, oldest first, one array per series, `null` where a value was missing,
-reaching the graph's `range` back (a spark's: all the service keeps). A client appends each `data`
+reaching the graph's `range` back (a spark's: all the service keeps; just after the service
+started, what it had before comes from the [long history](#get-apiv1history), a point every
+10 seconds). A timeline's segments come in every line instead. A client appends each `data`
 line's `v` at its `t` and drops what falls out of the range. Levels are `normal`,
 `warning` and `critical`; `blend` (0–1) is how far it has turned toward the next and is left out at 0.
 
@@ -445,6 +517,58 @@ first tab without it), after waiting a few ticks for a reading that has everythi
 widget whose source still isn't read then has no state, as in a stream); 404
 `no_such_dashboard` for one not in the client's `ui`. `widgets` as for the stream.
 
+## `GET /api/v1/history`
+
+The long history of one graph or timeline, for a range its `ranges` offer. The service keeps every
+value graphs and sparks show, and every number of a UPS source, at three steps
+([config.md](config.md#the-long-history)): every 10 seconds for a day, every 5 minutes for 30 days,
+every hour from then on. Query:
+
+| name | |
+|---|---|
+| `widget` | the id of a `graph` or a `timeline` in the client's `ui`: the one it has now, for its role, profile and the widget types it last said it draws |
+| `range` | `1h`, `24h`, `7d`, `30d`, `1y` or `all` |
+
+A graph's:
+
+```json
+{ "widget": "ups.eco/watts", "range": "24h", "from": 1700000040000, "to": 1700086440000, "step_ms": 120000,
+  "t": [1700000040000, 1700000160000, …], "v": [[206.0, null, …], [210.0, 212.5, …]] }
+```
+
+| `range` | from the points of every | `step_ms` | buckets |
+|---|---|---|---|
+| `1h` | 10 s | 10 s | 360 |
+| `24h` | 10 s | 2 min | 720 |
+| `7d` | 5 min | 15 min | 672 |
+| `30d` | 5 min | 1 h | 720 |
+| `1y` | 1 h | 12 h | 730 |
+| `all` | 1 h | the fewest whole hours, 1 at least, that keep the buckets to 800 | from the oldest point on |
+
+`to` is now rounded down to a whole step (from the Unix epoch), `from` that many buckets before it
+(for `all`, the bucket of the oldest point of any of its series). Each bucket runs from its `t`
+(Unix ms, its start) for a step, the last ending at `to`; `v` has an array for each of the graph's
+`series`, in their order, of each bucket's mean of the points in it, `null` for a bucket without
+one: in the client's units, to one decimal. With no point at all, `all` has no buckets and
+`from` is `to`. The points before `to` are all there is of that range: a client draws from `from`
+to now, and adds a stream's point to them only once `step_ms` has passed since the newest it has.
+
+A timeline's:
+
+```json
+{ "widget": "ups.eco/power", "range": "7d", "from": 1699395200123, "to": 1700000000123,
+  "segments": [{ "from": 1699395200123, "to": 1699977600000, "state": "none" }, …] }
+```
+
+`to` is now (Unix ms), `from` the range before it (for `all`, the first change the service has
+kept); `segments` cover that, by the rules of a timeline's state in the [stream](#get-apiv1stream).
+
+Any of the six ranges is answered, whatever `ranges` lists. 404 `no_such_widget` for an id that
+isn't a `graph` or a `timeline` in the client's `ui`: as everywhere, a client gets the history only
+of what its role sees. 400 `bad_param`, with `widget` or `range` in `message`, for one missing or
+not one of those; 500 `storage` when the history can't be read at all (a file that can't be read
+is taken as empty). A service before 0.7 answers 404 `not_found`; its `ui` has no `ranges` either.
+
 ## `POST /api/v1/actions/{id}`
 
 ```json
@@ -458,14 +582,63 @@ the wrong kind, or one the action hasn't, is 400 `bad_param` with the parameter'
 `message`. 200: `{ "ok": true }`, and for an action the settings define `{ "ok": true,
 "exit_code": 0, "timed_out": false, "output": "…" }` (its first 4 KiB and last 12 KiB, also when it
 timed out): `ok` says it ran, `exit_code` (`null` when a signal ended it) and `timed_out` how it
-ended. 404 `no_such_action` for an id the computer doesn't have or can't do now; 403 `not_allowed`
+ended; for a [station's](#station-actions-kind-nut), `{ "ok": true, "output": "done" }`. 404
+`no_such_action` for an id the computer doesn't have or can't do now; 403 `not_allowed`
 for one it can that the client's role may not run (so not in its `ui`), `control_disabled`,
-`not_permitted`; 409 `process_changed`; 502 `failed` with a `message`.
-They are checked in this order: the role, control, then the parameters.
+`not_permitted`, `confirm_required`; 409 `process_changed`; 502 `failed` with a `message`.
+They are checked in this order: the role, control, then the parameters. The body is
+`{ "params": … }`, and `confirm_text` for a command that is typed in; a client leaves
+`confirm_text` out otherwise, and a service before 0.7 ignores it.
 
 `process.signal` with `start` signals only the process that started then: if the pid now belongs to
 another, 409 `process_changed`; a negative `start` is 400 `bad_param`. `unit.*` act on the unit of the link given, only one the settings
 name; system units also need polkit's leave ([the guide](guide.md#power-the-profile-and-system-units-polkit)).
+
+### Station actions (kind `nut`)
+
+A UPS [source](config.md#sources) whose settings list `commands` or `settings` adds actions of
+kind `nut`, ids of the service's own, once upsd has told what the station offers (they stay
+offered after, while upsd can't be reached); until then the widgets that run them are left out:
+
+| id | parameter | |
+|---|---|---|
+| `nut.command.<source>` | `cmd`: a choice of the station's commands that `commands` allows, in the station's order | each labelled by upsd's description of it, else, for `outlet.N.load.on` and `.off`, the outlet's `desc` and `on` or `off`, else the command; named as the station is (`device.model`, else `ups.model`, else the source's id) |
+| `nut.set.<source>.<variable>` | `value`: a `choice` of its values (labelled as words: `enabled` → `Enabled`), or a `range` from the least to the most of its ranges on a step of 1, in the variable's unit | one for each writable variable of the station that `settings` allows and that takes a list of values or a range (others aren't offered; the journal says so once); named by upsd's description of it, else the variable |
+
+Their least role is the source's `role` (`admin` unless it says `operate`); each asks before it
+runs (`confirm`), and unlocks as the profile's `unlock.for` says for the kind `nut`.
+
+A command that cuts what powers the computer, or a whole station's load, is typed in: its choice
+carries `confirm_text`, the command itself, which the client asks the person to type (exactly,
+whatever the profile's `confirm_actions`), and sends beside the parameters:
+
+```json
+{ "params": { "cmd": "outlet.1.load.off" }, "confirm_text": "outlet.1.load.off" }
+```
+
+Those are the commands on an outlet the settings call `critical` but the one that turns it on
+(`outlet.1.load.off`), and the commands upst-core counts as dangerous that aren't about one
+outlet (`load.off`, `shutdown.*`, `calibrate.start`…); turning another outlet off is asked as any
+action is. Without the text, or with another, the service refuses: 403 `confirm_required`, with the text
+in `message`. A `confirm_text` where none is needed is ignored.
+
+They are checked in this order: an id the computer doesn't have, 404 `no_such_action`; the role,
+403 `not_allowed`; control (`control = false`, `elamond control off`), 403 `control_disabled`; a
+`cmd` that isn't among the choices, 403 `not_allowed` with `cmd` in `message`; a parameter missing
+or of the wrong kind, or a `value` off its choices, range or step, 400 `bad_param`; the typed
+text, 403 `confirm_required`; the source's password file missing, unreadable or open to others,
+502 `failed` (its `message` says which, never what is in it). Then the
+action waits for any other on the same source to end (one at a time on a source), and the service
+gives it to upsd and waits up to 25 seconds for the station to answer:
+
+| the station | answer |
+|---|---|
+| did it | 200 `{ "ok": true, "output": "done" }` |
+| refused it, or upsd did | 502 `failed`, `message` its words (`invalid value`, `command not supported`, `access denied (check the user's permissions in upsd.users)`) |
+| still at it after 15 seconds, or no answer in 25 | 502 `failed`, `message` `timed_out` |
+| upsd took it but can't say whether the station did it (a upsd without tracking) | 502 `failed`, `message` `accepted by upsd but not confirmed by the station` |
+
+The password is never in an answer, a state, the activity log or the journal.
 
 ## `GET /api/v1/media/art?player=`
 
@@ -494,7 +667,9 @@ Clients read it as the `activity` collection (role `monitor`). Each entry:
 
 `what` reads like `power reboot`, `profile balanced`, `signal term 1234 firefox`,
 `action Mode server`, `unit restart nginx.service`, `media play_pause`, `volume 40 %`,
-`phone added: Pixel 9`. Requests that were let
+`phone added: Pixel 9`, `nut eco outlet.2.load.off` (a station's command: the source and the
+command), `nut eco experimental.battery.charge.max 90` (a setting: the source, the variable and
+its value); a station's `message` is `done` or why it failed. Requests that were let
 through are also in the journal (`journalctl --user -u elamond`).
 
 ## Errors
@@ -506,8 +681,8 @@ Errors are `{ "error": "<code>" }`, some with a `message`, with these statuses (
 |---|---|
 | 400 | `bad_param` (with `message`, the parameter), `bad_sort`, `unknown_signal` |
 | 401 | `unauthorized` |
-| 403 | `no_pairing`, `wrong_code`, `pair_declined`, `too_many_phones` (64 are paired), `rekey_refused`, `control_disabled`, `not_permitted` (polkit refused, or a protected process), `not_allowed` (the client's role doesn't allow it) |
-| 404 | `not_found`, `no_such_process`, `no_such_action`, `no_such_dashboard`, `no_such_stream`, `no_art` |
+| 403 | `no_pairing`, `wrong_code`, `pair_declined`, `too_many_phones` (64 are paired), `rekey_refused`, `control_disabled`, `not_permitted` (polkit refused, or a protected process), `not_allowed` (the client's role doesn't allow it), `confirm_required` (a station's command that is typed in, without its text; the text in `message`) |
+| 404 | `not_found`, `no_such_process`, `no_such_action`, `no_such_dashboard`, `no_such_widget` (no such graph or timeline in the client's `ui`), `no_such_stream`, `no_art` |
 | 409 | `process_changed` |
 | 500 | `storage` |
 | 502 | `failed`, with `message` |
@@ -515,6 +690,10 @@ Errors are `{ "error": "<code>" }`, some with a `message`, with these statuses (
 `failed` carries a `message`: either one of `unknown_player`, `no_value` (`volume.set` with
 neither `level` nor `muted`), `no_track`, `no_session`, `no_system_bus`, `no_session_bus`,
 `no_power_profiles`, `volume_failed`, `mute_failed`, `timed_out`, or the system's own error text
-(D-Bus, a command). A request whose JSON
+(D-Bus, a command, upsd or the station; for a station's command upsd took without saying the
+station did it, `accepted by upsd but not confirmed by the station`). A request whose JSON
 or query the service can't read at all gets a plain-text 400, 415 or 422, and a body over its limit
 (4 KiB for `pair`, `rekey`, `actions` and `stream`) a plain-text 413.
+
+In [`errors.json`](../elamond/fixtures/errors.json) the codes come in this table's order:
+`confirm_required` after `not_allowed`, `no_such_widget` after `no_such_dashboard`.

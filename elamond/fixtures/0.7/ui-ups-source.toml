@@ -1,0 +1,151 @@
+# The settings that ui-ups.json and stream-ups.json describe (elamond 0.7): a UPS source and an
+# adaptive `ups` dashboard. elamond's tests read this file with the fixture readings (fixtures.rs)
+# and the fixture station below, for an admin `android` client of profile "owner" that draws
+# every widget type, and check that what they build is those files; history.json and
+# history-timeline.json answer `GET /api/v1/history` for its two widgets. Every key of a source
+# is in here. A whole file of settings schema 3: nothing is read under it.
+#
+# The fixture station, read at the fixture sample's `t` (1700000000123 ms): nutflow's DELTA 3 Max
+# Plus, on battery since 1699999280 (Unix seconds). Its variables, as upsd sends them:
+#   battery.charge 87, battery.charge.low 20, battery.charger.status discharging,
+#   battery.current -4.2, battery.runtime 5400, battery.runtime.low 300, battery.temperature 31,
+#   battery.voltage 52.4, device.mfr EcoFlow, device.model DELTA 3 Max Plus, device.type ups,
+#   driver.name nutflow, driver.version 0.4.0, experimental.battery.charge.max 100,
+#   experimental.output.xboost enabled, input.realpower 0, outlet.count 9,
+#   outlet.1.desc AC outlets, group 1, outlet.1.id 1, outlet.1.realpower 190, outlet.1.status on,
+#   outlet.1.switchable yes, outlet.1.voltage 230.1,
+#   outlet.2.desc AC outlets, group 2, outlet.2.id 2, outlet.2.realpower 0, outlet.2.status off,
+#   outlet.2.switchable yes,
+#   outlet.9.current 0.57, outlet.9.desc 12 V port 2, outlet.9.id 9, outlet.9.realpower 8,
+#   outlet.9.status on, outlet.9.switchable yes, outlet.9.voltage 12.6,
+#   output.realpower 190, output.voltage 230.1, ups.beeper.status enabled, ups.firmware 2.1.1.104,
+#   ups.load 6.3, ups.mfr EcoFlow, ups.model DELTA 3 Max Plus, ups.realpower 210,
+#   ups.realpower.nominal 3000, ups.status OB DISCHRG, ups.temperature 48.6
+# Its commands, in upsd's order, with upsd's descriptions:
+#   beeper.enable "Turn the beeper on", beeper.disable "Turn the beeper off",
+#   outlet.1.load.on "Turn on AC outlets, group 1", outlet.1.load.off "Turn off AC outlets, group 1",
+#   outlet.2.load.on "Turn on AC outlets, group 2", outlet.2.load.off "Turn off AC outlets, group 2"
+#   (none for outlet 9: its switch is left out)
+# Its writable variables: experimental.battery.charge.max RANGE 50 100, "Charge limit (percent)";
+#   experimental.output.xboost ENUM enabled disabled, "X-Boost: run heavy AC loads at a lower voltage"
+# Its power timeline (Unix seconds): 1699977600 line, 1699988400 none, 1699992000 line,
+#   1699999280 battery; nothing known before the first.
+# Its hourly history (slot = Unix seconds / 3600: eco.input.realpower, eco.ups.realpower):
+#   472216: 228.4, 205.1 · 472217: 214.0, 207.6 · 472218: 209.5, 203.9 · 472219: none ·
+#   472220: 231.2, 210.4 · 472221: 212.8, 208.0
+schema = 3
+name = "fixture"
+control = true
+default_profile = "owner"
+
+[sources.eco]
+kind = "nut"
+ups = "ups"
+host = "localhost"
+port = 3493
+capacity_wh = 2048
+interval_ms = 1000
+background_ms = 10000
+history = true
+recorder = "/run/upst/upst.sock"
+user = "elamon"
+password_file = "/etc/elamon/nut.password"
+commands = ["outlet.*.load.*", "beeper.*"]
+settings = ["experimental.battery.charge.max", "experimental.output.xboost"]
+role = "admin"
+outlets."1".critical = true
+
+[history]
+keep = 365
+
+[profiles.owner]
+name = "Owner"
+unlock = { for = ["power", "nut", "signal", "actions", "units"], grace = "every_time" }
+dashboards = ["ups"]
+header = ""
+
+# One dashboard for each source: its id `ups.<source>`, `{item}` the source's id.
+[dashboards.ups]
+title = "{item.name}"
+icon = "battery"
+for_each = "ups"
+
+[[dashboards.ups.widgets]]
+id = "status"
+type = "status"
+value = "{item}.status"
+label = "Status"
+icon = "power"
+caption = "{{item}.status.since:duration} · {{item}.status.flags}"
+
+[[dashboards.ups.widgets]]
+id = "charge"
+type = "gauge"
+value = "{item}.battery.charge"
+label = "Battery"
+icon = "battery"
+color = "battery"
+caption = "{{item}.battery.runtime:duration}"
+
+[[dashboards.ups.widgets]]
+id = "power"
+type = "timeline"
+source = "{item}"
+label = "Power"
+icon = "power"
+range = 86400
+ranges = true
+
+[[dashboards.ups.widgets]]
+id = "watts"
+type = "graph"
+values = ["{item}.input.realpower", "{item}.ups.realpower"]
+labels = ["Grid in", "Output"]
+colors = ["rx", "tx"]
+label = "Watts"
+icon = "bolt"
+min = 0
+ranges = true
+
+[[dashboards.ups.widgets]]
+id = "solar"
+type = "value"
+value = "{item}.experimental.input.dc.1.realpower"
+when = "{item}.experimental.input.dc.1.realpower"
+label = "Never on this station: left out"
+
+[[dashboards.ups.widgets]]
+id = "outlets"
+type = "table"
+source = "outlets"
+filter = { source = "{item}" }
+label = "Outlets"
+icon = "power"
+hide_empty = true
+columns = [
+  { field = "desc", grow = true },
+  { field = "status", label = "State", map = { on = "On", off = "Off" } },
+  { field = "realpower", label = "Power" },
+]
+
+# A switch for each outlet whose commands the station offers and `commands` allows: outlet 9's is
+# left out. The state goes through `map`: `on` reads as the command that turns it on.
+[[dashboards.ups.widgets]]
+id = "switches"
+type = "group"
+label = "Switches"
+icon = "power"
+for_each = "outlets"
+widgets = [
+  { id = "outlet", type = "toggle", label = "{item.desc}", value = "{item.source}.outlet.{item.id}.status", action = "nut.command.{item.source}", param = "cmd", on = "outlet.{item.id}.load.on", off = "outlet.{item.id}.load.off", map = { on = "outlet.{item.id}.load.on", off = "outlet.{item.id}.load.off" } },
+]
+
+[[dashboards.ups.widgets]]
+id = "charge_limit"
+type = "slider"
+value = "{item}.experimental.battery.charge.max"
+action = "nut.set.{item}.experimental.battery.charge.max"
+param = "value"
+label = "Charge limit"
+icon = "battery"
+span = 4

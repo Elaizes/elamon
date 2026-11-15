@@ -1,0 +1,275 @@
+{
+  "version": "e844cabd49a7893f",
+  "service": {
+    "id": "0123456789abcdef0123456789abcdef",
+    "name": "fixture",
+    "version": "9.9.9",
+    "interval_ms": 1000,
+    "history_seconds": 600,
+    "features": ["control", "displays", "media", "power", "power_profiles", "processes", "units", "ups"],
+    "endpoints": ["192.0.2.10", "100.64.0.7", "desk.example.net", "desk.tail0000.ts.net"]
+  },
+  "role": "admin",
+  "control": { "enabled": true, "off_reason": null },
+  "profile": {
+    "id": "owner",
+    "name": "Owner",
+    "theme": "system",
+    "pure_black": false,
+    "animations": true,
+    "interval_ms": 1000,
+    "fahrenheit": false,
+    "network_bits": false,
+    "confirm_actions": true,
+    "unlock": { "for": ["power", "nut", "signal", "actions", "units"], "grace": "every_time" },
+    "android": { "dynamic_color": true, "blur": true, "haptics": true, "keep_screen_on": false },
+    "source": { "file": "ui-ups-source.toml", "line": 61 }
+  },
+  "tabs": ["ups.eco"],
+  "header": null,
+  "dashboards": [
+    {
+      "id": "ups.eco",
+      "title": "DELTA 3 Max Plus",
+      "icon": "battery",
+      "widgets": [
+        { "id": "ups.eco/status", "type": "status", "span": 2, "label": "Status", "icon": "power", "caption": true, "format": "text" },
+        {
+          "id": "ups.eco/charge",
+          "type": "gauge",
+          "span": 2,
+          "label": "Battery",
+          "icon": "battery",
+          "color": "battery",
+          "caption": true,
+          "unit": "%",
+          "format": "percent",
+          "min": 0,
+          "max": 100
+        },
+        {
+          "id": "ups.eco/power",
+          "type": "timeline",
+          "span": 4,
+          "label": "Power",
+          "icon": "power",
+          "range": 86400,
+          "ranges": ["1h", "24h", "7d", "30d", "1y", "all"]
+        },
+        {
+          "id": "ups.eco/watts",
+          "type": "graph",
+          "span": 4,
+          "label": "Watts",
+          "icon": "bolt",
+          "series": [
+            { "label": "Grid in", "color": "rx", "unit": "W", "format": "watts" },
+            { "label": "Output", "color": "tx", "unit": "W", "format": "watts" }
+          ],
+          "range": 600,
+          "height": "medium",
+          "min": 0,
+          "ranges": ["1h", "24h", "7d", "30d", "1y", "all"]
+        },
+        {
+          "id": "ups.eco/outlets",
+          "type": "table",
+          "span": 4,
+          "label": "Outlets",
+          "icon": "power",
+          "source": "outlets",
+          "columns": [
+            { "field": "desc", "format": "text", "grow": true },
+            { "field": "status", "label": "State", "format": "text" },
+            { "field": "realpower", "label": "Power", "unit": "W", "format": "watts" }
+          ],
+          "sorts": [],
+          "search": false,
+          "hide_empty": true
+        },
+        {
+          "id": "ups.eco/switches",
+          "type": "group",
+          "span": 4,
+          "label": "Switches",
+          "icon": "power",
+          "collapsed": false,
+          "widgets": [
+            {
+              "id": "ups.eco/switches/outlet.eco.1",
+              "type": "toggle",
+              "span": 2,
+              "label": "AC outlets, group 1",
+              "action": "nut.command.eco",
+              "param": "cmd",
+              "on": "outlet.1.load.on",
+              "off": "outlet.1.load.off"
+            },
+            {
+              "id": "ups.eco/switches/outlet.eco.2",
+              "type": "toggle",
+              "span": 2,
+              "label": "AC outlets, group 2",
+              "action": "nut.command.eco",
+              "param": "cmd",
+              "on": "outlet.2.load.on",
+              "off": "outlet.2.load.off"
+            }
+          ]
+        },
+        {
+          "id": "ups.eco/charge_limit",
+          "type": "slider",
+          "span": 4,
+          "label": "Charge limit",
+          "icon": "battery",
+          "action": "nut.set.eco.experimental.battery.charge.max",
+          "param": "value"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    { "id": "power.poweroff", "name": "Shut down", "kind": "power", "icon": "power", "confirm": true, "unlock": true, "params": [] },
+    { "id": "power.reboot", "name": "Restart", "kind": "power", "icon": "restart", "confirm": true, "unlock": true, "params": [] },
+    { "id": "power.suspend", "name": "Sleep", "kind": "power", "icon": "moon", "confirm": true, "unlock": true, "params": [] },
+    { "id": "power.lock", "name": "Lock", "kind": "power", "icon": "lock", "confirm": true, "unlock": true, "params": [] },
+    {
+      "id": "profile.set",
+      "name": "Power profile",
+      "kind": "profile",
+      "icon": "bolt",
+      "confirm": false,
+      "unlock": false,
+      "params": [
+        {
+          "id": "profile",
+          "kind": "choice",
+          "label": "Profile",
+          "choices": [
+            { "value": "power-saver", "label": "Power saver" },
+            { "value": "balanced", "label": "Balanced" },
+            { "value": "performance", "label": "Performance" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "process.signal",
+      "name": "Signal",
+      "kind": "signal",
+      "icon": "processes",
+      "confirm": true,
+      "unlock": true,
+      "params": [
+        { "id": "pid", "kind": "integer", "label": "Process" },
+        {
+          "id": "signal",
+          "kind": "choice",
+          "label": "Signal",
+          "choices": [{ "value": "term", "label": "Quit" }, { "value": "kill", "label": "Force kill" }]
+        },
+        { "id": "start", "kind": "integer", "label": "Started", "optional": true }
+      ]
+    },
+    {
+      "id": "media.play_pause",
+      "name": "Play or pause",
+      "kind": "media",
+      "icon": "play",
+      "confirm": false,
+      "unlock": false,
+      "params": [{ "id": "player", "kind": "string", "label": "Player" }]
+    },
+    {
+      "id": "media.next",
+      "name": "Next",
+      "kind": "media",
+      "icon": "next",
+      "confirm": false,
+      "unlock": false,
+      "params": [{ "id": "player", "kind": "string", "label": "Player" }]
+    },
+    {
+      "id": "media.previous",
+      "name": "Previous",
+      "kind": "media",
+      "icon": "previous",
+      "confirm": false,
+      "unlock": false,
+      "params": [{ "id": "player", "kind": "string", "label": "Player" }]
+    },
+    {
+      "id": "media.seek",
+      "name": "Seek",
+      "kind": "media",
+      "icon": "play",
+      "confirm": false,
+      "unlock": false,
+      "params": [
+        { "id": "player", "kind": "string", "label": "Player" },
+        { "id": "position", "kind": "number", "label": "Position", "unit": "s" }
+      ]
+    },
+    {
+      "id": "volume.set",
+      "name": "Volume",
+      "kind": "media",
+      "icon": "volume",
+      "confirm": false,
+      "unlock": false,
+      "params": [
+        { "id": "level", "kind": "range", "label": "Level", "min": 0, "max": 100, "step": 1, "unit": "%", "optional": true },
+        { "id": "muted", "kind": "bool", "label": "Muted", "optional": true }
+      ]
+    },
+    {
+      "id": "nut.command.eco",
+      "name": "DELTA 3 Max Plus",
+      "kind": "nut",
+      "icon": "power",
+      "confirm": true,
+      "unlock": true,
+      "params": [
+        {
+          "id": "cmd",
+          "kind": "choice",
+          "label": "Command",
+          "choices": [
+            { "value": "beeper.enable", "label": "Turn the beeper on" },
+            { "value": "beeper.disable", "label": "Turn the beeper off" },
+            { "value": "outlet.1.load.on", "label": "Turn on AC outlets, group 1" },
+            { "value": "outlet.1.load.off", "label": "Turn off AC outlets, group 1", "confirm_text": "outlet.1.load.off" },
+            { "value": "outlet.2.load.on", "label": "Turn on AC outlets, group 2" },
+            { "value": "outlet.2.load.off", "label": "Turn off AC outlets, group 2" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "nut.set.eco.experimental.battery.charge.max",
+      "name": "Charge limit (percent)",
+      "kind": "nut",
+      "icon": "control",
+      "confirm": true,
+      "unlock": true,
+      "params": [{ "id": "value", "kind": "range", "label": "Value", "min": 50, "max": 100, "step": 1, "unit": "%" }]
+    },
+    {
+      "id": "nut.set.eco.experimental.output.xboost",
+      "name": "X-Boost: run heavy AC loads at a lower voltage",
+      "kind": "nut",
+      "icon": "control",
+      "confirm": true,
+      "unlock": true,
+      "params": [
+        {
+          "id": "value",
+          "kind": "choice",
+          "label": "Value",
+          "choices": [{ "value": "enabled", "label": "Enabled" }, { "value": "disabled", "label": "Disabled" }]
+        }
+      ]
+    }
+  ]
+}

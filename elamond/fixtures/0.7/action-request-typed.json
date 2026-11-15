@@ -1,0 +1,4 @@
+{
+  "params": { "cmd": "outlet.1.load.off" },
+  "confirm_text": "outlet.1.load.off"
+}

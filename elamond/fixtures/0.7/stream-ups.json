@@ -1,0 +1,30 @@
+{
+  "type": "data",
+  "t": 1700000000123,
+  "dashboard": "ups.eco",
+  "widgets": {
+    "ups.eco/status": { "v": "On battery", "level": "warning", "caption": "12 min" },
+    "ups.eco/charge": { "v": 87.0, "level": "normal", "caption": "1 h 30 min" },
+    "ups.eco/power": {
+      "segments": [
+        { "from": 1699913600123, "to": 1699977600000, "state": "none" },
+        { "from": 1699977600000, "to": 1699988400000, "state": "line" },
+        { "from": 1699988400000, "to": 1699992000000, "state": "none" },
+        { "from": 1699992000000, "to": 1699999280000, "state": "line" },
+        { "from": 1699999280000, "to": 1700000000123, "state": "battery" }
+      ]
+    },
+    "ups.eco/watts": { "v": [0.0, 210.0] },
+    "ups.eco/outlets": {
+      "rows": [
+        { "key": "eco.1", "f": { "desc": "AC outlets, group 1", "status": "On", "realpower": 190.0 } },
+        { "key": "eco.2", "f": { "desc": "AC outlets, group 2", "status": "Off", "realpower": 0.0 } },
+        { "key": "eco.9", "f": { "desc": "12 V port 2", "status": "On", "realpower": 8.0 } }
+      ],
+      "total": 3
+    },
+    "ups.eco/switches/outlet.eco.1": { "v": "outlet.1.load.on", "enabled": true },
+    "ups.eco/switches/outlet.eco.2": { "v": "outlet.2.load.off", "enabled": true },
+    "ups.eco/charge_limit": { "v": 100.0, "enabled": true }
+  }
+}
