@@ -5,7 +5,9 @@
 # screen and the settings' own dashboard with an action's choice, makes the phone a glance one and an
 # admin again with elamond clients role, switches its profile and back, changes the phone's own
 # profile in elamond.d/phones.toml with its screen open, pairs it again (it keeps that profile), and
-# leaves the screenshots in $OUT. The test's own settings are a drop-in, elamond.d/test.toml, over the
+# forgets the computer in the app (the computer unpairs it, keeping its table) and pairs once more,
+# given that table by name, and leaves the screenshots in $OUT. The test's own settings are a
+# drop-in, elamond.d/test.toml, over the
 # starter elamond.toml and elamond.d/dashboards.toml the service writes at its first start (read
 # after them, its name coming after dashboards.toml).
 #   cargo build --release (in elamond/) and ./gradlew :app:assembleDebug first.
@@ -176,4 +178,31 @@ wait "$pairing" || true
 grep -q "keeps its profile $own\\|It replaces" "$work/pair2.log" || fail "pairing again didn't replace the entry before: $(cat "$work/pair2.log")"
 [[ $( (run_elamond clients) | grep -c '^[0-9a-f]\{8\} ') -eq 1 ]] || fail "more than one entry after pairing again"
 [[ $(grep -c '^\[profiles\.' "$phones") -eq 1 ]] || fail "phones.toml has more than the phone's one table"
+# Forget computer: the computer unpairs the phone too, and keeps its table, noted, for it to pair
+# again. Paired again by code, without --yes: the person lets it in and gives it that table by name.
+flow -e NAME="$NAME" maestro/forget.yaml
+(run_elamond clients) | grep -q '^No phones are paired' || fail "the phone is still paired after Forget computer: $( (run_elamond clients) )"
+if ! { grep -q '^# Unpaired ' "$phones" && grep -qx "\[profiles.$own\]" "$phones"; }; then fail "its table isn't kept with a note: $(cat "$phones")"; fi
+(run_elamond check) | grep -q "\[profiles.$own\] is no paired phone's" || fail "elamond check doesn't name the table no phone has"
+mkfifo "$work/answers"
+run_elamond pair < "$work/answers" > "$work/pair3.log" 2>&1 &
+pairing=$!
+exec 3> "$work/answers"
+# As the person at the computer: let the phone in, and give it the table of its name.
+(
+	for asked in 'Allow? \[y/N\]' 'Give it to this one? \[y/N\]'; do
+		until grep -q "$asked" "$work/pair3.log"; do sleep 0.5; done
+		echo y >&3
+	done
+) &
+answering=$!
+sleep 3
+code=$(grep -a -E '^\s+[0-9]{3} [0-9]{3}\s*$' "$work/pair3.log" | tr -d ' ')
+flow -e ADDRESS="10.0.2.2:$PORT" -e CODE="$code" maestro/pair-again.yaml
+wait "$pairing" || true
+kill "$answering" 2>/dev/null || true
+exec 3>&-
+grep -q "had the profile $own" "$work/pair3.log" || fail "pairing wasn't offered the table by name: $(cat "$work/pair3.log")"
+[[ $( (run_elamond clients) | grep -c '^[0-9a-f]\{8\} ') -eq 1 ]] || fail "not one entry after pairing again"
+if [[ $(grep -c '^\[profiles\.' "$phones") -ne 1 ]] || grep -q '^# Unpaired ' "$phones"; then fail "the table wasn't taken again: $(cat "$phones")"; fi
 echo "screenshots: $OUT"

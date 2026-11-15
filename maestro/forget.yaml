@@ -1,0 +1,26 @@
+# Forget computer: the app asks the computer to unpair the phone too, then forgets it; the computer
+# was reached, so home shows no word of elamond revoke. run.sh then checks the computer's side.
+appId: io.github.elaizes.elamon.debug
+---
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: ${NAME}
+    timeout: 20000
+- tapOn: ${NAME}
+- extendedWaitUntil:
+    visible: "Overview"
+    timeout: 20000
+- tapOn: "More"
+- tapOn: "Forget computer"
+- extendedWaitUntil:
+    visible: "Forget ${NAME}?"
+    timeout: 10000
+- takeScreenshot: 23-forget
+- tapOn: "Forget"
+- extendedWaitUntil:
+    visible: "Add computer"
+    timeout: 20000
+- assertNotVisible: ".*was forgotten here"
+- assertNotVisible: ${NAME}
+- takeScreenshot: 24-forgotten

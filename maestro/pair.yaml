@@ -19,8 +19,8 @@ appId: io.github.elaizes.elamon.debug
     visible: "These digits match"
     timeout: 20000
 - takeScreenshot: 01-pair-code
-# The code opens once the certificate's digits are said to match. A tap in the first second the
-# screen is ready is ignored (one meant for something else may land there), so it is tapped again.
+# The code opens once the certificate's digits are said to match; tapped until it opens, as the
+# screen may not take the first tap while it settles.
 - repeat:
     times: 10
     while:
