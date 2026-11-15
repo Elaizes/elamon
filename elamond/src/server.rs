@@ -160,8 +160,8 @@ pub struct Hub {
 	/// Unix time the computer booted, as read when the service started: process start times
 	/// count from it.
 	pub boot_time: u64,
-	/// Each phone's streams, for the journal.
-	stream_notes: Mutex<HashMap<String, StreamNotes>>,
+	/// When a stream of each phone last sent its first line at once (`first_at_once`).
+	first_lines: Mutex<HashMap<String, Instant>>,
 	/// What the clients looking now need read, by who asked: streams and snapshots.
 	wants: Mutex<HashMap<u64, Sources>>,
 	next_want: AtomicU64,
@@ -246,7 +246,7 @@ impl Hub {
 			settings_broken: Mutex::new(None),
 			activity: Activity::load(&dir),
 			boot_time: sysinfo::System::boot_time().unwrap_or(0),
-			stream_notes: Mutex::new(HashMap::new()),
+			first_lines: Mutex::new(HashMap::new()),
 			wants: Mutex::new(HashMap::new()),
 			next_want: AtomicU64::new(1),
 			uis: Mutex::new(HashMap::new()),
@@ -590,16 +590,9 @@ impl Hub {
 		built
 	}
 
-	/// Notes a stream opening; it is logged unless another of the phone's was a moment ago.
-	/// Returns whether it was, so its closing is logged too.
-	pub(crate) fn stream_opened(&self, who: &Caller, from: IpAddr, what: &str) -> bool {
-		let now = Instant::now();
-		let mut map = self.stream_notes.lock().unwrap_or_else(|p| p.into_inner());
-		map.retain(|id, n| *id == who.id || !n.idle(now));
-		let n = map.entry(who.id.clone()).or_default();
-		let Some(more) = n.open(now) else { return false };
-		eprintln!("stream: \"{}\" ({}) opened from {}: {what}{more}", who.name, who.role.as_str(), from.to_canonical());
-		true
+	/// Writes a stream opening in the journal.
+	pub(crate) fn stream_opened(&self, who: &Caller, from: IpAddr, what: &str) {
+		eprintln!("stream: \"{}\" ({}) opened from {}: {what}", who.name, who.role.as_str(), from.to_canonical());
 	}
 
 	/// Whether a stream of the phone `id` may send its first line at once, from the reading there
@@ -607,21 +600,18 @@ impl Hub {
 	/// costs no more than a line a reading.
 	pub(crate) fn first_at_once(&self, id: &str, gap: Duration) -> bool {
 		let now = Instant::now();
-		let mut map = self.stream_notes.lock().unwrap_or_else(|p| p.into_inner());
-		let n = map.entry(id.to_string()).or_default();
-		if n.at_once.is_some_and(|t| now.duration_since(t) < gap) {
+		let mut map = self.first_lines.lock().unwrap_or_else(|p| p.into_inner());
+		map.retain(|k, t| k == id || now.duration_since(*t) < cadence::STREAM_INTERVAL_MAX);
+		if map.get(id).is_some_and(|t| now.duration_since(*t) < gap) {
 			return false;
 		}
-		n.at_once = Some(now);
+		map.insert(id.to_string(), now);
 		true
 	}
 
-	pub(crate) fn stream_closed(&self, who: &Caller, logged: bool, lasted: Duration, why: &str) {
-		let mut map = self.stream_notes.lock().unwrap_or_else(|p| p.into_inner());
-		let n = map.entry(who.id.clone()).or_default();
-		if let Some(more) = n.close(logged) {
-			eprintln!("stream: \"{}\" closed after {}: {why}{more}", who.name, duration_words(lasted));
-		}
+	/// Writes a stream closing in the journal.
+	pub(crate) fn stream_closed(&self, who: &Caller, lasted: Duration, why: &str) {
+		eprintln!("stream: \"{}\" closed after {}: {why}", who.name, duration_words(lasted));
 	}
 }
 
@@ -641,50 +631,6 @@ impl Want {
 impl Drop for Want {
 	fn drop(&mut self) {
 		self.hub.wants.lock().unwrap_or_else(|p| p.into_inner()).remove(&self.id);
-	}
-}
-
-/// A phone's streams as the journal has heard of them: when one was last logged opening, and
-/// how many opened and closed since without a line of their own.
-#[derive(Default)]
-struct StreamNotes {
-	logged: Option<Instant>,
-	opened: u32,
-	closed: u32,
-	/// When a stream of the phone's last sent its first line at once.
-	at_once: Option<Instant>,
-}
-
-impl StreamNotes {
-	/// A stream opens at `now`: what to add to its line if it is logged, or nothing if it isn't.
-	fn open(&mut self, now: Instant) -> Option<String> {
-		if self.logged.is_some_and(|t| now.duration_since(t) < cadence::STREAM_LOG_QUIET) {
-			self.opened += 1;
-			return None;
-		}
-		self.logged = Some(now);
-		Some(self.more())
-	}
-
-	/// A stream closes: what to add to its line if it is logged (because its opening was).
-	fn close(&mut self, logged: bool) -> Option<String> {
-		if !logged {
-			self.closed += 1;
-			return None;
-		}
-		Some(self.more())
-	}
-
-	/// The streams that opened and closed without a line, counted since the last line.
-	fn more(&mut self) -> String {
-		let (o, c) = (std::mem::take(&mut self.opened), std::mem::take(&mut self.closed));
-		if o + c == 0 { String::new() } else { format!(" (and {o} more opened, {c} closed, since the last line)") }
-	}
-
-	/// Nothing to tell and nothing to hold back: the phone can be forgotten.
-	fn idle(&self, now: Instant) -> bool {
-		let past = |t: Option<Instant>, d: Duration| t.is_none_or(|t| now.duration_since(t) >= d);
-		self.opened + self.closed == 0 && past(self.logged, cadence::STREAM_LOG_QUIET) && past(self.at_once, cadence::STREAM_INTERVAL_MAX)
 	}
 }
 
@@ -2509,21 +2455,7 @@ dashboards = ["overview", "control"]
 	}
 
 	#[test]
-	fn streams_are_logged_a_few_at_a_time() {
-		let mut n = StreamNotes::default();
-		let t0 = Instant::now();
-		assert_eq!(n.open(t0).as_deref(), Some(""));
-		// A reconnect loop: the first stream's closing is logged, the next ones only counted.
-		assert_eq!(n.close(true).as_deref(), Some(""));
-		for i in 1..5 {
-			assert_eq!(n.open(t0 + Duration::from_secs(i)), None);
-			assert_eq!(n.close(false), None);
-		}
-		assert!(!n.idle(t0 + Duration::from_secs(60)));
-		let line = n.open(t0 + cadence::STREAM_LOG_QUIET).unwrap();
-		assert!(line.contains("4 more opened, 4 closed"), "{line}");
-		assert_eq!(n.close(true).as_deref(), Some(""));
-		assert!(n.idle(t0 + cadence::STREAM_LOG_QUIET * 2));
+	fn durations_are_told_in_words() {
 		assert_eq!(duration_words(Duration::from_secs(45)), "45 s");
 		assert_eq!(duration_words(Duration::from_secs(200)), "3 min 20 s");
 		assert_eq!(duration_words(Duration::from_secs(7500)), "2 h 5 min");

@@ -65,9 +65,6 @@ pub mod cadence {
 	pub const NETWORK_POLL: Duration = Duration::from_secs(5);
 	/// `elamond pair` looks for the new phone.
 	pub const PAIR_POLL: Duration = Duration::from_millis(500);
-	/// One stream of a phone is logged per this, as it opens and as it closes; those the phone
-	/// opens in between are only counted, in the next line about it.
-	pub const STREAM_LOG_QUIET: Duration = Duration::from_secs(10);
 	/// A short command (wpctl, pactl) is checked for having finished.
 	pub const COMMAND_POLL: Duration = Duration::from_millis(10);
 	/// The service's own interval is kept within these, whatever the settings say.
