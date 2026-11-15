@@ -1887,7 +1887,7 @@ pub fn json_schema() -> Value {
 	defs.insert("widget".into(), widget);
 	let mut top = object_schema(&record("settings"));
 	top["$schema"] = "https://json-schema.org/draft/2020-12/schema".into();
-	top["title"] = "elamond settings (schema 2)".into();
+	top["title"] = format!("elamond settings (schema {SCHEMA})").into();
 	top["$defs"] = Value::Object(defs);
 	top
 }
@@ -2201,6 +2201,8 @@ label = "{item.nmae}"
 	fn the_json_schema_takes_the_settings_and_refuses_mistakes() {
 		let schema = json_schema();
 		assert_eq!(schema["$schema"], "https://json-schema.org/draft/2020-12/schema");
+		// The schema these settings are (G39).
+		assert_eq!(schema["title"], format!("elamond settings (schema {SCHEMA})"));
 		for text in [DEFAULTS, include_str!("../fixtures/ui-source.toml")] {
 			assert!(valid(&schema, &as_json(text), &schema));
 		}
