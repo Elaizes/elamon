@@ -206,9 +206,8 @@ object Alpha {
 	const val CARD_ONLINE = 0.12f
 	const val CARD_OFFLINE = 0.04f
 
-	/** Hairlines between rows, and between the questions of the guide. */
+	/** Hairlines between rows. */
 	const val DIVIDER = 0.4f
-	const val DIVIDER_STRONG = 0.5f
 
 	/** What can't be used now. */
 	const val DISABLED = 0.45f
@@ -280,9 +279,6 @@ object ChartStyle {
 
 	/** The scale's label, in from the left edge. */
 	val labelInset = 2.dp
-
-	/** A monitor's outline. */
-	val outline = 2.dp
 
 	/** Less than this much of a pixel isn't drawn. */
 	const val MIN_PX = 0.5f

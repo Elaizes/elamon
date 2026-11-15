@@ -245,10 +245,6 @@ class ElamondClient(
 	 */
 	suspend inline fun <reified T> decode(text: String): T = withContext(Dispatchers.Default) { decodeChecked(serializer<T>(), text) }
 
-	suspend fun delete(path: String) {
-		request("DELETE", path)
-	}
-
 	/** Raw bytes, for album art. */
 	suspend fun bytes(path: String): ByteArray = exchange(path, Limits.BYTES_TIMEOUT_MS) { c ->
 		checkStatus(c)

@@ -25,6 +25,9 @@ class ErrorsTest {
 		assertEquals(Kind.NotPermitted, answer(403, "not_permitted").kind)
 		assertEquals(Kind.WrongCode, answer(403, "wrong_code").kind)
 		assertEquals(Kind.NoPairing, answer(403, "no_pairing").kind)
+		// A 0.6.1 service limits wrong codes per address; the pairing screen tells it apart by status and code.
+		assertEquals(429, answer(429, "too_many_requests").status)
+		assertEquals("too_many_requests", answer(429, "too_many_requests").code)
 		// elamond asks at the computer, which said no or nothing.
 		assertEquals(Kind.PairDeclined, answer(403, "pair_declined").kind)
 		assertEquals(Kind.Forbidden, answer(403, "something_new").kind)

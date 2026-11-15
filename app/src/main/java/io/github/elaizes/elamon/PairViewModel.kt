@@ -56,7 +56,7 @@ data class PairState(
  * The computer adds the phone as it answers the pairing request, so that request and saving its
  * answer run here, past the screen: rotating the phone or leaving can't lose the token.
  */
-private val pairingScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+internal val pairingScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
 class PairViewModel(app: Application, private val target: PairTarget) : AndroidViewModel(app) {
 	private val _state = MutableStateFlow(PairState())
@@ -155,7 +155,7 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 			} catch (e: CancellationException) {
 				throw e
 			} catch (e: Exception) {
-				val error = if ((e as? ElamondException)?.code == "too_many_phones") R.string.pair_too_many_phones else when ((e as? ElamondException)?.kind) {
+				val error = if ((e as? ElamondException)?.code == "too_many_phones") R.string.pair_too_many_phones else if ((e as? ElamondException)?.let { it.status == 429 || it.code == "too_many_requests" } == true) R.string.pair_too_many_codes else when ((e as? ElamondException)?.kind) {
 					ElamondException.Kind.WrongCode -> R.string.pair_wrong_code
 					ElamondException.Kind.NoPairing -> R.string.pair_no_pairing
 					ElamondException.Kind.PairDeclined -> R.string.pair_declined

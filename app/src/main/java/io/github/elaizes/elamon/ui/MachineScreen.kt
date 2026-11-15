@@ -52,7 +52,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -90,6 +89,7 @@ import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.Settings
 import io.github.elaizes.elamon.allWidgets
 import io.github.elaizes.elamon.forgetKept
+import io.github.elaizes.elamon.pairingScope
 import io.github.elaizes.elamon.readingsLive
 import io.github.elaizes.elamon.data.Machine
 import io.github.elaizes.elamon.data.MachineStore
@@ -136,9 +136,8 @@ fun MachineScreen(
 	val current = shownPages.lastOrNull() ?: shownTab
 	LaunchedEffect(current) { current?.let(vm::show) }
 	var menu by remember { mutableStateOf(false) }
-	var confirmForget by remember { mutableStateOf(false) }
-	var forgetting by remember { mutableStateOf(false) }
-	val background = rememberCoroutineScope()
+	var confirmForget by rememberSaveable { mutableStateOf(false) }
+	var forgetting by rememberSaveable { mutableStateOf(false) }
 	val haze = remember { HazeState() }
 	val snackbar = remember { SnackbarHostState() }
 	val lists = remember { mutableMapOf<String, LazyListState>() }
@@ -358,7 +357,7 @@ fun MachineScreen(
 				TextButton(enabled = !forgetting, onClick = {
 					forgetting = true
 					// The computer asked to unpair this phone, a few seconds at most; forgotten here whatever it says.
-					background.launch {
+					pairingScope.launch {
 						val store = MachineStore.get(ctx)
 						val token = withContext(Dispatchers.Default) { store.token(machine) }
 						val told = token != null && unpair(machine, token)

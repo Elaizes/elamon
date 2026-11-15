@@ -61,6 +61,7 @@
 	<string name="pair_unreachable">The computer doesn\'t answer. Check that the Elamon service is running and that the phone is on the same network or VPN.</string>
 	<string name="pair_cert_mismatch">Something answered at this address, but not with the certificate the computer announced. Pairing was stopped to be safe.</string>
 	<string name="pair_wrong_code">Wrong code. After five wrong codes the computer needs a new one.</string>
+	<string name="pair_too_many_codes">Too many wrong codes from this phone. Start elamond pair again for a new code.</string>
 	<string name="pair_no_pairing">The computer isn\'t waiting for a phone. Run elamond pair on it first.</string>
 	<string name="pair_keystore">The computer paired this phone, but the phone\'s key store couldn\'t keep the key safe, so nothing was saved. Try again; elamond revoke on the computer removes the pairing left unused.</string>
 	<string name="pair_not_saved">The computer paired this phone, but the phone couldn\'t save the pairing, so nothing was kept. Try again; elamond revoke on the computer removes the pairing left unused.</string>
