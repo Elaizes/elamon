@@ -381,14 +381,11 @@ with subtest("elamond backup and restore: a wiped service comes back as the same
 	assert status == 200, paired
 	kept = f"-H 'Authorization: Bearer {paired['token']}'"
 	fp = machine.succeed(served_fp).strip()
-	machine.succeed("su - alice -c 'umask 077; echo \"two words or more\" > ~/pass; echo \"wrong words\" > ~/wrong'")
-	out = machine.succeed("su - alice -c 'elamond backup ~/b.elamond --passphrase-file ~/pass'")
-	assert "Backup phone" in out and "Argon2id" in out, out
+	out = machine.succeed("su - alice -c 'elamond backup ~/b.elamond'")
+	assert "Backup phone" in out and "isn't encrypted" in out, out
 	machine.succeed("test $(stat -c %a /home/alice/b.elamond) = 600 && head -1 /home/alice/b.elamond | grep -qx elamond-backup")
-	# Nothing of the state shows in the file.
-	machine.fail(f"grep -q {paired['client_id']} /home/alice/b.elamond")
 	# While the service runs, a restore is refused.
-	out = machine.fail("su - alice -c 'elamond restore ~/b.elamond --passphrase-file ~/pass' 2>&1")
+	out = machine.fail("su - alice -c 'elamond restore ~/b.elamond' 2>&1")
 	assert "service is running" in out and "systemctl --user stop elamond" in out, out
 	# A reinstall: the data and the drop-in gone, the service makes a new identity and turns the phone away.
 	machine.succeed("systemctl --user -M alice@ stop elamond")
@@ -398,13 +395,8 @@ with subtest("elamond backup and restore: a wiped service comes back as the same
 	assert machine.succeed(served_fp).strip() != fp
 	assert call("GET", "/api/v1/ui", kept) == (401, {"error": "unauthorized"})
 	machine.succeed("systemctl --user -M alice@ stop elamond")
-	# A wrong passphrase changes nothing.
-	before = machine.succeed("ls /home/alice/.local/share/elamon")
-	out = machine.fail("su - alice -c 'elamond restore ~/b.elamond --passphrase-file ~/wrong' 2>&1")
-	assert "passphrase is wrong" in out, out
-	assert machine.succeed("ls /home/alice/.local/share/elamon") == before
 	# Restored, settings too: the same certificate, and the phones' tokens work again.
-	out = machine.succeed("su - alice -c 'elamond restore ~/b.elamond --passphrase-file ~/pass --with-settings'")
+	out = machine.succeed("su - alice -c 'elamond restore ~/b.elamond --with-settings'")
 	assert "Backup phone" in out and "Test phone" in out and "cert.der.before-restore-" in out, out
 	# The settings from Nix stay where Nix puts them.
 	assert "in the Nix store" in out, out
@@ -412,9 +404,9 @@ with subtest("elamond backup and restore: a wiped service comes back as the same
 	# A phone unpaired since the backup doesn't come back unasked.
 	backup_id = paired["client_id"]
 	machine.succeed(f"su - alice -c 'elamond revoke {backup_id}'")
-	out = machine.fail("su - alice -c 'elamond restore ~/b.elamond --passphrase-file ~/pass' 2>&1")
+	out = machine.fail("su - alice -c 'elamond restore ~/b.elamond' 2>&1")
 	assert "aren't paired here now" in out and "Backup phone" in out and "--with-old-phones" in out, out
-	machine.succeed("su - alice -c 'elamond restore ~/b.elamond --passphrase-file ~/pass --with-old-phones'")
+	machine.succeed("su - alice -c 'elamond restore ~/b.elamond --with-old-phones'")
 	machine.succeed("systemctl --user -M alice@ start elamond")
 	machine.wait_until_succeeds("curl -sk https://localhost:47823/api/v1/hello", timeout=60)
 	assert machine.succeed(served_fp).strip() == fp

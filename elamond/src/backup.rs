@@ -3,30 +3,22 @@
 //! phones, the activity log and `elamond control off` — in one file, and the settings files beside
 //! them, which go back only when asked.
 //!
-//! A backup is three parts: the line "elamond-backup", a line of JSON saying how the rest is kept
-//! (`Header`), and the rest. Encrypted, as by default, the rest is the payload sealed with
-//! XChaCha20-Poly1305 under a key Argon2id derives from the passphrase, the two lines before it
-//! authenticated with it, so neither can be changed unnoticed. With `--plain` the rest is the
-//! payload itself, its SHA-256 in the header. The payload is JSON (`Payload`).
+//! A backup is three parts: the line "elamond-backup", a line of JSON (`Header`) with the payload's
+//! SHA-256, and the payload, JSON (`Payload`). It isn't encrypted: the file is written for its owner
+//! alone to read. elamond 0.6.1 and older encrypted backups with a passphrase unless told `--plain`;
+//! those are refused, saying so.
 //!
 //! A restore checks everything before it writes anything, then writes each file in one step.
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{self, BufRead, BufReader, Write};
-use std::mem::MaybeUninit;
-use std::os::fd::AsRawFd;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::io;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI32, Ordering};
 
-use argon2::{Algorithm, Argon2, Params, Version};
-use chacha20poly1305::aead::{Aead, KeyInit, Payload as Message};
-use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use serde::{Deserialize, Serialize};
-use zeroize::Zeroizing;
 
-use crate::consts::backup as cost;
+use crate::consts::backup::FILE_MAX;
 use crate::{activity, identity, listen, store};
 
 const B64: data_encoding::Encoding = data_encoding::BASE64;
@@ -36,10 +28,8 @@ const MAGIC: &[u8] = b"elamond-backup\n";
 /// The format written, and the newest read: one that changes what an older elamond would get
 /// wrong raises it.
 pub const FORMAT: u32 = 1;
-/// How the payload is kept, as the header says.
-const SEALED: &str = "argon2id+xchacha20poly1305";
+/// How the payload is kept, as the header says: as it is. 0.6.1 and older wrote others too.
 const PLAIN: &str = "none";
-const ARGON2ID: &str = "argon2id";
 
 /// The state files a backup carries, in the order a restore writes them: control-off.json first, so
 /// a computer whose control was held off is never open in between; the identity before the phones
@@ -60,47 +50,16 @@ const STATE_FILES: [&str; 8] = [
 /// nothing reads them, and not named as a newer elamond's. links.json: 0.5's links added from the app.
 const RETIRED_FILES: [&str; 1] = ["links.json"];
 
-/// The second line of a backup: how the rest is kept.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+/// The second line of a backup.
+#[derive(Serialize, Deserialize)]
 struct Header {
 	format: u32,
-	/// `SEALED` or `PLAIN`.
+	/// `PLAIN`.
 	encryption: String,
-	/// How the key comes from the passphrase, when sealed.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	kdf: Option<Kdf>,
-	/// XChaCha20-Poly1305's nonce, base64, when sealed.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	nonce: Option<String>,
-	/// The payload's SHA-256, hex, when plain: a file damaged on the way is noticed.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	/// The payload's SHA-256, hex: a file damaged on the way is noticed. 0.6.1's encrypted backups
+	/// have none.
+	#[serde(default)]
 	sha256: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-struct Kdf {
-	/// `ARGON2ID`.
-	algorithm: String,
-	/// Argon2's version: 19, for 1.3.
-	version: u32,
-	/// Memory in KiB, passes, lanes.
-	m_kib: u32,
-	t: u32,
-	p: u32,
-	/// base64.
-	salt: String,
-}
-
-/// What making the key costs: memory in KiB, passes, lanes.
-#[derive(Clone, Copy, Debug)]
-pub struct Cost {
-	pub m_kib: u32,
-	pub t: u32,
-	pub p: u32,
-}
-
-impl Cost {
-	pub const DEFAULT: Cost = Cost { m_kib: cost::ARGON2_M_KIB, t: cost::ARGON2_T, p: cost::ARGON2_P };
 }
 
 /// The rest of a backup, once opened.
@@ -122,7 +81,7 @@ pub struct Contents {
 	pub service_version: String,
 	pub created: u64,
 	pub host: String,
-	pub state: BTreeMap<String, Zeroizing<Vec<u8>>>,
+	pub state: BTreeMap<String, Vec<u8>>,
 	pub settings: BTreeMap<String, String>,
 }
 
@@ -134,7 +93,7 @@ pub fn collect(dir: &Path, settings: &[(String, PathBuf)]) -> Result<Contents, S
 		let path = dir.join(name);
 		match fs::read(&path) {
 			Ok(b) => {
-				state.insert(name.to_string(), Zeroizing::new(b));
+				state.insert(name.to_string(), b);
 			}
 			Err(e) if e.kind() == io::ErrorKind::NotFound => {}
 			Err(e) => return Err(format!("can't read {}: {e}", path.display())),
@@ -182,14 +141,8 @@ fn settings_now() -> Vec<(String, PathBuf)> {
 		.collect()
 }
 
-/// How a backup is kept.
-pub enum Protection<'a> {
-	Plain,
-	Passphrase(&'a str, Cost),
-}
-
 /// The backup of `c`, as written to its file.
-pub fn seal(c: &Contents, how: Protection) -> Result<Vec<u8>, String> {
+pub fn pack(c: &Contents) -> Result<Vec<u8>, String> {
 	let payload = Payload {
 		service_version: c.service_version.clone(),
 		created: c.created,
@@ -197,134 +150,46 @@ pub fn seal(c: &Contents, how: Protection) -> Result<Vec<u8>, String> {
 		state: c.state.iter().map(|(k, v)| (k.clone(), B64.encode(v))).collect(),
 		settings: c.settings.clone(),
 	};
-	let plain = Zeroizing::new(serde_json::to_vec(&payload).map_err(|e| e.to_string())?);
-	// The base64 copies of the state go as soon as they're in the JSON.
-	drop(payload.state.into_values().map(Zeroizing::new).collect::<Vec<_>>());
-	match how {
-		Protection::Plain => {
-			let header = Header { format: FORMAT, encryption: PLAIN.into(), kdf: None, nonce: None, sha256: Some(store::sha256_hex(&plain)) };
-			let mut out = head(&header)?;
-			out.extend_from_slice(&plain);
-			Ok(out)
-		}
-		Protection::Passphrase(passphrase, cost) => {
-			let salt = store::random_bytes::<{ cost::SALT_BYTES }>();
-			let nonce = store::random_bytes::<{ cost::NONCE_BYTES }>();
-			let kdf = Kdf {
-				algorithm: ARGON2ID.into(),
-				version: cost::ARGON2_VERSION,
-				m_kib: cost.m_kib,
-				t: cost.t,
-				p: cost.p,
-				salt: B64.encode(&salt),
-			};
-			let key = derive(passphrase, &kdf)?;
-			let header = Header { format: FORMAT, encryption: SEALED.into(), kdf: Some(kdf), nonce: Some(B64.encode(&nonce)), sha256: None };
-			let mut out = head(&header)?;
-			let cipher = XChaCha20Poly1305::new_from_slice(&key[..]).map_err(|e| e.to_string())?;
-			let sealed = cipher.encrypt(&XNonce::from(nonce), Message { msg: &plain, aad: &out }).map_err(|_| "can't encrypt the backup".to_string())?;
-			out.extend_from_slice(&sealed);
-			Ok(out)
-		}
-	}
-}
-
-/// The first two lines of a backup with `header`.
-fn head(header: &Header) -> Result<Vec<u8>, String> {
+	let body = serde_json::to_vec(&payload).map_err(|e| e.to_string())?;
+	let header = Header { format: FORMAT, encryption: PLAIN.into(), sha256: Some(store::sha256_hex(&body)) };
 	let mut out = MAGIC.to_vec();
-	out.extend(serde_json::to_vec(header).map_err(|e| e.to_string())?);
+	out.extend(serde_json::to_vec(&header).map_err(|e| e.to_string())?);
 	out.push(b'\n');
+	out.extend(body);
 	Ok(out)
 }
 
-/// The key `kdf` makes of `passphrase`, refused when it asks for more than a restore will give.
-fn derive(passphrase: &str, kdf: &Kdf) -> Result<Zeroizing<[u8; 32]>, String> {
-	if kdf.algorithm != ARGON2ID || kdf.version != cost::ARGON2_VERSION {
-		return Err(format!("this backup's key is made in a way this elamond doesn't know ({} {})", kdf.algorithm, kdf.version));
-	}
-	if kdf.m_kib > cost::ARGON2_M_KIB_MAX || kdf.t > cost::ARGON2_T_MAX || kdf.p > cost::ARGON2_P_MAX {
+const DAMAGED: &str = "the backup is damaged";
+
+/// What the backup `bytes` holds. A newer format is refused before anything else in it is looked
+/// at.
+pub fn unpack(bytes: &[u8]) -> Result<Contents, String> {
+	let rest = bytes.strip_prefix(MAGIC).ok_or("this isn't a backup made by elamond backup")?;
+	let end = rest.iter().position(|b| *b == b'\n').ok_or(DAMAGED)?;
+	let value: serde_json::Value = serde_json::from_slice(&rest[..end]).map_err(|_| DAMAGED)?;
+	let format = value.get("format").and_then(serde_json::Value::as_u64).ok_or(DAMAGED)?;
+	if format > u64::from(FORMAT) {
 		return Err(format!(
-			"this backup asks for more memory or time than a restore gives ({} KiB, {} passes, {} lanes); it wasn't made by elamond backup",
-			kdf.m_kib, kdf.t, kdf.p
+			"this backup was made by a newer elamond, in format {format}; this one reads format {FORMAT} and before. Update elamond, then restore"
 		));
 	}
-	let params = Params::new(kdf.m_kib, kdf.t, kdf.p, Some(32)).map_err(|e| format!("{DAMAGED} ({e})"))?;
-	let salt = B64.decode(kdf.salt.as_bytes()).map_err(|_| DAMAGED.to_string())?;
-	let mut key = Zeroizing::new([0u8; 32]);
-	Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
-		.hash_password_into(passphrase.as_bytes(), &salt, &mut key[..])
-		.map_err(|e| format!("{DAMAGED} ({e})"))?;
-	Ok(key)
-}
-
-const DAMAGED: &str = "the backup is damaged";
-const WRONG: &str = "the passphrase is wrong, or the backup was changed or damaged";
-
-/// A backup read as far as it goes without its passphrase.
-pub struct Envelope<'a> {
-	header: Header,
-	/// The first two lines, which a sealed payload authenticates.
-	head: &'a [u8],
-	body: &'a [u8],
-}
-
-impl<'a> Envelope<'a> {
-	/// Reads the first two lines of `bytes`. A newer format is refused before anything else in it is
-	/// looked at.
-	pub fn parse(bytes: &'a [u8]) -> Result<Self, String> {
-		let rest = bytes.strip_prefix(MAGIC).ok_or("this isn't a backup made by elamond backup")?;
-		let end = rest.iter().position(|b| *b == b'\n').ok_or(DAMAGED)?;
-		let value: serde_json::Value = serde_json::from_slice(&rest[..end]).map_err(|_| DAMAGED)?;
-		let format = value.get("format").and_then(serde_json::Value::as_u64).ok_or(DAMAGED)?;
-		if format > u64::from(FORMAT) {
-			return Err(format!(
-				"this backup was made by a newer elamond, in format {format}; this one reads format {FORMAT} and before. Update elamond, then restore"
-			));
-		}
-		let header: Header = serde_json::from_value(value).map_err(|_| DAMAGED)?;
-		let (head, body) = bytes.split_at(MAGIC.len() + end + 1);
-		Ok(Envelope { header, head, body })
+	let header: Header = serde_json::from_value(value).map_err(|_| DAMAGED)?;
+	if header.encryption != PLAIN {
+		return Err("this backup is encrypted with a passphrase, as elamond 0.6.1 and older made them by default; this \
+			 elamond reads only unencrypted backups. Restore it with elamond 0.6.1, or make a new backup"
+			.into());
 	}
-
-	/// Whether it needs a passphrase to open.
-	pub fn encrypted(&self) -> bool {
-		self.header.encryption != PLAIN
+	let body = &rest[end + 1..];
+	if header.sha256.as_deref() != Some(store::sha256_hex(body).as_str()) {
+		return Err(format!("{DAMAGED}: it doesn't match the checksum it was written with"));
 	}
-
-	/// What it holds, opened with `passphrase` when it is encrypted.
-	pub fn open(&self, passphrase: Option<&str>) -> Result<Contents, String> {
-		let plain = match self.header.encryption.as_str() {
-			PLAIN => {
-				if self.header.sha256.as_deref() != Some(store::sha256_hex(self.body).as_str()) {
-					return Err(format!("{DAMAGED}: it doesn't match the checksum it was written with"));
-				}
-				Zeroizing::new(self.body.to_vec())
-			}
-			SEALED => {
-				let passphrase = passphrase.ok_or("this backup is encrypted: it needs its passphrase")?;
-				let kdf = self.header.kdf.as_ref().ok_or(DAMAGED)?;
-				let nonce: [u8; cost::NONCE_BYTES] = self
-					.header
-					.nonce
-					.as_deref()
-					.and_then(|n| B64.decode(n.as_bytes()).ok())
-					.and_then(|n| n.try_into().ok())
-					.ok_or(DAMAGED)?;
-				let key = derive(passphrase, kdf)?;
-				let cipher = XChaCha20Poly1305::new_from_slice(&key[..]).map_err(|e| e.to_string())?;
-				Zeroizing::new(cipher.decrypt(&XNonce::from(nonce), Message { msg: self.body, aad: self.head }).map_err(|_| WRONG)?)
-			}
-			other => return Err(format!("this backup is kept in a way this elamond doesn't know (\"{other}\")")),
-		};
-		let payload: Payload = serde_json::from_slice(&plain).map_err(|e| format!("{DAMAGED} ({e})"))?;
-		let mut state = BTreeMap::new();
-		for (name, data) in &payload.state {
-			let bytes = B64.decode(data.as_bytes()).map_err(|_| format!("{DAMAGED}: {name} in it doesn't read"))?;
-			state.insert(name.clone(), Zeroizing::new(bytes));
-		}
-		drop(payload.state.into_values().map(Zeroizing::new).collect::<Vec<_>>());
-		Ok(Contents { service_version: payload.service_version, created: payload.created, host: payload.host, state, settings: payload.settings })
+	let payload: Payload = serde_json::from_slice(body).map_err(|e| format!("{DAMAGED} ({e})"))?;
+	let mut state = BTreeMap::new();
+	for (name, data) in payload.state {
+		let bytes = B64.decode(data.as_bytes()).map_err(|_| format!("{DAMAGED}: {name} in it doesn't read"))?;
+		state.insert(name, bytes);
 	}
+	Ok(Contents { service_version: payload.service_version, created: payload.created, host: payload.host, state, settings: payload.settings })
 }
 
 /// What a backup will put back, as checked.
@@ -519,29 +384,25 @@ fn managed_elsewhere(path: &Path) -> Option<String> {
 #[derive(Debug, Default, PartialEq)]
 struct Args {
 	file: Option<PathBuf>,
-	plain: bool,
 	force: bool,
 	with_settings: bool,
 	with_old_phones: bool,
-	passphrase_file: Option<PathBuf>,
 }
 
-const BACKUP_USAGE: &str = "usage: elamond backup FILE [--passphrase-file PATH | --plain]";
-const RESTORE_USAGE: &str = "usage: elamond restore FILE [--passphrase-file PATH] [--with-settings] [--with-old-phones] [--force]";
+const BACKUP_USAGE: &str = "usage: elamond backup FILE";
+const RESTORE_USAGE: &str = "usage: elamond restore FILE [--with-settings] [--with-old-phones] [--force]";
 
 impl Args {
 	fn parse(restore: bool, args: &[String]) -> Result<Args, String> {
 		let usage = if restore { RESTORE_USAGE } else { BACKUP_USAGE };
 		let mut a = Args::default();
-		let mut it = args.iter();
-		while let Some(arg) = it.next() {
+		for arg in args {
 			match arg.as_str() {
-				"--plain" if !restore => a.plain = true,
+				// What 0.6.1 wanted for a backup like those made now; scripts and timers still say it.
+				"--plain" if !restore => {}
 				"--force" if restore => a.force = true,
 				"--with-settings" if restore => a.with_settings = true,
 				"--with-old-phones" if restore => a.with_old_phones = true,
-				"--passphrase-file" => a.passphrase_file = Some(it.next().ok_or(usage)?.into()),
-				s if s.starts_with("--passphrase-file=") => a.passphrase_file = Some(s["--passphrase-file=".len()..].into()),
 				s if s.starts_with('-') => return Err(format!("unknown option \"{s}\"\n{usage}")),
 				s if a.file.is_none() => a.file = Some(s.into()),
 				_ => return Err(usage.into()),
@@ -549,9 +410,6 @@ impl Args {
 		}
 		if a.file.is_none() {
 			return Err(usage.into());
-		}
-		if a.plain && a.passphrase_file.is_some() {
-			return Err(format!("--plain writes no passphrase; give one or the other\n{usage}"));
 		}
 		Ok(a)
 	}
@@ -568,33 +426,17 @@ pub fn backup(args: &[String]) -> Result<(), String> {
 	let contents = collect(&dir, &settings_now())?;
 	// What can't be restored isn't worth keeping: say so now rather than on the day it's needed.
 	let summary = verify(&contents, false).map_err(|e| format!("{e}\n  in {}; fix it, then back up", dir.display()))?;
-	let passphrase = if a.plain { None } else { Some(passphrase(a.passphrase_file.as_deref(), true)?) };
-	let how = match &passphrase {
-		Some(p) => Protection::Passphrase(p.as_str(), Cost::DEFAULT),
-		None => Protection::Plain,
-	};
-	let bytes = seal(&contents, how)?;
-	store::replace_private(&file, &bytes).map_err(|e| format!("can't write {}: {e}", file.display()))?;
+	store::replace_private(&file, &pack(&contents)?).map_err(|e| format!("can't write {}: {e}", file.display()))?;
 
-	if a.plain {
-		println!("Backed up to {}, NOT encrypted:", file.display());
-	} else {
-		println!("Backed up to {}, encrypted with the passphrase (Argon2id, XChaCha20-Poly1305):", file.display());
-	}
+	println!("Backed up to {}:", file.display());
 	print_summary(&summary);
 	let settings: Vec<&str> = contents.settings.keys().map(String::as_str).collect();
 	if !settings.is_empty() {
 		println!("  Settings:      {} (put back only by elamond restore --with-settings)", settings.join(", "));
 	}
 	println!();
-	if a.plain {
-		eprintln!("  ! This backup is NOT encrypted. Whoever reads it can pose as this computer to every phone");
-		eprintln!("  ! paired with it. Keep it where only you can read it, never in cloud storage or a shared");
-		eprintln!("  ! folder; without --plain it is encrypted with a passphrase.");
-	} else {
-		println!("  Keep the passphrase apart from the file: without it the backup can't be opened, and whoever");
-		println!("  has both can pose as this computer to its phones.");
-	}
+	println!("  It isn't encrypted; only you can read it (0600). Whoever reads it can pose as this computer to");
+	println!("  its phones: keep it out of shared and cloud folders.");
 	println!("  Put it back, on this computer or a new one: elamond restore {}", file.display());
 	Ok(())
 }
@@ -608,11 +450,7 @@ pub fn restore(args: &[String]) -> Result<(), String> {
 	if let (Some(why), false) = (&running, a.force) {
 		return Err(still_running(why, &file));
 	}
-	let bytes = read_backup(&file)?;
-	let envelope = Envelope::parse(&bytes)?;
-	let passphrase = if envelope.encrypted() { Some(passphrase(a.passphrase_file.as_deref(), false)?) } else { None };
-	let contents = envelope.open(passphrase.as_deref().map(String::as_str))?;
-	drop(passphrase);
+	let contents = unpack(&read_backup(&file)?)?;
 	let summary = verify(&contents, a.with_settings)?;
 	// Phones unpaired since the backup was made don't come back unasked.
 	let back = returning(&summary.phones, &dir);
@@ -691,8 +529,8 @@ pub fn restore(args: &[String]) -> Result<(), String> {
 	Ok(())
 }
 
-/// The backup at `path`, read once: refused unless it is a regular file of `cost::FILE_MAX`
-/// bytes at most. A FIFO or a device is refused without waiting on it.
+/// The backup at `path`, read once: refused unless it is a regular file of `FILE_MAX` bytes at
+/// most. A FIFO or a device is refused without waiting on it.
 fn read_backup(path: &Path) -> Result<Vec<u8>, String> {
 	use std::io::Read;
 	let failed = |e: io::Error| format!("can't read {}: {e}", path.display());
@@ -701,9 +539,9 @@ fn read_backup(path: &Path) -> Result<Vec<u8>, String> {
 		return Err(format!("{} isn't a file", path.display()));
 	}
 	let mut bytes = Vec::new();
-	f.take(cost::FILE_MAX + 1).read_to_end(&mut bytes).map_err(failed)?;
-	if bytes.len() as u64 > cost::FILE_MAX {
-		return Err(format!("{} is larger than {} bytes, far more than a backup; it isn't one", path.display(), cost::FILE_MAX));
+	f.take(FILE_MAX + 1).read_to_end(&mut bytes).map_err(failed)?;
+	if bytes.len() as u64 > FILE_MAX {
+		return Err(format!("{} is larger than {} bytes, far more than a backup; it isn't one", path.display(), FILE_MAX));
 	}
 	Ok(bytes)
 }
@@ -774,147 +612,11 @@ fn still_running(why: &str, file: &Path) -> String {
 	)
 }
 
-// ---- the passphrase ----------------------------------------------------------------------------
-
-/// The passphrase from `file`, or asked on the terminal, `twice` for a new backup.
-fn passphrase(file: Option<&Path>, twice: bool) -> Result<Zeroizing<String>, String> {
-	let p = match file {
-		Some(f) => from_file(f)?,
-		None => from_terminal(twice)?,
-	};
-	if twice && p.chars().count() < cost::PASSPHRASE_MIN {
-		return Err(format!("the passphrase needs at least {} characters; a few words are best", cost::PASSPHRASE_MIN));
-	}
-	Ok(p)
-}
-
-/// The passphrase in `path`, without the line end after it.
-fn from_file(path: &Path) -> Result<Zeroizing<String>, String> {
-	let meta = fs::metadata(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
-	if meta.is_file() && meta.permissions().mode() & 0o077 != 0 {
-		eprintln!("  ! {} can be read by others; chmod 600 it", path.display());
-	}
-	let mut text = Zeroizing::new(fs::read_to_string(path).map_err(|e| format!("can't read {}: {e}", path.display()))?);
-	let end = text.trim_end_matches(['\n', '\r']).len();
-	text.truncate(end);
-	if text.is_empty() {
-		return Err(format!("{} holds no passphrase", path.display()));
-	}
-	Ok(text)
-}
-
-const NO_TERMINAL: &str = "there is no terminal to ask the passphrase on: give it with --passphrase-file PATH";
-
-fn from_terminal(twice: bool) -> Result<Zeroizing<String>, String> {
-	let tty = fs::OpenOptions::new().read(true).write(true).open("/dev/tty").map_err(|_| NO_TERMINAL.to_string())?;
-	if !twice {
-		return ask(&tty, "Passphrase: ");
-	}
-	for _ in 0..cost::PASSPHRASE_TRIES {
-		let first = ask(&tty, "Passphrase for the backup: ")?;
-		if first.chars().count() < cost::PASSPHRASE_MIN {
-			let _ = writeln!(&tty, "  At least {} characters, please; a few words are best.", cost::PASSPHRASE_MIN);
-			continue;
-		}
-		if *ask(&tty, "The same again: ")? == *first {
-			return Ok(first);
-		}
-		let _ = writeln!(&tty, "  They differ; once more.");
-	}
-	Err("no passphrase was given twice alike; nothing was written".into())
-}
-
-/// A line typed on the terminal `tty` without showing it, after `prompt`.
-fn ask(tty: &fs::File, prompt: &str) -> Result<Zeroizing<String>, String> {
-	let mut out = tty;
-	out.write_all(prompt.as_bytes()).and_then(|()| out.flush()).map_err(|e| e.to_string())?;
-	let quiet = Quiet::new(tty.as_raw_fd()).map_err(|e| format!("can't hide what is typed: {e}"))?;
-	let mut line = Zeroizing::new(String::new());
-	let read = BufReader::new(tty).read_line(&mut line);
-	drop(quiet);
-	match read {
-		Ok(0) => return Err("no passphrase was given".into()),
-		Ok(_) => {}
-		Err(e) => return Err(format!("can't read the passphrase: {e}")),
-	}
-	let end = line.trim_end_matches(['\n', '\r']).len();
-	line.truncate(end);
-	Ok(line)
-}
-
-/// The terminal's settings from before echo was turned off, for a signal to put back.
-static QUIET_FD: AtomicI32 = AtomicI32::new(-1);
-static mut SAVED: MaybeUninit<libc::termios> = MaybeUninit::uninit();
-
-extern "C" fn on_stop_at_prompt(sig: libc::c_int) {
-	let fd = QUIET_FD.load(Ordering::SeqCst);
-	if fd >= 0 {
-		// SAFETY: SAVED is written before QUIET_FD is set; tcsetattr is async-signal-safe.
-		unsafe { libc::tcsetattr(fd, libc::TCSANOW, (&raw const SAVED).cast()) };
-	}
-	// SAFETY: _exit is async-signal-safe.
-	unsafe { libc::_exit(128 + sig) };
-}
-
-/// Echo off on a terminal while it lives; Ctrl+C meanwhile turns it back on before elamond exits.
-struct Quiet {
-	fd: libc::c_int,
-	saved: libc::termios,
-	handlers: Vec<(libc::c_int, libc::sighandler_t)>,
-}
-
-impl Quiet {
-	fn new(fd: libc::c_int) -> io::Result<Quiet> {
-		let mut t = MaybeUninit::<libc::termios>::uninit();
-		// SAFETY: tcgetattr fills the termios it is given, or fails and it is left unread.
-		if unsafe { libc::tcgetattr(fd, t.as_mut_ptr()) } != 0 {
-			return Err(io::Error::last_os_error());
-		}
-		// SAFETY: filled by tcgetattr above.
-		let saved = unsafe { t.assume_init() };
-		// SAFETY: nothing reads SAVED until QUIET_FD is set, below.
-		unsafe { (&raw mut SAVED).write(MaybeUninit::new(saved)) };
-		QUIET_FD.store(fd, Ordering::SeqCst);
-		let handlers = [libc::SIGINT, libc::SIGTERM, libc::SIGHUP]
-			.into_iter()
-			// SAFETY: the handler only calls async-signal-safe functions.
-			.map(|sig| (sig, unsafe { libc::signal(sig, on_stop_at_prompt as *const () as libc::sighandler_t) }))
-			.collect();
-		let mut quiet = saved;
-		// Nothing typed is shown, but the Enter that ends it is.
-		quiet.c_lflag &= !libc::ECHO;
-		quiet.c_lflag |= libc::ECHONL;
-		// SAFETY: sets the terminal from a termios that tcgetattr filled.
-		if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &quiet) } != 0 {
-			let e = io::Error::last_os_error();
-			drop(Quiet { fd, saved, handlers });
-			return Err(e);
-		}
-		Ok(Quiet { fd, saved, handlers })
-	}
-}
-
-impl Drop for Quiet {
-	fn drop(&mut self) {
-		// SAFETY: puts back the settings tcgetattr gave, and the handlers there were before.
-		unsafe {
-			libc::tcsetattr(self.fd, libc::TCSANOW, &self.saved);
-			QUIET_FD.store(-1, Ordering::SeqCst);
-			for (sig, before) in &self.handlers {
-				libc::signal(*sig, *before);
-			}
-		}
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
 	use crate::access::Role;
-
-	/// Cheap enough for tests; the format records the cost, so they open as any other.
-	const QUICK: Cost = Cost { m_kib: 64, t: 1, p: 1 };
-	const PASS: &str = "correct horse battery staple";
+	use std::os::unix::fs::PermissionsExt;
 
 	fn scratch() -> PathBuf {
 		let dir = std::env::temp_dir().join(format!("elamond-backup-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
@@ -958,22 +660,19 @@ mod tests {
 	}
 
 	#[test]
-	fn an_encrypted_backup_brings_the_same_computer_back_on_a_fresh_install() {
+	fn a_backup_brings_the_same_computer_back_on_a_fresh_install() {
 		let from = used_service();
 		let before = identity::Identity::load(&from).unwrap();
-		let bytes = seal(&collect(&from, &[]).unwrap(), Protection::Passphrase(PASS, QUICK)).unwrap();
-		// Nothing of the state shows through.
 		let token_hash = store::load_clients_in(&from).unwrap()[0].token_hash.clone();
-		assert!(!bytes.windows(token_hash.len()).any(|w| w == token_hash.as_bytes()));
-		assert!(!bytes.windows(before.key_der.len()).any(|w| w == before.key_der.as_slice()));
-		assert!(bytes.starts_with(b"elamond-backup\n{\"format\":1,\"encryption\":\"argon2id+xchacha20poly1305\""));
+		let bytes = pack(&collect(&from, &[]).unwrap()).unwrap();
+		// What elamond 0.6.1 wrote with --plain, and reads.
+		assert!(bytes.starts_with(b"elamond-backup\n{\"format\":1,\"encryption\":\"none\",\"sha256\":\""));
 
 		// A fresh install: the service made an identity of its own.
 		let to = scratch();
 		identity::Identity::load_or_create(&to).unwrap();
-		let envelope = Envelope::parse(&bytes).unwrap();
-		assert!(envelope.encrypted());
-		let contents = envelope.open(Some(PASS)).unwrap();
+		let contents = unpack(&bytes).unwrap();
+		assert_eq!(contents.service_version, env!("CARGO_PKG_VERSION"));
 		let summary = verify(&contents, false).unwrap();
 		assert_eq!((summary.id.as_str(), summary.fingerprint.as_str()), (before.id.as_str(), before.fingerprint.as_str()));
 		assert_eq!((summary.phones.len(), summary.activity, summary.rotations, summary.control_off), (2, 3, 1, true));
@@ -1000,64 +699,28 @@ mod tests {
 	}
 
 	#[test]
-	fn a_plain_backup_reads_without_a_passphrase_and_a_damaged_one_is_refused() {
+	fn a_damaged_backup_or_another_file_is_refused() {
 		let from = used_service();
-		let mut bytes = seal(&collect(&from, &[]).unwrap(), Protection::Plain).unwrap();
-		let envelope = Envelope::parse(&bytes).unwrap();
-		assert!(!envelope.encrypted());
-		let c = envelope.open(None).unwrap();
-		assert_eq!(*c.state[store::CLIENTS_FILE], fs::read(from.join(store::CLIENTS_FILE)).unwrap());
-		assert_eq!(c.service_version, env!("CARGO_PKG_VERSION"));
+		let mut bytes = pack(&collect(&from, &[]).unwrap()).unwrap();
 		// One byte changed in the payload.
 		let at = bytes.len() - 10;
 		bytes[at] ^= 1;
-		let e = Envelope::parse(&bytes).unwrap().open(None).err().unwrap();
-		assert!(e.contains("damaged"), "{e}");
+		assert!(unpack(&bytes).err().unwrap().contains("doesn't match the checksum"));
+		assert!(unpack(b"not a backup").err().unwrap().contains("isn't a backup"));
+		assert!(unpack(b"elamond-backup\n{\"format\":1").err().unwrap().contains("damaged"));
 		fs::remove_dir_all(from).unwrap();
 	}
 
 	#[test]
-	fn a_wrong_passphrase_or_a_changed_byte_opens_nothing() {
-		let from = used_service();
-		let bytes = seal(&collect(&from, &[]).unwrap(), Protection::Passphrase(PASS, QUICK)).unwrap();
-		let wrong = |b: &[u8], pass: &str| Envelope::parse(b).and_then(|e| e.open(Some(pass))).err().unwrap();
-		assert_eq!(wrong(&bytes, "correct horse battery stapler"), WRONG);
-		assert!(Envelope::parse(&bytes).unwrap().open(None).err().unwrap().contains("needs its passphrase"));
-		// Any byte of the payload, or of the header it authenticates.
-		let header_end = MAGIC.len() + bytes[MAGIC.len()..].iter().position(|b| *b == b'\n').unwrap();
-		for at in [bytes.len() - 1, header_end + 1, header_end + 40] {
-			let mut b = bytes.clone();
-			b[at] ^= 0x20;
-			assert_eq!(wrong(&b, PASS), WRONG, "byte {at}");
-		}
-		// The header: what makes the key, and what doesn't but is authenticated all the same.
-		let text = String::from_utf8_lossy(&bytes[..header_end]).into_owned();
-		for changed in [text.replace("\"m_kib\":64", "\"m_kib\":72"), text.replacen("{\"format\":1", "{\"note\":1,\"format\":1", 1)] {
-			assert_ne!(changed.as_bytes(), &bytes[..header_end]);
-			assert_eq!(wrong(&[changed.as_bytes(), &bytes[header_end..]].concat(), PASS), WRONG, "{changed}");
-		}
-		assert_eq!(wrong(&bytes[..bytes.len() - 1], PASS), WRONG);
-		assert!(wrong(b"not a backup", PASS).contains("isn't a backup"));
-		assert!(wrong(b"elamond-backup\n{\"format\":1", PASS).contains("damaged"));
-		// A file that asks for more than a restore gives is refused before trying.
-		let greedy = text.replace("\"m_kib\":64", "\"m_kib\":4194304").into_bytes();
-		assert!(wrong(&[greedy.as_slice(), &bytes[header_end..]].concat(), PASS).contains("more memory or time"));
-		for (was, asks) in [("\"m_kib\":64", "\"m_kib\":262145"), ("\"t\":1", "\"t\":11"), ("\"p\":1", "\"p\":9")] {
-			let greedy = text.replace(was, asks).into_bytes();
-			assert!(wrong(&[greedy.as_slice(), &bytes[header_end..]].concat(), PASS).contains("more memory or time"), "{asks}");
-		}
-		fs::remove_dir_all(from).unwrap();
-	}
-
-	#[test]
-	fn a_newer_format_is_refused_whatever_follows() {
+	fn a_newer_format_or_an_encrypted_backup_is_refused() {
 		for rest in ["{\"format\":2,\"encryption\":\"none\"}\n{}", "{\"format\":2,\"something\":\"else\"}\n\u{0}\u{1}"] {
-			let e = Envelope::parse(format!("elamond-backup\n{rest}").as_bytes()).err().unwrap();
+			let e = unpack(format!("elamond-backup\n{rest}").as_bytes()).err().unwrap();
 			assert!(e.contains("newer elamond") && e.contains("format 2") && e.contains("Update elamond"), "{e}");
 		}
-		// The same format with a way of keeping it this elamond doesn't know.
-		let bytes = b"elamond-backup\n{\"format\":1,\"encryption\":\"rot13\"}\n";
-		assert!(Envelope::parse(bytes).unwrap().open(None).err().unwrap().contains("rot13"));
+		// What elamond 0.6.1 made without --plain: encrypted with a passphrase.
+		let sealed = b"elamond-backup\n{\"format\":1,\"encryption\":\"argon2id+xchacha20poly1305\",\"kdf\":{\"algorithm\":\"argon2id\",\"version\":19,\"m_kib\":65536,\"t\":3,\"p\":4,\"salt\":\"AAAAAAAAAAAAAAAAAAAAAA==\"},\"nonce\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}\n\x8f\x01";
+		let e = unpack(sealed).err().unwrap();
+		assert!(e.contains("encrypted with a passphrase") && e.contains("Restore it with elamond 0.6.1"), "{e}");
 	}
 
 	#[test]
@@ -1070,7 +733,7 @@ mod tests {
 		let with = |name: &str, data: Option<&[u8]>| {
 			let mut c = collect(&from, &[]).unwrap();
 			match data {
-				Some(d) => c.state.insert(name.into(), Zeroizing::new(d.to_vec())),
+				Some(d) => c.state.insert(name.into(), d.to_vec()),
 				None => c.state.remove(name),
 			};
 			c
@@ -1111,7 +774,7 @@ mod tests {
 		identity::Identity::load_or_create(&from).unwrap();
 		let mut c = collect(&from, &[]).unwrap();
 		// 0.6.1 still carried 0.5's links.json: nothing reads it, so it isn't written or named.
-		c.state.insert("links.json".into(), Zeroizing::new(b"[]".to_vec()));
+		c.state.insert("links.json".into(), b"[]".to_vec());
 		assert!(verify(&c, false).unwrap().unknown.is_empty());
 		let to = used_service();
 		restore_into(&c, &to, None).unwrap();
@@ -1157,7 +820,7 @@ mod tests {
 		assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
 		assert!(read_backup(&fifo).unwrap_err().contains("isn't a file"));
 		let big = to.join("big");
-		fs::File::create(&big).unwrap().set_len(cost::FILE_MAX + 1).unwrap();
+		fs::File::create(&big).unwrap().set_len(FILE_MAX + 1).unwrap();
 		assert!(read_backup(&big).unwrap_err().contains("larger than"));
 		fs::write(&big, b"elamond-backup\n").unwrap();
 		assert_eq!(read_backup(&big).unwrap(), b"elamond-backup\n");
@@ -1246,34 +909,18 @@ mod tests {
 	fn arguments() {
 		let args = |s: &[&str]| s.iter().map(|a| a.to_string()).collect::<Vec<_>>();
 		assert_eq!(
-			Args::parse(true, &args(&["b.elamond", "--force", "--passphrase-file=/p", "--with-settings"])).unwrap(),
-			Args { file: Some("b.elamond".into()), force: true, with_settings: true, with_old_phones: false, passphrase_file: Some("/p".into()), plain: false }
+			Args::parse(true, &args(&["b.elamond", "--force", "--with-settings"])).unwrap(),
+			Args { file: Some("b.elamond".into()), force: true, with_settings: true, with_old_phones: false }
 		);
-		assert_eq!(Args::parse(false, &args(&["--plain", "b"])).unwrap(), Args { file: Some("b".into()), plain: true, ..Default::default() });
-		assert_eq!(Args::parse(false, &args(&["b", "--passphrase-file", "/p"])).unwrap().passphrase_file, Some("/p".into()));
-		// Each command's own options only.
+		// What 0.6.1 needed for an unencrypted backup changes nothing now.
+		assert_eq!(Args::parse(false, &args(&["--plain", "b"])).unwrap(), Args { file: Some("b".into()), ..Default::default() });
+		// Each command's own options only, and no passphrase.
 		assert!(Args::parse(true, &args(&["b", "--plain"])).is_err());
 		assert!(Args::parse(false, &args(&["b", "--force"])).is_err());
 		assert!(Args::parse(false, &args(&["b", "--with-settings"])).is_err());
-		assert!(Args::parse(false, &args(&["b", "--plain", "--passphrase-file", "/p"])).is_err());
+		assert!(Args::parse(false, &args(&["b", "--passphrase-file", "/p"])).err().unwrap().contains("unknown option"));
+		assert!(Args::parse(true, &args(&["b", "--passphrase-file=/p"])).is_err());
 		assert!(Args::parse(false, &args(&[])).is_err());
 		assert!(Args::parse(false, &args(&["a", "b"])).is_err());
-		assert!(Args::parse(true, &args(&["b", "--passphrase-file"])).is_err());
-	}
-
-	#[test]
-	fn a_passphrase_file_gives_its_first_line_end_and_all() {
-		let dir = scratch();
-		let path = dir.join("pass");
-		fs::write(&path, "two words\r\n").unwrap();
-		fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-		assert_eq!(*passphrase(Some(&path), true).unwrap(), "two words");
-		fs::write(&path, "short\n").unwrap();
-		assert!(passphrase(Some(&path), true).err().unwrap().contains("at least 8"));
-		// Opening needs no length: the backup decides.
-		assert_eq!(*passphrase(Some(&path), false).unwrap(), "short");
-		fs::write(&path, "\n").unwrap();
-		assert!(passphrase(Some(&path), false).err().unwrap().contains("no passphrase"));
-		fs::remove_dir_all(dir).unwrap();
 	}
 }

@@ -219,28 +219,8 @@ pub mod limit {
 	pub const STRANGERS_PER_ADDRESS: usize = 16;
 }
 
-/// `elamond backup`: how a passphrase becomes the key a backup is sealed with, and how much a
-/// backup may ask of the computer that opens it.
+/// `elamond backup` and `elamond restore`.
 pub mod backup {
-	/// Argon2id's cost: memory in KiB, passes and lanes. RFC 9106's second recommended setting,
-	/// for when 2 GiB of memory is too much: 64 MiB, 3 passes, 4 lanes.
-	pub const ARGON2_M_KIB: u32 = 64 * 1024;
-	pub const ARGON2_T: u32 = 3;
-	pub const ARGON2_P: u32 = 4;
-	/// Argon2's version, 1.3.
-	pub const ARGON2_VERSION: u32 = 0x13;
-	/// Random bytes of salt for the key, and of nonce for XChaCha20-Poly1305.
-	pub const SALT_BYTES: usize = 16;
-	pub const NONCE_BYTES: usize = 24;
-	/// The most a backup may ask for to be opened, so a file can't make a restore take all the
-	/// memory or run for long: 256 MiB, 10 passes, 8 lanes, well above what `elamond backup` asks.
-	pub const ARGON2_M_KIB_MAX: u32 = 256 * 1024;
-	pub const ARGON2_T_MAX: u32 = 10;
-	pub const ARGON2_P_MAX: u32 = 8;
-	/// The shortest passphrase a backup is made with, in characters.
-	pub const PASSPHRASE_MIN: usize = 8;
-	/// Tries at typing a passphrase twice alike before giving up.
-	pub const PASSPHRASE_TRIES: usize = 3;
 	/// The largest file `elamond restore` reads: far more than the state ever takes.
 	pub const FILE_MAX: u64 = 64 * 1024 * 1024;
 }

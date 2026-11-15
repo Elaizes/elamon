@@ -71,7 +71,7 @@ Usage:
   elamond rotate-cert --no-statement   a new certificate nothing vouches for, after a leaked key:
                                        phones pair again
   elamond backup FILE                  save the identity, the paired phones and the rest to FILE,
-                                       encrypted with a passphrase (--plain: not encrypted)
+                                       unencrypted, for only you to read
   elamond restore FILE                 put a backup back, the service stopped (--force: running);
                                        --with-settings puts elamond.toml and elamond.d back too
   elamond snapshot                     print one reading as JSON

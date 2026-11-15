@@ -1093,24 +1093,14 @@ certificate and key with the rotations behind them, the paired phones, the activ
 elamond backup ~/elamond.backup
 ```
 
-- It asks for a passphrase twice, at least 8 characters (a few words are best), and writes one file
-  only you can read, encrypted with it ([section 10](#10-security) says how).
-- Keep the file and the passphrase apart. Without the passphrase the backup can't be opened, and
-  whoever has both can pose as this computer to its phones.
+- It writes one file that only you can read (`0600`). It isn't encrypted: whoever reads it can pose
+  as this computer to its phones. Keep it out of shared and cloud folders.
 - The backup also carries the settings, `elamond.toml` and the drop-ins in `elamond.d`. A restore
   puts them back only when asked.
-
-**For a script or a timer,** give the passphrase in a file only you can read (`chmod 600`):
-
-```sh
-elamond backup /backups/elamond.backup --passphrase-file ~/.local/share/keys/elamond-passphrase
-```
-
-Keep that file away from the backups: not beside them, not in a folder that is backed up or synced
-with them, and not in `~/.config/elamon`, whose settings may travel with a backup of your home.
-
-`--plain` writes the backup unencrypted, with a warning. Use it only for a copy that stays in a
-private folder, never one that goes to cloud storage or another computer.
+- It asks nothing, so a script or a timer runs it as it is. `--plain`, which elamond 0.6.1 wanted
+  for that, is still accepted and changes nothing.
+- elamond 0.6.2 doesn't read the backups that 0.6.1 and older encrypted with a passphrase (those
+  made without `--plain`). Restore one of those with elamond 0.6.1, or make a new backup.
 
 A backup holds the certificate's key as it was then. After `elamond rotate-cert`, older backups
 still hold the old key. Delete those you don't need, and all of them if you rotated because the key
@@ -1135,13 +1125,12 @@ other way has to pair again.
 
 What `elamond restore` does:
 
-- It checks everything in the backup before it writes anything. It refuses a wrong passphrase, a
-  file that was changed or damaged, a backup from a newer elamond (update the service first) and,
+- It checks everything in the backup before it writes anything. It refuses a damaged file, a backup
+  encrypted by elamond 0.6.1 or older, a backup from a newer elamond (update the service first) and,
   unless told `--force`, a running service.
 - It writes each file in one step, and removes the state files the backup doesn't have. It keeps no
   copy of what it replaces: restore from the backup again if a write fails.
 - It prints what it restored: the computer's id and certificate and the phones.
-- `--passphrase-file PATH` reads the passphrase from a file, as for `elamond backup`.
 - `--with-settings` also puts back `elamond.toml` and the drop-ins in `elamond.d`, but never over a
   file NixOS or Home Manager make: set those in `services.elamond.settings`.
 - On a computer that has phones paired already, a restore would bring back the backup's phones that
@@ -1282,10 +1271,9 @@ do about those marked `!`. To see what the service reads without the app, run `e
 
 **Backups and moved pairings**
 
-- A backup (`elamond backup`) and its passphrase together are the computer's identity. Unless made
-  with `--plain`, it's encrypted, and written for your eyes only. Argon2id makes the key from the
-  passphrase (64 MiB of memory, 3 passes, 4 lanes); XChaCha20-Poly1305 seals the rest and
-  authenticates the header.
+- A backup (`elamond backup`) is the computer's identity. It isn't encrypted: it is written for your
+  eyes only (`0600`), and is only as safe as the folder you keep it in. Never put it in a shared or
+  cloud folder.
 - Exported pairings are encrypted with their own passphrase. PBKDF2-HMAC-SHA256 with 600,000
   iterations makes the key; AES-256-GCM seals the list and authenticates the header. The keys are
   taken out of Android's key store for this alone and never written anywhere unencrypted.
