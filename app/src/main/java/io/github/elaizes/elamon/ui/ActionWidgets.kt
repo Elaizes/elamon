@@ -406,10 +406,10 @@ fun SliderWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 		trailing = { Text(text, style = MaterialTheme.typography.titleMedium) },
 	) {
 		captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-		val steps = param?.step?.takeIf { it > 0 }?.let { (((max - min) / it).toInt() - 1).coerceIn(0, MAX_STEPS) } ?: 0
 		Slider(
 			value = shown.toFloat(),
-			onValueChange = { dragging = it },
+			// Without ticks it slides freely: what it shows is put on the step.
+			onValueChange = { v -> dragging = param?.let { Params.snap(v.toDouble(), it).toFloat() } ?: v },
 			onValueChangeFinished = {
 				val v = dragging
 				dragging = null
@@ -419,14 +419,18 @@ fun SliderWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 				}
 			},
 			valueRange = min.toFloat()..max.toFloat(),
-			steps = steps,
+			steps = sliderSteps(min, max, param?.step),
 			enabled = a.enabled(action, s) && param != null,
 		)
 	}
 }
 
-/** Past this many steps a slider is drawn without its ticks. */
+/** Past this many steps a slider is drawn without its ticks, and its value put on the step as it slides. */
 private const val MAX_STEPS = 100
+
+/** The ticks between a slider's ends for [step] from [min] to [max]: none past [MAX_STEPS], so it reaches every value. */
+internal fun sliderSteps(min: Double, max: Double, step: Double?): Int =
+	step?.takeIf { it > 0 }?.let { (((max - min) / it).toInt() - 1).coerceAtLeast(0) }?.takeIf { it <= MAX_STEPS } ?: 0
 
 /**
  * The values an action needs that the widget leaves open: a choice among its choices, a number on
@@ -502,8 +506,7 @@ private fun RangeField(p: Param, name: String, value: Double?, onChange: (Double
 			Text(name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
 			Text(Fmt.withUnit(Fmt.round(v, if (v % 1.0 == 0.0) 0 else 1), p.unit), style = MaterialTheme.typography.titleSmall)
 		}
-		val steps = p.step?.takeIf { it > 0 }?.let { (((max - min) / it).toInt() - 1).coerceIn(0, MAX_STEPS) } ?: 0
-		Slider(value = v.toFloat(), onValueChange = { onChange(Params.snap(it.toDouble(), p)) }, valueRange = min.toFloat()..max.toFloat(), steps = steps)
+		Slider(value = v.toFloat(), onValueChange = { onChange(Params.snap(it.toDouble(), p)) }, valueRange = min.toFloat()..max.toFloat(), steps = sliderSteps(min, max, p.step))
 	}
 }
 
