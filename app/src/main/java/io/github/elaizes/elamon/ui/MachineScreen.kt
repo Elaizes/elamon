@@ -137,7 +137,9 @@ fun MachineScreen(
 	LaunchedEffect(current) { current?.let(vm::show) }
 	var menu by remember { mutableStateOf(false) }
 	var confirmForget by rememberSaveable { mutableStateOf(false) }
-	var forgetting by rememberSaveable { mutableStateOf(false) }
+	// Not kept past a process killed mid-request, so the dialog never comes back stuck; the request
+	// itself runs on in pairingScope whatever happens to the screen.
+	var forgetting by remember { mutableStateOf(false) }
 	val haze = remember { HazeState() }
 	val snackbar = remember { SnackbarHostState() }
 	val lists = remember { mutableMapOf<String, LazyListState>() }
