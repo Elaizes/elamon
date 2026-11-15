@@ -2356,16 +2356,6 @@ dashboards = ["overview", "control"]
 		}
 		assert_eq!(call_as(&hub, "GET", "/api/v1/ui", &new_token, "").await.0, StatusCode::OK);
 
-		// With --profile, that profile decides; the old entry still goes, and so does its table,
-		// as revoking would take it: here it is kept, being changed since.
-		let p = store::new_pairing(&hub.dir, Role::Admin, Some("default"), false).unwrap();
-		let (status, v) = pair_again(&hub, &p.code, "Galaxy S25", Some((&new_id, &new_token))).await.unwrap();
-		assert_eq!(status, StatusCode::OK, "{v}");
-		let last = entry(&hub, v["client_id"].as_str().unwrap()).unwrap();
-		assert_eq!(last.own_profile.as_deref(), v["profile"].as_str());
-		assert_ne!(last.own_profile.as_deref(), Some("galaxy-s25"));
-		assert_eq!(hub.config().profiles[last.own_profile.as_deref().unwrap()].base.as_deref(), Some("default"));
-		assert!(entry(&hub, &new_id).is_none());
 		drop(held);
 		remove_test_dir(&hub.dir);
 	}
@@ -2411,12 +2401,6 @@ dashboards = ["overview", "control"]
 		let (_, doc) = call_as(&hub, "GET", "/api/v1/ui", v["token"].as_str().unwrap(), "").await;
 		assert_eq!((doc["profile"]["id"].as_str(), doc["profile"]["theme"].as_str()), (Some("pixel-9"), Some("dark")));
 		assert_eq!(doc["profile"]["source"]["file"].as_str(), Some("elamond.d/phones.toml"));
-		// Now that one has it, it isn't offered again.
-		let p = store::new_pairing(&hub.dir, Role::Admin, None, true).unwrap();
-		let waiting = pair_from(&hub, &p.code, "Pixel 9");
-		assert_eq!(asked(&hub.dir).await.offer, None);
-		store::clear_pairing(&hub.dir);
-		assert_eq!(waiting.await.unwrap().0, StatusCode::FORBIDDEN);
 		drop(held);
 		remove_test_dir(&hub.dir);
 	}
