@@ -136,8 +136,8 @@ dashboards and profiles: [docs/config.md](docs/config.md).
 
 ## Where it's going
 
-Next, as they're needed: a UPS's state, history and controls (through NUT), readings of
-our own and the system journal, notifications through ntfy, and controlling monitors under
+Next, as they're needed: a UPS's state, history and controls (through NUT), custom readings
+and the system journal, notifications through ntfy, and controlling monitors under
 Hyprland. Not planned: the
 service for Windows or macOS, app stores (the app is the APK in each release), a web version.
 
