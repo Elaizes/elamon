@@ -41,12 +41,9 @@ class ElamondException(
 	/** What the service said beside its code: the parameter of a `bad_param`, what `failed`. */
 	val detail: String? = null,
 ) : IOException(message, cause) {
-	/** The service doesn't let this phone do that: its role on the computer is too low. */
-	val notAllowed: Boolean get() = kind == Kind.NotAllowed
-
 	enum class Kind {
 		Unreachable, Unauthorized, WrongCode, NoPairing, CertificateChanged, NotElamond, Protocol, ControlDisabled, NotPermitted,
-		NotAllowed, TooManyRequests, Conflict, Forbidden, NotFound, BadRequest, Failed,
+		NotAllowed, Conflict, Forbidden, NotFound, BadRequest, Failed,
 
 		/** The computer was asked whether to allow the phone, and said no or didn't answer. */
 		PairDeclined,
@@ -64,10 +61,8 @@ class ElamondException(
 				error == "no_pairing" -> Kind.NoPairing
 				error == "pair_declined" -> Kind.PairDeclined
 				error == "control_disabled" -> Kind.ControlDisabled
-				error == "not_permitted" || error == "protected_process" -> Kind.NotPermitted
+				error == "not_permitted" -> Kind.NotPermitted
 				error == "not_allowed" -> Kind.NotAllowed
-				// Acting too often, or too many wrong pairing codes from this address.
-				status == 429 || error == "too_many_requests" -> Kind.TooManyRequests
 				// A signal's process isn't the one that has its pid now (process_changed).
 				status == 409 -> Kind.Conflict
 				status == 403 -> Kind.Forbidden

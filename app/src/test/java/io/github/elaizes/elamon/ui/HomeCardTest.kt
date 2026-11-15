@@ -71,7 +71,7 @@ class HomeCardTest {
 
 	@Test
 	fun notReadAgainWhenTheUiIsntWhy() = runTest {
-		for (refusal in listOf(refused(401, "unauthorized"), refused(429, "too_many_requests"), refused(500, "failed"), ElamondException(ElamondException.Kind.Unreachable))) {
+		for (refusal in listOf(refused(401, "unauthorized"), refused(500, "failed"), ElamondException(ElamondException.Kind.Unreachable))) {
 			val c = Computer(emptySet(), data)
 			c.refusal = { refusal }
 			assertFailsWith<ElamondException> { cardReading(ui = { fresh -> c.asked += fresh; ui }, snapshot = c::snapshot) }

@@ -21,7 +21,6 @@ interface Points {
 
 fun Points.lastTime(): Long = if (size == 0) Long.MIN_VALUE else t(size - 1)
 
-fun Points.hasData(): Boolean = (0 until size).any { !v(it).isNaN() }
 
 /**
  * A graph's (or a spark's) [seriesCount] series by the service's clock: primitive ring buffers,

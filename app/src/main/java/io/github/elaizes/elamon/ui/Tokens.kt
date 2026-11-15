@@ -120,9 +120,6 @@ object Sizes {
 	val art = 72.dp
 	val playButton = 64.dp
 
-	/** The menu button on a link's tile, as drawn; its touch target is still [touchTarget]. */
-	val tileMenu = 32.dp
-
 	/** A tag's dot, and a legend's. */
 	val pillDot = 6.dp
 	val legendDot = 8.dp
@@ -133,7 +130,6 @@ object Sizes {
 	val barThin = 6.dp
 	val bar = 8.dp
 	val barTile = 10.dp
-	val barThick = 12.dp
 
 	// ---- the rest -----------------------------------------------------------------------------
 	/** The top bar under the status bar, before large text makes it taller. */
@@ -144,9 +140,6 @@ object Sizes {
 
 	/** A power button's least height, so the buttons of a row are as tall as each other whatever they say. */
 	val powerTileMin = 112.dp
-
-	/** The figures at the end of a process's row. */
-	val processFigures = 96.dp
 
 	/** The volume's percentage beside its slider. */
 	val volumeLabel = 44.dp
@@ -179,10 +172,6 @@ object Motion {
 
 	/** A tab's highlight moving. */
 	const val NAV = 200
-
-	/** A folded section, or a monitor's details, opening and closing. */
-	const val UNFOLD = 220
-	const val FOLD = 160
 
 	/** A gauge, a bar and a digit going to their new values; a digit's old value fades a little sooner. */
 	const val GAUGE = 600
@@ -297,9 +286,8 @@ object ChartStyle {
 	/** The scale's label, in from the left edge. */
 	val labelInset = 2.dp
 
-	/** A monitor's outline, and the gap between monitors. */
+	/** A monitor's outline. */
 	val outline = 2.dp
-	val monitorGap = 4.dp
 
 	/** Less than this much of a pixel isn't drawn. */
 	const val MIN_PX = 0.5f
@@ -311,10 +299,6 @@ object ChartStyle {
 	/** What a finger reads off a chart. */
 	val tooltipText: TextStyle
 		@Composable @ReadOnlyComposable get() = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
-
-	/** A monitor's name in the arrangement. */
-	val monitorText: TextStyle
-		@Composable @ReadOnlyComposable get() = MaterialTheme.typography.labelLarge
 }
 
 /** The three-quarter ring of the CPU and memory tiles. */

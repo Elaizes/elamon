@@ -11,8 +11,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,7 +30,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,12 +62,10 @@ import io.github.elaizes.elamon.data.DEFAULT_HISTORY_SECONDS
 import io.github.elaizes.elamon.data.DEFAULT_INTERVAL_MS
 import io.github.elaizes.elamon.data.DEFAULT_PORT
 import io.github.elaizes.elamon.data.Limits.MDNS_PORT
-import io.github.elaizes.elamon.data.MachineStore
 
 /** Where the project lives; the one place to change if it moves. */
 object Project {
 	const val URL = "https://github.com/Elaizes/elamon"
-	const val GIT = "$URL.git"
 	const val FLAKE = "github:Elaizes/elamon"
 
 	/** The script that installs the newest release of elamond for the user, then runs `elamond setup`. */
@@ -104,115 +99,39 @@ private fun c(code: String) = Block.Code(code)
 private val ELAMOND_PORT_TEXT = DEFAULT_PORT.toString()
 private val MDNS_PORT_TEXT = MDNS_PORT.toString()
 
-/** [label] is the system's own name, the same in every language, like the commands; null is "Other", from resources. */
-private data class Distro(val key: String, val label: String?, val install: List<Block>, val firewall: List<Block>)
-
-// Building elamond from source, for the distributions that run systemd: elamond setup does the rest.
-private val BUILD = """
-	git clone ${Project.GIT}
-	cd elamon/elamond
-	cargo build --release
-	install -Dm755 target/release/elamond ~/.local/bin/elamond
-	~/.local/bin/elamond setup
-""".trimIndent()
-
 private val FIREWALLD = "sudo firewall-cmd --permanent --add-port=$DEFAULT_PORT/tcp\nsudo firewall-cmd --permanent --add-service=mdns\nsudo firewall-cmd --reload"
 private val UFW = "sudo ufw allow $DEFAULT_PORT/tcp\nsudo ufw allow $MDNS_PORT/udp"
 
-/**
- * The service on a distribution that runs systemd: the one command, or a release by hand, both
- * ending in `elamond setup`; then from source, with [deps] the build tools of the distribution.
- */
-private fun withSetup(deps: List<Block>) = listOf(
+/** The one command that installs the service, and the NixOS module for those who have it instead. */
+private val INSTALL = listOf(
 	t(R.string.help_install_one),
 	c(Project.INSTALL),
 	t(R.string.help_install_root),
 	c("elamond setup --check"),
-	t(R.string.help_install_release),
-	c("~/.local/bin/elamond setup"),
 	t(R.string.help_path),
 	t(R.string.help_update),
 	c("elamond update"),
-) + deps + listOf(
-	t(R.string.help_build),
-	c(BUILD),
-	t(R.string.help_update_source),
+	t(R.string.help_nixos_input),
+	c("inputs.elamon = {\n  url = \"${Project.FLAKE}\";\n  inputs.nixpkgs.follows = \"nixpkgs\";\n};"),
+	t(R.string.help_nixos_module),
+	c("imports = [ inputs.elamon.nixosModules.default ];\n\nservices.elamond = {\n  enable = true;\n  openFirewall = true;\n};\nusers.users.YOUR_USER.linger = true;"),
+	t(R.string.help_nixos_rebuild),
+	c("sudo nixos-rebuild switch"),
+	t(R.string.help_nixos_hm),
+	c("imports = [ inputs.elamon.homeModules.default ];\n\nservices.elamond.enable = true;"),
+	t(R.string.help_update),
+	c("nix flake update elamon\nsudo nixos-rebuild switch"),
 )
 
-private val GENERIC_FIREWALL = listOf(
+private val FIREWALL = listOf(
 	t(R.string.help_fw_generic, ELAMOND_PORT_TEXT, MDNS_PORT_TEXT),
 	t(R.string.help_fw_ufw),
 	c(UFW),
 	t(R.string.help_fw_firewalld),
 	c(FIREWALLD),
+	t(R.string.help_fw_nixos),
+	c("networking.firewall.allowedTCPPorts = [ $DEFAULT_PORT ];\nnetworking.firewall.allowedUDPPorts = [ $MDNS_PORT ];"),
 )
-
-private val DISTROS = listOf(
-	Distro(
-		"nixos", "NixOS",
-		install = listOf(
-			t(R.string.help_nixos_input),
-			c("inputs.elamon = {\n  url = \"${Project.FLAKE}\";\n  inputs.nixpkgs.follows = \"nixpkgs\";\n};"),
-			t(R.string.help_nixos_module),
-			c("imports = [ inputs.elamon.nixosModules.default ];\n\nservices.elamond = {\n  enable = true;\n  openFirewall = true;\n};\nusers.users.YOUR_USER.linger = true;"),
-			t(R.string.help_nixos_rebuild),
-			c("sudo nixos-rebuild switch"),
-			t(R.string.help_nixos_hm),
-			c("imports = [ inputs.elamon.homeModules.default ];\n\nservices.elamond.enable = true;"),
-			t(R.string.help_update),
-			c("nix flake update elamon\nsudo nixos-rebuild switch"),
-		),
-		firewall = listOf(
-			t(R.string.help_fw_nixos),
-			c("networking.firewall.allowedTCPPorts = [ $DEFAULT_PORT ];\nnetworking.firewall.allowedUDPPorts = [ $MDNS_PORT ];"),
-		),
-	),
-	Distro(
-		"nix", "Nix",
-		install = listOf(
-			t(R.string.help_nix_profile),
-			c("nix profile install ${Project.FLAKE}"),
-			t(R.string.help_nix_unit),
-			c("systemctl --user link ~/.nix-profile/lib/systemd/user/elamond.service\nsystemctl --user enable --now elamond"),
-			t(R.string.help_nix_setup),
-			c("elamond setup"),
-			t(R.string.help_update),
-			c("nix profile upgrade --all\nsystemctl --user daemon-reload\nsystemctl --user restart elamond"),
-		),
-		firewall = GENERIC_FIREWALL,
-	),
-	Distro(
-		"fedora", "Fedora",
-		install = withSetup(listOf(t(R.string.help_deps), c("sudo dnf install git cargo gcc"))),
-		firewall = listOf(t(R.string.help_fw_firewalld_default), c(FIREWALLD)),
-	),
-	Distro(
-		"debian", "Debian / Ubuntu",
-		install = withSetup(
-			listOf(
-				t(R.string.help_deps_debian),
-				c("sudo apt install git build-essential curl\ncurl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh\nsource ~/.cargo/env"),
-			)
-		),
-		firewall = listOf(t(R.string.help_fw_ufw_debian), c(UFW)),
-	),
-	Distro(
-		"arch", "Arch",
-		install = withSetup(listOf(t(R.string.help_deps), c("sudo pacman -S --needed git rust base-devel"))),
-		firewall = GENERIC_FIREWALL,
-	),
-	Distro(
-		"suse", "openSUSE",
-		install = withSetup(listOf(t(R.string.help_deps), c("sudo zypper install git cargo gcc"))),
-		firewall = listOf(t(R.string.help_fw_firewalld_default), c(FIREWALLD)),
-	),
-	Distro(
-		"other", null,
-		install = withSetup(listOf(t(R.string.help_deps_other))),
-		firewall = GENERIC_FIREWALL,
-	),
-)
-
 
 private const val CONTROL_NIXOS = """services.elamond = {
   enable = true;
@@ -340,25 +259,10 @@ private val SETTING_NOTES = listOf(
 	"history_minutes" to R.string.set_history,
 )
 
-/** The first paired computer's distribution, so the guide opens on the right commands. */
-private fun guessDistro(context: Context): String {
-	val os = MachineStore.get(context).machines.value.firstNotNullOfOrNull { it.os }?.lowercase() ?: return "debian"
-	return when {
-		"nixos" in os -> "nixos"
-		"fedora" in os || "nobara" in os || "bazzite" in os -> "fedora"
-		listOf("arch", "manjaro", "endeavour", "cachy", "garuda").any { it in os } -> "arch"
-		"suse" in os -> "suse"
-		listOf("debian", "ubuntu", "mint", "pop!_os", "elementary", "zorin", "kali").any { it in os } -> "debian"
-		else -> "other"
-	}
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HelpScreen(topic: String?, onBack: () -> Unit) {
 	val ctx = LocalContext.current
-	var distroKey by rememberSaveable { mutableStateOf(guessDistro(ctx)) }
-	val distro = DISTROS.first { it.key == distroKey }
 	val list = rememberLazyListState()
 
 	// Opened at a topic: scrolled there once, not again after a rotation, which keeps its own place.
@@ -394,22 +298,12 @@ fun HelpScreen(topic: String?, onBack: () -> Unit) {
 					}
 					HelpItem.Install -> {
 						Section(stringResource(R.string.help_install), ElIcons.Laptop) {
-							Text(stringResource(R.string.help_pick_system), style = MaterialTheme.typography.bodyMedium)
-							FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-								for (d in DISTROS) {
-									FilterChip(
-										selected = d.key == distroKey,
-										onClick = { distroKey = d.key },
-										label = { Text(d.label ?: stringResource(R.string.help_other_system)) },
-									)
-								}
-							}
-							Blocks(distro.install)
+							Blocks(INSTALL)
 						}
 					}
 					HelpItem.Firewall -> {
 						Section(stringResource(R.string.help_firewall), Icons.Default.Lock) {
-							Blocks(distro.firewall)
+							Blocks(FIREWALL)
 							Text(stringResource(R.string.help_fw_why, ELAMOND_PORT_TEXT, MDNS_PORT_TEXT), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 						}
 					}

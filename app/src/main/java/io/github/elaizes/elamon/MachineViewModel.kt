@@ -499,8 +499,8 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		viewModelScope.launch { cache.putUi(machineId, clean, ticket) }
 		val saved = store.get(machineId) ?: return
 		val name = clean.service.name.ifEmpty { saved.name }
-		if (name != saved.name || (clean.role != null && clean.role != saved.role)) {
-			store.update(machineId) { it.copy(name = name, role = clean.role ?: it.role) }
+		if (name != saved.name) {
+			store.update(machineId) { it.copy(name = name) }
 		}
 	}
 

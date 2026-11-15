@@ -84,7 +84,7 @@ class MachineStoreTest {
 	private fun paired(file: MemoryFile = MemoryFile(), cipher: FakeCipher = FakeCipher()) = MachineStore(file, cipher).apply {
 		val a = Machine(
 			id = "a", name = "Test computer", hosts = listOf("192.168.200.101", "laptop.lan"), port = DEFAULT_PORT, fingerprint = "aa",
-			lastHost = "192.168.200.101", os = "NixOS", addedAt = 5,
+			lastHost = "192.168.200.101",
 		)
 		put(a, "secret-a")
 		put(Machine(id = "b", name = "Server", hosts = listOf("192.168.200.2"), port = DEFAULT_PORT, fingerprint = "bb"), "secret-b")
@@ -116,8 +116,6 @@ class MachineStoreTest {
 		assertEquals("Test computer", a.name)
 		assertEquals(listOf("192.168.200.101", "laptop.lan"), a.hosts)
 		assertEquals("192.168.200.101", a.lastHost)
-		assertEquals("NixOS", a.os)
-		assertEquals(5, a.addedAt)
 		assertEquals("secret-a", again.token(a))
 		assertEquals("secret-b", again.token(again.get("b")!!))
 	}
@@ -154,7 +152,7 @@ class MachineStoreTest {
 		assertEquals(listOf("192.0.2.10", "laptop.example.net"), first.hosts)
 		assertEquals("192.0.2.10", first.lastHost)
 		assertEquals("a".repeat(64), first.fingerprint)
-		assertEquals("0123abcd" to "admin", first.clientId to first.role)
+		assertEquals("0123abcd", first.clientId)
 		assertEquals(47900, store.get(c)!!.port)
 		assertEquals(listOf("secret-a", "secret-b", "secret-c"), store.machines.value.map { store.token(it) })
 		// Written again, and read again, every pairing is still there.

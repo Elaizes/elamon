@@ -114,7 +114,7 @@ internal suspend fun cardReading(ui: suspend (fresh: Boolean) -> UiDoc, snapshot
 		try {
 			return Live.Online(homeStats(doc, tab, snapshot(tab).widgets))
 		} catch (e: ElamondException) {
-			val stale = e.status in HTTP_CLIENT_ERRORS && e.kind != ElamondException.Kind.Unauthorized && e.kind != ElamondException.Kind.TooManyRequests
+			val stale = e.status in HTTP_CLIENT_ERRORS && e.kind != ElamondException.Kind.Unauthorized
 			if (!stale || !again) throw e
 			again = false
 			doc = ui(true)
@@ -315,7 +315,7 @@ private fun ComputerCard(s: Machine, live: Live, onClick: () -> Unit) {
 				Spacer(Modifier.width(Space.mPlus))
 				Column(Modifier.weight(1f)) {
 					Text(s.name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-					Text(s.os ?: s.hostsToTry().firstOrNull().orEmpty(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+					Text(s.hostsToTry().firstOrNull().orEmpty(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
 				}
 				when (live) {
 					is Live.Online -> Pill(stringResource(R.string.home_online), c.good, dot = true)

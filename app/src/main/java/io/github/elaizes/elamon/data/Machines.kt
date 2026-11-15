@@ -37,12 +37,8 @@ data class Machine(
 	 */
 	val tokenBound: Boolean = false,
 	val lastHost: String? = null,
-	val os: String? = null,
-	val addedAt: Long = 0,
 	/** This phone's id in the computer's list of paired phones (`elamond clients`); null while it isn't known. */
 	val clientId: String? = null,
-	/** This phone's role there as last heard, from pairing or the control panel; null while it isn't known. */
-	val role: String? = null,
 ) {
 	/**
 	 * The address or name that worked last time first, so reconnecting is quick, then the others in

@@ -9,7 +9,6 @@ private val CODE_MESSAGES = mapOf(
 	"unauthorized" to R.string.err_unauthorized,
 	"control_disabled" to R.string.err_control_disabled,
 	"not_permitted" to R.string.err_not_permitted,
-	"protected_process" to R.string.err_protected_process,
 	"wrong_code" to R.string.err_wrong_code,
 	"no_pairing" to R.string.err_no_pairing,
 	"pair_declined" to R.string.err_pair_declined,
@@ -23,20 +22,11 @@ private val CODE_MESSAGES = mapOf(
 	"bad_sort" to R.string.err_bad_sort,
 	"storage" to R.string.err_storage,
 	"not_allowed" to R.string.err_not_allowed,
-	"too_many_requests" to R.string.err_too_many_requests,
 	"process_changed" to R.string.err_process_changed,
 	// Pairing past the phones the computer takes; a key of a phone's own that a token gave already,
 	// which only Elamon 0.6.1 asks for (the service's list of codes still has it).
 	"too_many_phones" to R.string.err_too_many_phones,
 	"rekey_refused" to R.string.err_rekey_refused,
-	// Codes of the links editor elamond 0.5 had; errors.json lists them until the service's 0.6 list replaces it.
-	"no_such_link" to R.string.err_no_such_link,
-	"empty_command" to R.string.err_empty_command,
-	"no_unit" to R.string.err_no_unit,
-	"bad_name" to R.string.err_bad_name,
-	"bad_url" to R.string.err_bad_url,
-	"bad_unit" to R.string.err_bad_unit,
-	"bad_scope" to R.string.err_bad_scope,
 )
 
 /** What to tell about a failed request: the computer's own words for a failed command, else one of the app's strings. */
@@ -58,7 +48,6 @@ fun messageFor(e: Throwable): Message {
 		Kind.ControlDisabled -> Message.Res(R.string.err_control_disabled)
 		Kind.NotPermitted -> Message.Res(R.string.err_not_permitted)
 		Kind.NotAllowed -> Message.Res(R.string.err_not_allowed)
-		Kind.TooManyRequests -> Message.Res(R.string.err_too_many_requests)
 		Kind.NotFound -> Message.Res(R.string.err_not_found)
 		Kind.Failed -> Message.Res(R.string.err_failed)
 		// A code from a newer service is still more use than nothing.

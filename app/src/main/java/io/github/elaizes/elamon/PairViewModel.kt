@@ -168,9 +168,7 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 					port = target.port,
 					fingerprint = ready.fingerprint,
 					lastHost = ready.host,
-					addedAt = System.currentTimeMillis(),
 					clientId = resp.clientId.ifEmpty { null },
-					role = resp.role,
 				)
 				// Written to disk before the screen moves on.
 				withContext(Dispatchers.IO) { store.put(machine, resp.token, replacing = target.replaces) }
@@ -183,7 +181,6 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 				val error = if ((e as? ElamondException)?.code == "too_many_phones") R.string.pair_too_many_phones else when ((e as? ElamondException)?.kind) {
 					ElamondException.Kind.WrongCode -> R.string.pair_wrong_code
 					ElamondException.Kind.NoPairing -> R.string.pair_no_pairing
-					ElamondException.Kind.TooManyRequests -> R.string.pair_too_many
 					ElamondException.Kind.PairDeclined -> R.string.pair_declined
 					// Paired on the computer, but the token couldn't be kept (the key store, or the disk): nothing was saved.
 					// Pairing again, the pairing before may have ended with it: then only pairing anew helps.
