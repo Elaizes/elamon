@@ -220,13 +220,18 @@ pub fn verify(c: &Contents, with_settings: bool) -> Result<Summary, String> {
 	let activity = file(activity::FILE)
 		.map(|b| String::from_utf8_lossy(b).lines().filter(|l| serde_json::from_str::<activity::Entry>(l).is_ok()).count())
 		.unwrap_or(0);
-	if with_settings {
-		for (name, text) in &c.settings {
-			if !settings_name(name) {
-				return Err(format!("the backup names a settings file \"{name}\" outside the settings folder; it wasn't made by elamond backup"));
-			}
-			toml::from_str::<store::Config>(text).map_err(|e| format!("{name} in the backup: {e}"))?;
+	if with_settings && !c.settings.is_empty() {
+		if let Some(name) = c.settings.keys().find(|n| !settings_name(n)) {
+			return Err(format!("the backup names a settings file \"{name}\" outside the settings folder; it wasn't made by elamond backup"));
 		}
+		// As the service reads them: the main file, then the drop-ins by name, each over the ones before.
+		let main = c.settings.get_key_value(store::CONFIG_FILE);
+		let sources: Vec<crate::settings::Source> = main
+			.into_iter()
+			.chain(c.settings.iter().filter(|(n, _)| n.as_str() != store::CONFIG_FILE))
+			.map(|(n, t)| crate::settings::Source::new(format!("{n} in the backup"), t.as_str()))
+			.collect();
+		crate::settings::read_sources(&sources).map_err(|m| crate::settings::join_mistakes(&m))?;
 	}
 	Ok(Summary {
 		id,
@@ -853,6 +858,16 @@ mod tests {
 		let mut c = collect(&from, &[]).unwrap();
 		c.settings.insert("elamond.d/bad.toml".into(), "port = \"x\"\n".into());
 		assert!(verify(&c, true).err().unwrap().contains("elamond.d/bad.toml"));
+		// A drop-in is read over the main file, as the service reads them (G38): one that changes a
+		// key of a link the main file has is sound, though it isn't a whole link by itself.
+		let mut c = collect(&from, &[]).unwrap();
+		c.settings.insert("elamond.toml".into(), "schema = 3\n[links.media]\nname = \"Media\"\nurl = \"http://{host}:8096\"\n".into());
+		c.settings.insert("elamond.d/port.toml".into(), "[links.media]\nurl = \"http://{host}:8097\"\n".into());
+		assert!(verify(&c, true).is_ok(), "{:?}", verify(&c, true).err());
+		// And one that only makes sense over another drop-in, read after it by name.
+		c.settings.insert("elamond.d/a.toml".into(), "[links.more]\nname = \"More\"\nurl = \"http://{host}:1\"\n".into());
+		c.settings.insert("elamond.d/b.toml".into(), "[links.more]\nurl = \"http://{host}:2\"\n".into());
+		assert!(verify(&c, true).is_ok(), "{:?}", verify(&c, true).err());
 		fs::set_permissions(&store_like, fs::Permissions::from_mode(0o644)).unwrap();
 		for d in [from, cfg, to] {
 			fs::remove_dir_all(d).unwrap();
