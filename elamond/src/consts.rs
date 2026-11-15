@@ -176,8 +176,6 @@ pub mod limit {
 	pub const UNIT_MAX: usize = 256;
 	/// Wrong guesses, from anywhere, before a pairing code is thrown away.
 	pub const PAIRING_ATTEMPTS: u32 = 20;
-	/// An IPv6 address counts by its first bits: one network hands out many.
-	pub const PAIRING_V6_PREFIX: u32 = 64;
 	/// Acting requests one phone may make in a row; then one more for each `cadence::ACT_REFILL`.
 	pub const ACTS_BURST: u32 = 10;
 	/// Entries kept in the activity log, in memory and in its file.
@@ -204,12 +202,6 @@ pub mod limit {
 	/// `ui` documents kept built at once (one for each role, profile, kind of client and set of
 	/// widget types asked for); beyond these the least lately asked for is forgotten.
 	pub const UIS_KEPT: usize = 64;
-	/// Connections the service holds at once; more are closed as they come. The systemd units give
-	/// it far more descriptors than these take.
-	pub const CONNECTIONS_MAX: usize = 256;
-	/// Connections from one address (an IPv6 one by its /64) that haven't shown a paired phone's
-	/// key yet: pairing, `hello`, or nothing at all.
-	pub const STRANGERS_PER_ADDRESS: usize = 16;
 }
 
 /// `elamond backup` and `elamond restore`.

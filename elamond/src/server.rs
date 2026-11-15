@@ -759,10 +759,6 @@ async fn auth(State(hub): State<Arc<Hub>>, mut req: Request, next: Next) -> Resp
 		.map(|t| store::sha256_hex(t.as_bytes()));
 	match hash.and_then(|h| Some((hub.authorized(&h)?, h))) {
 		Some((who, hash)) => {
-			// The connection is a phone's: it no longer counts among its address's strangers.
-			if let Some(a) = req.extensions().get::<crate::listen::Admission>() {
-				a.known();
-			}
 			let app = ClientApp::parse(req.headers().get(protocol::CLIENT_HEADER).and_then(|v| v.to_str().ok()));
 			let from = req.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0.ip());
 			hub.saw(&who, &app, from);

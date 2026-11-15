@@ -8,7 +8,6 @@
 
 use std::fs;
 use std::io::{self, Write};
-use std::net::IpAddr;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -693,18 +692,6 @@ impl Pairing {
 	}
 }
 
-/// Who an attempt counts against: an IPv4 address, or the network an IPv6 one is in.
-pub fn address_key(ip: IpAddr) -> String {
-	match ip.to_canonical() {
-		IpAddr::V4(a) => a.to_string(),
-		IpAddr::V6(a) => {
-			let bits = limit::PAIRING_V6_PREFIX;
-			let net = u128::from(a) & (u128::MAX << (128 - bits));
-			format!("{}/{bits}", std::net::Ipv6Addr::from(net))
-		}
-	}
-}
-
 /// The pending code as saved, whether or not it is still good.
 pub fn read_pairing(dir: &Path) -> Option<Pairing> {
 	read_json(&pairing_path(dir)).ok().flatten()
@@ -1059,17 +1046,6 @@ mod tests {
 		assert_eq!(back, p);
 		let bare: Pairing = serde_json::from_str(r#"{"code":"123456","expires":1,"attempts":2}"#).unwrap();
 		assert_eq!((bare.role, bare.confirm, bare.ask), (Role::Admin, false, None));
-	}
-
-	#[test]
-	fn addresses_and_their_networks() {
-		let key = |s: &str| address_key(s.parse().unwrap());
-		assert_eq!(key("192.0.2.7"), "192.0.2.7");
-		// IPv4 through an IPv6 socket is still the IPv4 address.
-		assert_eq!(key("::ffff:192.0.2.7"), "192.0.2.7");
-		assert_eq!(key("2001:db8:1:2:3:4:5:6"), "2001:db8:1:2::/64");
-		assert_eq!(key("2001:db8:1:2:ffff::1"), key("2001:db8:1:2::9"));
-		assert_ne!(key("2001:db8:1:2::1"), key("2001:db8:1:3::1"));
 	}
 
 	#[test]
