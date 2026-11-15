@@ -77,57 +77,6 @@ class SettingsTest {
 	}
 
 	@Test
-	fun noSettingsNothingToCarryOver() {
-		assertNull(Migration.toml(emptyMap<String, Any>()))
-		// Only the state of a section, or everything as it was by default.
-		assertNull(Migration.toml(mapOf("displays_open" to true)))
-		val asDefault = mapOf(
-			"theme" to "System", "pure_black" to false, "dynamic_color" to true, "blur" to true, "animations" to true,
-			"interval_ms" to 1000, "keep_screen_on" to false, "fahrenheit" to false, "network_bits" to false,
-			"confirm_actions" to true, "unlock_grace" to "EveryTime", "haptics" to true,
-			"unlock_power" to true, "unlock_processes" to true, "unlock_actions" to true, "unlock_units" to true,
-			"unlock_profile" to false, "unlock_media" to false, "unlock_transfer" to true,
-		)
-		assertNull(Migration.toml(asDefault))
-	}
-
-	@Test
-	fun theSettingsOf05AsAProfile() {
-		// As 0.5 wrote them once anything was changed: every key.
-		val old = mapOf(
-			"theme" to "Dark", "pure_black" to true, "dynamic_color" to false, "blur" to true, "animations" to true,
-			"interval_ms" to 2000, "keep_screen_on" to true, "fahrenheit" to true, "network_bits" to false,
-			"confirm_actions" to true, "unlock_grace" to "OneMinute", "haptics" to true,
-			"unlock_power" to true, "unlock_processes" to true, "unlock_actions" to true, "unlock_units" to false,
-			"unlock_profile" to false, "unlock_media" to true, "unlock_transfer" to true, "displays_open" to true,
-		)
-		val expected = """
-			[profiles.phone]
-			use = "default"
-			theme = "dark"
-			pure_black = true
-			interval_ms = 2000
-			fahrenheit = true
-			unlock = { for = ["power", "signal", "actions", "media"], grace = "1m" }
-
-			[profiles.phone.android]
-			dynamic_color = false
-			keep_screen_on = true
-
-		""".trimIndent()
-		assertEquals(expected, Migration.toml(old))
-	}
-
-	@Test
-	fun unlockingAsBeforeWhereItWasntChanged() {
-		// 0.5 asked for power, processes and actions by default, not units: that differs from 0.6's default.
-		val toml = Migration.toml(mapOf("unlock_grace" to "EveryTime", "unlock_media" to false))!!
-		assertEquals("[profiles.phone]\nuse = \"default\"\nunlock = { for = [\"power\", \"signal\", \"actions\"], grace = \"every_time\" }\n", toml)
-		// Only the Android part differs: no common keys but use.
-		assertEquals("[profiles.phone]\nuse = \"default\"\n\n[profiles.phone.android]\nblur = false\n", Migration.toml(mapOf("blur" to false, "unlock_units" to true)))
-	}
-
-	@Test
 	fun pairedAgainUnderANewIdLeavesTheOldEntryToForget() {
 		val old = "0123456789abcdef0123456789abcdef"
 		val new = "fedcba9876543210fedcba9876543210"
@@ -135,16 +84,5 @@ class SettingsTest {
 		// The same computer paired again, or a new one: nothing left behind.
 		assertNull(leftBehind(old, old))
 		assertNull(leftBehind(null, new))
-	}
-
-	@Test
-	fun unlocksThatStopUntilTheProfileIsGiven() {
-		// 0.5 unlocked for the media and the power profile here; the default profile doesn't.
-		val stricter = Migration.toml(mapOf("unlock_media" to true, "unlock_profile" to true))!!
-		assertEquals(listOf("profile", "media"), Migration.unlocksMore(stricter))
-		// Fewer than the default, or only other settings: nothing stops being asked.
-		assertEquals(emptyList(), Migration.unlocksMore(Migration.toml(mapOf("unlock_units" to false))!!))
-		assertEquals(emptyList(), Migration.unlocksMore(Migration.toml(mapOf("blur" to false))!!))
-		assertEquals(emptyList(), Migration.unlocksMore(""))
 	}
 }

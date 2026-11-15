@@ -143,8 +143,6 @@ class MainActivity : FragmentActivity() {
 		// The app's own background from the first frame, not the phone's day or night.
 		val cache = UiCache.get(this)
 		val store = MachineStore.get(this)
-		// The settings of 0.5, once, as a profile to put on the computers.
-		Settings.get(this)
 		val start = prefsFor(nav.top, store.machines.value, cache.profiles.value)
 		window.setBackgroundDrawable(appColorScheme(this, start, isDark(this, start)).surface.toArgb().toDrawable())
 		if (savedInstanceState == null) handle(intent)

@@ -66,8 +66,6 @@ import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import io.github.elaizes.elamon.Guarded
-import io.github.elaizes.elamon.Migration
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.Settings
 import io.github.elaizes.elamon.pollEach
@@ -174,7 +172,6 @@ fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: 
 	val store = MachineStore.get(ctx)
 	val cache = UiCache.get(ctx)
 	val settings = Settings.get(ctx)
-	val migration by settings.migration.collectAsStateWithLifecycle()
 	val machines by store.machines.collectAsStateWithLifecycle()
 	val discovery = remember { discoverElamond(ctx) }
 	val found by discovery.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -231,7 +228,6 @@ fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: 
 							list = list,
 						)
 					}
-					migration?.let { toml -> item(key = "migration") { MigrationCard(toml, machines) { settings.dismissMigration() } } }
 					items(machines, key = { it.id }) { s -> ComputerCard(s, live[s.id] ?: Live.Unknown) { onOpen(s) } }
 					if (unpaired.isNotEmpty()) {
 						item(key = "found-header") { GroupLabel(stringResource(R.string.home_found)) }
@@ -347,37 +343,6 @@ private fun MiniStat(label: String, value: String, fraction: Float?, color: Colo
 		Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
 		RollingText(value, MaterialTheme.typography.titleMedium, color = if (fraction == null) color else Color.Unspecified)
 		if (fraction != null) UsageBar(fraction, color, height = Sizes.barMini)
-	}
-}
-
-/**
- * Once after updating from 0.5: the settings it kept on the phone, as the profile that gives the
- * same on a computer, and how to give it to this phone there.
- */
-@Composable
-private fun MigrationCard(toml: String, machines: List<Machine>, onDismiss: () -> Unit) {
-	val ctx = LocalContext.current
-	Surface(shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-		Column(Modifier.padding(Space.xl), verticalArrangement = Arrangement.spacedBy(Space.m)) {
-			Text(stringResource(R.string.migration_title), style = MaterialTheme.typography.titleLarge)
-			Text(stringResource(R.string.migration_body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			CodeBlock(toml)
-			Text(stringResource(R.string.migration_apply), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			val commands = machines.ifEmpty { null }?.joinToString("\n") { "elamond clients profile ${it.clientId ?: "ID"} ${Migration.PROFILE_ID}" }
-				?: "elamond clients profile ID ${Migration.PROFILE_ID}"
-			CodeBlock(commands)
-			if (machines.size > 1) Text(stringResource(R.string.migration_each), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			// Unlocks this phone asked for that the computers' default profile doesn't: gone until the profile is given.
-			val more = Migration.unlocksMore(toml).mapNotNull { k -> Guarded.entries.find { it.key == k } }
-			if (more.isNotEmpty()) {
-				val kinds = more.map { stringResource(it.title()) }.joinToString(", ")
-				Text(stringResource(R.string.migration_unlock, kinds), style = MaterialTheme.typography.bodyMedium, color = Metric.colors.warn)
-			}
-			Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-				FilledTonalButton(onClick = { copy(ctx, toml) }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.copy)) }
-				TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.migration_done)) }
-			}
-		}
 	}
 }
 

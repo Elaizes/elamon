@@ -4,9 +4,6 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
 import androidx.core.content.edit
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import io.github.elaizes.elamon.data.Profile
 import io.github.elaizes.elamon.data.UiCache
 
@@ -85,41 +82,10 @@ object Intervals {
 
 /**
  * What the app keeps of its own: the state of what is on screen (folded sections, the last tab of
- * each computer) and whether the settings of 0.5 were carried over. How it looks and behaves comes
- * from the computers' profiles.
+ * each computer). How it looks and behaves comes from the computers' profiles.
  */
 class Settings private constructor(context: Context) {
 	private val state: SharedPreferences = context.getSharedPreferences(UI_STATE, Context.MODE_PRIVATE)
-	private val old: SharedPreferences = context.getSharedPreferences(Migration.OLD_FILE, Context.MODE_PRIVATE)
-
-	private val _migration = MutableStateFlow(state.getString(MIGRATION_TOML, null))
-
-	/** The profile the settings of 0.5 come to, as TOML, until the card that shows it is closed. */
-	val migration: StateFlow<String?> = _migration.asStateFlow()
-
-	init {
-		migrate()
-	}
-
-	/**
-	 * Once: the settings 0.5 kept on the phone, turned into a profile to put on the computers
-	 * ([Migration.toml]), kept until its card is closed, and deleted.
-	 */
-	private fun migrate() {
-		if (state.getBoolean(MIGRATED, false)) return
-		val toml = Migration.toml(old.all)
-		state.edit {
-			if (toml != null) putString(MIGRATION_TOML, toml)
-			putBoolean(MIGRATED, true)
-		}
-		old.edit { for (k in Migration.OLD_KEYS + Migration.unlockKeys()) remove(k) }
-		_migration.value = toml
-	}
-
-	fun dismissMigration() {
-		state.edit { remove(MIGRATION_TOML) }
-		_migration.value = null
-	}
 
 	/** Whether the group or table [widget] of the computer [machine] is folded; [initial] until it was folded or opened. */
 	fun folded(machine: String, widget: String, initial: Boolean): Boolean = state.getBoolean("$FOLDED$machine/$widget", initial)
@@ -140,8 +106,6 @@ class Settings private constructor(context: Context) {
 		private const val UI_STATE = "ui_state"
 		private const val FOLDED = "folded/"
 		private const val TAB = "tab/"
-		private const val MIGRATED = "migrated_0_5"
-		private const val MIGRATION_TOML = "migration_toml"
 
 		@Volatile private var instance: Settings? = null
 		fun get(context: Context): Settings =
@@ -160,92 +124,3 @@ fun forgetKept(context: Context, id: String) {
 
 /** The entry a pairing that [replaces] one, of the computer [paired], leaves behind: none when it is the same. */
 fun leftBehind(replaces: String?, paired: String): String? = replaces?.takeIf { it != paired }
-
-/**
- * The settings Elamon 0.5 kept on the phone, as the profile that gives the same on a computer
- * (docs/config.md, "Profiles"): `[profiles.phone]` starting from `default`, with only what differs.
- */
-object Migration {
-	/** Where 0.5 kept them. */
-	const val OLD_FILE = "settings"
-	const val PROFILE_ID = "phone"
-
-	val OLD_KEYS = listOf(
-		"theme", "pure_black", "dynamic_color", "blur", "animations", "interval_ms", "keep_screen_on",
-		"fahrenheit", "network_bits", "confirm_actions", "unlock_grace", "haptics", "displays_open",
-	)
-
-	/** 0.5's names for the kinds an unlock was asked for, to the service's. */
-	private val UNLOCK_KINDS = listOf("power" to "power", "processes" to "signal", "actions" to "actions", "units" to "units", "profile" to "profile", "media" to "media")
-
-	fun unlockKeys(): List<String> = (UNLOCK_KINDS.map { it.first } + "transfer").map { "unlock_$it" }
-
-	/** The `unlock` line [toml] writes, and the kinds it lists. */
-	private val UNLOCK_LINE = Regex("""^unlock = \{ for = \[([^\]]*)\]""", RegexOption.MULTILINE)
-
-	/**
-	 * The kinds of action the profile [toml] (as [toml] wrote it) unlocks the phone for that the
-	 * `default` profile doesn't: until a computer gives the phone that profile, the app doesn't ask
-	 * to unlock it there before them, as 0.5 did.
-	 */
-	fun unlocksMore(toml: String): List<String> {
-		val listed = UNLOCK_LINE.find(toml)?.groupValues?.get(1) ?: return emptyList()
-		val kinds = listed.split(',').map { it.trim().removeSurrounding("\"") }.filter { it.isNotEmpty() }
-		return kinds - Profile().unlock.kinds.toSet()
-	}
-
-	/**
-	 * The TOML for [old], the settings 0.5 kept; null when there were none, or none differ from
-	 * the `default` profile.
-	 */
-	fun toml(old: Map<String, *>): String? {
-		if (old.keys.none { it in OLD_KEYS || it in unlockKeys() }) return null
-		val d = Profile()
-		val common = mutableListOf<String>()
-		val android = mutableListOf<String>()
-		fun bool(key: String, default: Boolean, into: MutableList<String>) {
-			val v = old[key] as? Boolean ?: return
-			if (v != default) into += "$key = $v"
-		}
-		(old["theme"] as? String)?.let { t ->
-			val key = when (t) {
-				"Light" -> "light"
-				"Dark" -> "dark"
-				else -> "system"
-			}
-			if (key != d.theme) common += "theme = \"$key\""
-		}
-		bool("pure_black", d.pureBlack, common)
-		bool("animations", d.animations, common)
-		(old["interval_ms"] as? Int)?.let { if (it != d.intervalMs) common += "interval_ms = ${it.coerceIn(Intervals.MIN_MS, Intervals.MAX_MS)}" }
-		bool("fahrenheit", d.fahrenheit, common)
-		bool("network_bits", d.networkBits, common)
-		bool("confirm_actions", d.confirmActions, common)
-		val kinds = if (UNLOCK_KINDS.any { "unlock_${it.first}" in old }) {
-			// As 0.5 asked by default where a kind isn't there: power, processes and actions.
-			UNLOCK_KINDS.filter { (k, _) -> old["unlock_$k"] as? Boolean ?: (k in setOf("power", "processes", "actions")) }.map { it.second }
-		} else d.unlock.kinds
-		val grace = when (old["unlock_grace"] as? String) {
-			"OneMinute" -> "1m"
-			"FiveMinutes" -> "5m"
-			else -> "every_time"
-		}
-		if (kinds.toSet() != d.unlock.kinds.toSet() || grace != d.unlock.grace) {
-			common += "unlock = { for = [${kinds.joinToString(", ") { "\"$it\"" }}], grace = \"$grace\" }"
-		}
-		bool("dynamic_color", d.android.dynamicColor, android)
-		bool("blur", d.android.blur, android)
-		bool("haptics", d.android.haptics, android)
-		bool("keep_screen_on", d.android.keepScreenOn, android)
-		if (common.isEmpty() && android.isEmpty()) return null
-		return buildString {
-			append("[profiles.$PROFILE_ID]\n")
-			append("use = \"default\"\n")
-			for (line in common) append(line).append('\n')
-			if (android.isNotEmpty()) {
-				append("\n[profiles.$PROFILE_ID.android]\n")
-				for (line in android) append(line).append('\n')
-			}
-		}
-	}
-}

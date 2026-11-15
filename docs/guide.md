@@ -307,12 +307,6 @@ Below the cards, *Found on this network* lists nearby computers that run the ser
 paired with this phone. **Add computer** pairs another one. **?** opens the help, the gear the
 settings. With no computer paired yet, the home screen shows the steps to set one up.
 
-**After updating from 0.5.** Once, the home screen shows a card with a profile that gives what was
-set on this phone before: theme, update interval, what asked to unlock, and the rest. Copy it into
-`~/.config/elamon/elamond.toml` on each computer and give it to this phone there with
-`elamond clients profile ID NAME`. Until a computer gives the phone that profile, the app doesn't
-ask to unlock the phone there for what it used to.
-
 ### A computer
 
 The top shows the computer's name and how fresh the data is (*Live · every 1 s*). Chips below show
