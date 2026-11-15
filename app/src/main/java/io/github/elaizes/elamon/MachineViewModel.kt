@@ -322,7 +322,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 				_state.update { it.copy(conn = if (it.data.isEmpty() && it.conn != Conn.Live) Conn.Connecting else Conn.Reconnecting) }
 				lookedAt = NetworkChanges.count.value
 				val reached = try {
-					reachPaired(machine) { from, to -> renewed(from, to) }
+					reachPaired(machine)
 				} catch (e: ElamondException) {
 					_state.update { it.copy(conn = Conn.CertificateChanged) }
 					return
@@ -343,10 +343,8 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 				workingHost = reached.first.host.also { if (it != machine.lastHost) store.update(machineId) { s -> s.copy(lastHost = it) } }
 			}
 			val host = workingHost ?: continue
-			val pin = (store.get(machineId) ?: machine).fingerprint
-
 			// Opened anew at once, on the same address, when only a new stream sends what is wanted.
-			val e = streamOn(host, ElamondClient(host, machine.port, pin, token)) ?: continue
+			val e = streamOn(host, ElamondClient(host, machine.port, machine.fingerprint, token)) ?: continue
 			when {
 				e.kind == ElamondException.Kind.Unauthorized -> {
 					_state.update { it.copy(conn = Conn.Unauthorized, keyLost = false) }
@@ -358,7 +356,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 					return
 				}
 			}
-			// Lost, or another certificate (one the computer may have renewed, which the next look follows):
+			// Lost, or another certificate (which the next look tells apart from another computer):
 			// look for the computer on every address again.
 			workingHost = null
 			_state.update { it.copy(conn = Conn.Reconnecting) }
@@ -548,15 +546,6 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		val machine = store.get(machineId) ?: return null
 		val host = _state.value.host ?: workingHost ?: return null
 		return ElamondClient(host, machine.port, machine.fingerprint, store.token(machine) ?: return null)
-	}
-
-	/**
-	 * The computer renewed its certificate (`elamond rotate-cert`) and the steps from the one pinned
-	 * check out: pinned from now on, and said once. Only while the computer is still pinned to
-	 * [from], the certificate followed: paired again meanwhile, it keeps the new pairing's.
-	 */
-	private fun renewed(from: String, to: String) {
-		if (store.repin(machineId, from, to)) say(Message.Res(R.string.machine_cert_renewed))
 	}
 
 	private fun say(m: Message) {

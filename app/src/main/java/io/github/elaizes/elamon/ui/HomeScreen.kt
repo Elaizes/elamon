@@ -275,13 +275,8 @@ private suspend fun reading(s: Machine, store: MachineStore, cache: UiCache): Li
 	// Taken before asking: forgotten meanwhile, the computer's answer isn't kept.
 	val ticket = cache.ticket(s.id)
 	return try {
-		// A certificate the computer renewed is followed and kept here too.
-		var pin = s.fingerprint
-		val reached = reachPaired(s) { from, to ->
-			pin = to
-			// Kept only while still pinned to the one followed: a pairing made meanwhile stays as it is.
-			store.repin(s.id, from, to)
-		} ?: return Live.Offline
+		val pin = s.fingerprint
+		val reached = reachPaired(s) ?: return Live.Offline
 		if (reached.second.api != APP_API) return Live.Outdated
 		val client = ElamondClient(reached.first.host, s.port, pin, token)
 		cardReading(

@@ -189,18 +189,6 @@ class MachineStore(private val file: MachineFile, private val cipher: TokenCiphe
 		save(_machines.value.filter { it.id != id })
 	}
 
-	/**
-	 * The computer [id] pinned to the certificate [to], which its rotations lead to from [from]; only
-	 * while it is still pinned to [from], so a pairing made meanwhile isn't pinned to where an
-	 * older one led. Returns whether it was.
-	 */
-	@Synchronized
-	fun repin(id: String, from: String, to: String): Boolean {
-		if (get(id)?.fingerprint?.equals(from, ignoreCase = true) != true) return false
-		save(_machines.value.map { if (it.id == id) it.copy(fingerprint = to) else it })
-		return true
-	}
-
 	companion object {
 		private val B64 = Base64.getEncoder()
 		private val B64D = Base64.getDecoder()

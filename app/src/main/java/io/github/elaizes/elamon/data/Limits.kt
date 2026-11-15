@@ -34,7 +34,7 @@ object Limits {
 	// Whatever answers, nothing it sends can take the phone's memory: a longer answer is refused,
 	// up front when it says its length.
 
-	/** Hello, a pairing or a key of the phone's own, the certificate's rotations, an error: a little JSON. */
+	/** Hello, a pairing, an error: a little JSON. */
 	const val SMALL_BODY_MAX = 64 * 1024
 
 	/**

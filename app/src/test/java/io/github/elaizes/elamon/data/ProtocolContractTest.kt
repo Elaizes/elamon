@@ -10,7 +10,6 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -45,7 +44,6 @@ class ProtocolContractTest {
 		"subscribe" to Subscribe.serializer(),
 		"action-request" to ActionRequest.serializer(),
 		"action-result" to ActionResult.serializer(),
-		"rotations" to ListSerializer(Rotation.serializer()),
 	)
 
 	/** Fixtures that aren't a body the app decodes, and the test that reads them. */

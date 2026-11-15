@@ -385,19 +385,6 @@ class MachineStoreTest {
 	}
 
 	@Test
-	fun aRenewedCertificateIsPinnedOnlyOverTheOneFollowed() {
-		val store = MachineStore(MemoryFile(), FakeCipher())
-		store.put(machine("a"), "secret-a")
-		assertTrue(store.repin("a", "f-a", "f-renewed"))
-		assertEquals("f-renewed", store.get("a")!!.fingerprint)
-		// Paired again meanwhile: the old chain's end doesn't take the new pairing's place.
-		store.put(machine("a").copy(fingerprint = "f-paired-again"), "secret-new")
-		assertFalse(store.repin("a", "f-renewed", "f-stale"))
-		assertEquals("f-paired-again", store.get("a")!!.fingerprint)
-		assertFalse(store.repin("gone", "f-a", "f-b"))
-	}
-
-	@Test
 	fun newTokensAreOnDiskBeforeGoingOn() {
 		val file = MemoryFile()
 		val store = paired(file)

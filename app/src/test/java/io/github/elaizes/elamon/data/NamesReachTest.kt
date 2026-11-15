@@ -27,7 +27,7 @@ import org.junit.Assume.assumeTrue
  * the id the service answers with and the certificate it presents, as for an address.
  */
 class NamesReachTest {
-	/** An elamond stand-in: TLS with its own self-signed certificate, answering hello and rotations. */
+	/** An elamond stand-in: TLS with its own self-signed certificate, answering hello. */
 	private class Service(val id: String, address: InetAddress, port: Int = 0) : AutoCloseable {
 		private val keys = File(Files.createTempDirectory("elamon-test").toFile(), "key.p12")
 		private val socket: SSLServerSocket
@@ -65,7 +65,6 @@ class NamesReachTest {
 								while (!reader.readLine().isNullOrEmpty()) { /* the headers */ }
 								val body = when (path) {
 									"/api/v1/hello" -> """{"app":"elamon","api":1,"id":"$id","name":"Computer $id","version":"0.5.0","min_app":"0.5.0"}"""
-									Rotations.PATH -> "[]"
 									else -> """{"error":"not_found"}"""
 								}
 								val status = if (body.contains("not_found")) "404 Not Found" else "200 OK"
@@ -112,11 +111,9 @@ class NamesReachTest {
 			assertNull(ElamondClient.firstReachable(listOf(loopbackName), b.port, pinA, idA))
 			// Nothing pinned yet (found on the network, A's id known): B answers with its own id.
 			assertNull(ElamondClient.firstReachable(listOf(loopbackName), b.port, null, idA))
-			// Paired with A: B isn't A, so A is offline, and nothing new is pinned.
+			// Paired with A: B isn't A, so A is offline.
 			val machine = Machine(id = idA, name = "A", hosts = listOf(loopbackName), port = b.port, fingerprint = pinA, token = "t")
-			var repinned: String? = null
-			assertNull(reachPaired(machine) { _, to -> repinned = to })
-			assertNull(repinned)
+			assertNull(reachPaired(machine))
 			// B itself, by the same name, is B.
 			val reached = assertNotNull(ElamondClient.firstReachable(listOf(loopbackName), b.port, b.fingerprint, idB))
 			assertEquals(idB, reached.second.id)
@@ -125,7 +122,7 @@ class NamesReachTest {
 
 	@Test
 	fun theComputerItselfWithAnotherCertificateIsSaidToHaveChangedIt() = runBlocking {
-		// A answers as A, but with another certificate than the one pinned for it, and nothing leads to it.
+		// A answers as A, but with another certificate than the one pinned for it.
 		val a = service(idA, "127.0.0.1")
 		val pinned = "0".repeat(Limits.FINGERPRINT_HEX)
 		withTimeout(30_000) {
