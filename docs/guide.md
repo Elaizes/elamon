@@ -1140,7 +1140,7 @@ What `elamond restore` does:
   unless told `--force`, a running service.
 - It writes each file in one step, and removes the state files the backup doesn't have. It keeps no
   copy of what it replaces: restore from the backup again if a write fails.
-- It prints what it restored: the computer's id and certificate, the phones and the links.
+- It prints what it restored: the computer's id and certificate and the phones.
 - `--passphrase-file PATH` reads the passphrase from a file, as for `elamond backup`.
 - `--with-settings` also puts back `elamond.toml` and the drop-ins in `elamond.d`, but never over a
   file NixOS or Home Manager make: set those in `services.elamond.settings`.
@@ -1152,7 +1152,7 @@ What `elamond restore` does:
   If it was replaced because the key may have leaked, don't use that backup.
 
 `elamond restore --force` writes under a running service. That service presents the restored
-certificate within a few seconds and knows the restored phones at once, but keeps the id, links and
+certificate within a few seconds and knows the restored phones at once, but keeps the id and
 activity log it started with until it restarts. Restart it right after:
 `systemctl --user restart elamond`.
 

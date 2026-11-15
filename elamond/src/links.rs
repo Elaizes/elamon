@@ -1,29 +1,14 @@
 //! Links to the web pages this computer hosts: what a client opens, whether they answer, their units.
-//!
-//! Links come from the settings alone (`[links.<id>]`). links.json, where 0.5 kept the links added
-//! from the app, is still carried by backups.
+//! They come from the settings alone (`[links.<id>]`).
 
 use std::fs;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::consts::{limit, timeout};
 use crate::settings::Link;
 use crate::store;
-
-/// A link added from the 0.5 app, as links.json kept it.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct LinkDef {
-	pub id: String,
-	pub name: String,
-	pub url: String,
-	#[serde(default)]
-	pub unit: Option<String>,
-	/// "user" or "system".
-	#[serde(default)]
-	pub scope: Option<String>,
-}
 
 #[derive(Serialize, Clone, Debug)]
 pub struct LinkStatus {
@@ -38,14 +23,6 @@ pub struct LinkStatus {
 	/// Listening on loopback only: other devices can't open it.
 	pub local_only: bool,
 	pub unit_state: Option<String>,
-}
-
-/// links.json in the data directory, which 0.5 kept the links added from the app in.
-pub const FILE: &str = "links.json";
-
-#[cfg(test)]
-pub fn save_in(dir: &std::path::Path, list: &[LinkDef]) -> std::io::Result<()> {
-	store::write_json::<Vec<LinkDef>>(&dir.join(FILE), list)
 }
 
 /// Every link a client may open, by id; one whose URL isn't a web page's (`web_url`) is left out.
