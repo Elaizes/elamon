@@ -284,6 +284,10 @@ object ChartStyle {
 	val axisSpacing = 64.dp
 	val axisGap = 8.dp
 
+	/** A timeline's bar, and the least a stretch of it is drawn, however short. */
+	val timeline = 24.dp
+	val stretchMin = 2.dp
+
 	/** Less than this much of a pixel isn't drawn. */
 	const val MIN_PX = 0.5f
 

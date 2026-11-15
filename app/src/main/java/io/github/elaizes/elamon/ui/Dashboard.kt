@@ -181,6 +181,7 @@ fun WidgetView(scope: DashScope, w: Widget, modifier: Modifier, columns: Int) {
 		"text" -> TextWidget(scope, w, modifier)
 		"group" -> GroupWidget(scope, w, modifier, columns)
 		"media" -> MediaWidget(scope, w, modifier)
+		"timeline" -> TimelineWidget(scope, w, modifier)
 		else -> Notice(scope, w.label, stringResource(R.string.widget_unknown, w.type), "warning", modifier)
 	}
 }

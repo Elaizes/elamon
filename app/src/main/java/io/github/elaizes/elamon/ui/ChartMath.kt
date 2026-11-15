@@ -9,6 +9,7 @@ import java.time.temporal.TemporalAdjusters
 import kotlin.math.abs
 import kotlin.math.max
 import io.github.elaizes.elamon.Points
+import io.github.elaizes.elamon.data.Segment
 
 /** Where a moment falls on a chart [width] wide whose right edge is [tLast] and which spans [windowMs]. */
 fun chartX(t: Long, tLast: Long, windowMs: Long, width: Float): Float =
@@ -213,6 +214,69 @@ fun axisLabels(xs: FloatArray, widths: FloatArray, width: Float, gap: Float): Li
 		if (left < right + gap) continue
 		out += i to left
 		right = left + widths[i]
+	}
+	return out
+}
+
+// ---- timelines -----------------------------------------------------------------------------------
+
+/** A timeline's [segment] as drawn, from [x0] to [x1]; [widened] when drawn wider than its time, to be seen at all. */
+data class Stretch(val x0: Float, val x1: Float, val segment: Segment, val widened: Boolean = false)
+
+/**
+ * [segments] on a bar [width] wide from [start] to [end] (Unix ms): each clipped to it, those
+ * outside it left out, each at least [minPx] wide around its middle and inside the bar, so even a
+ * short stretch on battery shows. A widened one is drawn over its neighbours.
+ */
+fun stretches(segments: List<Segment>, start: Long, end: Long, width: Float, minPx: Float): List<Stretch> {
+	if (end <= start || width <= 0f) return emptyList()
+	val span = (end - start).toFloat()
+	val out = ArrayList<Stretch>(segments.size)
+	for (s in segments) {
+		val from = max(s.from, start)
+		val to = minOf(s.to, end)
+		if (to <= from) continue
+		val x0 = (from - start) / span * width
+		val x1 = (to - start) / span * width
+		val stretch = Stretch(x0, x1, s.copy(from = from, to = to))
+		if (x1 - x0 >= minPx) {
+			out += stretch
+			continue
+		}
+		val w = minOf(minPx, width)
+		val left = ((x0 + x1) / 2 - w / 2).coerceIn(0f, width - w)
+		out += stretch.copy(x0 = left, x1 = left + w, widened = true)
+	}
+	return out
+}
+
+/** The stretch under [x]: a widened one first, as it is drawn on top; -1 for none. */
+fun stretchAt(stretches: List<Stretch>, x: Float): Int {
+	val wide = stretches.indexOfFirst { it.widened && x >= it.x0 && x <= it.x1 }
+	return if (wide >= 0) wide else stretches.indexOfFirst { x >= it.x0 && x <= it.x1 }
+}
+
+/** How long each state lasts from [start] to [end] in [segments], in ms, by state. */
+fun timeIn(segments: List<Segment>, start: Long, end: Long): Map<String, Long> {
+	val out = LinkedHashMap<String, Long>()
+	for (s in segments) {
+		val d = minOf(s.to, end) - max(s.from, start)
+		if (d > 0) out[s.state] = (out[s.state] ?: 0L) + d
+	}
+	return out
+}
+
+/**
+ * A long range's [history], which reaches [to] (when it was asked for), carried on to now by the
+ * stream's [live] segments from then on; a stretch that goes on across [to] is one.
+ */
+fun splice(history: List<Segment>, to: Long, live: List<Segment>): List<Segment> {
+	val out = ArrayList(history)
+	for (s in live) {
+		if (s.to <= to) continue
+		val next = if (s.from < to) s.copy(from = to) else s
+		val last = out.lastOrNull()
+		if (last != null && last.state == next.state && last.to == next.from) out[out.size - 1] = last.copy(to = next.to) else out += next
 	}
 	return out
 }

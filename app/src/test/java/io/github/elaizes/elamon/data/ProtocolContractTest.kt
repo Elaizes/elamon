@@ -18,6 +18,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import io.github.elaizes.elamon.allWidgets
 import io.github.elaizes.elamon.headerData
 
 /**
@@ -439,6 +440,9 @@ class ProtocolContractTest {
 		assertEquals(listOf(50.0, 100.0, 1.0), listOf(limit.min, limit.max, limit.step))
 		assertTrue(ui.actions.filter { it.id.startsWith("nut.") }.all { it.kind == "nut" && it.confirm && it.unlock })
 		assertTrue("nut" in ui.profile.unlock.kinds)
+		// Every type of it the app draws, the timeline among them: the service sends it as it is.
+		val types = ui.dashboards.flatMap { allWidgets(it.widgets) }.map { it.type }.toSet()
+		assertTrue("timeline" in types && types.all { it in WIDGET_TYPES }, "types the app doesn't draw: ${types - WIDGET_TYPES.toSet()}")
 	}
 
 	@Test

@@ -408,7 +408,7 @@ fun historyPath(widget: String, range: String): String =
  */
 val WIDGET_TYPES = listOf(
 	"value", "gauge", "meter", "status", "graph", "bars", "list", "table",
-	"button", "toggle", "select", "slider", "text", "group", "media",
+	"button", "toggle", "select", "slider", "text", "group", "media", "timeline",
 )
 
 /**
