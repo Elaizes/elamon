@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -283,8 +284,7 @@ private class NoPoints(override val windowMs: Long) : Points {
 private fun ValueTile(scope: DashScope, w: Widget, modifier: Modifier) {
 	val s = scope.state(w)
 	val accent = accent(w.color)
-	Tile(modifier, accent = accent, onClick = w.open?.let { d -> { scope.open(d) } }) {
-		TileLabel(w.label.orEmpty(), icon(w.icon), accent)
+	WidgetTile(scope, w, accent, modifier) {
 		val color = levelColor(s?.level, s?.blend, figureGood(w.format))
 		Figure(w, s, color ?: MaterialTheme.colorScheme.onSurface, large = true)
 		if (w.spark == true) {
@@ -338,8 +338,7 @@ private fun GaugeTile(scope: DashScope, w: Widget, modifier: Modifier) {
 	val s = scope.state(w)
 	val accent = accent(w.color)
 	val text = s?.text ?: Fmt.format(s?.v, w.format, w.unit) ?: DASH
-	Tile(modifier, accent = accent, onClick = w.open?.let { d -> { scope.open(d) } }) {
-		TileLabel(w.label.orEmpty(), icon(w.icon), accent)
+	WidgetTile(scope, w, accent, modifier) {
 		Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
 			RingGauge(
 				fraction(w, s),
@@ -360,12 +359,34 @@ private fun MeterTile(scope: DashScope, w: Widget, modifier: Modifier) {
 	val s = scope.state(w)
 	val accent = accent(w.color)
 	val color = levelColor(s?.level, s?.blend, accent) ?: accent
-	Tile(modifier, accent = accent, onClick = w.open?.let { d -> { scope.open(d) } }) {
-		TileLabel(w.label.orEmpty(), icon(w.icon), accent)
+	WidgetTile(scope, w, accent, modifier) {
 		Figure(w, s, levelColor(s?.level, s?.blend, figureGood(w.format)) ?: MaterialTheme.colorScheme.onSurface, large = true)
 		UsageBar(fraction(w, s), color, height = Sizes.barTile)
 		captionOf(w, s)?.let { TileFooter(it) }
 	}
+}
+
+/** A tile for [w]: its icon and label over [content], a button when [w] opens a page. */
+@Composable
+fun WidgetTile(scope: DashScope, w: Widget, accent: Color, modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
+	Tile(modifier, accent = accent, onClick = w.open?.let { d -> { scope.open(d) } }) {
+		TileLabel(w.label.orEmpty(), icon(w.icon), accent)
+		content()
+	}
+}
+
+/** A card for [w]: its icon and label as the title, a button when [w] opens a page. */
+@Composable
+fun WidgetSection(
+	scope: DashScope,
+	w: Widget,
+	accent: Color,
+	modifier: Modifier,
+	trailing: (@Composable () -> Unit)? = null,
+	onTitleClick: (() -> Unit)? = null,
+	content: @Composable ColumnScope.() -> Unit,
+) {
+	Section(w.label.orEmpty(), icon(w.icon), modifier, accent = accent, trailing = trailing, onClick = w.open?.let { d -> { scope.open(d) } }, onTitleClick = onTitleClick, content = content)
 }
 
 /** A state as a coloured word. */
@@ -374,8 +395,7 @@ private fun StatusTile(scope: DashScope, w: Widget, modifier: Modifier) {
 	val s = scope.state(w)
 	val accent = accent(w.color)
 	val text = s?.text ?: Fmt.format(s?.v, w.format, w.unit) ?: DASH
-	Tile(modifier, accent = accent, onClick = w.open?.let { d -> { scope.open(d) } }) {
-		TileLabel(w.label.orEmpty(), icon(w.icon), accent)
+	WidgetTile(scope, w, accent, modifier) {
 		Pill(text, levelColor(s?.level, s?.blend, Metric.colors.good) ?: MaterialTheme.colorScheme.secondary, dot = true)
 		captionOf(w, s)?.let { TileFooter(it) }
 	}
@@ -411,8 +431,7 @@ private fun GraphWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val floor = w.floor?.toFloat() ?: 1f
 	val empty = s?.text
 	if (w.height == "small") {
-		Tile(modifier, accent = accent, onClick = w.open?.let { d -> { scope.open(d) } }) {
-			TileLabel(w.label.orEmpty(), icon(w.icon), accent)
+		WidgetTile(scope, w, accent, modifier) {
 			if (empty != null) Text(empty, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.secondary)
 			Row(horizontalArrangement = Arrangement.spacedBy(Space.xxlPlus)) {
 				series.forEachIndexed { i, ser ->
@@ -434,15 +453,14 @@ private fun GraphWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 		return
 	}
 	val single = series.size == 1
-	Section(
-		w.label.orEmpty(),
-		icon(w.icon),
+	WidgetSection(
+		scope,
+		w,
+		accent,
 		modifier,
-		accent = accent,
 		trailing = if (single) {
 			{ now.firstOrNull()?.let { RollingText(Fmt.number(it, first.format, first.unit), MaterialTheme.typography.titleLarge, color = colors[0]) } }
 		} else null,
-		onClick = w.open?.let { d -> { scope.open(d) } },
 	) {
 		if (empty != null) Text(empty, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		LineChart(
@@ -480,7 +498,7 @@ private fun BarsWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 		R.plurals.a11y_bars, values.size, w.label.orEmpty(), values.size,
 		Fmt.number(values.filterNotNull().average(), w.format, w.unit), Fmt.number(values.filterNotNull().maxOrNull() ?: 0.0, w.format, w.unit),
 	)
-	Section(w.label.orEmpty(), icon(w.icon), modifier, accent = accent, onClick = w.open?.let { d -> { scope.open(d) } }) {
+	WidgetSection(scope, w, accent, modifier) {
 		CoreBars(values.map { ((it ?: 0.0) / max).toFloat() }, colors, height = ChartStyle.coresDetail, description = description)
 		FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s), verticalArrangement = Arrangement.spacedBy(Space.s), maxItemsInEachRow = BAR_CELLS) {
 			values.forEachIndexed { i, v ->
@@ -505,7 +523,7 @@ private const val BAR_CELLS = 4
 private fun ListWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val s = scope.state(w)
 	val accent = accent(w.color)
-	Section(w.label.orEmpty(), icon(w.icon), modifier, accent = accent, onClick = w.open?.let { d -> { scope.open(d) } }) {
+	WidgetSection(scope, w, accent, modifier) {
 		w.items.orEmpty().forEachIndexed { i, item ->
 			val st = s?.items?.getOrNull(i)
 			val text = st?.text ?: Fmt.format(st?.v, item.format, item.unit) ?: return@forEachIndexed

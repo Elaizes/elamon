@@ -159,20 +159,18 @@ fun TableWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 		}
 	}
 	if (tile) {
-		Tile(modifier, accent = accent, onClick = open) {
-			TileLabel(w.label.orEmpty(), icon(w.icon), accent)
+		WidgetTile(scope, w, accent, modifier) {
 			if (!folded) rowsShown()
 			// The caption under a tile, as its footer.
 			captionOf(w, s)?.let { TileFooter(it) }
 		}
 	} else {
-		Section(
-			w.label.orEmpty(),
-			icon(w.icon),
+		WidgetSection(
+			scope,
+			w,
+			accent,
 			modifier,
-			accent = accent,
 			trailing = if (foldable) ({ FoldMark(folded) }) else null,
-			onClick = open,
 			onTitleClick = if (foldable) ({ scope.folds.toggle(w) }) else null,
 		) {
 			// Under a card's title, as the Displays section's summary was.
