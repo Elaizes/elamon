@@ -176,9 +176,7 @@ pub mod limit {
 	pub const UNIT_MAX: usize = 256;
 	/// Wrong guesses, from anywhere, before a pairing code is thrown away.
 	pub const PAIRING_ATTEMPTS: u32 = 20;
-	/// Wrong guesses from one address before it gets 429 for the rest of the code's life. An
-	/// IPv6 address counts by its first `PAIRING_V6_PREFIX` bits: one network hands out many.
-	pub const PAIRING_ATTEMPTS_PER_ADDRESS: u32 = 5;
+	/// An IPv6 address counts by its first bits: one network hands out many.
 	pub const PAIRING_V6_PREFIX: u32 = 64;
 	/// Acting requests one phone may make in a row; then one more for each `cadence::ACT_REFILL`.
 	pub const ACTS_BURST: u32 = 10;

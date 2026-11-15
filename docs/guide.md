@@ -1204,7 +1204,7 @@ do about those marked `!`. To see what the service reads without the app, run `e
 | *Control is off* | Set `control = true` in `elamond.toml` or a drop-in; the service takes it up within a few seconds. If it's set, `elamond control status` tells whether `elamond control off` holds it off, or whether the settings stopped parsing. |
 | Pairing ends with the phone turned away | Answer `y` at `elamond pair` within 90 seconds, and keep it running until the phone is paired ([section 3](#3-pair-the-phone)). |
 | *This phone's role on the computer doesn't allow that* | `elamond clients` shows the phone's role, `elamond clients role ID ROLE` changes it ([section 6](#6-roles-who-may-do-what)). An action may ask for `admin` (`role` in its settings). |
-| *Too many requests* | The phone asked for more than 10 things in a row; wait a few seconds. When pairing: five wrong codes came from this address; run `elamond pair` again for a new code. |
+| *Too many requests* | The phone asked for more than 10 things in a row; wait a few seconds. |
 | *Nothing to show here* | The phone's role or profile shows none of the computer's dashboards: `elamond clients role` or `elamond clients profile`. |
 | *The computer didn't allow that* | polkit refused. Install the rule `elamond setup` prints; `elamond setup --check` tells whether it's there ([section 5](#power-the-profile-and-system-units-polkit)). |
 | The phone keeps dropping off | The journal has a line for each stream a phone opens and closes, with its address, how long it lasted and why it ended: `journalctl --user -u elamond -e`. |
@@ -1226,7 +1226,7 @@ do about those marked `!`. To see what the service reads without the app, run `e
 - Each phone holds its own random 256-bit key; the service keeps only its SHA-256. Keys stay out of
   Android backups.
 - A pairing code works for five minutes, one attempt at a time, each wrong one answered after a
-  second. Five wrong ones shut that address out; twenty in all use the code up. The phone that gives
+  second. Twenty wrong ones, from anywhere, use the code up. The phone that gives
   the right code is let in only when you say so at `elamond pair` (unless it runs with `--yes`).
 - Without a key, the service answers only which service it is (`hello`: name, id and version) and
   pairing.

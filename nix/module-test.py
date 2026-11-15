@@ -256,12 +256,12 @@ with subtest("streams are in the journal: which phone, from where, for what, for
 	machine.wait_until_succeeds(f"curl -sk --max-time 3 {APP} {auth} 'https://localhost:47823/api/v1/stream?dashboard=processes' >/dev/null || true; {opened}", timeout=60)
 	machine.wait_until_succeeds("journalctl _UID=1000 -o cat | grep -c 'stream: \"Test phone\" closed after [0-9]* s: connection closed'", timeout=30)
 
-with subtest("five wrong codes from one address shut it out of that code"):
+with subtest("twenty wrong codes in all use a code up"):
 	code = pair_code("pair-guess")
 	wrong = f"{(int(code) + 1) % 1_000_000:06d}"
-	for _ in range(5):
+	for _ in range(20):
 		assert call("POST", "/api/v1/pair", body={"code": wrong}) == (403, {"error": "wrong_code"})
-	assert call("POST", "/api/v1/pair", body={"code": code}) == (429, {"error": "too_many_requests"})
+	assert call("POST", "/api/v1/pair", body={"code": code}) == (403, {"error": "no_pairing"})
 	machine.succeed("systemctl stop pair-guess")
 
 with subtest("openFirewall with firewallInterfaces opens the port on those alone, mDNS's not over a VPN"):

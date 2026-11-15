@@ -852,7 +852,6 @@ pub(crate) struct Previous {
 enum Judged {
 	/// No code is pending, or a phone that gave it waits for an answer.
 	Nothing,
-	Blocked,
 	Wrong,
 	/// The right code: the phone gets `role` and `profile`, at once or, with `ask`, once let in;
 	/// `same`, when its `previous` proved it is the phone of that entry.
@@ -886,21 +885,14 @@ fn judge(dir: &std::path::Path, place: &store::Place, code: &str, name: &str, pr
 	if pending.ask.is_some() {
 		return Judged::Nothing;
 	}
-	let from = store::address_key(ip);
-	match pending.attempt(&from, code) {
-		Attempt::Blocked => Judged::Blocked,
+	match pending.attempt(code) {
 		Attempt::Wrong => {
 			if pending.attempts >= limit::PAIRING_ATTEMPTS {
 				store::clear_pairing(dir);
 				eprintln!("pairing: wrong code from {ip}; the code is used up");
 			} else {
 				let _ = store::save_pairing(dir, &pending);
-				let tried = pending.wrong.get(&from).copied().unwrap_or(0);
-				if tried >= limit::PAIRING_ATTEMPTS_PER_ADDRESS {
-					eprintln!("pairing: wrong code from {ip}; {from} may not try this code again");
-				} else {
-					eprintln!("pairing: wrong code from {ip}");
-				}
+				eprintln!("pairing: wrong code from {ip}");
 			}
 			Judged::Wrong
 		}
@@ -1002,8 +994,6 @@ async fn pair(
 			tokio::time::sleep(timeout::NO_PAIRING_DELAY).await;
 			return error(ErrorCode::NoPairing);
 		}
-		// Answered at once: it may not try again whatever it sends.
-		Judged::Blocked => return error(ErrorCode::TooManyRequests),
 		Judged::Wrong => {
 			tokio::time::sleep(timeout::WRONG_CODE_DELAY).await;
 			return error(ErrorCode::WrongCode);

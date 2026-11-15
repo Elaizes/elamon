@@ -6,7 +6,6 @@
 //! State:     $XDG_DATA_HOME/elamon/{id, cert.der, key.der, clients.json, pairing.json,
 //!            control-off.json, activity.jsonl}
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
 use std::net::IpAddr;
@@ -619,9 +618,6 @@ pub struct Pairing {
 	/// The profile it gets; none for `default_profile`.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub profile: Option<String>,
-	/// Wrong codes tried per address (see `address_key`).
-	#[serde(default)]
-	pub wrong: BTreeMap<String, u32>,
 	/// A phone that gives the right code waits for the person at `elamond pair` to let it in. Not
 	/// with `elamond pair --yes`.
 	#[serde(default)]
@@ -672,8 +668,6 @@ pub struct Replaces {
 pub enum Attempt {
 	Right,
 	Wrong,
-	/// The address has tried too many wrong codes; it isn't let near this one again.
-	Blocked,
 }
 
 /// The pending pairing code's file in a data directory.
@@ -689,18 +683,12 @@ impl Pairing {
 		now < self.expires && self.attempts < limit::PAIRING_ATTEMPTS
 	}
 
-	/// Judges an attempt with `code` from the address `from`, counting it when it's wrong. An
-	/// address that has used up its wrong attempts is refused whatever it sends, so it can't
-	/// keep guessing; the others can still pair until the code runs out altogether.
-	pub fn attempt(&mut self, from: &str, code: &str) -> Attempt {
-		if self.wrong.get(from).is_some_and(|n| *n >= limit::PAIRING_ATTEMPTS_PER_ADDRESS) {
-			return Attempt::Blocked;
-		}
+	/// Judges an attempt with `code`, counting it when it is wrong.
+	pub fn attempt(&mut self, code: &str) -> Attempt {
 		if same(code.as_bytes(), self.code.as_bytes()) {
 			return Attempt::Right;
 		}
 		self.attempts += 1;
-		*self.wrong.entry(from.to_string()).or_default() += 1;
 		Attempt::Wrong
 	}
 }
@@ -759,7 +747,6 @@ pub fn new_pairing(dir: &Path, role: Role, profile: Option<&str>, confirm: bool)
 		attempts: 0,
 		role,
 		profile: profile.map(str::to_string),
-		wrong: BTreeMap::new(),
 		confirm,
 		ask: None,
 	};
@@ -1050,37 +1037,28 @@ mod tests {
 
 	#[test]
 	fn pairing_codes_expire_and_run_out() {
-		let p = Pairing { code: "123456".into(), expires: 100, attempts: 0, role: Role::Glance, profile: None, wrong: BTreeMap::new(), confirm: true, ask: None };
+		let p = Pairing { code: "123456".into(), expires: 100, attempts: 0, role: Role::Glance, profile: None, confirm: true, ask: None };
 		assert!(p.usable(99));
 		assert!(!p.usable(100));
 		assert!(!Pairing { attempts: limit::PAIRING_ATTEMPTS, ..p }.usable(0));
 	}
 
 	#[test]
-	fn wrong_codes_are_counted_per_address_and_in_all() {
-		let mut p = Pairing { code: "123456".into(), expires: u64::MAX, attempts: 0, role: Role::Admin, profile: None, wrong: BTreeMap::new(), confirm: false, ask: None };
-		for _ in 0..limit::PAIRING_ATTEMPTS_PER_ADDRESS {
-			assert_eq!(p.attempt("192.0.2.1", "000000"), Attempt::Wrong);
-		}
-		// That address is done with this code, even with the right one; the code isn't.
-		assert_eq!(p.attempt("192.0.2.1", "000000"), Attempt::Blocked);
-		assert_eq!(p.attempt("192.0.2.1", "123456"), Attempt::Blocked);
-		assert!(p.usable(0));
-		assert_eq!(p.attempt("192.0.2.2", "123456"), Attempt::Right);
-		// Blocked attempts and the right one aren't counted.
-		assert_eq!(p.attempts, limit::PAIRING_ATTEMPTS_PER_ADDRESS);
-		// From many addresses the code runs out after the total.
-		let mut from = 0;
+	fn wrong_codes_are_counted_in_all() {
+		let mut p = Pairing { code: "123456".into(), expires: u64::MAX, attempts: 0, role: Role::Admin, profile: None, confirm: false, ask: None };
+		assert_eq!(p.attempt("000000"), Attempt::Wrong);
+		assert_eq!(p.attempt("123456"), Attempt::Right);
+		// The right one isn't counted; the code runs out after the wrong ones.
+		assert_eq!(p.attempts, 1);
 		while p.usable(0) {
-			assert_ne!(p.attempt(&format!("198.51.100.{}", from / 4), "000000"), Attempt::Blocked);
-			from += 1;
+			assert_eq!(p.attempt("000000"), Attempt::Wrong);
 		}
 		assert_eq!(p.attempts, limit::PAIRING_ATTEMPTS);
 		// What it saves reads back, and a code with no role pairs an admin without asking.
 		let back: Pairing = serde_json::from_slice(&serde_json::to_vec(&p).unwrap()).unwrap();
 		assert_eq!(back, p);
 		let bare: Pairing = serde_json::from_str(r#"{"code":"123456","expires":1,"attempts":2}"#).unwrap();
-		assert_eq!((bare.role, bare.wrong.len(), bare.confirm, bare.ask), (Role::Admin, 0, false, None));
+		assert_eq!((bare.role, bare.confirm, bare.ask), (Role::Admin, false, None));
 	}
 
 	#[test]
