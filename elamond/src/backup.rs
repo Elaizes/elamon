@@ -9,8 +9,7 @@
 //! authenticated with it, so neither can be changed unnoticed. With `--plain` the rest is the
 //! payload itself, its SHA-256 in the header. The payload is JSON (`Payload`).
 //!
-//! A restore checks everything before it writes anything, sets each file it replaces or takes away
-//! beside it as NAME.before-restore-TIME, and puts them all back if a write fails halfway.
+//! A restore checks everything before it writes anything, then writes each file in one step.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -426,8 +425,6 @@ impl SettingsPlace {
 /// What a restore did.
 #[derive(Debug, Default)]
 pub struct Restored {
-	/// Files replaced or taken away, each kept beside as NAME.before-restore-TIME.
-	pub set_aside: Vec<PathBuf>,
 	pub settings_written: Vec<PathBuf>,
 	/// Settings files left as they were, with why.
 	pub settings_skipped: Vec<String>,
@@ -436,12 +433,11 @@ pub struct Restored {
 }
 
 /// Puts `c` back in the data directory `dir`, and its settings in `settings` when given. Files
-/// that are already as in the backup are left alone; the others are set aside before they are
-/// replaced, and state files the backup doesn't have are taken away beside them, but for
-/// `elamond control off`'s: control held off stays so. A write that fails puts back everything
-/// done before it. `stamp` names the files set aside.
-pub fn restore_into(c: &Contents, dir: &Path, settings: Option<&SettingsPlace>, stamp: u64) -> Result<Restored, String> {
-	let mut journal = Journal { stamp, done: Vec::new() };
+/// that are already as in the backup are left alone, each of the others is written in one step, and
+/// state files the backup doesn't have are taken away, but for `elamond control off`'s: control
+/// held off stays so. The service is stopped (or `--force`d), so nothing is kept to undo a write
+/// that fails halfway: restore again.
+pub fn restore_into(c: &Contents, dir: &Path, settings: Option<&SettingsPlace>) -> Result<Restored, String> {
 	let mut restored = Restored::default();
 	let written = (|| -> io::Result<()> {
 		store::private_dir(dir)?;
@@ -449,11 +445,14 @@ pub fn restore_into(c: &Contents, dir: &Path, settings: Option<&SettingsPlace>, 
 			let path = dir.join(name);
 			match c.state.get(name) {
 				Some(data) => {
-					journal.write(&path, data, true)?;
+					put(&path, data, true)?;
 				}
 				// Control held off here stays held off: a restore never lets go of it.
 				None if name == store::CONTROL_OFF_FILE => {}
-				None => journal.take_away(&path)?,
+				None => match fs::remove_file(&path) {
+					Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+					_ => {}
+				},
 			}
 		}
 		let Some(place) = settings else { return Ok(()) };
@@ -463,7 +462,7 @@ pub fn restore_into(c: &Contents, dir: &Path, settings: Option<&SettingsPlace>, 
 				restored.settings_skipped.push(format!("{name}: {} is {why}; left as it is", target.display()));
 				continue;
 			}
-			if journal.write(&target, text.as_bytes(), false)? {
+			if put(&target, text.as_bytes(), false)? {
 				restored.settings_written.push(target);
 			}
 		}
@@ -479,20 +478,24 @@ pub fn restore_into(c: &Contents, dir: &Path, settings: Option<&SettingsPlace>, 
 		}
 		Ok(())
 	})();
-	match written {
-		Ok(()) => {
-			restored.set_aside = journal.set_aside();
-			Ok(restored)
-		}
-		Err(e) => {
-			let left = journal.undo();
-			if left.is_empty() {
-				Err(format!("{e}\n  nothing was changed: what was written is undone"))
-			} else {
-				Err(format!("{e}\n  and undoing what was written failed too:\n    {}", left.join("\n    ")))
-			}
-		}
+	written.map(|()| restored).map_err(|e| e.to_string())
+}
+
+/// Writes `data` to `path` unless it holds that already, and says whether it wrote. A state file's
+/// folder is made private; a settings file's is made if it isn't there, and left as it is.
+fn put(path: &Path, data: &[u8], state: bool) -> io::Result<bool> {
+	if fs::read(path).is_ok_and(|now| now == data) {
+		return Ok(false);
 	}
+	if state {
+		store::write_private(path, data)?;
+	} else {
+		if let Some(dir) = path.parent() {
+			fs::create_dir_all(dir)?;
+		}
+		store::replace_private(path, data)?;
+	}
+	Ok(true)
 }
 
 /// Why a settings file can't be put back where it is, if it can't: NixOS or Home Manager make it,
@@ -510,121 +513,6 @@ fn managed_elsewhere(path: &Path) -> Option<String> {
 	let c = std::ffi::CString::new(there.as_os_str().as_bytes()).ok()?;
 	// SAFETY: access only reads the NUL-terminated path it is given.
 	(unsafe { libc::access(c.as_ptr(), libc::W_OK) } != 0).then(|| "not writable".into())
-}
-
-/// The files a restore changed, to undo them if a later write fails.
-struct Journal {
-	stamp: u64,
-	done: Vec<Done>,
-}
-
-enum Done {
-	/// `path` written, what was there before kept as `before`.
-	Wrote { path: PathBuf, before: Option<PathBuf> },
-	/// `path` moved to `aside`.
-	TookAway { path: PathBuf, aside: PathBuf },
-}
-
-impl Journal {
-	/// Writes `data` to `path` unless it holds that already, the file there before set aside, and
-	/// says whether it wrote. A state file's folder is made private; a settings file's is left as
-	/// it is.
-	fn write(&mut self, path: &Path, data: &[u8], state: bool) -> io::Result<bool> {
-		if fs::read(path).is_ok_and(|now| now == data) {
-			return Ok(false);
-		}
-		let before = self.keep_aside(path, true)?;
-		self.done.push(Done::Wrote { path: path.to_path_buf(), before });
-		if state {
-			store::write_private(path, data)?;
-		} else {
-			if let Some(dir) = path.parent() {
-				fs::create_dir_all(dir)?;
-			}
-			store::replace_private(path, data)?;
-		}
-		Ok(true)
-	}
-
-	/// Moves the file at `path`, if there is one, aside.
-	fn take_away(&mut self, path: &Path) -> io::Result<()> {
-		if let Some(aside) = self.keep_aside(path, false)? {
-			self.done.push(Done::TookAway { path: path.to_path_buf(), aside });
-		}
-		Ok(())
-	}
-
-	/// NAME.before-restore-TIME beside `path`, holding what is there now: a second name for the
-	/// same file when `copy` (or a copy, where links can't be made), the file itself moved there
-	/// when not. Nothing when there is no file.
-	fn keep_aside(&self, path: &Path, copy: bool) -> io::Result<Option<PathBuf>> {
-		match fs::symlink_metadata(path) {
-			Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-			Err(e) => return Err(e),
-			Ok(_) => {}
-		}
-		let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-		for n in 1.. {
-			let suffix = if n == 1 { String::new() } else { format!("-{n}") };
-			let aside = path.with_file_name(format!("{name}.before-restore-{}{suffix}", self.stamp));
-			if fs::symlink_metadata(&aside).is_ok() {
-				continue;
-			}
-			if !copy {
-				fs::rename(path, &aside)?;
-			} else if fs::hard_link(path, &aside).is_err() {
-				let data = fs::read(path)?;
-				let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&aside)?;
-				f.write_all(&data)?;
-				f.sync_all()?;
-			}
-			return Ok(Some(aside));
-		}
-		unreachable!("some name is free")
-	}
-
-	/// Every file set aside.
-	fn set_aside(&self) -> Vec<PathBuf> {
-		self.done
-			.iter()
-			.filter_map(|d| match d {
-				Done::Wrote { before, .. } => before.clone(),
-				Done::TookAway { aside, .. } => Some(aside.clone()),
-			})
-			.collect()
-	}
-
-	/// Puts everything back as it was, the last change first; what couldn't be put back.
-	fn undo(self) -> Vec<String> {
-		let mut left = Vec::new();
-		for d in self.done.into_iter().rev() {
-			let (path, result) = match d {
-				// A rename between two names of one file does nothing; the second name then goes.
-				Done::Wrote { path, before: Some(before) } => {
-					let r = fs::rename(&before, &path).and_then(|()| match fs::remove_file(&before) {
-						Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
-						_ => Ok(()),
-					});
-					(path, r)
-				}
-				Done::Wrote { path, before: None } => {
-					let r = match fs::remove_file(&path) {
-						Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
-						_ => Ok(()),
-					};
-					(path, r)
-				}
-				Done::TookAway { path, aside } => {
-					let r = fs::rename(&aside, &path);
-					(path, r)
-				}
-			};
-			if let Err(e) = result {
-				left.push(format!("{}: {e}", path.display()));
-			}
-		}
-		left
-	}
 }
 
 // ---- the commands ------------------------------------------------------------------------------
@@ -755,7 +643,7 @@ pub fn restore(args: &[String]) -> Result<(), String> {
 	let place = a.with_settings.then(SettingsPlace::now);
 	// A running service (--force) doesn't add a phone meanwhile.
 	let clients = store::lock_clients(&dir).map_err(|e| format!("can't lock {}: {e}", dir.join(store::CLIENTS_LOCK_FILE).display()))?;
-	let restored = restore_into(&contents, &dir, place.as_ref(), store::now())?;
+	let restored = restore_into(&contents, &dir, place.as_ref())?;
 	drop(clients);
 	drop(lock);
 
@@ -790,10 +678,6 @@ pub fn restore(args: &[String]) -> Result<(), String> {
 	}
 	if !summary.control_off && store::control_held_off(&dir) {
 		println!("  Control:       still held off by `elamond control off`, which a restore never lets go of");
-	}
-	if !restored.set_aside.is_empty() {
-		let names: Vec<String> = restored.set_aside.iter().map(|p| p.display().to_string()).collect();
-		println!("  Set aside:     {}", names.join("\n                 "));
 	}
 	println!();
 	println!("Phones paired with this computer connect as before, without pairing again.");
@@ -1090,14 +974,14 @@ mod tests {
 
 		// A fresh install: the service made an identity of its own.
 		let to = scratch();
-		let fresh = identity::Identity::load_or_create(&to).unwrap();
+		identity::Identity::load_or_create(&to).unwrap();
 		let envelope = Envelope::parse(&bytes).unwrap();
 		assert!(envelope.encrypted());
 		let contents = envelope.open(Some(PASS)).unwrap();
 		let summary = verify(&contents, false).unwrap();
 		assert_eq!((summary.id.as_str(), summary.fingerprint.as_str()), (before.id.as_str(), before.fingerprint.as_str()));
 		assert_eq!((summary.phones.len(), summary.links, summary.activity, summary.rotations, summary.control_off), (2, 1, 3, 1, true));
-		let restored = restore_into(&contents, &to, None, 1234).unwrap();
+		restore_into(&contents, &to, None).unwrap();
 
 		// The same computer: id, certificate, key, the chain behind it and every phone's token.
 		let after = identity::Identity::load_or_create(&to).unwrap();
@@ -1108,15 +992,13 @@ mod tests {
 		}
 		assert!(store::load_clients_in(&to).unwrap().iter().any(|c| c.token_hash == token_hash));
 		assert!(store::control_held_off(&to));
-		// What the fresh install had is kept beside, not lost.
-		assert_eq!(fs::read(to.join("cert.der.before-restore-1234")).unwrap(), fresh.cert_der);
-		assert_eq!(fs::read(to.join("key.der.before-restore-1234")).unwrap(), fresh.key_der);
-		assert_eq!(restored.set_aside.len(), 3, "{:?}", restored.set_aside);
-		// No temporary files.
-		assert!(!listing(&to).keys().any(|k| k.ends_with(".tmp")), "{:?}", listing(&to).keys());
+		// No temporary files, and no copies of what was there.
+		assert!(!listing(&to).keys().any(|k| k.ends_with(".tmp") || k.contains("before-restore")), "{:?}", listing(&to).keys());
 
-		// Restored again: nothing more to do, nothing more set aside.
-		assert!(restore_into(&contents, &to, None, 1235).unwrap().set_aside.is_empty());
+		// Restored again: nothing more to do.
+		let written = listing(&to);
+		restore_into(&contents, &to, None).unwrap();
+		assert_eq!(listing(&to), written);
 		fs::remove_dir_all(from).unwrap();
 		fs::remove_dir_all(to).unwrap();
 	}
@@ -1219,31 +1101,27 @@ mod tests {
 		assert!(verify(&good, false).is_ok());
 		assert_eq!(listing(&to), untouched);
 
-		// A write that fails halfway (here a folder where links.json goes) puts back all before it.
+		// A write that fails (here a folder where links.json goes) is an error; nothing is undone.
 		fs::create_dir(to.join(links::FILE)).unwrap();
 		fs::write(to.join(links::FILE).join("x"), "x").unwrap();
-		let untouched = listing(&to);
-		let e = restore_into(&good, &to, None, 99).err().unwrap();
-		assert!(e.contains("nothing was changed"), "{e}");
-		assert_eq!(listing(&to), untouched);
+		assert!(restore_into(&good, &to, None).is_err());
 		fs::remove_dir_all(from).unwrap();
 		fs::remove_dir_all(to).unwrap();
 	}
 
 	#[test]
-	fn state_the_backup_doesnt_have_is_taken_away_beside() {
+	fn state_the_backup_doesnt_have_is_taken_away() {
 		// A backup from before any phone, control or rotation, onto a computer with all of them.
 		let from = scratch();
 		identity::Identity::load_or_create(&from).unwrap();
 		let c = collect(&from, &[]).unwrap();
 		let to = used_service();
-		let r = restore_into(&c, &to, None, 7).unwrap();
+		restore_into(&c, &to, None).unwrap();
 		assert!(store::load_clients_in(&to).unwrap().is_empty());
 		assert!(identity::rotations(&to).unwrap().is_empty());
-		assert!(to.join("clients.json.before-restore-7").exists());
+		assert!(!to.join("clients.json").exists());
 		// Control held off stays so: a restore never lets go of it.
 		assert!(store::control_held_off(&to));
-		assert!(!r.set_aside.iter().any(|p| p.ends_with("control-off.json.before-restore-7")), "{:?}", r.set_aside);
 		fs::remove_dir_all(from).unwrap();
 		fs::remove_dir_all(to).unwrap();
 	}
@@ -1304,7 +1182,7 @@ mod tests {
 		let place = SettingsPlace { dir: to.join("cfg"), main: to.join("cfg/elamond.toml") };
 		fs::create_dir_all(to.join("cfg/elamond.d")).unwrap();
 		fs::write(to.join("cfg/elamond.d/mine.toml"), "name = \"Mine\"\n").unwrap();
-		let r = restore_into(&c, &to.join("data"), Some(&place), 5).unwrap();
+		let r = restore_into(&c, &to.join("data"), Some(&place)).unwrap();
 		assert_eq!(fs::read_to_string(to.join("cfg/elamond.toml")).unwrap(), "port = 47900\n");
 		assert_eq!(fs::read_to_string(to.join("cfg/elamond.d/on.toml")).unwrap(), "control = true\n");
 		assert_eq!(r.settings_kept, [to.join("cfg/elamond.d/mine.toml")]);
@@ -1316,14 +1194,14 @@ mod tests {
 		let linked = SettingsPlace { dir: to.join("cfg2"), main: to.join("cfg2/elamond.toml") };
 		fs::create_dir_all(&linked.dir).unwrap();
 		std::os::unix::fs::symlink(&store_like, &linked.main).unwrap();
-		let r = restore_into(&c, &to.join("data"), Some(&linked), 6).unwrap();
+		let r = restore_into(&c, &to.join("data"), Some(&linked)).unwrap();
 		assert!(r.settings_skipped[0].contains("a link"), "{:?}", r.settings_skipped);
 		assert_eq!(fs::read_to_string(&store_like).unwrap(), "port = 1\n");
 		fs::set_permissions(&store_like, fs::Permissions::from_mode(0o444)).unwrap();
 		// SAFETY: geteuid only reads the process's user id. Root may write anywhere.
 		if unsafe { libc::geteuid() } != 0 {
 			let named = SettingsPlace { dir: to.join("cfg3"), main: store_like.clone() };
-			let r = restore_into(&c, &to.join("data"), Some(&named), 6).unwrap();
+			let r = restore_into(&c, &to.join("data"), Some(&named)).unwrap();
 			assert!(r.settings_skipped[0].contains("not writable"), "{:?}", r.settings_skipped);
 			assert_eq!(fs::read_to_string(&store_like).unwrap(), "port = 1\n");
 		}

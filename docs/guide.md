@@ -1138,8 +1138,8 @@ What `elamond restore` does:
 - It checks everything in the backup before it writes anything. It refuses a wrong passphrase, a
   file that was changed or damaged, a backup from a newer elamond (update the service first) and,
   unless told `--force`, a running service.
-- Each file it replaces or removes, it keeps beside as `NAME.before-restore-TIME`. Old keys are among
-  them: delete those once all is well.
+- It writes each file in one step, and removes the state files the backup doesn't have. It keeps no
+  copy of what it replaces: restore from the backup again if a write fails.
 - It prints what it restored: the computer's id and certificate, the phones and the links.
 - `--passphrase-file PATH` reads the passphrase from a file, as for `elamond backup`.
 - `--with-settings` also puts back `elamond.toml` and the drop-ins in `elamond.d`, but never over a
@@ -1294,7 +1294,7 @@ do about those marked `!`. To see what the service reads without the app, run `e
   paired with a code may get one such key, once, with its own role and no more. `elamond clients`
   and `elamond revoke` say whose key added it, the activity log has it, and
   `elamond revoke ID --with-added` cuts off both. At most 64 phones are paired at once.
-- An old key lives on in backups and in files a restore set aside. `elamond restore` never lets go
+- An old key lives on in backups. `elamond restore` never lets go
   of control held off, and brings back phones unpaired since only with `--with-old-phones`.
 
 ### A new certificate
@@ -1326,5 +1326,4 @@ elamond pair                         # each phone again; the app replaces the co
 ```
 
 Every phone then says the certificate changed. The old key lives on in backups made before (with
-`elamond backup`) and in `key.der.before-restore-*` files a restore left in `~/.local/share/elamon`.
-Delete them, as `elamond rotate-cert` reminds you.
+`elamond backup`). Delete them, as `elamond rotate-cert` reminds you.

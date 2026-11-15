@@ -1201,15 +1201,6 @@ fn control(what: Option<&str>) -> Result<(), String> {
 	Ok(())
 }
 
-/// Copies of keys a restore set aside in the data directory `dir`, `key.der.before-restore-*`.
-fn keys_set_aside(dir: &std::path::Path) -> Vec<PathBuf> {
-	let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
-		.map(|d| d.flatten().map(|e| e.path()).filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("key.der.before-restore-"))).collect())
-		.unwrap_or_default();
-	found.sort();
-	found
-}
-
 /// `elamond rotate-cert`: a new certificate and key, the old key signing that the new certificate
 /// follows it before it is deleted, for routine renewal; with `--no-statement` nothing signed, for
 /// a key that may have leaked. The service presents the new one within seconds.
@@ -1242,11 +1233,7 @@ fn rotate_cert(args: &[String]) -> Result<(), String> {
 	}
 	println!("A running service presents the new certificate within a few seconds.");
 	println!();
-	println!("Older keys live on in backups made before now (elamond backup) and in files a restore set");
-	println!("aside; delete those you don't need.");
-	for path in keys_set_aside(&dir) {
-		println!("  {}", path.display());
-	}
+	println!("Older keys live on in backups made before now (elamond backup); delete those you don't need.");
 	Ok(())
 }
 
