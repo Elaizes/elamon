@@ -39,9 +39,6 @@ const POLKIT_MARK: &str = "Elamon";
 
 /// UDP port of mDNS, which the app finds the computer by.
 const MDNS_PORT: u16 = 5353;
-/// Interface names a VPN goes by, where mDNS isn't opened (as the NixOS module guesses them).
-const VPN_PREFIXES: [&str; 7] = ["tun", "tap", "wg", "nordlynx", "tailscale", "zt", "ppp"];
-
 /// How long setup waits for a service it started to answer.
 const START_WAIT: Duration = Duration::from_secs(15);
 const START_POLL: Duration = Duration::from_millis(250);
@@ -334,19 +331,6 @@ impl Settings {
 			system_units,
 		}
 	}
-
-	/// The interfaces `listen` confines the service to; empty when it listens on any address.
-	fn interfaces(&self) -> Vec<String> {
-		let mut names = Vec::new();
-		for t in &self.listen {
-			match t {
-				Target::Interface(name) => names.push(name.clone()),
-				// An address may be on any interface: the port is opened on all of them.
-				Target::Addr(_) => return Vec::new(),
-			}
-		}
-		names
-	}
 }
 
 /// The system units the links of the settings `loaded` name, sorted, for the polkit rule: from the
@@ -466,107 +450,34 @@ fn ufw_enabled(conf: &str) -> bool {
 	conf.lines().any(|l| matches!(l.trim().split_once('='), Some(("ENABLED", v)) if v.trim().trim_matches('"').eq_ignore_ascii_case("yes")))
 }
 
-fn vpn(name: &str) -> bool {
-	VPN_PREFIXES.iter().any(|p| name.starts_with(p))
-}
-
-/// One interface `listen` names, and the firewalld zone it is in (`None`: the default zone).
-#[derive(Clone, Debug, PartialEq)]
-struct Opening {
-	iface: String,
-	zone: Option<String>,
-}
-
 /// Root commands that open the service's port (TCP) and mDNS (UDP 5353, unless `mdns` is off) in
-/// `fw`: on every interface when `on` is empty, otherwise on those only, mDNS only on those that
-/// aren't a VPN, where the service never announces itself.
-fn firewall_commands(fw: Firewall, port: u16, mdns: bool, on: &[Opening]) -> Vec<String> {
+/// `fw`, for every interface, in the firewall's default zone.
+fn firewall_commands(fw: Firewall, port: u16, mdns: bool) -> Vec<String> {
 	let mut out = Vec::new();
 	match fw {
 		Firewall::Firewalld => {
-			// firewalld opens ports by zone, not by interface: each interface's zone.
-			let mut zones: Vec<(Option<String>, bool)> = Vec::new();
-			if on.is_empty() {
-				zones.push((None, mdns));
-			}
-			for o in on {
-				let wants_mdns = mdns && !vpn(&o.iface);
-				match zones.iter_mut().find(|z| z.0 == o.zone) {
-					Some(z) => z.1 |= wants_mdns,
-					None => zones.push((o.zone.clone(), wants_mdns)),
-				}
-			}
-			for (zone, with_mdns) in zones {
-				let zone = zone.map(|z| format!(" {}", sh_word(&format!("--zone={z}")))).unwrap_or_default();
-				out.push(format!("sudo firewall-cmd --permanent{zone} --add-port={port}/tcp"));
-				if with_mdns {
-					out.push(format!("sudo firewall-cmd --permanent{zone} --add-service=mdns"));
-				}
+			out.push(format!("sudo firewall-cmd --permanent --add-port={port}/tcp"));
+			if mdns {
+				out.push("sudo firewall-cmd --permanent --add-service=mdns".into());
 			}
 			out.push("sudo firewall-cmd --reload".into());
 		}
 		Firewall::Ufw => {
-			if on.is_empty() {
-				out.push(format!("sudo ufw allow {port}/tcp"));
-				if mdns {
-					out.push(format!("sudo ufw allow {MDNS_PORT}/udp"));
-				}
-			}
-			for o in on {
-				let iface = sh_word(&o.iface);
-				out.push(format!("sudo ufw allow in on {iface} to any port {port} proto tcp"));
-				if mdns && !vpn(&o.iface) {
-					out.push(format!("sudo ufw allow in on {iface} to any port {MDNS_PORT} proto udp"));
-				}
+			out.push(format!("sudo ufw allow {port}/tcp"));
+			if mdns {
+				out.push(format!("sudo ufw allow {MDNS_PORT}/udp"));
 			}
 		}
 		Firewall::Nftables => {
 			// The table and chain of the distributions' /etc/nftables.conf (Arch, Debian).
-			let rule = |iface: Option<&str>, proto: &str, p: u16| {
-				// nft reads the name in double quotes; a name with what a shell would read in them
-				// goes in single quotes, double quotes and all.
-				let on = iface
-					.map(|i| {
-						let quoted = format!("\"{i}\"");
-						format!("iifname {} ", if sh_word(i) == i { quoted } else { sh_word(&quoted) })
-					})
-					.unwrap_or_default();
-				format!("sudo nft insert rule inet filter input {on}{proto} dport {p} accept")
-			};
-			if on.is_empty() {
-				out.push(rule(None, "tcp", port));
-				if mdns {
-					out.push(rule(None, "udp", MDNS_PORT));
-				}
-			}
-			for o in on {
-				out.push(rule(Some(&o.iface), "tcp", port));
-				if mdns && !vpn(&o.iface) {
-					out.push(rule(Some(&o.iface), "udp", MDNS_PORT));
-				}
+			out.push(format!("sudo nft insert rule inet filter input tcp dport {port} accept"));
+			if mdns {
+				out.push(format!("sudo nft insert rule inet filter input udp dport {MDNS_PORT} accept"));
 			}
 		}
 		Firewall::Iptables | Firewall::Nixos | Firewall::None => {}
 	}
 	out
-}
-
-/// The interfaces `listen` names, with their firewalld zones when firewalld runs.
-fn openings(settings: &Settings, fw: Firewall) -> Vec<Opening> {
-	settings
-		.interfaces()
-		.into_iter()
-		.map(|iface| {
-			let zone = (fw == Firewall::Firewalld).then(|| firewalld_zone(&iface)).flatten();
-			Opening { iface, zone }
-		})
-		.collect()
-}
-
-fn firewalld_zone(iface: &str) -> Option<String> {
-	let out = Command::new("firewall-cmd").arg(format!("--get-zone-of-interface={iface}")).output().ok()?;
-	let zone = String::from_utf8_lossy(&out.stdout).trim().to_string();
-	(out.status.success() && !zone.is_empty() && !zone.contains(' ')).then_some(zone)
 }
 
 // ---- setup -------------------------------------------------------------------------------
@@ -756,15 +667,11 @@ fn root_steps(init: &dyn InitSystem, opts: &Opts, user: &str, settings: &Setting
 	}
 
 	let fw = Firewall::detect(init);
-	let opened = openings(settings, fw);
 	let mut what = format!("TCP {} for the app", settings.port);
 	if settings.mdns {
 		what.push_str(&format!(", UDP {MDNS_PORT} (mDNS) for finding the computer"));
 	}
-	if !opened.is_empty() {
-		what.push_str(&format!(", on {}", opened.iter().map(|o| o.iface.as_str()).collect::<Vec<_>>().join(", ")));
-	}
-	let commands = firewall_commands(fw, settings.port, settings.mdns, &opened);
+	let commands = firewall_commands(fw, settings.port, settings.mdns);
 	match fw {
 		Firewall::None => println!("\nNo firewall seems to be running: nothing to open ({what})."),
 		Firewall::Iptables => steps.push(RootStep {
@@ -1047,33 +954,20 @@ fn check_firewall(init: &dyn InitSystem, settings: &Settings) -> Item {
 	let fw = Firewall::detect(init);
 	let port = settings.port;
 	let what = format!("TCP {port}");
-	let fix = || firewall_commands(fw, port, settings.mdns, &openings(settings, fw)).join("\n");
+	let fix = || firewall_commands(fw, port, settings.mdns).join("\n");
 	match fw {
 		Firewall::None if init.running() => Item::new(Mark::Ok, "no firewall running: nothing to open"),
 		Firewall::None => Item::new(Mark::Unknown, "can't tell which firewall runs, if one does"),
 		Firewall::Firewalld => {
-			let zones: Vec<Option<String>> = {
-				let o = openings(settings, fw);
-				if o.is_empty() { vec![None] } else { o.into_iter().map(|o| o.zone).collect() }
-			};
-			let mut answers = Vec::new();
-			for zone in &zones {
-				let mut c = Command::new("firewall-cmd");
-				if let Some(z) = zone {
-					c.arg(format!("--zone={z}"));
-				}
-				answers.push(c.arg(format!("--query-port={port}/tcp")).output().ok().and_then(|o| match o.status.code() {
-					Some(0) => Some(true),
-					Some(1) => Some(false),
-					_ => None,
-				}));
-			}
-			if answers.iter().all(|a| *a == Some(true)) {
-				Item::new(Mark::Ok, format!("firewalld lets {what} through"))
-			} else if answers.contains(&Some(false)) {
-				Item::new(Mark::Bad, format!("firewalld doesn't let {what} through")).hint(fix())
-			} else {
-				Item::new(Mark::Unknown, format!("firewalld runs; can't tell whether it lets {what} through without root")).hint(fix())
+			let answer = Command::new("firewall-cmd").arg(format!("--query-port={port}/tcp")).output().ok().and_then(|o| match o.status.code() {
+				Some(0) => Some(true),
+				Some(1) => Some(false),
+				_ => None,
+			});
+			match answer {
+				Some(true) => Item::new(Mark::Ok, format!("firewalld lets {what} through")),
+				Some(false) => Item::new(Mark::Bad, format!("firewalld doesn't let {what} through")).hint(fix()),
+				None => Item::new(Mark::Unknown, format!("firewalld runs; can't tell whether it lets {what} through without root")).hint(fix()),
 			}
 		}
 		Firewall::Ufw => Item::new(Mark::Unknown, format!("ufw is on; can't tell whether it lets {what} through without root"))
@@ -1278,7 +1172,6 @@ mod tests {
 	fn the_settings_setup_needs() {
 		let s = Settings::of(&toml::Table::new());
 		assert_eq!(s, Settings { port: 47823, mdns: true, control: false, listen: vec![Target::ANY], system_units: Ok(Vec::new()) });
-		assert!(s.interfaces().is_empty());
 
 		let s = Settings::of(&table(
 			r#"
@@ -1306,12 +1199,8 @@ mod tests {
 			"#,
 		));
 		assert_eq!((s.port, s.mdns, s.control), (48000, false, true));
-		assert_eq!(s.interfaces(), ["eno1", "tailscale0"]);
 		assert_eq!(s.system_units, Ok(vec!["jellyfin.service".into(), "nginx.service".into()]), "only system units, sorted");
 
-		// An address among them: it may be on any interface.
-		assert!(Settings::of(&table(r#"listen = ["eno1", "192.0.2.10"]"#)).interfaces().is_empty());
-		assert_eq!(Settings::of(&table(r#"listen = "wlan0""#)).interfaces(), ["wlan0"]);
 		// Nonsense falls back to the defaults, which the service would refuse anyway.
 		let s = Settings::of(&table("port = 70000\nmdns = \"yes\"\nlisten = []"));
 		assert_eq!((s.port, s.mdns, s.listen.clone()), (47823, true, vec![Target::ANY]));
@@ -1329,7 +1218,7 @@ mod tests {
 		let s = Settings::of(&toml::Table::try_from(t).unwrap());
 		assert_eq!(s.port, 48000);
 		assert_eq!(s.system_units, Ok(vec!["b.service".into()]));
-		assert_eq!(s.interfaces(), ["eno1"]);
+		assert_eq!(s.listen, vec![Target::parse("eno1").unwrap()]);
 	}
 
 	#[test]
@@ -1423,59 +1312,23 @@ mod tests {
 		assert_eq!(sh_word(""), "''");
 		assert_eq!(Systemd.linger_command("alice"), "sudo loginctl enable-linger alice");
 		assert_eq!(Systemd.linger_command("a b"), "sudo loginctl enable-linger 'a b'");
-		// What a firewall tells, or an interface that isn't one the settings would take.
-		let odd = [Opening { iface: "e;reboot".into(), zone: Some("x y".into()) }];
-		assert_eq!(firewall_commands(Firewall::Firewalld, 47823, false, &odd)[0], "sudo firewall-cmd --permanent '--zone=x y' --add-port=47823/tcp");
-		assert_eq!(firewall_commands(Firewall::Ufw, 47823, false, &odd), ["sudo ufw allow in on 'e;reboot' to any port 47823 proto tcp"]);
-		assert_eq!(firewall_commands(Firewall::Nftables, 47823, false, &odd), ["sudo nft insert rule inet filter input iifname '\"e;reboot\"' tcp dport 47823 accept"]);
 	}
 
 	#[test]
 	fn firewall_commands_per_backend() {
-		let every: &[Opening] = &[];
 		assert_eq!(
-			firewall_commands(Firewall::Firewalld, 47823, true, every),
+			firewall_commands(Firewall::Firewalld, 47823, true),
 			["sudo firewall-cmd --permanent --add-port=47823/tcp", "sudo firewall-cmd --permanent --add-service=mdns", "sudo firewall-cmd --reload"]
 		);
-		assert_eq!(firewall_commands(Firewall::Firewalld, 48000, false, every), ["sudo firewall-cmd --permanent --add-port=48000/tcp", "sudo firewall-cmd --reload"]);
-		assert_eq!(firewall_commands(Firewall::Ufw, 47823, true, every), ["sudo ufw allow 47823/tcp", "sudo ufw allow 5353/udp"]);
-		assert_eq!(firewall_commands(Firewall::Ufw, 47823, false, every), ["sudo ufw allow 47823/tcp"]);
+		assert_eq!(firewall_commands(Firewall::Firewalld, 48000, false), ["sudo firewall-cmd --permanent --add-port=48000/tcp", "sudo firewall-cmd --reload"]);
+		assert_eq!(firewall_commands(Firewall::Ufw, 47823, true), ["sudo ufw allow 47823/tcp", "sudo ufw allow 5353/udp"]);
+		assert_eq!(firewall_commands(Firewall::Ufw, 47823, false), ["sudo ufw allow 47823/tcp"]);
 		assert_eq!(
-			firewall_commands(Firewall::Nftables, 47823, true, every),
+			firewall_commands(Firewall::Nftables, 47823, true),
 			["sudo nft insert rule inet filter input tcp dport 47823 accept", "sudo nft insert rule inet filter input udp dport 5353 accept"]
 		);
-		assert!(firewall_commands(Firewall::None, 47823, true, every).is_empty());
-		assert!(firewall_commands(Firewall::Iptables, 47823, true, every).is_empty());
-
-		// On chosen interfaces: mDNS never on a VPN.
-		let on = [
-			Opening { iface: "eno1".into(), zone: Some("home".into()) },
-			Opening { iface: "tailscale0".into(), zone: Some("trusted".into()) },
-			Opening { iface: "wlan0".into(), zone: Some("home".into()) },
-		];
-		assert_eq!(
-			firewall_commands(Firewall::Firewalld, 47823, true, &on),
-			[
-				"sudo firewall-cmd --permanent --zone=home --add-port=47823/tcp",
-				"sudo firewall-cmd --permanent --zone=home --add-service=mdns",
-				"sudo firewall-cmd --permanent --zone=trusted --add-port=47823/tcp",
-				"sudo firewall-cmd --reload",
-			]
-		);
-		let unzoned = [Opening { iface: "wg0".into(), zone: None }];
-		assert_eq!(firewall_commands(Firewall::Firewalld, 47823, true, &unzoned), ["sudo firewall-cmd --permanent --add-port=47823/tcp", "sudo firewall-cmd --reload"]);
-		assert_eq!(
-			firewall_commands(Firewall::Ufw, 47823, true, &on[..2]),
-			["sudo ufw allow in on eno1 to any port 47823 proto tcp", "sudo ufw allow in on eno1 to any port 5353 proto udp", "sudo ufw allow in on tailscale0 to any port 47823 proto tcp"]
-		);
-		assert_eq!(
-			firewall_commands(Firewall::Nftables, 47823, true, &on[1..]),
-			[
-				"sudo nft insert rule inet filter input iifname \"tailscale0\" tcp dport 47823 accept",
-				"sudo nft insert rule inet filter input iifname \"wlan0\" tcp dport 47823 accept",
-				"sudo nft insert rule inet filter input iifname \"wlan0\" udp dport 5353 accept",
-			]
-		);
+		assert!(firewall_commands(Firewall::None, 47823, true).is_empty());
+		assert!(firewall_commands(Firewall::Iptables, 47823, true).is_empty());
 	}
 
 	#[test]

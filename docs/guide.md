@@ -226,11 +226,11 @@ By hand:
 | ufw (Ubuntu, when it's on) | `sudo ufw allow 47823/tcp`<br>`sudo ufw allow 5353/udp` |
 | nftables (when its service runs) | `sudo nft insert rule inet filter input tcp dport 47823 accept`<br>`sudo nft insert rule inet filter input udp dport 5353 accept`<br>Add the same rules to `/etc/nftables.conf`, or they're gone after a reboot. |
 
-**Only on some interfaces.** Name them in `listen` ([section 7](#where-the-service-listens)) and
-run `elamond setup` again. It then opens the port on those interfaces only (with firewalld, in
-their zones). UDP 5353 is opened only on interfaces not named like a VPN, since discovery doesn't
-work over a VPN anyway. On NixOS, `services.elamond.firewallInterfaces = [ "eno1" "tailscale0" ];`
-does the same.
+**Only on some interfaces.** `elamond setup` opens the ports on every interface, in the firewall's
+default zone. To open them for chosen interfaces or zones only, adapt the commands by hand (name the
+zone or the interface in them), and name the interfaces in `listen`
+([section 7](#where-the-service-listens)). On NixOS,
+`services.elamond.firewallInterfaces = [ "eno1" "tailscale0" ];` does it.
 
 ## 3. Pair the phone
 
