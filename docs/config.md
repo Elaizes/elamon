@@ -26,35 +26,49 @@ So a drop-in can add a dashboard, change one key of one in elamond.toml, or repl
 `elamond check [FILE]` reads the settings as the service would and names the file and line of each
 mistake; `elamond edit [FILE]` opens the file in `$VISUAL` or `$EDITOR` and doesn't keep a broken
 one; `elamond schema` prints the JSON Schema of these settings, for editors that check TOML against
-one (taplo, Even Better TOML: `#:schema` at the top of the file); `elamond defaults` prints the
+one (taplo, Even Better TOML: `#:schema` at the top of the file, as the starter files have it);
+`elamond defaults` prints the
 settings elamond starts with ([below](#the-defaults-beside-defaultstoml)); `elamond values` lists
 the values this computer has now.
 
 ## The starter file
 
-Where there is no elamond.toml, `elamond setup` and the service's first start write one: the
-settings elamond starts with, whole. It begins with `schema = 3` and the top-level keys, each with
-a line on what it does, then commented-out examples of a link and an action, then the `default`
-profile, every standard dashboard (`header`, `overview`, `processes`, `sensors`, `control`, and
-the pages their tiles open) and the templates they use. It is yours from then on: elamond never
-writes it again.
+Where there is no elamond.toml, `elamond setup` and the service's first start write the settings
+elamond starts with, in two files:
+
+- `elamond.toml`, short: `schema = 3` and the top-level keys (control, where it listens, names,
+  the role and profile new phones get), each with a line on what it does, commented-out examples of
+  a link and an action, and the `default` profile;
+- `elamond.d/dashboards.toml` (unless one is there already): every standard dashboard (`header`,
+  `overview`, `processes`, `sensors`, `control`, and the pages their tiles open) and the templates
+  they use.
+
+Together they are the whole of the settings, as one file would be: nothing is built in under
+them. Both are yours from then on: elamond never writes them again. Each begins with a line for
+editors, `#:schema elamond-schema.json` (`../elamond-schema.json` in elamond.d/), naming the JSON
+Schema of the settings that the service keeps beside them, as it keeps defaults.toml; editors that
+read it (taplo, Even Better TOML) then suggest keys and mark mistakes.
 
 ```toml
+#:schema elamond-schema.json
+…
 schema = 3
 
-# Let paired phones act on this computer (power, the power profile, units, media, actions),
-# each as far as its role allows.
+# Let paired phones act on this computer (power, the power profile, units, media, the actions
+# below), each as far as its role allows.
 control = false
 …
 [profiles.default]
 name = "Default"
 theme = "system"
 …
-[dashboards.overview]
-title = "Overview"
-icon = "overview"
-…
 ```
+
+dashboards.toml is read after elamond.toml and before the drop-ins whose names come after its own,
+phones.toml among them; a drop-in that changes a standard dashboard is named so it comes after it
+(`elamond.d/mine.toml`), or the change is made in dashboards.toml itself. An elamond.toml of 0.6.1,
+the whole of the settings in one file, stays as it is and as good: the two files are only how a new
+start is laid out.
 
 An empty elamond.toml is sound settings too, of no dashboards and no profiles: phones paired with
 it see nothing. `elamond check` says so: it warns of settings without dashboards, and of a
@@ -73,7 +87,7 @@ version starts, it writes its own and keeps the one before as `defaults.toml.old
 
 | command | |
 |---|---|
-| `elamond defaults` | prints the settings elamond starts with: the starter file, without its first lines (from `schema` on) |
+| `elamond defaults` | prints the settings elamond starts with: the two starter files as one, from `schema` on |
 | `elamond defaults --diff` | what in your settings is other than in those, and what changed in them between defaults.toml.old and this version: by table, `added`, `changed` (and which keys) or `removed` |
 | `elamond defaults TABLE` | one table of them, as TOML to copy into your settings: `dashboards.sensors`, `profiles.default`, `templates.sensor_table` |
 

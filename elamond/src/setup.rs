@@ -600,10 +600,10 @@ fn install(init: &dyn InitSystem, opts: &Opts, exe: &str, settings: &Settings) -
 	let config = place.named.is_none().then(|| place.main());
 	if let Some(config) = config.filter(|p| fs::symlink_metadata(p).is_err()) {
 		if print {
-			println!("Would write {}: the settings elamond starts with, control off (elamond defaults prints them)", short(&config));
+			println!("Would write {} and {}/{}: the settings elamond starts with, control off (elamond defaults prints them)", short(&config), store::DROPIN_DIR, crate::migrate::DASHBOARDS_FILE);
 		} else {
 			crate::migrate::write_starter(&config).map_err(|e| format!("can't write {}: {e}", config.display()))?;
-			done(&format!("wrote {}, the settings elamond starts with (control is off)", short(&config)));
+			done(&format!("wrote {} and {}/{}, the settings elamond starts with (control is off)", short(&config), store::DROPIN_DIR, crate::migrate::DASHBOARDS_FILE));
 		}
 	}
 	let version = env!("CARGO_PKG_VERSION");

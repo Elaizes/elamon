@@ -1,0 +1,74 @@
+# Settings of the Elamon service (elamond), schema 3; every key is in docs/config.md
+# (https://github.com/Elaizes/elamon/blob/main/docs/config.md). These, and elamond.d/*.toml beside
+# them, are the whole of them: the standard dashboards are in elamond.d/dashboards.toml, each
+# phone's own profile in elamond.d/phones.toml. The service rereads them when they change;
+# `elamond check` names the line of each mistake. Keep a secret (a password in a link, a token
+# among a command's arguments) in a file only you can read: chmod 600.
+
+schema = 3
+
+# Let paired phones act on this computer (power, the power profile, units, media, the actions
+# below), each as far as its role allows.
+control = false
+
+# Where the service listens: addresses, and interfaces by name ("eno1", "tailscale0"); "::" is
+# every address. A change to this or to the next five applies when the service starts again.
+listen = ["::"]
+port = 47823
+# Announce the service on the local network, so the app finds it.
+mdns = true
+# How often the service reads the computer, in milliseconds (250 to 10 000), and how far back
+# graphs reach, in minutes (1 to 1440).
+interval_ms = 1000
+history_minutes = 10
+# The computer's name in the app; its host name when left out.
+# name = "Desk"
+
+# Names that reach this computer, offered after its addresses: in the pairing code, and to the
+# phones paired.
+# names = ["desk.example.net"]
+
+# The role a phone pairs with when `elamond pair` isn't given --role: glance, monitor, operate
+# or admin.
+default_role = "admin"
+# The profile each phone's own one (in elamond.d/phones.toml) uses when `elamond pair` isn't
+# given --profile.
+default_profile = "default"
+
+# A web page this computer hosts, and the system unit behind it that phones may start and
+# stop. Run `elamond setup` again after adding one: the polkit rule it prints names the unit.
+# [links.jellyfin]
+# name = "Jellyfin"
+# url = "http://{host}:8096"
+# unit = "jellyfin.service"
+# scope = "system"
+
+# A command phones may run, with a choice for whoever runs it.
+# [actions.brightness]
+# name = "Screen brightness"
+# command = ["brightnessctl", "set", "{level}"]
+# params.level = { choices = ["10%", "50%", "100%"], labels = { "10%" = "Dim", "50%" = "Half", "100%" = "Full" }, default = "50%" }
+# role = "operate"
+
+# ---- Profiles: how phones look and behave ---------------------------------------------------
+# Each paired phone has a profile of its own in elamond.d/phones.toml, which uses this one (or
+# the one `elamond pair --profile` names): change one phone there, or every phone here.
+
+[profiles.default]
+name = "Default"
+theme = "system"
+pure_black = false
+animations = true
+interval_ms = 1000
+fahrenheit = false
+network_bits = false
+confirm_actions = true
+unlock = { for = ["power", "signal", "actions", "units"], grace = "every_time" }
+dashboards = ["overview", "processes", "sensors", "control"]
+header = "header"
+
+[profiles.default.android]
+dynamic_color = true
+blur = true
+haptics = true
+keep_screen_on = false

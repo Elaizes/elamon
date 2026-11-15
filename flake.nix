@@ -42,8 +42,10 @@
 
 			defaultPackage = pkgs: self.packages.${pkgs.stdenv.hostPlatform.system}.elamond;
 
-			# The settings elamond starts with (the starter file, defaults.toml), as Nix reads them.
-			defaultSettings = builtins.fromTOML (builtins.readFile ./elamond/src/defaults.toml);
+			# The settings elamond starts with (the starter elamond.toml and elamond.d/dashboards.toml,
+			# defaults.toml), as Nix reads them: two files of top-level keys apart.
+			defaultSettings = builtins.fromTOML (builtins.readFile ./elamond/src/starter.toml)
+				// builtins.fromTOML (builtins.readFile ./elamond/src/dashboards.toml);
 
 			# What the modules put in `settings` themselves: the defaults, each value (a list whole) at
 			# mkDefault, so what is set there overrides them key by key, a list replacing theirs whole;

@@ -16,9 +16,12 @@ use crate::format;
 use crate::listen::Target;
 use crate::values;
 
-/// The settings elamond starts with, a whole file of settings schema 3: what `elamond setup` and
-/// the first start write as elamond.toml.
-pub const DEFAULTS: &str = include_str!("defaults.toml");
+/// The settings elamond starts with, as `elamond setup` and the first start write them: the starter
+/// elamond.toml, then elamond.d/dashboards.toml, the standard dashboards and their templates.
+pub const STARTER: &str = include_str!("starter.toml");
+pub const DASHBOARDS: &str = include_str!("dashboards.toml");
+/// The two as one file of settings schema 3: `elamond defaults`, defaults.toml beside the settings.
+pub const DEFAULTS: &str = concat!(include_str!("starter.toml"), "\n", include_str!("dashboards.toml"));
 /// What mistakes in them are said to be in.
 pub const DEFAULTS_NAME: &str = "built-in defaults";
 /// The settings schema this elamond reads: `schema = 3`, a whole file.

@@ -5,8 +5,9 @@
 # screen and the settings' own dashboard with an action's choice, makes the phone a glance one and an
 # admin again with elamond clients role, switches its profile and back, changes the phone's own
 # profile in elamond.d/phones.toml with its screen open, pairs it again (it keeps that profile), and
-# leaves the screenshots in $OUT. The test's own settings are a drop-in, elamond.d/base.toml, over the
-# starter elamond.toml the service writes at its first start.
+# leaves the screenshots in $OUT. The test's own settings are a drop-in, elamond.d/test.toml, over the
+# starter elamond.toml and elamond.d/dashboards.toml the service writes at its first start (read
+# after them, its name coming after dashboards.toml).
 #   cargo build --release (in elamond/) and ./gradlew :app:assembleDebug first.
 #   ELAMOND=path/to/elamond   another build of the service than elamond/target/release/elamond.
 #   FONT_SCALE=2.0 maestro/run.sh   repeats the screens with a large font; the phone's own comes back after.
@@ -62,8 +63,8 @@ work=$(mktemp -d)
 trap 'kill "${service:-}" "${pairing:-}" 2>/dev/null; restore_font_scale; rm -rf "$work"' EXIT
 
 mkdir -p "$work/cfg/elamond.d" "$work/data"
-# The test's own settings, a drop-in: the service writes the starter elamond.toml beside it.
-cat > "$work/cfg/elamond.d/base.toml" <<TOML
+# The test's own settings, a drop-in: the service writes the starter files beside it.
+cat > "$work/cfg/elamond.d/test.toml" <<TOML
 port = $PORT
 listen = "127.0.0.1"
 mdns = false
@@ -130,7 +131,7 @@ service=$!
 sleep 2
 fail() { echo "maestro/run.sh: $*" >&2; exit 1; }
 # The starter and the defaults are written beside the drop-in.
-grep -qx 'schema = 3' "$work/cfg/elamond.toml" && [[ -f "$work/cfg/defaults.toml" ]] || fail "elamond.toml or defaults.toml wasn't written"
+grep -qx 'schema = 3' "$work/cfg/elamond.toml" && [[ -f "$work/cfg/elamond.d/dashboards.toml" && -f "$work/cfg/defaults.toml" && -f "$work/cfg/elamond-schema.json" ]] || fail "elamond.toml, dashboards.toml, defaults.toml or elamond-schema.json wasn't written"
 
 adb uninstall "$APP_ID" > /dev/null 2>&1 || true
 adb install -r "${APK:-app/build/outputs/apk/debug/app-debug.apk}" > /dev/null

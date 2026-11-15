@@ -6,9 +6,13 @@ use std::io::{self, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
-use crate::settings::DEFAULTS;
+use crate::settings::{DASHBOARDS, DEFAULTS, STARTER};
 use crate::store::{self, Place};
 
+/// The standard dashboards' drop-in, which the starter comes with.
+pub const DASHBOARDS_FILE: &str = "dashboards.toml";
+/// The JSON Schema of the settings, beside them for editors (`#:schema` in the starter files).
+pub const SCHEMA_FILE: &str = "elamond-schema.json";
 /// The settings elamond starts with, beside the settings, for reference; and the version before's.
 pub const DEFAULTS_FILE: &str = "defaults.toml";
 pub const DEFAULTS_OLD: &str = "defaults.toml.old";
@@ -21,7 +25,7 @@ pub fn at_start(place: &Place) {
 			let main = place.main();
 			if fs::symlink_metadata(&main).is_err() {
 				match write_starter(&main) {
-					Ok(()) => eprintln!("settings: wrote {}, the settings elamond starts with (control is off)", store::shown(&main)),
+					Ok(()) => eprintln!("settings: wrote {} and its {}/{DASHBOARDS_FILE}, the settings elamond starts with (control is off)", store::shown(&main), store::DROPIN_DIR),
 					Err(e) => eprintln!("settings: can't write {}, the settings to start from: {e}", store::shown(&main)),
 				}
 			}
@@ -52,14 +56,24 @@ pub fn read_beside(place: &Place) -> Option<String> {
 	})
 }
 
-/// Writes the starter, the settings elamond starts with, as the main file `main` where there is
-/// none: never over one, and only its owner's to read.
+/// Writes the settings elamond starts with where there are none: the starter as the main file
+/// `main`, and the standard dashboards as elamond.d/dashboards.toml beside it unless that is there.
+/// Each begins with a `#:schema` line naming the JSON Schema beside them, for editors; never written
+/// over a file, and only their owner's to read.
 pub fn write_starter(main: &Path) -> io::Result<()> {
-	if let Some(dir) = main.parent().filter(|d| !d.as_os_str().is_empty()) {
-		fs::create_dir_all(dir)?;
+	let dir = main.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+	fs::create_dir_all(dir)?;
+	let new = |path: &Path, text: String| -> io::Result<()> {
+		let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+		f.write_all(text.as_bytes())
+	};
+	new(main, format!("#:schema {SCHEMA_FILE}\n{STARTER}"))?;
+	let dropins = dir.join(store::DROPIN_DIR);
+	fs::create_dir_all(&dropins)?;
+	match new(&dropins.join(DASHBOARDS_FILE), format!("#:schema ../{SCHEMA_FILE}\n{DASHBOARDS}")) {
+		Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+		other => other,
 	}
-	let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(main)?;
-	f.write_all(DEFAULTS.as_bytes())
 }
 
 // ---- defaults.toml ------------------------------------------------------------------------
@@ -98,9 +112,12 @@ pub fn write_defaults(dir: &Path, version: &str) -> Option<String> {
 		Err(e) if e.kind() == io::ErrorKind::NotFound => {}
 		Err(e) => return Some(format!("can't look at {shown}: {e}")),
 	}
-	let written = fs::create_dir_all(dir).and_then(|()| store::replace_as(&path, (defaults_header(version) + DEFAULTS).as_bytes(), 0o444));
+	let schema = serde_json::to_string_pretty(&crate::settings::json_schema()).unwrap_or_default() + "\n";
+	let written = fs::create_dir_all(dir)
+		.and_then(|()| store::replace_as(&path, (defaults_header(version) + DEFAULTS).as_bytes(), 0o444))
+		.and_then(|()| store::replace_as(&dir.join(SCHEMA_FILE), schema.as_bytes(), 0o444));
 	Some(match written {
-		Ok(()) => format!("wrote {shown}, the settings elamond {version} starts with, for reference"),
+		Ok(()) => format!("wrote {shown}, the settings elamond {version} starts with, for reference, and {SCHEMA_FILE} for editors"),
 		Err(e) => format!("can't write {shown}: {e}"),
 	})
 }
@@ -113,6 +130,33 @@ mod tests {
 		let dir = std::env::temp_dir().join(format!("elamond-migrate-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
 		fs::create_dir_all(&dir).unwrap();
 		Place { dir, named: None }
+	}
+
+	#[test]
+	fn the_starter_is_a_short_elamond_toml_and_the_dashboards_beside_it() {
+		let place = scratch();
+		write_starter(&place.main()).unwrap();
+		let main = fs::read_to_string(place.main()).unwrap();
+		let dashboards = fs::read_to_string(place.dropins().join(DASHBOARDS_FILE)).unwrap();
+		assert!(main.starts_with("#:schema elamond-schema.json\n") && dashboards.starts_with("#:schema ../elamond-schema.json\n"));
+		assert!(main.lines().count() < 80 && !main.contains("[dashboards.") && !main.contains("[templates."), "{main}");
+		// Read as the service reads them, they are the settings elamond starts with, whole.
+		let files: Vec<_> = place.files();
+		let read = crate::settings::read_files(&files).unwrap();
+		let (_, merged) = crate::settings::read_merged(&read).unwrap();
+		let (_, whole) = crate::settings::read_merged(&[crate::settings::Source::new("defaults", DEFAULTS)]).unwrap();
+		assert_eq!(merged, whole);
+		// Never over a file: not the main one, nor a dashboards.toml of the person's own.
+		assert!(write_starter(&place.main()).is_err());
+		fs::remove_file(place.main()).unwrap();
+		fs::write(place.dropins().join(DASHBOARDS_FILE), "# mine\n").unwrap();
+		write_starter(&place.main()).unwrap();
+		assert_eq!(fs::read_to_string(place.dropins().join(DASHBOARDS_FILE)).unwrap(), "# mine\n");
+		// The schema the first lines name, beside them, written with defaults.toml.
+		write_defaults(&place.dir, "0.6.2").unwrap();
+		let schema: serde_json::Value = serde_json::from_str(&fs::read_to_string(place.dir.join(SCHEMA_FILE)).unwrap()).unwrap();
+		assert_eq!(schema["title"], "elamond settings (schema 3)");
+		fs::remove_dir_all(&place.dir).unwrap();
 	}
 
 	#[test]
@@ -147,7 +191,7 @@ mod tests {
 		let place = scratch();
 		let main = place.dir.join("sub").join("elamond.toml");
 		write_starter(&main).unwrap();
-		assert_eq!(fs::read_to_string(&main).unwrap(), DEFAULTS);
+		assert_eq!(fs::read_to_string(&main).unwrap(), format!("#:schema {SCHEMA_FILE}\n{STARTER}"));
 		assert_eq!(fs::metadata(&main).unwrap().permissions().mode() & 0o777, 0o600);
 		// Never over one.
 		fs::write(&main, "control = true\n").unwrap();
