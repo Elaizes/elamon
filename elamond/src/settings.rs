@@ -1,7 +1,5 @@
 //! The settings, schema 3 (docs/config.md): elamond.toml, then elamond.d/*.toml, a table with an
-//! id merging key by key with the one before and a list replacing it whole. An elamond.toml of
-//! 0.6.0 (schema 2, no `schema` in it) is read over the settings elamond starts with
-//! (defaults.toml), as 0.6.0 read it over what was built in. Each file is checked on its own first,
+//! id merging key by key with the one before and a list replacing it whole. Each file is checked on its own first,
 //! so a mistake names the file and the line it is in; then the settings as merged, for what refers
 //! to what. The same definitions give the JSON Schema `elamond schema` prints.
 
@@ -19,12 +17,11 @@ use crate::listen::Target;
 use crate::values;
 
 /// The settings elamond starts with, a whole file of settings schema 3: what `elamond setup` and
-/// the first start write as elamond.toml, and what a file of 0.6.0 (no `schema`) is read over.
+/// the first start write as elamond.toml.
 pub const DEFAULTS: &str = include_str!("defaults.toml");
 /// What mistakes in them are said to be in.
 pub const DEFAULTS_NAME: &str = "built-in defaults";
-/// The settings schema this elamond reads: `schema = 3`, a whole file. A file without `schema` is
-/// one of 0.6.0, schema 2, read over `DEFAULTS`.
+/// The settings schema this elamond reads: `schema = 3`, a whole file.
 pub const SCHEMA: i64 = 3;
 
 pub const WIDGET_TYPES: [&str; 15] =
@@ -555,7 +552,7 @@ pub fn read_files(files: &[PathBuf]) -> Result<Vec<Source>, Vec<Mistake>> {
 /// The settings from `files`, the main file first; those not there are left out.
 pub fn load(files: &[PathBuf]) -> Result<Config, Vec<Mistake>> {
 	let sources = read_files(files)?;
-	read_settings(&sources, main_in(files, &sources))
+	read_sources(&sources)
 }
 
 /// Whether the first of `sources`, as read from `files`, is the main file (the first of `files`),
@@ -564,35 +561,22 @@ pub fn main_in(files: &[PathBuf], sources: &[Source]) -> bool {
 	files.first().zip(sources.first()).is_some_and(|(f, s)| s.name == f.display().to_string())
 }
 
-/// Whether the settings file `text` says which schema it is: one that doesn't is of 0.6.0.
-pub fn has_schema(text: &str) -> bool {
-	text.parse::<toml::Table>().is_ok_and(|t| t.contains_key("schema"))
+/// Test settings written as drop-ins over `DEFAULTS`, which they lean on for the standard dashboards.
+#[cfg(test)]
+pub fn read_over_defaults(sources: &[Source]) -> Result<Config, Vec<Mistake>> {
+	let all: Vec<Source> = std::iter::once(Source::new(DEFAULTS_NAME, DEFAULTS)).chain(sources.iter().cloned()).collect();
+	read_sources(&all)
 }
 
-/// Whether settings whose main file is `main` (none when there is none) are read over
-/// `DEFAULTS`: a main file without `schema` is one of 0.6.0, read as 0.6.0 read it over what was
-/// built in. Without a main file there is nothing under the drop-ins either.
-pub fn over_defaults(main: Option<&Source>) -> bool {
-	main.is_some_and(|s| !has_schema(&s.text))
-}
-
-/// The settings from `sources`, in that order, or every mistake found; the first is the main file.
+/// The settings from `sources`, in that order, or every mistake found.
 pub fn read_sources(sources: &[Source]) -> Result<Config, Vec<Mistake>> {
-	read_settings(sources, true)
-}
-
-/// The settings from `sources`, in that order, or every mistake found. With `main`, the first is
-/// the main file: one that says its `schema` is the whole of the settings; one that doesn't is of
-/// 0.6.0, read over `DEFAULTS`. Without, they are drop-ins alone, and nothing is under them.
-pub fn read_settings(sources: &[Source], main: bool) -> Result<Config, Vec<Mistake>> {
-	read_merged(sources, main).map(|(c, _)| c)
+	read_merged(sources).map(|(c, _)| c)
 }
 
 /// `read_settings`, with the settings as merged from the files before they were taken up: what
 /// two ways of writing them are compared by.
-pub fn read_merged(sources: &[Source], main: bool) -> Result<(Config, Map<String, Value>), Vec<Mistake>> {
-	let under = over_defaults(sources.first().filter(|_| main)).then(|| Source::new(DEFAULTS_NAME, DEFAULTS));
-	let all: Vec<Source> = under.into_iter().chain(sources.iter().cloned()).collect();
+pub fn read_merged(sources: &[Source]) -> Result<(Config, Map<String, Value>), Vec<Mistake>> {
+	let all = sources;
 	let mut mistakes = Vec::new();
 	let mut docs = Vec::new();
 	for (i, s) in all.iter().enumerate() {
@@ -1141,7 +1125,7 @@ fn check_top(v: &Value, partial: bool, out: &mut Found) {
 		match schema.as_i64() {
 			Some(SCHEMA) => {}
 			Some(n) if n > SCHEMA => out.push(("schema".into(), format!("settings schema {n}: this elamond reads {SCHEMA} — written for a newer elamond?"))),
-			Some(n) => out.push(("schema".into(), format!("settings schema {n}: this elamond reads {SCHEMA}; a file of elamond 0.6.0 has no schema at all"))),
+			Some(n) => out.push(("schema".into(), format!("settings schema {n}: this elamond reads {SCHEMA}"))),
 			None => out.push(("schema".into(), format!("should be {SCHEMA}, not {}", found(&schema)))),
 		}
 	}
@@ -1916,6 +1900,13 @@ mod tests {
 		read_sources(&files.iter().map(|(n, t)| Source::new(*n, *t)).collect::<Vec<_>>())
 	}
 
+	/// `files` as drop-ins over the defaults, which what they refer to is in.
+	fn over<'a>(files: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
+		let mut all = vec![(DEFAULTS_NAME, DEFAULTS)];
+		all.extend_from_slice(files);
+		all
+	}
+
 	fn mistakes(files: &[(&str, &str)]) -> String {
 		join_mistakes(&read(files).unwrap_err())
 	}
@@ -1932,20 +1923,14 @@ mod tests {
 		assert_eq!(fixture.links["web"].unit.as_deref(), Some("web.service"));
 		// A whole file, of schema 3: nothing is read under it.
 		assert!(!fixture.dashboards.contains_key("overview"));
-		// One without a schema is of 0.6.0, read over the defaults.
-		let old = read(&[("elamond.toml", "[profiles.mine]\nuse = \"default\"\n")]).unwrap();
-		assert!(old.dashboards.contains_key("overview") && old.profiles.contains_key("mine"));
-		// The fixture of a 0.6.0 file, moved to schema 3 at the first start of 0.6.1, is sound as it was.
-		let old = read(&[("settings-0.6.0.toml", include_str!("../fixtures/settings-0.6.0.toml"))]).unwrap();
-		assert_eq!((old.dashboards["overview"].title.as_str(), old.profile("owner").theme.as_str()), ("Home", "dark"));
 	}
 
 	#[test]
 	fn tables_merge_key_by_key_and_lists_replace() {
-		let c = read(&[
+		let c = read(&over(&[
 			("a.toml", "listen = [\"eth0\"]\n[dashboards.overview]\ntitle = \"Home\"\n[profiles.default]\ntheme = \"dark\"\n"),
 			("b.toml", "[[dashboards.overview.widgets]]\ntype = \"text\"\ntext = \"Hello\"\n[profiles.mine]\nuse = \"default\"\nname = \"Mine\"\n"),
-		]);
+		]));
 		let c = c.unwrap();
 		let o = &c.dashboards["overview"];
 		assert_eq!((o.title.as_str(), o.icon.as_deref(), o.widgets.len()), ("Home", Some("overview"), 1));
@@ -1983,7 +1968,7 @@ mod tests {
 
 	#[test]
 	fn what_refers_to_what() {
-		let e = mistakes(&[(
+		let e = mistakes(&over(&[(
 			"a.toml",
 			r#"
 default_profile = "owner"
@@ -2052,7 +2037,7 @@ for_each = "gpus"
 value = "gpu.{item}.usage"
 label = "{item.nmae}"
 "#,
-		)]);
+		)]));
 		for want in [
 			"a.toml:5: profiles.mine.use: no profile \"theirs\"",
 			"a.toml:6: profiles.mine.dashboards[0]: no dashboard \"overveiw\"; did you mean overview?",
@@ -2093,11 +2078,10 @@ label = "{item.nmae}"
 		let bare = read(&[("elamond.toml", "schema = 3\n")]).unwrap();
 		let w = warnings(&bare);
 		assert!(w[0].starts_with("there are no dashboards") && w[1].starts_with("default_profile \"default\" is none of the profiles (there are no profiles)"), "{w:?}");
-		let typo = read(&[("elamond.toml", "default_profile = \"defualt\"\n")]).unwrap();
+		let typo = read(&over(&[("elamond.toml", "default_profile = \"defualt\"\n")])).unwrap();
 		assert!(warnings(&typo)[0].contains("(the profiles are default); did you mean default?"), "{:?}", warnings(&typo));
 		assert!(warnings(&Config::default()).is_empty());
-		// Drop-ins alone, no main file: nothing under them.
-		let alone = read_settings(&[Source::new("elamond.d/a.toml", "[profiles.mine]\n")], false).unwrap();
+		let alone = read_sources(&[Source::new("elamond.d/a.toml", "[profiles.mine]\n")]).unwrap();
 		assert!(alone.dashboards.is_empty());
 	}
 

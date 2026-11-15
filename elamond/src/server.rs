@@ -1374,7 +1374,7 @@ dashboards = ["overview", "control"]
 
 	fn settings(control: bool) -> store::Config {
 		let text = format!("control = {control}\n{SETTINGS}");
-		crate::settings::read_sources(&[crate::settings::Source::new("test.toml", text)]).unwrap()
+		crate::settings::read_over_defaults(&[crate::settings::Source::new("test.toml", text)]).unwrap()
 	}
 
 	/// A reading of the fixtures for `config`, with everything read for it.
@@ -1419,7 +1419,9 @@ dashboards = ["overview", "control"]
 		// The settings in a folder of their own as well, as pairing writes phones.toml beside them.
 		let place = store::Place { dir: dir.join("config"), named: None };
 		std::fs::create_dir_all(&place.dir).unwrap();
-		std::fs::write(place.main(), format!("control = {control}\n{SETTINGS}")).unwrap();
+		std::fs::create_dir_all(place.dropins()).unwrap();
+		std::fs::write(place.main(), crate::settings::DEFAULTS).unwrap();
+		std::fs::write(place.dropins().join("base.toml"), format!("control = {control}\n{SETTINGS}")).unwrap();
 		let mut hub = Hub::new("id".into(), "test".into(), rx, Ring::new(10), Duration::from_millis(250), Arc::new(config), dir, place);
 		*hub.rate.lock().unwrap() = RateLimiter::new(10_000, Duration::from_secs(1));
 		change(&mut hub);
@@ -1968,7 +1970,7 @@ dashboards = ["overview", "control"]
 		let (status, v) = call(&hub, "POST", "/api/v1/actions/unit.restart", "admin", r#"{"params":{"link":"gone"}}"#).await;
 		assert_eq!((status, v["error"].as_str(), v["message"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_param"), Some("link")));
 		// Without a link with a unit, no unit actions at all.
-		let config = crate::settings::read_sources(&[crate::settings::Source::new(
+		let config = crate::settings::read_over_defaults(&[crate::settings::Source::new(
 			"a.toml",
 			"control = true\nmdns = false\n[links.plain]\nname = \"Plain\"\nurl = \"http://{host}:81\"\n",
 		)])
@@ -2312,7 +2314,7 @@ dashboards = ["overview", "control"]
 		let (hub, tx) = hub(true);
 		let config = |extra: &str| {
 			let text = format!("control = true\n{SETTINGS}\n{extra}");
-			crate::settings::read_sources(&[crate::settings::Source::new("test.toml", text)]).unwrap()
+			crate::settings::read_over_defaults(&[crate::settings::Source::new("test.toml", text)]).unwrap()
 		};
 		let mine = "[dashboards.mine]\ntitle = \"Mine\"\n[[dashboards.mine.widgets]]\ntype = \"value\"\nvalue = \"cpu.usage\"\n";
 		hub.set_config(config(&format!("{mine}[profiles.default]\ndashboards = [\"mine\", \"overview\"]\n")));

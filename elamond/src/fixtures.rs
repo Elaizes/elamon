@@ -459,30 +459,6 @@ fn stream_open_and_ui() {
 	check_compact("stream-ui", &crate::ui::J::Obj(crate::stream::ui_line(&operate.version, &endpoints())));
 }
 
-/// An elamond.toml of 0.6.0 and the whole one of schema 3 the service moves it to show phones the
-/// same, for every role, with the default profile and the owner's. Only where a profile is written
-/// (`profile.source`, its line) moved, and with it the document's version.
-#[test]
-fn settings_moved_from_0_6_0_show_the_same() {
-	let read = |text: &str| crate::settings::read_sources(&[crate::settings::Source::new("elamond.toml", text)]).unwrap();
-	let old = read(include_str!("../fixtures/settings-0.6.0.toml"));
-	let moved = read(include_str!("../fixtures/settings-0.6.0-moved.toml"));
-	assert!(crate::settings::has_schema(include_str!("../fixtures/settings-0.6.0-moved.toml")));
-	let doc = |config: &crate::settings::Config, role: Role, profile: &str| {
-		let mut v = ui_for(config, &values(config), role, profile).doc.to_value();
-		v.as_object_mut().unwrap().remove("version");
-		if let Some(p) = v["profile"].as_object_mut() {
-			p.remove("source");
-		}
-		v
-	};
-	for role in Role::ALL {
-		for profile in ["default", "owner"] {
-			assert_eq!(doc(&old, role, profile), doc(&moved, role, profile), "{role:?}, {profile}");
-		}
-	}
-}
-
 /// The requests the app sends read as the service reads them, and ask for what `ui.json` has.
 #[test]
 fn requests() {

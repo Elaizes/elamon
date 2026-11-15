@@ -508,13 +508,6 @@ address, unit and port.
   as written. The service never starts or stops its own unit; a link naming it is a mistake.
 - System units also need the polkit rule ([below](#power-the-profile-and-system-units-polkit)).
 
-**Links from the 0.5 app.** Links are set on the computer only; the app no longer adds them. When
-the 0.6 service first starts, it writes the links the 0.5 app added into
-`~/.config/elamon/elamond.d/links-from-app.toml` (or `links-from-app-2.toml` if that exists), and
-renames `links.json` to `links.json.migrated`. Change them there. A link keeps its unit where the 0.5
-settings named it; any other unit is there commented out. Take the `#` off its `unit` and `scope`
-to let phones start and stop it, and run `elamond setup` again for a system unit.
-
 ### Actions
 
 An action runs a command of your choice. A phone can only press the button; it never writes the
@@ -750,7 +743,7 @@ The top-level keys:
 
 | Key | Default | |
 |---|---|---|
-| `schema` | | `3`: the file is the whole of the settings. Without it, the file is one of elamond 0.6.0 ([section 8](#updating)) |
+| `schema` | | `3`: the file is the whole of the settings |
 | `port` | `47823` | TCP port |
 | `listen` | `"::"` | addresses and interfaces to listen on, one or a list; `"::"` is every address, IPv4 and IPv6 ([below](#where-the-service-listens)) |
 | `names` | `[]` | host names that reach this computer, added to the pairing link ([below](#names-in-the-pairing-link)) |
@@ -778,10 +771,6 @@ The top-level keys:
 file and line, and the settings read before stay. But control is off until they read again, so a
 half-finished edit can't leave phones acting on old permissions. `elamond control status` shows the
 mistake, `elamond check` all of them. At start, settings with a mistake stop the service.
-
-**From 0.6.0.** A 0.6.0 `elamond.toml` (no `schema` in it) is moved over once, at the first start of
-0.6.1 or later ([section 8](#updating)). **From 0.5.** The settings of 0.5 and before had
-`[[links]]`, `[[actions]]` and `units`. The service refuses them and says what replaces each.
 
 **Secrets.** A secret in the settings, such as a link's URL with a password in it or a token among
 an action's arguments, belongs in a file only you can read: `chmod 600` it. Under NixOS or Home
@@ -1061,11 +1050,6 @@ the phones keep their keys and roles and don't pair again.
 
 **From 0.6.0 to 0.6.1,** there's nothing to do by hand:
 
-- At its first start, the service moves a 0.6.0 `elamond.toml` (one without `schema`) to a whole
-  file: everything 0.6.0 had built in, with your keys in their places and your own tables after
-  them. The old file stays beside it as `elamond.toml.0.6.0`. The phones see the same as before.
-- Each paired phone gets its own profile in `elamond.d/phones.toml`, using the one it had
-  ([section 7](#each-phones-own-profile)).
 - Under NixOS and Home Manager, the module holds the defaults: `services.elamond.settings` work as
   they are.
 - App 0.6.0 works with service 0.6.1 and the other way round, but update both: the phone learns the
@@ -1095,7 +1079,6 @@ command = ["/path/to/backup"]           command = ["/path/to/backup"]
 
 - On NixOS and Home Manager, change the same in `services.elamond.settings`
   (`links.jellyfin = { … };`); the rebuild checks it.
-- The links the 0.5 app added move into the settings by themselves ([section 5](#links)).
 - The app's own display settings are now the computer's profiles ([section 7](#profiles)); the app
   shows the old ones once as a profile to copy ([section 4](#home)).
 - From 0.4 to 0.5, each phone had to pair again (then `elamond revoke` its old entry).

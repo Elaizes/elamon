@@ -124,7 +124,7 @@ impl Place {
 /// elamond.toml in the config directory `dir`. Drop-ins are always in the user's own config
 /// directory: where NixOS or Home Manager make the main file a read-only one in the store, these
 /// stay the user's to write. Where ELAMON_CONFIG names another, an elamond.toml of the user's own
-/// there (not a link into the store) is read right after it, before the drop-ins: what 0.6.0 read
+/// there (not a link into the store) is read right after it, before the drop-ins: what was read
 /// under the NixOS module's empty settings is never dropped by the module having them all now.
 pub fn settings_files(dir: &Path, named: Option<PathBuf>) -> Vec<PathBuf> {
 	let own = named.as_ref().map(|_| dir.join(CONFIG_FILE)).filter(|own| own_beside(own, named.as_deref()));
@@ -933,7 +933,7 @@ mod tests {
 		assert_eq!((c.port, c.links.keys().map(String::as_str).collect::<Vec<_>>()), (2, vec!["a", "b", "main"]));
 
 		// ELAMON_CONFIG names the main file outright; the drop-ins stay in the config directory, and an
-		// elamond.toml of the user's own there is read right after it, as 0.6.0 read it under the module.
+		// elamond.toml of the user's own there is read right after it.
 		let named = dir.join("store.toml");
 		assert_eq!(settings_files(&dir, Some(named.clone()))[..3], [named.clone(), main.clone(), dir.join("elamond.d/a.toml")]);
 		// Not the named file itself, nor once it is gone.

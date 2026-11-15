@@ -367,7 +367,7 @@ mod tests {
 
 	#[test]
 	fn tables_filter_sort_and_cut() {
-		let config = crate::settings::read_sources(&[crate::settings::Source::new(
+		let config = crate::settings::read_over_defaults(&[crate::settings::Source::new(
 			"a.toml",
 			"[profiles.default]\ndashboards = [\"t\"]\n[dashboards.t]\ntitle = \"T\"\n[[dashboards.t.widgets]]\nid = \"p\"\ntype = \"table\"\nsource = \"processes\"\nlimit = 1\nsort = { field = \"name\" }\nsorts = [\"mem\"]\nfilter = { status = \"Sleeping\" }\ncolumns = [{ field = \"name\" }, { field = \"cpu\", map = { \"3.5\" = \"some\" } }]\n",
 		)])
@@ -398,7 +398,7 @@ mod tests {
 
 	#[test]
 	fn levels_units_and_control_in_the_states() {
-		let config = crate::settings::read_sources(&[crate::settings::Source::new(
+		let config = crate::settings::read_over_defaults(&[crate::settings::Source::new(
 			"a.toml",
 			r#"
 control = true

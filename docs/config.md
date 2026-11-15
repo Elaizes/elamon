@@ -37,7 +37,7 @@ settings elamond starts with, whole. It begins with `schema = 3` and the top-lev
 a line on what it does, then commented-out examples of a link and an action, then the `default`
 profile, every standard dashboard (`header`, `overview`, `processes`, `sensors`, `control`, and
 the pages their tiles open) and the templates they use. It is yours from then on: elamond never
-writes it again, but once, to move a 0.6.0 file to schema 3 ([below](#settings-from-elamond-060)).
+writes it again.
 
 ```toml
 schema = 3
@@ -58,32 +58,11 @@ icon = "overview"
 
 An empty elamond.toml is sound settings too, of no dashboards and no profiles: phones paired with
 it see nothing. `elamond check` says so: it warns of settings without dashboards, and of a
-`default_profile` that isn't among the profiles; and of an elamond.toml of 0.6.0, still to be moved
-([below](#settings-from-elamond-060)). Without any elamond.toml, the drop-ins are all there is.
+`default_profile` that isn't among the profiles. Without any elamond.toml, the drop-ins are all there is.
 
-`schema` says which settings these are. `3` is a whole file, as this page describes. A file without
-`schema` is one of elamond 0.6.0 (settings schema 2), which was read over a layer built into the
-service; another number is a mistake (a file written for a newer elamond). A drop-in may say
+`schema` says which settings these are. `3` is a whole file, as this page describes; another number
+is a mistake (a file written for a newer elamond). A drop-in may say
 `schema = 3` too, and nothing else.
-
-### Settings from elamond 0.6.0
-
-0.6.0 read its settings over what was built into it: elamond.toml held only what differed. The
-first time elamond 0.6.1 or later starts with such a file (no `schema` in it), it writes the two
-together into a new, whole elamond.toml with `schema = 3`, and keeps the old one beside it as
-`elamond.toml.0.6.0` (`elamond.toml.0.6.0-2` should that name be taken). The new file is what was
-built in, in its own words and comments, with every key of the old file in place of the one it
-overrode (with its comments; a key the defaults have only as an example, like `# names = …`, where
-that example was) and every table of its own after them, a few lines on top saying so: the
-settings, and so what each phone shows, are the same as before, which the service checks before it
-writes anything. The drop-ins in elamond.d/ stay as they are and still add to it. The journal says
-what was done and where the settings differ from the defaults (`journalctl --user -u elamond`).
-
-That happens once, and only to settings that are sound: while they have a mistake, the service
-reads them as 0.6.0 did and reports it, and moves them over once they are mended, at the next start
-or as soon as it rereads them. A file it can't write (a link, into the Nix store or elsewhere; a
-file `ELAMON_CONFIG` names; one read-only) it never moves, and reads as 0.6.0 did. The NixOS and
-Home Manager modules write `schema = 3` themselves ([Nix](#nix)).
 
 ### The defaults beside: defaults.toml
 
@@ -125,8 +104,7 @@ replacing theirs whole, and a table of your own (`dashboards.desk`, `profiles.ow
 `services.elamond.defaults` holds them as they are, read-only. The settings are written into the
 Nix store and `ELAMON_CONFIG` names them (Home Manager links elamond.toml to them); the drop-ins in
 ~/.config/elamon/elamond.d/, phones.toml among them, are still your own to write. Under the NixOS
-module, an elamond.toml of your own in ~/.config/elamon (one 0.6.0 read while the module's
-settings were empty) is read right after the module's, as a drop-in would be, so nothing it held is
+module, an elamond.toml of your own in ~/.config/elamon is read right after the module's, as a drop-in would be, so nothing it held is
 lost; the journal and `elamond check` say so.
 
 ## Phones
@@ -182,7 +160,7 @@ The default is what a key left out is; the starter file writes most of them out.
 
 | key | type | default | |
 |---|---|---|---|
-| `schema` | `3` | | which settings these are ([above](#the-starter-file)); without it, a file of elamond 0.6.0 |
+| `schema` | `3` | | which settings these are ([above](#the-starter-file)) |
 | `listen` | list of addresses and interface names (letters, digits and `_.@-`) | `["::"]` | where the service listens ([guide](guide.md#where-the-service-listens)) |
 | `port` | integer | 47823 | |
 | `names` | list of host names | `[]` | names that reach this computer, offered after its addresses: in the pairing link, and to paired phones |
@@ -223,14 +201,6 @@ scope = "system"
 | `unit` | string | | a systemd service unit clients may start, stop and restart (`unit.*` actions) |
 | `scope` | `user` \| `system` | `user` | the unit's |
 | `icon` | [icon](#icons) | `globe` | |
-
-The links the 0.5 app added (its links.json) the service writes into
-`elamond.d/links-from-app.toml` once, at its first start, ids made from their names (`app-…`, none
-the settings already give a link); links.json becomes links.json.migrated. A link keeps its unit
-where the 0.5 settings let links use it (in `units` or on a `[[links]]` entry, in that scope), as
-0.5 checked at each use; any other unit is written commented out, and phones start and stop it once
-the owner takes the `#` off its `unit` and `scope` (the journal names each). A unit no link may
-have is left out, and so is a link that isn't a web page's.
 
 ## Actions
 

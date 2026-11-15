@@ -3,11 +3,11 @@
 //! when it is unpaired as pairing wrote it. Written only under the paired phones' lock
 //! (`store::lock_clients`), in one step, keeping everything else in the file as it was; never so
 //! that the settings would no longer parse, never over a link, and never failing a pairing: a phone
-//! the file can't take pairs without a table, as with 0.6.0, and the journal says why.
+//! the file can't take pairs without a table, and the journal says why.
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use toml_edit::{DocumentMut, Item, Table};
 
@@ -89,7 +89,7 @@ fn settings_with(place: &Place, text: &str) -> Result<Config, String> {
 			sources.insert(at, Source::new(name, text));
 		}
 	}
-	settings::read_settings(&sources, main).map_err(|m| format!("the settings would have mistakes: {}", settings::join_mistakes(&m).replace('\n', "; ")))
+	settings::read_sources(&sources).map_err(|m| format!("the settings would have mistakes: {}", settings::join_mistakes(&m).replace('\n', "; ")))
 }
 
 /// Writes phones.toml as `text`, once the settings with it are sound: in one step, keeping its
@@ -408,7 +408,7 @@ fn present(place: &Place, id: &str) -> bool {
 }
 
 /// A table of its own for a new phone, using `uses` (`default_profile` for none); when phones.toml
-/// can't take it, the phone has that profile, as with 0.6.0, and `notes` say why.
+/// can't take it, the phone has that profile, and `notes` say why.
 fn new_table(place: &Place, name: &str, uses: Option<&str>, id: &str, at: u64, notes: &mut Vec<String>) -> Profiles {
 	match add(place, name, uses, id, at) {
 		Ok(table) => Profiles { profile: Some(table.clone()), own: Some(table) },
@@ -417,56 +417,6 @@ fn new_table(place: &Place, name: &str, uses: Option<&str>, id: &str, at: u64, n
 			Profiles { profile: uses.map(str::to_string), own: None }
 		}
 	}
-}
-
-/// Gives each phone paired before 0.6.1, which has no table of its own, one in phones.toml, using
-/// the profile it had (`default_profile` when it had none, or one gone); that table is its own and
-/// its profile from then on, so this happens once. Under the paired phones' lock in the data
-/// directory `data`; the journal names each. Whether any was given one.
-pub fn adopt(place: &Place, data: &Path) -> bool {
-	let _lock = match store::lock_clients(data) {
-		Ok(l) => l,
-		Err(e) => {
-			eprintln!("phones: can't lock the paired phones ({e}); those paired before 0.6.1 get a profile of their own at a later start");
-			return false;
-		}
-	};
-	let mut clients = match store::load_clients_in(data) {
-		Ok(c) => c,
-		Err(e) => {
-			eprintln!("phones: {e}; the phones paired before 0.6.1 get a profile of their own once it reads");
-			return false;
-		}
-	};
-	if clients.iter().all(|c| c.own_profile.is_some()) {
-		return false;
-	}
-	let Ok(config) = place.load() else {
-		eprintln!("phones: the settings have mistakes; the phones paired before 0.6.1 get a profile of their own once they are mended");
-		return false;
-	};
-	let mut changed = false;
-	for c in clients.iter_mut().filter(|c| c.own_profile.is_none()) {
-		let had = c.profile.as_deref().filter(|p| config.profiles.contains_key(*p));
-		match add(place, &c.name, had, &c.id, c.created) {
-			Ok(table) => {
-				let uses = had.unwrap_or(&config.default_profile);
-				eprintln!("phones: \"{}\" ({}) has a profile of its own now, {table} in {}, using {uses}", c.name, c.id, store::shown(&path(place)));
-				c.own_profile = Some(table.clone());
-				c.profile = Some(table);
-				changed = true;
-			}
-			Err(e) => {
-				eprintln!("phones: the phones paired before 0.6.1 get no profile of their own for now: {e}");
-				break;
-			}
-		}
-	}
-	if changed && let Err(e) = store::save_clients_in(data, &clients) {
-		eprintln!("phones: can't write the paired phones ({e}); the tables made in phones.toml stay, for elamond pair --profile");
-		return false;
-	}
-	changed
 }
 
 #[cfg(test)]
@@ -663,31 +613,6 @@ mod tests {
 		let (given, _) = give(&place, &has, None, None, Some(&a), "Third", "89ab0123", AT);
 		assert_eq!(given.own.as_deref(), Some("third"));
 		assert_eq!(place.load().unwrap().profiles["third"].base.as_deref(), Some("galaxy-s25"));
-		fs::remove_dir_all(&place.dir).unwrap();
-	}
-
-	#[test]
-	fn phones_paired_before_get_a_table_once() {
-		let place = scratch();
-		settings(&place, OWNER);
-		let data = place.dir.join("data");
-		fs::create_dir_all(&data).unwrap();
-		let mut owner = client("0123abcd", "Galaxy S25", None, Some("owner"));
-		owner.created = AT;
-		let list = [owner, client("4567cdef", "Pixel 9", None, None), client("89ab0123", "Old tab", None, Some("gone"))];
-		store::save_clients_in(&data, &list).unwrap();
-		assert!(adopt(&place, &data));
-		let list = store::load_clients_in(&data).unwrap();
-		let got: Vec<(Option<&str>, Option<&str>)> = list.iter().map(|c| (c.own_profile.as_deref(), c.profile.as_deref())).collect();
-		assert_eq!(got, [(Some("galaxy-s25"), Some("galaxy-s25")), (Some("pixel-9"), Some("pixel-9")), (Some("old-tab"), Some("old-tab"))]);
-		let config = place.load().unwrap();
-		let uses: Vec<Option<&str>> = ["galaxy-s25", "pixel-9", "old-tab"].iter().map(|p| config.profiles[*p].base.as_deref()).collect();
-		assert_eq!(uses, [Some("owner"), Some("default"), Some("default")]);
-		assert!(phones(&place).contains("# Galaxy S25, paired 2026-11-12 (0123abcd)\n"));
-		// Once.
-		let before = phones(&place);
-		assert!(!adopt(&place, &data));
-		assert_eq!(phones(&place), before);
 		fs::remove_dir_all(&place.dir).unwrap();
 	}
 }

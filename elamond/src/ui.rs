@@ -1329,7 +1329,7 @@ pub mod tests {
 
 	#[test]
 	fn a_range_wider_than_any_count_of_steps_still_makes_buttons() {
-		let config = crate::settings::read_sources(&[crate::settings::Source::new(
+		let config = crate::settings::read_over_defaults(&[crate::settings::Source::new(
 			"a.toml",
 			"[actions.big]\nname = \"Big\"\ncommand = [\"big\", \"{n}\"]\nparams.n = { range = [0, 9223372036854775807] }\n\
 			 [actions.huge]\nname = \"Huge\"\ncommand = [\"huge\", \"{x}\"]\nparams.x = { range = [-1e300, 1e300], step = 1e-300 }\n\
@@ -1409,7 +1409,7 @@ pub mod tests {
 
 	#[test]
 	fn profiles_follow_their_use_and_units() {
-		let config = settings::read_sources(&[settings::Source::new(
+		let config = settings::read_over_defaults(&[settings::Source::new(
 			"a.toml",
 			"[profiles.hot]\nuse = \"default\"\nfahrenheit = true\nnetwork_bits = true\nconfirm_actions = false\nheader = \"\"\ndashboards = [\"overview\", \"gpu\"]\n[profiles.hot.android]\nhaptics = false\n",
 		)])
@@ -1492,7 +1492,7 @@ label = "{item.label} at {item.rpm}"
 
 	#[test]
 	fn a_header_the_role_sees_none_of_is_none() {
-		let config = settings::read_sources(&[settings::Source::new(
+		let config = settings::read_over_defaults(&[settings::Source::new(
 			"a.toml",
 			"[[dashboards.header.widgets]]\ntype = \"status\"\nvalue = \"volume.muted\"\n",
 		)])
@@ -1513,7 +1513,7 @@ label = "{item.label} at {item.rpm}"
 	fn a_table_searches_the_fields_it_names_or_its_text_columns() {
 		let table = |extra: &str| {
 			let text = format!("[dashboards.t]\ntitle = \"T\"\n[[dashboards.t.widgets]]\ntype = \"table\"\nsource = \"processes\"\ncolumns = [{{ field = \"name\" }}, {{ field = \"cpu\" }}, {{ field = \"status\", map = {{ R = \"Running\" }} }}]\nexpand = [{{ field = \"cmd\" }}, {{ field = \"name\" }}]\nsorts = [\"cpu\", \"mem\"]\n{extra}");
-			settings::read_sources(&[settings::Source::new("a.toml", text)])
+			settings::read_over_defaults(&[settings::Source::new("a.toml", text)])
 		};
 		let fields = |extra: &str| {
 			let config = table(extra).unwrap();

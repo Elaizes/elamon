@@ -177,7 +177,7 @@
 								dashboard's `widgets`) replacing theirs whole, and a table of your own adds to them;
 								`lib.mkForce` on a table (`dashboards`) leaves theirs out. The services read it
 								through ELAMON_CONFIG; a user's own ~/.config/elamon/elamond.toml, where there is one, after it
-								(so what it held under 0.6.0 still holds), then each user's ~/.config/elamon/elamond.d/*.toml,
+								then each user's ~/.config/elamon/elamond.d/*.toml,
 								phones.toml among them, where each phone paired has a profile of its own. `elamond check` reads it as it is
 								built, so a mistake fails the build with its line. A change restarts the services. It
 								lands in the Nix store, which every user can read: keep secrets (a link's URL with a

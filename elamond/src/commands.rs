@@ -16,13 +16,11 @@ use crate::{collect, values};
 /// The settings files of `place` as the service reads them, with `file` taking its place among
 /// them: in place of the one it is, as a drop-in when it is in a folder named elamond.d, else in
 /// place of the main file. Its text comes from `text` when given (an edited copy), from the file
-/// otherwise. With whether the first is the main file, which may not be there.
-fn sources_with(place: &Place, file: Option<&Path>, text: Option<String>) -> Result<(Vec<Source>, bool), Vec<Mistake>> {
+/// otherwise.
+fn sources_with(place: &Place, file: Option<&Path>, text: Option<String>) -> Result<Vec<Source>, Vec<Mistake>> {
 	let mut files = place.files();
 	let Some(file) = file else {
-		let sources = settings::read_files(&files)?;
-		let main = settings::main_in(&files, &sources);
-		return Ok((sources, main));
+		return settings::read_files(&files);
 	};
 	let same = |a: &Path| a == file || fs::canonicalize(a).ok().zip(fs::canonicalize(file).ok()).is_some_and(|(x, y)| x == y);
 	let dropin = file.parent().and_then(Path::file_name).is_some_and(|d| d == store::DROPIN_DIR);
@@ -51,8 +49,7 @@ fn sources_with(place: &Place, file: Option<&Path>, text: Option<String>) -> Res
 			return Err(vec![Mistake { file: Some(name), line: None, path: String::new(), message: "there is no such file".into() }]);
 		}
 	}
-	let main = settings::main_in(&files, &sources);
-	Ok((sources, main))
+	Ok(sources)
 }
 
 /// "1 link", "2 links".
@@ -76,16 +73,11 @@ pub fn check(args: &[String]) -> Result<(), String> {
 		_ => return Err("usage: elamond check [FILE]".into()),
 	};
 	let place = Place::here();
-	let (sources, main) = sources_with(&place, file.as_deref(), None).inspect_err(|m| tell(m)).map_err(|_| "the settings can't be read".to_string())?;
-	match settings::read_settings(&sources, main) {
+	let sources = sources_with(&place, file.as_deref(), None).inspect_err(|m| tell(m)).map_err(|_| "the settings can't be read".to_string())?;
+	match settings::read_sources(&sources) {
 		Ok(c) => {
 			let read: Vec<&str> = sources.iter().map(|s| s.name.as_str()).collect();
-			let old = settings::over_defaults(sources.first().filter(|_| main));
-			let from = match (read.is_empty(), old) {
-				(true, _) => "no file at all".to_string(),
-				(false, true) => format!("the defaults under {}", read.join(", ")),
-				(false, false) => read.join(", "),
-			};
+			let from = if read.is_empty() { "no file at all".to_string() } else { read.join(", ") };
 			println!(
 				"The settings are sound: {}, {}, {}, {}, from {from}.",
 				count(c.dashboards.len(), "dashboard"),
@@ -94,17 +86,7 @@ pub fn check(args: &[String]) -> Result<(), String> {
 				count(c.profiles.len(), "profile")
 			);
 			let mut warn = settings::warnings(&c);
-			if old {
-				let first = sources[0].name.as_str();
-				warn.push(match migrate::movable(&place) {
-					Ok(()) if file.is_none() => format!(
-						"{first} has no schema: a file of elamond 0.6.0, read over the defaults; it moves to schema 3 at the service's next start, the file before kept beside it as {}",
-						migrate::KEPT
-					),
-					_ => format!("{first} has no schema: a file of elamond 0.6.0, read over the defaults as 0.6.0 read it"),
-				});
-			}
-			if !main && place.named.is_none() && file.is_none() {
+			if !settings::main_in(&place.files(), &sources) && place.named.is_none() && file.is_none() {
 				warn.push(format!(
 					"there is no {} yet: the service writes the settings elamond starts with there at its next start",
 					store::shown(&place.main())
@@ -180,7 +162,7 @@ fn edit_loop(place: &Place, editor: &str, target: &Path, copy: &Path, start: &st
 			println!("No change.");
 			return Ok(());
 		}
-		let checked = sources_with(place, Some(target), Some(text.clone())).and_then(|(s, main)| settings::read_settings(&s, main));
+		let checked = sources_with(place, Some(target), Some(text.clone())).and_then(|s| settings::read_sources(&s));
 		match checked {
 			Ok(_) => {
 				// The service writes phones.toml as phones pair and are unpaired, under the paired phones'
@@ -402,7 +384,7 @@ fn lines_of(changes: &[Change]) -> String {
 fn defaults_diff(place: &Place, version: &str) -> Result<String, String> {
 	let files = place.files();
 	let sources = settings::read_files(&files).map_err(|m| settings::join_mistakes(&m))?;
-	let (_, yours) = settings::read_merged(&sources, settings::main_in(&files, &sources))
+	let (_, yours) = settings::read_merged(&sources)
 		.map_err(|m| format!("{}\nthe settings have mistakes; elamond check names them", settings::join_mistakes(&m)))?;
 	let defaults = as_json(DEFAULTS)?;
 	let mut out = String::new();
@@ -534,35 +516,32 @@ mod tests {
 		let other = dir.join("other.toml");
 		fs::write(&other, "port = 3\n").unwrap();
 		let place = Place { dir: dir.join("config"), named: None };
-		let (s, main) = sources_with(&place, Some(&d.join("x.toml")), None).unwrap();
-		assert!(s.iter().any(|s| s.name.ends_with("x.toml") && s.text == "port = 2\n") && !main);
-		let (s, main) = sources_with(&place, Some(&other), Some("port = 4\n".into())).unwrap();
-		assert!(s.iter().any(|s| s.name.ends_with("other.toml") && s.text == "port = 4\n") && main);
+		let s = sources_with(&place, Some(&d.join("x.toml")), None).unwrap();
+		assert!(s.iter().any(|s| s.name.ends_with("x.toml") && s.text == "port = 2\n"));
+		let s = sources_with(&place, Some(&other), Some("port = 4\n".into())).unwrap();
+		assert!(s.iter().any(|s| s.name.ends_with("other.toml") && s.text == "port = 4\n"));
 		assert!(sources_with(&place, Some(&dir.join("missing.toml")), None).is_err());
 		fs::remove_dir_all(dir).unwrap();
 	}
 
-	/// Settings with no main file are the drop-ins alone; with one of 0.6.0, the defaults under it.
+	/// Nothing is under the settings files, whether the main file says its schema or not.
 	#[test]
-	fn the_main_file_says_what_is_under_the_drop_ins() {
+	fn nothing_is_under_the_settings_files() {
 		let dir = std::env::temp_dir().join(format!("elamond-main-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
 		let place = Place { dir: dir.clone(), named: None };
 		fs::create_dir_all(place.dropins()).unwrap();
 		fs::write(place.dropins().join("a.toml"), "[profiles.mine]\nname = \"Mine\"\n").unwrap();
 		let read = || {
-			let (s, main) = sources_with(&place, None, None).unwrap();
-			settings::read_settings(&s, main).unwrap()
+			settings::read_sources(&sources_with(&place, None, None).unwrap()).unwrap()
 		};
-		// No elamond.toml: nothing under the drop-in, though it says no schema.
 		let c = read();
 		assert!(c.dashboards.is_empty() && c.profiles.keys().eq(["mine"]));
 		assert!(settings::warnings(&c).iter().any(|w| w.starts_with("there are no dashboards")));
 		assert!(settings::warnings(&c).iter().any(|w| w.starts_with("default_profile \"default\" is none of the profiles (the profiles are mine)")));
-		// One of 0.6.0: the defaults under it.
+		// A main file without `schema` is read as it is, as one with it is.
 		fs::write(place.main(), "control = true\n").unwrap();
 		let c = read();
-		assert!(c.control && c.dashboards.contains_key("overview") && c.profiles.contains_key("mine"));
-		// One of schema 3: nothing under it.
+		assert!(c.control && c.dashboards.is_empty() && c.profiles.keys().eq(["mine"]));
 		fs::write(place.main(), "schema = 3\n").unwrap();
 		assert!(read().dashboards.is_empty());
 		fs::remove_dir_all(dir).unwrap();

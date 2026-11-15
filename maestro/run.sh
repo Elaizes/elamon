@@ -5,8 +5,8 @@
 # screen and the settings' own dashboard with an action's choice, makes the phone a glance one and an
 # admin again with elamond clients role, switches its profile and back, changes the phone's own
 # profile in elamond.d/phones.toml with its screen open, pairs it again (it keeps that profile), and
-# leaves the screenshots in $OUT. The settings are written as elamond 0.6.0 had them (no schema):
-# the service moves them to schema 3 at its first start, as it would on an update.
+# leaves the screenshots in $OUT. The test's own settings are a drop-in, elamond.d/base.toml, over the
+# starter elamond.toml the service writes at its first start.
 #   cargo build --release (in elamond/) and ./gradlew :app:assembleDebug first.
 #   ELAMOND=path/to/elamond   another build of the service than elamond/target/release/elamond.
 #   FONT_SCALE=2.0 maestro/run.sh   repeats the screens with a large font; the phone's own comes back after.
@@ -61,10 +61,9 @@ restore_font_scale() {
 work=$(mktemp -d)
 trap 'kill "${service:-}" "${pairing:-}" 2>/dev/null; restore_font_scale; rm -rf "$work"' EXIT
 
-mkdir -p "$work/cfg" "$work/data"
-# As elamond 0.6.0 had them: no `schema`, what differs from what was built in. The service moves
-# them to a whole file of schema 3 at its first start.
-cat > "$work/cfg/elamond.toml" <<TOML
+mkdir -p "$work/cfg/elamond.d" "$work/data"
+# The test's own settings, a drop-in: the service writes the starter elamond.toml beside it.
+cat > "$work/cfg/elamond.d/base.toml" <<TOML
 port = $PORT
 listen = "127.0.0.1"
 mdns = false
@@ -129,10 +128,9 @@ run_elamond() {
 run_elamond serve > "$OUT/elamond.log" 2>&1 &
 service=$!
 sleep 2
-# Moved to schema 3, the 0.6.0 file kept beside it, and the defaults written beside them.
 fail() { echo "maestro/run.sh: $*" >&2; exit 1; }
-grep -qx 'schema = 3' "$work/cfg/elamond.toml" || fail "elamond.toml wasn't moved to schema 3"
-[[ -f "$work/cfg/elamond.toml.0.6.0" && -f "$work/cfg/defaults.toml" ]] || fail "elamond.toml.0.6.0 or defaults.toml is missing"
+# The starter and the defaults are written beside the drop-in.
+grep -qx 'schema = 3' "$work/cfg/elamond.toml" && [[ -f "$work/cfg/defaults.toml" ]] || fail "elamond.toml or defaults.toml wasn't written"
 
 adb uninstall "$APP_ID" > /dev/null 2>&1 || true
 adb install -r "${APK:-app/build/outputs/apk/debug/app-debug.apk}" > /dev/null
