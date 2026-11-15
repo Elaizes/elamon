@@ -182,6 +182,7 @@ fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
 			text = {
 				Column(Modifier.heightIn(max = Sizes.licenceMax).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
 					Text(stringResource(R.string.settings_licence_elamon))
+					Text(stringResource(R.string.settings_licence_icons))
 					Text(stringResource(R.string.settings_licence_inter), style = MaterialTheme.typography.titleSmall)
 					Text(text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
 				}

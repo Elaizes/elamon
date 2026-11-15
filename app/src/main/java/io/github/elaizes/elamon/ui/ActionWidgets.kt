@@ -141,7 +141,7 @@ class ActionLauncher(
 				action.id == SIGNAL -> res.getString(if (kill) R.string.processes_force_kill_body else R.string.processes_quit_body)
 				else -> null
 			},
-			icon = icon(action.icon),
+			icon = action.icon,
 			confirm = action.confirm,
 			unlock = action.unlock,
 			grace = grace,
@@ -378,7 +378,7 @@ private const val PROFILE_SET = "profile.set"
 private val ChoiceLabelMin = 9.sp
 
 /** The power profiles' pictures, as 0.5 drew them. */
-private fun profileIcon(p: String): ImageVector = when (p) {
+@Composable private fun profileIcon(p: String): ImageVector = when (p) {
 	"power-saver", "low-power", "quiet", "cool" -> ElIcons.Leaf
 	"performance" -> ElIcons.Rocket
 	else -> ElIcons.Gauge

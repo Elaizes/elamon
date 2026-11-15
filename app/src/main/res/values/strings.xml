@@ -236,9 +236,10 @@
 	<string name="settings_help_summary">Installing the service, the firewall, pairing, troubleshooting</string>
 	<string name="settings_source">Source code</string>
 	<string name="settings_licences">Licences</string>
-	<string name="settings_licences_summary">Elamon: GPL-3.0-or-later · Inter: SIL Open Font License</string>
+	<string name="settings_licences_summary">Elamon: GPL-3.0-or-later · Inter: SIL OFL · Icons: Apache-2.0</string>
 	<string name="settings_version">Version</string>
 	<string name="settings_licence_elamon">Elamon is free software under the GNU General Public License, version 3 or later.</string>
+	<string name="settings_licence_icons">Icons: Material Symbols by Google, Apache License 2.0.</string>
 	<string name="settings_licence_inter">The Inter typeface:</string>
 	<string name="settings_close">Close</string>
 

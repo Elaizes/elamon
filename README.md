@@ -145,3 +145,5 @@ The service for Windows and macOS, and published app builds.
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).
+
+Icons: Material Symbols by Google, Apache License 2.0.

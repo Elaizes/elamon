@@ -15,7 +15,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -44,7 +43,8 @@ data class Ask(
 	val button: String,
 	/** What follows from it, under the prompt's title and the confirmation's. */
 	val body: String? = null,
-	val icon: ImageVector? = null,
+	/** The icon's name in the settings, as `icon()` knows it. */
+	val icon: String? = null,
 	/** Asked before it runs: the action's `confirm`, as the computer's settings and profile make it. */
 	val confirm: Boolean = true,
 	/** The phone unlocked first: the action's `unlock`. */
@@ -182,7 +182,7 @@ fun GuardDialog(guard: Guard) {
 	GlassDialog(
 		onDismiss = guard::dismissed,
 		title = ask.question,
-		icon = ask.icon,
+		icon = ask.icon?.let { icon(it) },
 		text = if (ask.body == null && !p.noLockScreen) null else {
 			{
 				Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {

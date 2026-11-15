@@ -211,7 +211,7 @@ fun accent(name: String?): Color {
 }
 
 /** An icon the settings name (docs/config.md, "Icons"); `overview` for one this app doesn't know. */
-fun icon(name: String?): ImageVector = when (name) {
+@Composable fun icon(name: String?): ImageVector = when (name) {
 	"battery" -> ElIcons.Battery
 	"bolt" -> ElIcons.Bolt
 	"chip" -> ElIcons.Chip
