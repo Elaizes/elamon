@@ -4,7 +4,9 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::format;
-use crate::ui::{Dashboard, Obj, J};
+use serde_json::Value;
+
+use crate::ui::{Dashboard, Obj, Put};
 use crate::values::{self, Units, Values};
 
 /// Points of every tracked address, at the same times, oldest first.
@@ -91,15 +93,15 @@ pub fn json(d: &Dashboard, ring: &Ring, units: Units, now: u64) -> Obj {
 		for a in &addresses {
 			let (t, v) = ring.window(a, since);
 			times = t;
-			let v: Vec<J> = v.into_iter().map(|x| x.map_or(J::Null, |x| J::from(format::round(values::in_units(a, x, units), 1)))).collect();
-			series.push(J::Arr(v));
+			let v: Vec<Value> = v.into_iter().map(|x| x.map_or(Value::Null, |x| Value::from(format::round(values::in_units(a, x, units), 1)))).collect();
+			series.push(Value::Array(v));
 		}
 		if addresses.is_empty() {
 			times = ring.window("", since).0;
 		}
 		let mut h = Obj::new();
-		h.put("t", J::Arr(times.into_iter().map(J::from).collect()));
-		h.put("v", J::Arr(series));
+		h.put("t", Value::Array(times.into_iter().map(Value::from).collect()));
+		h.put("v", Value::Array(series));
 		out.put(&w.id, h);
 	}
 	out

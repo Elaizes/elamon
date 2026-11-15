@@ -15,14 +15,14 @@ use axum::http::{header, HeaderValue};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::sync::{mpsc, watch, Notify};
 
 use crate::access::Caller;
 use crate::consts::{cadence, limit};
 use crate::errors::ErrorCode;
 use crate::server::{self, body_of, data_of, dashboard_in, draws_from, error, needs_of, ClientApp, Hub, TokenHash, Want};
-use crate::ui::{Obj, Sources, Ui, J};
+use crate::ui::{Obj, Put, Sources, Ui};
 
 /// An open stream, as the hub knows it.
 pub struct Open {
@@ -126,12 +126,12 @@ pub fn ui_line(ui: &str, endpoints: &[String]) -> Obj {
 	let mut o = Obj::new();
 	o.put("type", "ui");
 	o.put("ui", ui);
-	o.put("endpoints", J::Arr(endpoints.iter().map(J::from).collect()));
+	o.put("endpoints", Value::Array(endpoints.iter().cloned().map(Value::from).collect()));
 	o
 }
 
 fn line(o: Obj) -> Bytes {
-	let mut s = serde_json::to_string(&J::Obj(o)).unwrap_or_default();
+	let mut s = serde_json::to_string(&Value::Object(o)).unwrap_or_default();
 	s.push('\n');
 	Bytes::from(s)
 }

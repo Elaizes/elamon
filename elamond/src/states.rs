@@ -5,9 +5,11 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 
+use serde_json::Value;
+
 use crate::format;
 use crate::settings::{Bound, Labels, Widget};
-use crate::ui::{Dashboard, Obj, Sources, UiWidget, J};
+use crate::ui::{Dashboard, Obj, Put, Sources, UiWidget};
 use crate::values::{self, Item, Level, Limits, Scalar, View, V};
 
 /// What the states of a client's widgets are built from.
@@ -73,9 +75,9 @@ pub fn state(w: &UiWidget, s: &States) -> Option<Obj> {
 		"value" | "gauge" | "meter" | "status" => value_state(w, s, &mut o),
 		"graph" => {
 			let series: Vec<Option<Scalar>> = d.values.iter().flatten().map(|a| s.view.get(a)).collect();
-			o.put("v", J::Arr(series.iter().map(|x| x.as_ref().map_or(J::Null, |x| J::from(x.v.json()))).collect()));
+			o.put("v", Value::Array(series.iter().map(|x| x.as_ref().map_or(Value::Null, |x| x.v.json())).collect()));
 			if let Some(Bound::Name(a)) = &d.max {
-				o.put("max", s.view.get(a).map_or(J::Null, |x| J::from(x.v.json())));
+				o.put("max", s.view.get(a).map_or(Value::Null, |x| x.v.json()));
 			}
 			if series.first().is_some_and(Option::is_none)
 				&& let Some(e) = d.empty.as_deref().map(|e| fill(s, e)).filter(|e| !e.is_empty())
@@ -85,8 +87,8 @@ pub fn state(w: &UiWidget, s: &States) -> Option<Obj> {
 		}
 		"bars" => bars_state(d, s, &mut o),
 		"list" => {
-			let items: Vec<J> = d.items.iter().flatten().map(|i| J::Obj(item_state(i, s))).collect();
-			o.put("items", J::Arr(items));
+			let items: Vec<Value> = d.items.iter().flatten().map(|i| Value::Object(item_state(i, s))).collect();
+			o.put("items", Value::Array(items));
 		}
 		"table" => {
 			o.opt("caption", caption.clone());
@@ -94,7 +96,7 @@ pub fn state(w: &UiWidget, s: &States) -> Option<Obj> {
 		}
 		"button" => o.put("enabled", d.action.is_none() || s.control),
 		"toggle" | "select" | "slider" => {
-			o.put("v", d.value.as_deref().and_then(|a| s.view.get(a)).map_or(J::Null, |x| J::from(x.v.json())));
+			o.put("v", d.value.as_deref().and_then(|a| s.view.get(a)).map_or(Value::Null, |x| x.v.json()));
 			o.put("enabled", s.control);
 		}
 		"text" => {
@@ -167,7 +169,7 @@ fn text_of(map: Option<&BTreeMap<String, String>>, empty: Option<&str>, scalar: 
 fn value_state(w: &UiWidget, s: &States, o: &mut Obj) {
 	let d = &w.def;
 	let scalar = d.value.as_deref().and_then(|a| s.view.get(a));
-	o.put("v", scalar.as_ref().map_or(J::Null, |x| J::from(x.v.json())));
+	o.put("v", scalar.as_ref().map_or(Value::Null, |x| x.v.json()));
 	o.opt("text", text_of(d.map.as_ref(), d.empty.as_deref(), scalar.as_ref(), s));
 	let format = d.format.as_deref().or(scalar.as_ref().map(|x| x.format)).unwrap_or("number");
 	put_level(o, level_of(d.levels.as_ref(), Some(d), format, scalar.as_ref(), s));
@@ -183,7 +185,7 @@ fn value_state(w: &UiWidget, s: &States, o: &mut Obj) {
 		_ => None,
 	};
 	if let Some(a) = max {
-		o.put("max", s.view.get(&a).map_or(J::Null, |x| J::from(x.v.json())));
+		o.put("max", s.view.get(&a).map_or(Value::Null, |x| x.v.json()));
 	}
 }
 
@@ -192,7 +194,7 @@ fn item_state(i: &crate::settings::ListItem, s: &States) -> Obj {
 	match (&i.value, &i.text) {
 		(Some(a), _) => {
 			let scalar = s.view.get(a);
-			o.put("v", scalar.as_ref().map_or(J::Null, |x| J::from(x.v.json())));
+			o.put("v", scalar.as_ref().map_or(Value::Null, |x| x.v.json()));
 			o.opt("text", text_of(i.map.as_ref(), i.empty.as_deref(), scalar.as_ref(), s));
 			let format = i.format.as_deref().or(scalar.as_ref().map(|x| x.format)).unwrap_or("number");
 			if i.map.as_ref().is_none_or(|m| m.is_empty()) {
@@ -209,23 +211,23 @@ fn bars_state(d: &Widget, s: &States, o: &mut Obj) {
 	let source = d.source.as_deref().unwrap_or("");
 	let field = d.field.as_deref().unwrap_or("");
 	let items = s.view.collection(source).unwrap_or_default();
-	o.put("v", J::Arr(items.iter().map(|i| i.get(field).map_or(J::Null, |v| J::from(v.json()))).collect()));
+	o.put("v", Value::Array(items.iter().map(|i| i.get(field).map_or(Value::Null, |v| v.json())).collect()));
 	if let Some(Labels::Field(f)) = &d.labels {
 		let (_, unit, fmt) = values::field_def(source, f).unwrap_or(("", "", "text"));
-		let labels = items.iter().map(|i| J::from(i.get(f).map(|v| format::format(v.shown(), fmt, unit)).unwrap_or_default())).collect();
-		o.put("labels", J::Arr(labels));
+		let labels = items.iter().map(|i| Value::from(i.get(f).map(|v| format::format(v.shown(), fmt, unit)).unwrap_or_default())).collect();
+		o.put("labels", Value::Array(labels));
 	}
 	let judged = values::collection_def(source).and_then(|c| c.level_field) == Some(field);
 	let levels = items
 		.iter()
 		.map(|i| {
 			let level = if judged { s.view.item_level(source, i).map_or(Level::Normal, |l| l.0) } else { Level::Normal };
-			J::from(level.as_str())
+			Value::from(level.as_str())
 		})
 		.collect();
-	o.put("levels", J::Arr(levels));
+	o.put("levels", Value::Array(levels));
 	if let Some(Bound::Name(a)) = &d.max {
-		o.put("max", s.view.get(a).map_or(J::Null, |x| J::from(x.v.json())));
+		o.put("max", s.view.get(a).map_or(Value::Null, |x| x.v.json()));
 	}
 }
 
@@ -301,7 +303,7 @@ fn table_state(w: &UiWidget, s: &States, o: &mut Obj) {
 	for f in &placeholders {
 		need(&mut fields, f, None);
 	}
-	let rows: Vec<J> = items
+	let rows: Vec<Value> = items
 		.iter()
 		.map(|i| {
 			let mut row = Obj::new();
@@ -312,20 +314,20 @@ fn table_state(w: &UiWidget, s: &States, o: &mut Obj) {
 				let Some(v) = i.get(field) else { continue };
 				match map.and_then(|m| m.get(&v.map_key())) {
 					Some(text) => f.put(field, text.as_str()),
-					None => f.put(field, J::from(v.json())),
+					None => f.put(field, v.json()),
 				}
 			}
 			row.put("f", f);
-			J::Obj(row)
+			Value::Object(row)
 		})
 		.collect();
-	o.put("rows", J::Arr(rows));
+	o.put("rows", Value::Array(rows));
 	o.put("total", total as u64);
 }
 
 fn media_state(s: &States, o: &mut Obj) {
 	let media = s.view.values.media.as_ref();
-	let players: Vec<J> = media
+	let players: Vec<Value> = media
 		.map(|m| m.players.as_slice())
 		.unwrap_or_default()
 		.iter()
@@ -346,10 +348,10 @@ fn media_state(s: &States, o: &mut Obj) {
 			q.put("can_play", p.can_play);
 			q.put("can_pause", p.can_pause);
 			q.put("can_seek", p.can_seek);
-			J::Obj(q)
+			Value::Object(q)
 		})
 		.collect();
-	o.put("players", J::Arr(players));
+	o.put("players", Value::Array(players));
 	if let Some(v) = media.and_then(|m| m.volume.as_ref()) {
 		let mut vol = Obj::new();
 		vol.put("level", format::round(v.level as f64 * 100.0, 1));
@@ -383,17 +385,17 @@ mod tests {
 		let d = ui.dashboard("t").unwrap();
 		let mut sorts = HashMap::new();
 		let s = States { view: View::new(&values, Role::Admin, Units::default()), control: true, sorts: &sorts, read: Sources::ALL };
-		let st = widgets(d, &s).get("t/p").unwrap().to_value();
+		let st = widgets(d, &s).get("t/p").unwrap().clone();
 		assert_eq!((st["rows"][0]["key"].as_str(), st["total"].as_u64()), (Some("7"), Some(2)));
 		sorts.insert("t/p".to_string(), "mem".to_string());
 		let s = States { view: View::new(&values, Role::Admin, Units::default()), control: true, sorts: &sorts, read: Sources::ALL };
-		let st = widgets(d, &s).get("t/p").unwrap().to_value();
+		let st = widgets(d, &s).get("t/p").unwrap().clone();
 		assert_eq!(st["rows"][0]["key"].as_str(), Some("4242"));
 		assert_eq!(st["rows"][0]["f"], serde_json::json!({ "name": "some", "cpu": "some" }));
 		// A sort it doesn't offer isn't taken.
 		sorts.insert("t/p".to_string(), "pid".to_string());
 		let s = States { view: View::new(&values, Role::Admin, Units::default()), control: true, sorts: &sorts, read: Sources::ALL };
-		assert_eq!(widgets(d, &s).get("t/p").unwrap().to_value()["rows"][0]["key"].as_str(), Some("7"));
+		assert_eq!(widgets(d, &s).get("t/p").unwrap().clone()["rows"][0]["key"].as_str(), Some("7"));
 	}
 
 	#[test]
@@ -447,7 +449,7 @@ value = "system.uptime"
 		let sorts = HashMap::new();
 		let state = |control: bool| {
 			let s = States { view: View::new(&values, Role::Admin, ui.units), control, sorts: &sorts, read: Sources::ALL };
-			widgets(d, &s).to_value_map()
+			widgets(d, &s)
 		};
 		let on = state(true);
 		// 55.5 °C is 131.9 °F; the NVMe's 41.5 °C (106.7 °F) is where it turns warning, and it is
@@ -466,7 +468,7 @@ value = "system.uptime"
 		// The history in °F too.
 		let mut ring = crate::history::Ring::new(10);
 		ring.push_points(1000, [("cpu.temp".to_string(), Some(100.0))]);
-		let h = crate::history::json(d, &ring, ui.units, 2000).to_value_map();
+		let h = crate::history::json(d, &ring, ui.units, 2000);
 		assert_eq!(h["t/graph"], serde_json::json!({ "t": [1000], "v": [[null], [212.0]] }));
 	}
 }

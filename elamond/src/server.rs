@@ -777,13 +777,13 @@ async fn hello(State(hub): State<Arc<Hub>>) -> Response {
 
 pub(crate) fn hello_body(id: &str, name: &str) -> serde_json::Value {
 	json!({
-		"app": "elamon",
 		"api": protocol::API_VERSION,
-		"widgets": protocol::WIDGETS_VERSION,
+		"app": "elamon",
 		"id": id,
+		"min_app": protocol::MIN_APP,
 		"name": name,
 		"version": env!("CARGO_PKG_VERSION"),
-		"min_app": protocol::MIN_APP,
+		"widgets": protocol::WIDGETS_VERSION,
 	})
 }
 
@@ -800,7 +800,7 @@ pub(crate) fn features_of(features: &[&'static str], control: bool) -> Vec<&'sta
 }
 
 pub(crate) fn paired_body(token: &str, client_id: &str, id: &str, name: &str, role: Role, profile: &str, endpoints: &[String]) -> serde_json::Value {
-	json!({ "token": token, "client_id": client_id, "id": id, "name": name, "role": role, "profile": profile, "endpoints": endpoints })
+	json!({ "client_id": client_id, "endpoints": endpoints, "id": id, "name": name, "profile": profile, "role": role, "token": token })
 }
 
 /// The profile a client with `profile` in clients.json gets: its own, or `default_profile`.

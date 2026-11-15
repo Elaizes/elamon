@@ -1,4 +1,4 @@
-//! Every JSON shape the service sends, with each optional field filled in, kept in
+//! Every JSON shape the service sends, with each optional field filled in, let parts: Vec<String> = o.iter().map(|(k, v)| format!("{}: {}", serde_json::to_string(k).unwrap(), one_line(v))).collect();ept in
 //! elamond/fixtures/, and the requests clients send checked against what the service reads. The
 //! app's tests read the same files, so a field missing or under another name on either side fails
 //! a build rather than reading as zero on a phone.
@@ -9,6 +9,7 @@
 use std::path::Path;
 
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::access::Role;
 use crate::activity::Entry;
@@ -25,7 +26,7 @@ fn check(name: &str, value: &impl Serialize) {
 
 /// As `check`, written the way people write JSON by hand: what fits on a line of 140 columns
 /// stays on one, the keys in the order the service sends them.
-fn check_compact(name: &str, value: &crate::ui::J) {
+fn check_compact(name: &str, value: &Value) {
 	let mut text = String::new();
 	compact(value, 0, 0, &mut text);
 	write_or_compare(name, text + "\n");
@@ -49,13 +50,12 @@ pub fn check_text(file: &str, text: &str) {
 }
 
 /// `v` on one line: `{ "a": 1, "b": [1, 2] }`.
-fn one_line(v: &crate::ui::J) -> String {
-	use crate::ui::J;
+fn one_line(v: &Value) -> String {
 	match v {
-		J::Arr(a) if a.is_empty() => "[]".into(),
-		J::Arr(a) => format!("[{}]", a.iter().map(one_line).collect::<Vec<_>>().join(", ")),
-		J::Obj(o) if o.is_empty() => "{}".into(),
-		J::Obj(o) => {
+		Value::Array(a) if a.is_empty() => "[]".into(),
+		Value::Array(a) => format!("[{}]", a.iter().map(one_line).collect::<Vec<_>>().join(", ")),
+		Value::Object(o) if o.is_empty() => "{}".into(),
+		Value::Object(o) => {
 			let parts: Vec<String> = o.keys().map(|k| format!("{}: {}", serde_json::to_string(k).unwrap(), one_line(o.get(k).unwrap()))).collect();
 			format!("{{ {} }}", parts.join(", "))
 		}
@@ -65,8 +65,7 @@ fn one_line(v: &crate::ui::J) -> String {
 
 /// `v` at `indent`, after `used` columns of its line: on one line if it fits, else one entry to a
 /// line. The outermost is always spread.
-fn compact(v: &crate::ui::J, indent: usize, used: usize, out: &mut String) {
-	use crate::ui::J;
+fn compact(v: &Value, indent: usize, used: usize, out: &mut String) {
 	let line = one_line(v);
 	if indent > 0 && used + line.chars().count() <= 140 {
 		out.push_str(&line);
@@ -74,7 +73,7 @@ fn compact(v: &crate::ui::J, indent: usize, used: usize, out: &mut String) {
 	}
 	let pad = "  ".repeat(indent + 1);
 	match v {
-		J::Arr(a) if !a.is_empty() => {
+		Value::Array(a) if !a.is_empty() => {
 			out.push_str("[\n");
 			for (i, e) in a.iter().enumerate() {
 				out.push_str(&pad);
@@ -84,15 +83,14 @@ fn compact(v: &crate::ui::J, indent: usize, used: usize, out: &mut String) {
 			out.push_str(&"  ".repeat(indent));
 			out.push(']');
 		}
-		J::Obj(o) if !o.is_empty() => {
+		Value::Object(o) if !o.is_empty() => {
 			out.push_str("{\n");
-			let keys: Vec<&str> = o.keys().collect();
-			for (i, k) in keys.iter().enumerate() {
+			for (i, (k, e)) in o.iter().enumerate() {
 				let key = format!("{}: ", serde_json::to_string(k).unwrap());
 				out.push_str(&pad);
 				out.push_str(&key);
-				compact(o.get(k).unwrap(), indent + 1, pad.len() + key.chars().count(), out);
-				out.push_str(if i + 1 < keys.len() { ",\n" } else { "\n" });
+				compact(e, indent + 1, pad.len() + key.chars().count(), out);
+				out.push_str(if i + 1 < o.len() { ",\n" } else { "\n" });
 			}
 			out.push_str(&"  ".repeat(indent));
 			out.push('}');
@@ -276,7 +274,7 @@ pub fn processes() -> Vec<Process> {
 
 #[test]
 fn hello() {
-	check_compact("hello", &crate::ui::J::from(hello_body("0123456789abcdef0123456789abcdef", "fixture")));
+	check_compact("hello", &hello_body("0123456789abcdef0123456789abcdef", "fixture"));
 }
 
 /// Where the fixtures' computer is: its addresses on the local network and Tailscale, then names.
@@ -290,7 +288,7 @@ const FEATURES: [&str; 6] = ["displays", "media", "power", "power_profiles", "pr
 #[test]
 fn paired() {
 	let body = paired_body("token", "0123abcd", "0123456789abcdef0123456789abcdef", "fixture", Role::Admin, "galaxy-s25", &endpoints());
-	check_compact("pair", &crate::ui::J::from(body));
+	check_compact("pair", &body);
 }
 
 #[test]
@@ -441,9 +439,9 @@ fn stream_data() {
 	let home = ui.dashboard("home").unwrap();
 	let t = sample().t;
 	let history = crate::history::json(home, &ring(), ui.units, t);
-	check_compact("stream-data", &crate::ui::J::Obj(crate::states::data(t, home, header, &s, Some(history))));
+	check_compact("stream-data", &Value::Object(crate::states::data(t, home, header, &s, Some(history))));
 	let detail = ui.dashboard("detail").unwrap();
-	check_compact("stream-data-detail", &crate::ui::J::Obj(crate::states::data(t + 1000, detail, header, &s, None)));
+	check_compact("stream-data-detail", &Value::Object(crate::states::data(t + 1000, detail, header, &s, None)));
 }
 
 /// The `open` line of a stream with `ui.json`'s version, and the `ui` line a stream sends when its
@@ -453,10 +451,10 @@ fn stream_open_and_ui() {
 	let config = ui_source();
 	let values = values(&config);
 	let ui = ui_for(&config, &values, Role::Admin, "owner");
-	check_compact("stream-open", &crate::ui::J::Obj(crate::stream::open_line("s1a2b3c4", &ui.version)));
+	check_compact("stream-open", &Value::Object(crate::stream::open_line("s1a2b3c4", &ui.version)));
 	let operate = ui_for(&config, &values, Role::Operate, "owner");
 	assert_ne!(operate.version, ui.version);
-	check_compact("stream-ui", &crate::ui::J::Obj(crate::stream::ui_line(&operate.version, &endpoints())));
+	check_compact("stream-ui", &Value::Object(crate::stream::ui_line(&operate.version, &endpoints())));
 }
 
 /// The requests the app sends read as the service reads them, and ask for what `ui.json` has.

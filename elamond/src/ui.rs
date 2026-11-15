@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 
-use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
+use serde::ser::{Serialize, SerializeMap, Serializer};
 use serde_json::Value;
 
 use crate::access::Role;
@@ -17,192 +17,25 @@ use crate::values::{self, Item, Units, Values, View};
 
 // ---- JSON with its keys in the order written ------------------------------------------------
 
-/// A JSON value whose objects keep their keys in the order they were put in, so the documents
-/// read as the protocol shows them.
-#[derive(Clone, Debug, PartialEq)]
-pub enum J {
-	Null,
-	Bool(bool),
-	Num(serde_json::Number),
-	Str(String),
-	Arr(Vec<J>),
-	Obj(Obj),
+/// An object of JSON that keeps its keys in the order they were put in (serde_json's
+/// `preserve_order`), so the documents read as the protocol shows them.
+pub type Obj = serde_json::Map<String, Value>;
+
+/// `put` and `opt` for `Obj`: sets a key in its place when it is there already, else at the end.
+pub trait Put {
+	fn put(&mut self, key: &str, v: impl Into<Value>);
+	fn opt<T: Into<Value>>(&mut self, key: &str, v: Option<T>);
 }
 
-#[derive(Clone, Debug, PartialEq, Default)]
-pub struct Obj(Vec<(String, J)>);
-
-impl Obj {
-	/// As a JSON value, for tests.
-	#[cfg(test)]
-	pub fn to_value_map(&self) -> Value {
-		serde_json::to_value(self).unwrap_or_default()
+impl Put for Obj {
+	fn put(&mut self, key: &str, v: impl Into<Value>) {
+		self.insert(key.to_string(), v.into());
 	}
 
-	pub fn new() -> Obj {
-		Obj(Vec::new())
-	}
-
-	/// Sets `key`, in its place when it is there already, else at the end.
-	pub fn put(&mut self, key: &str, v: impl Into<J>) {
-		let v = v.into();
-		match self.0.iter_mut().find(|(k, _)| k == key) {
-			Some(e) => e.1 = v,
-			None => self.0.push((key.to_string(), v)),
-		}
-	}
-
-	pub fn opt<T: Into<J>>(&mut self, key: &str, v: Option<T>) {
+	fn opt<T: Into<Value>>(&mut self, key: &str, v: Option<T>) {
 		if let Some(v) = v {
 			self.put(key, v);
 		}
-	}
-
-	#[cfg(test)]
-	pub fn get(&self, key: &str) -> Option<&J> {
-		self.0.iter().find(|(k, _)| k == key).map(|(_, v)| v)
-	}
-
-	pub fn remove(&mut self, key: &str) -> Option<J> {
-		let i = self.0.iter().position(|(k, _)| k == key)?;
-		Some(self.0.remove(i).1)
-	}
-
-	pub fn is_empty(&self) -> bool {
-		self.0.is_empty()
-	}
-
-	#[cfg(test)]
-	pub fn keys(&self) -> impl Iterator<Item = &str> {
-		self.0.iter().map(|(k, _)| k.as_str())
-	}
-
-	/// Every key of `other` after these.
-	pub fn extend(&mut self, other: Obj) {
-		for (k, v) in other.0 {
-			self.put(&k, v);
-		}
-	}
-}
-
-impl J {
-	#[cfg(test)]
-	pub fn to_value(&self) -> Value {
-		serde_json::to_value(self).unwrap_or_default()
-	}
-}
-
-impl Serialize for J {
-	fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-		match self {
-			J::Null => s.serialize_unit(),
-			J::Bool(b) => s.serialize_bool(*b),
-			J::Num(n) => n.serialize(s),
-			J::Str(t) => s.serialize_str(t),
-			J::Arr(a) => {
-				let mut seq = s.serialize_seq(Some(a.len()))?;
-				for e in a {
-					seq.serialize_element(e)?;
-				}
-				seq.end()
-			}
-			J::Obj(o) => o.serialize(s),
-		}
-	}
-}
-
-impl Serialize for Obj {
-	fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-		let mut map = s.serialize_map(Some(self.0.len()))?;
-		for (k, v) in &self.0 {
-			map.serialize_entry(k, v)?;
-		}
-		map.end()
-	}
-}
-
-impl From<Value> for J {
-	fn from(v: Value) -> J {
-		match v {
-			Value::Null => J::Null,
-			Value::Bool(b) => J::Bool(b),
-			Value::Number(n) => J::Num(n),
-			Value::String(s) => J::Str(s),
-			Value::Array(a) => J::Arr(a.into_iter().map(J::from).collect()),
-			Value::Object(o) => J::Obj(Obj(o.into_iter().map(|(k, v)| (k, J::from(v))).collect())),
-		}
-	}
-}
-
-impl From<&Value> for J {
-	fn from(v: &Value) -> J {
-		J::from(v.clone())
-	}
-}
-
-impl From<Obj> for J {
-	fn from(o: Obj) -> J {
-		J::Obj(o)
-	}
-}
-
-impl From<Vec<J>> for J {
-	fn from(a: Vec<J>) -> J {
-		J::Arr(a)
-	}
-}
-
-impl From<&str> for J {
-	fn from(s: &str) -> J {
-		J::Str(s.to_string())
-	}
-}
-
-impl From<String> for J {
-	fn from(s: String) -> J {
-		J::Str(s)
-	}
-}
-
-impl From<&String> for J {
-	fn from(s: &String) -> J {
-		J::Str(s.clone())
-	}
-}
-
-impl From<bool> for J {
-	fn from(b: bool) -> J {
-		J::Bool(b)
-	}
-}
-
-impl From<u64> for J {
-	fn from(n: u64) -> J {
-		J::Num(n.into())
-	}
-}
-
-impl From<u8> for J {
-	fn from(n: u8) -> J {
-		J::Num(n.into())
-	}
-}
-
-impl From<i64> for J {
-	fn from(n: i64) -> J {
-		J::Num(n.into())
-	}
-}
-
-impl From<f64> for J {
-	fn from(x: f64) -> J {
-		serde_json::Number::from_f64(x).map_or(J::Null, J::Num)
-	}
-}
-
-impl From<serde_json::Number> for J {
-	fn from(n: serde_json::Number) -> J {
-		J::Num(n)
 	}
 }
 
@@ -404,7 +237,7 @@ impl Sources {
 #[derive(Clone, Debug)]
 pub struct Ui {
 	/// The document, `version` included.
-	pub doc: J,
+	pub doc: Value,
 	pub version: String,
 	pub profile: Profile,
 	pub units: Units,
@@ -915,7 +748,7 @@ pub fn build(input: &Input) -> Ui {
 	doc.put("role", input.role.as_str());
 	let mut control = Obj::new();
 	control.put("enabled", input.control.enabled);
-	control.put("off_reason", input.control.off_reason.map_or(J::Null, J::from));
+	control.put("off_reason", input.control.off_reason.map_or(Value::Null, Value::from));
 	doc.put("control", control);
 	let mut profile_doc = profile_json(&profile, input.kind, input.service.interval_ms);
 	// Where to change it, for the person who may: a file and a line of the settings.
@@ -928,15 +761,15 @@ pub fn build(input: &Input) -> Ui {
 		profile_doc.put("source", s);
 	}
 	doc.put("profile", profile_doc);
-	doc.put("tabs", J::Arr(tabs.iter().map(J::from).collect()));
-	doc.put("header", header.as_ref().map_or(J::Null, J::from));
-	doc.put("dashboards", J::Arr(dashboards.iter().map(|d| J::Obj(ctx.dashboard_json(d))).collect()));
-	doc.put("actions", J::Arr(available.iter().map(|s| J::Obj(action_json(s, &profile))).collect()));
+	doc.put("tabs", Value::Array(tabs.iter().cloned().map(Value::from).collect()));
+	doc.put("header", header.clone().map_or(Value::Null, Value::from));
+	doc.put("dashboards", Value::Array(dashboards.iter().map(|d| Value::Object(ctx.dashboard_json(d))).collect()));
+	doc.put("actions", Value::Array(available.iter().map(|s| Value::Object(action_json(s, &profile))).collect()));
 	let version = version_of(&doc);
 	let mut full = Obj::new();
 	full.put("version", version.clone());
 	full.extend(doc);
-	Ui { doc: J::Obj(full), version, profile, units, tabs, header, dashboards, actions: available }
+	Ui { doc: Value::Object(full), version, profile, units, tabs, header, dashboards, actions: available }
 }
 
 /// A short hash of the document, which changes whenever anything in it does.
@@ -982,8 +815,8 @@ fn service_json(s: &Service) -> Obj {
 	o.put("version", s.version.as_str());
 	o.put("interval_ms", s.interval_ms);
 	o.put("history_seconds", s.history_seconds);
-	o.put("features", J::Arr(s.features.iter().map(|f| J::from(*f)).collect()));
-	o.put("endpoints", J::Arr(s.endpoints.iter().map(J::from).collect()));
+	o.put("features", Value::Array(s.features.iter().map(|f| Value::from(*f)).collect()));
+	o.put("endpoints", Value::Array(s.endpoints.iter().cloned().map(Value::from).collect()));
 	o
 }
 
@@ -1000,11 +833,11 @@ fn profile_json(p: &Profile, kind: &str, tick_ms: u64) -> Obj {
 	o.put("network_bits", p.network_bits);
 	o.put("confirm_actions", p.confirm_actions);
 	let mut unlock = Obj::new();
-	unlock.put("for", J::Arr(p.unlock_for.iter().map(J::from).collect()));
+	unlock.put("for", Value::Array(p.unlock_for.iter().cloned().map(Value::from).collect()));
 	unlock.put("grace", p.unlock_grace.as_str());
 	o.put("unlock", unlock);
 	match kind {
-		"web" => o.put("web", J::from(Value::Object(p.web.clone()))),
+		"web" => o.put("web", Value::Object(p.web.clone())),
 		_ => {
 			let mut a = Obj::new();
 			for (k, _) in settings::ANDROID {
@@ -1033,10 +866,10 @@ fn param_json(p: &actions::Param) -> Obj {
 					let mut ch = Obj::new();
 					ch.put("value", v.as_str());
 					ch.put("label", l.as_str());
-					J::Obj(ch)
+					Value::Object(ch)
 				})
 				.collect();
-			o.put("choices", J::Arr(choices));
+			o.put("choices", Value::Array(choices));
 		}
 		ParamKind::Range { min, max, step, unit } => {
 			o.put("min", min.clone());
@@ -1050,7 +883,7 @@ fn param_json(p: &actions::Param) -> Obj {
 	if p.optional {
 		o.put("optional", true);
 	}
-	o.opt("default", p.default.as_ref().map(J::from));
+	o.opt("default", p.default.clone());
 	o
 }
 
@@ -1063,13 +896,13 @@ fn action_json(s: &Spec, p: &Profile) -> Obj {
 	o.put("icon", s.icon.as_str());
 	o.put("confirm", s.confirm && p.confirm_actions);
 	o.put("unlock", s.unlock || p.unlock_for.iter().any(|k| k == s.kind));
-	o.put("params", J::Arr(s.params.iter().map(|p| J::Obj(param_json(p))).collect()));
+	o.put("params", Value::Array(s.params.iter().map(|p| Value::Object(param_json(p))).collect()));
 	o
 }
 
-fn bound_num(b: &Option<Bound>) -> Option<J> {
+fn bound_num(b: &Option<Bound>) -> Option<Value> {
 	match b {
-		Some(Bound::Num(n)) => Some(J::Num(n.clone())),
+		Some(Bound::Num(n)) => Some(Value::Number(n.clone())),
 		_ => None,
 	}
 }
@@ -1080,7 +913,7 @@ impl Ctx<'_> {
 		o.put("id", d.id.as_str());
 		o.put("title", d.title.as_str());
 		o.put("icon", d.icon.as_str());
-		o.put("widgets", J::Arr(d.widgets.iter().map(|w| J::Obj(self.widget_json(w))).collect()));
+		o.put("widgets", Value::Array(d.widgets.iter().map(|w| Value::Object(self.widget_json(w))).collect()));
 		o
 	}
 
@@ -1120,15 +953,15 @@ impl Ctx<'_> {
 				o.opt("unit", self.unit_of(&d.unit, value));
 				o.put("format", self.format_of(&d.format, value, if w.kind == "status" { "text" } else { "number" }));
 				if w.kind == "gauge" || w.kind == "meter" {
-					o.put("min", bound_num(&d.min).unwrap_or(J::from(0u64)));
+					o.put("min", bound_num(&d.min).unwrap_or(Value::from(0u64)));
 					let own = value.and_then(|a| self.view.values.scalars.get(a)).and_then(|s| match &s.max {
-						Some(values::Max::Num(n)) => Some(J::Num(n.clone())),
+						Some(values::Max::Num(n)) => Some(Value::Number(n.clone())),
 						_ => None,
 					});
 					match &d.max {
-						Some(Bound::Num(n)) => o.put("max", J::Num(n.clone())),
+						Some(Bound::Num(n)) => o.put("max", Value::Number(n.clone())),
 						Some(Bound::Name(_)) => {}
-						None => o.opt("max", own.or_else(|| value.and_then(values::address_def).filter(|a| a.unit == "%").map(|_| J::from(100u64)))),
+						None => o.opt("max", own.or_else(|| value.and_then(values::address_def).filter(|a| a.unit == "%").map(|_| Value::from(100u64)))),
 					}
 				} else {
 					o.opt("min", bound_num(&d.min));
@@ -1143,7 +976,7 @@ impl Ctx<'_> {
 					Some(Labels::List(l)) => l.clone(),
 					_ => Vec::new(),
 				};
-				let series: Vec<J> = d
+				let series: Vec<Value> = d
 					.values
 					.iter()
 					.flatten()
@@ -1154,10 +987,10 @@ impl Ctx<'_> {
 						s.opt("color", d.colors.as_ref().and_then(|c| c.get(i)).cloned());
 						s.opt("unit", self.unit_of(&d.unit, Some(a)));
 						s.put("format", self.format_of(&d.format, Some(a), "number"));
-						J::Obj(s)
+						Value::Object(s)
 					})
 					.collect();
-				o.put("series", J::Arr(series));
+				o.put("series", Value::Array(series));
 				o.put("range", d.range.unwrap_or(self.history_seconds).min(self.history_seconds));
 				o.put("height", d.height.clone().unwrap_or_else(|| "medium".into()));
 				o.opt("min", bound_num(&d.min));
@@ -1165,7 +998,7 @@ impl Ctx<'_> {
 				o.opt("floor", d.floor.clone());
 			}
 			"list" => {
-				let items: Vec<J> = d
+				let items: Vec<Value> = d
 					.items
 					.iter()
 					.flatten()
@@ -1180,10 +1013,10 @@ impl Ctx<'_> {
 							}
 							_ => it.put("format", i.format.clone().unwrap_or_else(|| "text".into())),
 						}
-						J::Obj(it)
+						Value::Object(it)
 					})
 					.collect();
-				o.put("items", J::Arr(items));
+				o.put("items", Value::Array(items));
 			}
 			"bars" => {
 				let (source, field) = (d.source.as_deref().unwrap_or(""), d.field.as_deref().unwrap_or(""));
@@ -1196,13 +1029,13 @@ impl Ctx<'_> {
 			"table" => self.table_json(d, &mut o),
 			"button" => {
 				o.opt("action", d.action.as_deref());
-				o.opt("params", d.params.clone().map(|p| J::from(Value::Object(p))));
+				o.opt("params", d.params.clone().map(Value::Object));
 			}
 			"toggle" => {
 				o.opt("action", d.action.as_deref());
 				o.opt("param", d.param.as_deref());
-				o.put("on", d.on.as_ref().map_or(J::Bool(true), J::from));
-				o.put("off", d.off.as_ref().map_or(J::Bool(false), J::from));
+				o.put("on", d.on.clone().unwrap_or(Value::Bool(true)));
+				o.put("off", d.off.clone().unwrap_or(Value::Bool(false)));
 			}
 			"select" | "slider" => {
 				o.opt("action", d.action.as_deref());
@@ -1215,14 +1048,14 @@ impl Ctx<'_> {
 				o.put("level", d.level.clone().unwrap_or_else(|| "normal".into()));
 			}
 			"group" => {
-				o.put("widgets", J::Arr(w.widgets.iter().map(|c| J::Obj(self.widget_json(c))).collect()));
+				o.put("widgets", Value::Array(w.widgets.iter().map(|c| Value::Object(self.widget_json(c))).collect()));
 			}
 			_ => {}
 		}
 		o
 	}
 
-	fn column_json(&self, source: &str, c: &settings::Column, column: bool) -> J {
+	fn column_json(&self, source: &str, c: &settings::Column, column: bool) -> Value {
 		let mut o = Obj::new();
 		o.put("field", c.field.as_str());
 		o.opt("label", c.label.as_deref());
@@ -1239,8 +1072,8 @@ impl Ctx<'_> {
 				b.put(
 					"max",
 					match &bar.max {
-						Bound::Num(n) => J::Num(n.clone()),
-						Bound::Name(s) => J::from(s.as_str()),
+						Bound::Num(n) => Value::Number(n.clone()),
+						Bound::Name(s) => Value::from(s.as_str()),
 					},
 				);
 				o.put("bar", b);
@@ -1249,20 +1082,20 @@ impl Ctx<'_> {
 				o.put("grow", true);
 			}
 		}
-		J::Obj(o)
+		Value::Object(o)
 	}
 
 	fn table_json(&self, d: &Widget, o: &mut Obj) {
 		let source = d.source.as_deref().unwrap_or("");
 		o.put("source", source);
-		o.put("columns", J::Arr(d.columns.iter().flatten().map(|c| self.column_json(source, c, true)).collect()));
+		o.put("columns", Value::Array(d.columns.iter().flatten().map(|c| self.column_json(source, c, true)).collect()));
 		if let Some(s) = &d.sort {
 			let mut so = Obj::new();
 			so.put("field", s.field.as_str());
 			so.put("desc", s.desc);
 			o.put("sort", so);
 		}
-		o.put("sorts", J::Arr(d.sorts.iter().flatten().map(J::from).collect()));
+		o.put("sorts", Value::Array(d.sorts.iter().flatten().cloned().map(Value::from).collect()));
 		if let Some(labels) = d.sort_labels.as_ref().filter(|l| !l.is_empty()) {
 			let mut l = Obj::new();
 			for (field, label) in labels {
@@ -1273,25 +1106,25 @@ impl Ctx<'_> {
 		let fields = search_fields(d);
 		o.put("search", !fields.is_empty());
 		if !fields.is_empty() {
-			o.put("search_fields", J::Arr(fields.iter().map(J::from).collect()));
+			o.put("search_fields", Value::Array(fields.iter().cloned().map(Value::from).collect()));
 		}
 		o.put("hide_empty", d.hide_empty.unwrap_or(false));
 		o.opt("row_open", d.row_open.as_deref());
 		if let Some(ra) = d.row_actions.as_ref().filter(|r| !r.is_empty()) {
-			let list: Vec<J> = ra
+			let list: Vec<Value> = ra
 				.iter()
 				.map(|a| {
 					let mut r = Obj::new();
 					r.put("action", a.action.as_str());
 					r.opt("label", a.label.as_deref());
-					r.opt("params", a.params.clone().map(|p| J::from(Value::Object(p))));
-					J::Obj(r)
+					r.opt("params", a.params.clone().map(Value::Object));
+					Value::Object(r)
 				})
 				.collect();
-			o.put("row_actions", J::Arr(list));
+			o.put("row_actions", Value::Array(list));
 		}
 		if let Some(ex) = d.expand.as_ref().filter(|e| !e.is_empty()) {
-			o.put("expand", J::Arr(ex.iter().map(|c| self.column_json(source, c, false)).collect()));
+			o.put("expand", Value::Array(ex.iter().map(|c| self.column_json(source, c, false)).collect()));
 		}
 	}
 }
@@ -1417,16 +1250,16 @@ pub mod tests {
 		let values = crate::fixtures::values(&config);
 		let caps = Caps::all(&values.power_profiles);
 		let ui = build(&input(&config, &values, &caps, Role::Admin, "hot", None));
-		let p = ui.doc.to_value()["profile"].clone();
+		let p = ui.doc.clone()["profile"].clone();
 		assert_eq!((p["fahrenheit"].as_bool(), p["android"]["haptics"].as_bool(), p["android"]["blur"].as_bool()), (Some(true), Some(false), Some(true)));
-		assert_eq!(ui.doc.to_value()["header"], Value::Null);
+		assert_eq!(ui.doc.clone()["header"], Value::Null);
 		// A for_each dashboard as a tab is one tab for each item.
 		assert_eq!(ui.tabs, ["overview", "gpu.nvidia"]);
 		let temp = ui.dashboard("overview").unwrap().all_widgets().into_iter().find(|w| w.id == "overview/temperature").unwrap().clone();
-		let json = ui.dashboards.iter().find(|d| d.id == "overview").map(|_| ui.doc.to_value()).unwrap();
+		let json = ui.dashboards.iter().find(|d| d.id == "overview").map(|_| ui.doc.clone()).unwrap();
 		let w = json["dashboards"][0]["widgets"].as_array().unwrap().iter().find(|w| w["id"] == "overview/temperature").unwrap().clone();
 		assert_eq!((w["unit"].as_str(), temp.def.value.as_deref()), (Some("°F"), Some("cpu.temp")));
-		assert!(ui.doc.to_value()["actions"].as_array().unwrap().iter().all(|a| a["confirm"] == false));
+		assert!(ui.doc.clone()["actions"].as_array().unwrap().iter().all(|a| a["confirm"] == false));
 		// The same document is the same version; another role, another.
 		let again = build(&input(&config, &values, &caps, Role::Admin, "hot", None));
 		assert_eq!(again.version, ui.version);
@@ -1476,7 +1309,7 @@ label = "{item.label} at {item.rpm}"
 		let ids: Vec<&str> = t.widgets.iter().map(|w| w.id.as_str()).collect();
 		assert_eq!(ids, ["t/h.rx", "t/h.tx", "t/fans.hp_cpu"]);
 		assert_eq!(t.widgets[1].def.values.as_deref(), Some(&["net.tx".to_string()][..]));
-		let doc = ui.doc.to_value();
+		let doc = ui.doc.clone();
 		let t_json = doc["dashboards"].as_array().unwrap().iter().find(|d| d["id"] == "t").unwrap().clone();
 		assert_eq!(t_json["widgets"][0]["label"], "Net rx");
 		assert_eq!(t_json["widgets"][2]["label"], "CPU at 2500 RPM");
@@ -1500,7 +1333,7 @@ label = "{item.label} at {item.rpm}"
 		let values = crate::fixtures::values(&config);
 		let caps = Caps::all(&values.power_profiles);
 		let glance = build(&input(&config, &values, &caps, Role::Glance, "default", None));
-		assert_eq!((glance.header.as_deref(), glance.doc.to_value()["header"].clone()), (None, Value::Null));
+		assert_eq!((glance.header.as_deref(), glance.doc.clone()["header"].clone()), (None, Value::Null));
 		assert!(glance.dashboard("header").is_none());
 		let monitor = build(&input(&config, &values, &caps, Role::Monitor, "default", None));
 		assert_eq!(monitor.header.as_deref(), Some("header"));
