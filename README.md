@@ -45,8 +45,7 @@ stops every phone at once.
 
 Moving is kept simple: `elamond backup` saves the computer's identity and its paired phones in one
 file only you can read, which `elamond restore` puts back on a reinstalled or new computer without
-pairing the phones again, and the app exports its pairings, encrypted with a passphrase, for a new
-phone.
+pairing the phones again; a new phone pairs with `elamond pair`.
 
 The app: Material You with frosted glass on Android 12 and newer, light, dark or pure black.
 

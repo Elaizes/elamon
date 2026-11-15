@@ -40,7 +40,6 @@ import io.github.elaizes.elamon.data.ElamondClient
 import io.github.elaizes.elamon.data.ElamondException
 import io.github.elaizes.elamon.data.Hello
 import io.github.elaizes.elamon.data.MachineStore
-import io.github.elaizes.elamon.data.OwnKeys
 import io.github.elaizes.elamon.data.StreamOpen
 import io.github.elaizes.elamon.data.Subscribe
 import io.github.elaizes.elamon.data.UiCache
@@ -185,7 +184,6 @@ fun findWidget(ui: UiDoc, id: String): Widget? = ui.dashboards.firstNotNullOfOrN
  */
 class MachineViewModel(app: Application, private val machineId: String) : AndroidViewModel(app) {
 	private val store = MachineStore.get(app)
-	private val ownKeys = OwnKeys.get(app)
 	private val cache = UiCache.get(app)
 
 	/** What this screen keeps of the computer is kept only while it isn't forgotten (or paired again under another id). */
@@ -345,11 +343,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 				workingHost = reached.first.host.also { if (it != machine.lastHost) store.update(machineId) { s -> s.copy(lastHost = it) } }
 			}
 			val host = workingHost ?: continue
-			// Imported from another phone: the computer answers, so it can give this phone a key of its own.
 			val pin = (store.get(machineId) ?: machine).fingerprint
-			val own = ownKeys.renew(machineId, deviceName(getApplication())) { ElamondClient(host, machine.port, pin, token).rekey(it) }
-			// The stream opens with the new key, so revoking the old phone doesn't end it.
-			if (own != null) continue
 
 			// Opened anew at once, on the same address, when only a new stream sends what is wanted.
 			val e = streamOn(host, ElamondClient(host, machine.port, pin, token)) ?: continue

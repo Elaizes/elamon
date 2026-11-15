@@ -45,9 +45,8 @@ class UnlockTest {
 		assertEquals(Guarded.Units, Guarded.of("units"))
 		assertEquals(Guarded.Profile, Guarded.of("profile"))
 		assertEquals(Guarded.Media, Guarded.of("media"))
-		// A newer service's kind counts as the settings' actions; the app's own is never a computer's.
+		// A newer service's kind counts as the settings' actions.
 		assertEquals(Guarded.Actions, Guarded.of("lights"))
-		assertEquals(Guarded.Actions, Guarded.of("transfer"))
 		assertEquals(UnlockGrace.OneMinute, UnlockGrace.of("1m"))
 		assertEquals(UnlockGrace.FiveMinutes, UnlockGrace.of("5m"))
 		assertEquals(UnlockGrace.EveryTime, UnlockGrace.of("every_time"))
@@ -55,25 +54,9 @@ class UnlockTest {
 	}
 
 	@Test
-	fun exportAndImportAlwaysAskEveryTime() {
-		val transfer = Guarded.entries.single { it.fixed }
-		assertEquals(Guarded.Transfer, transfer)
-		// Never said to unlock, a long grace: asked all the same.
-		assertEquals(Gate(Before.Unlock), gateFor(Guarded.Transfer, confirm = false, unlock = false, grace = UnlockGrace.FiveMinutes))
-		// No grace covers it, not even its own, a moment ago.
-		val at = 10 * minute
-		for (kind in Guarded.entries) {
-			assertEquals(Gate(Before.Unlock), gateFor(Guarded.Transfer, grace = UnlockGrace.FiveMinutes, now = at + 1, memory = unlockedFor(kind, at)), "$kind")
-		}
-		// Without a screen lock: a confirmation, as elsewhere, saying why the first time.
-		assertEquals(Gate(Before.Confirm, noLockScreen = true), gateFor(Guarded.Transfer, confirm = false, lockScreen = false))
-		assertEquals(Gate(Before.Confirm), gateFor(Guarded.Transfer, confirm = false, lockScreen = false, memory = UnlockMemory(explained = true)))
-	}
-
-	@Test
 	fun kindsAreOrderedByWhatTheyCanDo() {
 		// power, signal, actions, units, profile, media: an unlock covers those after it.
-		val order = listOf(Guarded.Media, Guarded.Profile, Guarded.Units, Guarded.Actions, Guarded.Processes, Guarded.Power, Guarded.Transfer)
+		val order = listOf(Guarded.Media, Guarded.Profile, Guarded.Units, Guarded.Actions, Guarded.Processes, Guarded.Power)
 		assertEquals(order, Guarded.entries.sortedBy { it.level })
 		assertEquals(Guarded.entries.size, Guarded.entries.map { it.level }.toSet().size)
 	}
@@ -96,7 +79,7 @@ class UnlockTest {
 	fun aGraceCoversOnlyKindsAtOrBelowTheOneUnlocked() {
 		val at = 10 * minute
 		for (unlocked in Guarded.entries) for (kind in Guarded.entries) {
-			val expected = if (!kind.fixed && kind.level <= unlocked.level) Before.Nothing else Before.Unlock
+			val expected = if (kind.level <= unlocked.level) Before.Nothing else Before.Unlock
 			val g = gateFor(kind, confirm = false, unlock = true, grace = UnlockGrace.FiveMinutes, now = at + minute, memory = unlockedFor(unlocked, at))
 			assertEquals(Gate(expected), g, "$kind after $unlocked")
 		}

@@ -47,7 +47,7 @@ data class Ask(
 	val icon: ImageVector? = null,
 	/** Asked before it runs: the action's `confirm`, as the computer's settings and profile make it. */
 	val confirm: Boolean = true,
-	/** The phone unlocked first: the action's `unlock`. A fixed kind ([Guarded.Transfer]) always is. */
+	/** The phone unlocked first: the action's `unlock`. */
 	val unlock: Boolean = false,
 	/** How long an unlock covers later actions: the profile's `unlock.grace`. */
 	val grace: UnlockGrace = UnlockGrace.EveryTime,

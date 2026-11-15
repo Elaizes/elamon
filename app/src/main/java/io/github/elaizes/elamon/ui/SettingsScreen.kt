@@ -1,7 +1,5 @@
 package io.github.elaizes.elamon.ui
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,14 +33,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import io.github.elaizes.elamon.BuildConfig
 import io.github.elaizes.elamon.Guarded
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.ThemeMode
-import io.github.elaizes.elamon.TransferViewModel
 import io.github.elaizes.elamon.UnlockGrace
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.Profile
@@ -52,7 +48,7 @@ import io.github.elaizes.elamon.data.withoutControls
 /**
  * What applies here, and where it is set: how the app looks and behaves comes from the profile
  * the computer gives this phone (the one [machine], or the first paired), each row with the key of
- * elamond's settings it comes from. What stays the app's own: the pairings, help and licences.
+ * elamond's settings it comes from. What stays the app's own: help and licences.
  */
 @Composable
 fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
@@ -65,13 +61,7 @@ fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
 	val profiles by UiCache.get(ctx).profiles.collectAsStateWithLifecycle()
 	val computer = machines.find { it.id == machine } ?: machines.firstOrNull()
 	val profile = computer?.let { profiles[it.id] }
-	val transfer: TransferViewModel = viewModel()
-	var askExport by remember { mutableStateOf(false) }
-	val guard = LocalGuard.current
 	val res = resources()
-	// Here, not in the list's rows: a row scrolled away would take the picker's answer with it.
-	val saveFile = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(PAIRINGS_MIME)) { transfer.exportTo(it) }
-	val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { transfer.importFrom(it) }
 	val key = { k: String -> "profiles.${profile?.id ?: DEFAULT_PROFILE}.$k" }
 
 	CompositionLocalProvider(LocalHaze provides haze) {
@@ -156,36 +146,11 @@ fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
 						GroupDivider()
 						Ref(
 							R.string.settings_unlock,
-							Guarded.entries.filter { !it.fixed && it in p.unlockFor }.joinToString(", ") { res.getString(it.title()) }.ifEmpty { res.getString(R.string.settings_unlock_none) },
+							Guarded.entries.filter { it in p.unlockFor }.joinToString(", ") { res.getString(it.title()) }.ifEmpty { res.getString(R.string.settings_unlock_none) },
 							key("unlock.for"),
 						)
 						GroupDivider()
 						Ref(R.string.settings_unlock_grace, graceName(p.unlockGrace), key("unlock.grace"))
-					}
-				}
-
-				item { GroupLabel(stringResource(R.string.settings_pairings)) }
-				item {
-					ListGroup {
-						ListRow(
-							stringResource(R.string.settings_export),
-							stringResource(if (machines.isEmpty()) R.string.settings_export_none else R.string.settings_export_summary),
-							enabled = machines.isNotEmpty(),
-							onClick = {
-								// Every computer's key leaves the phone: unlocking it first, every time.
-								val ask = Ask(Guarded.Transfer, res.getString(R.string.settings_export), res.getString(R.string.transfer_export_question), res.getString(R.string.control_continue), unlock = true)
-								guard.run(ask) { askExport = true }
-							},
-						)
-						GroupDivider()
-						ListRow(stringResource(R.string.settings_import), stringResource(R.string.settings_import_summary), onClick = {
-							// Computers from a file may take the place of those here: as for exporting.
-							val ask = Ask(Guarded.Transfer, res.getString(R.string.settings_import), res.getString(R.string.transfer_import_question), res.getString(R.string.control_continue), unlock = true)
-							guard.run(ask) {
-								// Any type: a file copied over may have lost its own on the way.
-								runCatching { openFile.launch(arrayOf("*/*")) }.onFailure { transfer.failed(R.string.transfer_no_picker, export = false) }
-							}
-						})
 					}
 				}
 
@@ -208,22 +173,6 @@ fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
 			GlassTopBar(title = stringResource(R.string.settings), collapsed = rememberCollapsed(list), onBack = onBack)
 		}
 	}
-
-	if (askExport) {
-		PassphraseDialog(
-			title = stringResource(R.string.settings_export),
-			text = stringResource(R.string.transfer_export_text),
-			twice = true,
-			confirmLabel = stringResource(R.string.transfer_choose_file),
-			onDismiss = { askExport = false },
-			onPassphrase = { passphrase ->
-				askExport = false
-				transfer.exportPassphrase(passphrase)
-				runCatching { saveFile.launch(TransferViewModel.fileName()) }.onFailure { transfer.failed(R.string.transfer_no_picker, export = true) }
-			},
-		)
-	}
-	TransferDialogs(transfer)
 
 	if (license) {
 		val text = remember { runCatching { ctx.assets.open("licenses/inter-OFL.txt").bufferedReader().readText() }.getOrDefault("") }
@@ -318,12 +267,8 @@ internal fun Guarded.title(): Int = when (this) {
 	Guarded.Units -> R.string.settings_unlock_units
 	Guarded.Profile -> R.string.settings_unlock_profile
 	Guarded.Media -> R.string.settings_unlock_media
-	Guarded.Transfer -> R.string.settings_unlock_transfer
 }
 
 /** The profile a phone has when the computer names none. */
 private const val DEFAULT_PROFILE = "default"
-
-/** What exported pairings are saved as: no type of their own, so the name's ending stays as given. */
-private const val PAIRINGS_MIME = "application/octet-stream"
 

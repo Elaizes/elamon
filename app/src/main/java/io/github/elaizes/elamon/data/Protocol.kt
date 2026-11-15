@@ -50,10 +50,6 @@ data class Hello(
 	val widgets: Int? = null,
 )
 
-/** `POST /api/v1/rekey`: a key of this phone's own, named [device] in the computer's list of phones. */
-@Serializable
-data class RekeyRequest(val device: String)
-
 /** Pairing with a code; [previous], this phone's entry on that computer and its token, when it pairs again with one it has. */
 @Serializable
 data class PairRequest(
@@ -66,7 +62,7 @@ data class PairRequest(
 @Serializable
 data class PreviousPairing(@SerialName("client_id") val clientId: String, val token: String)
 
-/** What pairing answers, and asking for a key of this phone's own (`POST /api/v1/rekey`). */
+/** What pairing answers. */
 @Serializable
 data class PairResponse(
 	val token: String,

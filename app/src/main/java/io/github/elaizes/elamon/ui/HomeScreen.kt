@@ -70,7 +70,6 @@ import io.github.elaizes.elamon.Guarded
 import io.github.elaizes.elamon.Migration
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.Settings
-import io.github.elaizes.elamon.deviceName
 import io.github.elaizes.elamon.pollEach
 import io.github.elaizes.elamon.data.APP_API
 import io.github.elaizes.elamon.data.ElamondClient
@@ -85,7 +84,6 @@ import io.github.elaizes.elamon.data.UiDoc
 import io.github.elaizes.elamon.data.WidgetState
 import io.github.elaizes.elamon.data.Machine
 import io.github.elaizes.elamon.data.MachineStore
-import io.github.elaizes.elamon.data.OwnKeys
 import io.github.elaizes.elamon.data.discoverElamond
 import io.github.elaizes.elamon.data.reachPaired
 import io.github.elaizes.elamon.data.parseAddress
@@ -174,11 +172,9 @@ fun homeStats(ui: UiDoc, tab: String, states: Map<String, WidgetState>): List<Ho
 fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: () -> Unit, onSettings: () -> Unit) {
 	val ctx = LocalContext.current
 	val store = MachineStore.get(ctx)
-	val ownKeys = OwnKeys.get(ctx)
 	val cache = UiCache.get(ctx)
 	val settings = Settings.get(ctx)
 	val migration by settings.migration.collectAsStateWithLifecycle()
-	val device = remember { deviceName(ctx) }
 	val machines by store.machines.collectAsStateWithLifecycle()
 	val discovery = remember { discoverElamond(ctx) }
 	val found by discovery.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -192,7 +188,7 @@ fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: 
 	val lifecycle = LocalLifecycleOwner.current.lifecycle
 	LaunchedEffect(machines, lifecycle) {
 		lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-			pollEach(machines, Limits.HOME_POLL_MS, probe = { reading(it, store, ownKeys, cache, device) }, report = { s, l -> live[s.id] = l })
+			pollEach(machines, Limits.HOME_POLL_MS, probe = { reading(it, store, cache) }, report = { s, l -> live[s.id] = l })
 		}
 	}
 
@@ -270,11 +266,10 @@ fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: 
 }
 
 /**
- * One reading of [s], on whichever of its addresses answers; a computer whose token came with
- * Import pairings is asked for a key of this phone's own, named [device], first. Its `ui` is the
- * one kept on the phone, asked for where there is none or its first tab is refused ([cardReading]).
+ * One reading of [s], on whichever of its addresses answers. Its `ui` is the one kept on the
+ * phone, asked for where there is none or its first tab is refused ([cardReading]).
  */
-private suspend fun reading(s: Machine, store: MachineStore, ownKeys: OwnKeys, cache: UiCache, device: String): Live {
+private suspend fun reading(s: Machine, store: MachineStore, cache: UiCache): Live {
 	// Opened by the key store off the main thread, the first time.
 	val token = withContext(Dispatchers.Default) { store.token(s) } ?: return Live.Unpaired
 	// Taken before asking: forgotten meanwhile, the computer's answer isn't kept.
@@ -288,9 +283,7 @@ private suspend fun reading(s: Machine, store: MachineStore, ownKeys: OwnKeys, c
 			store.repin(s.id, from, to)
 		} ?: return Live.Offline
 		if (reached.second.api != APP_API) return Live.Outdated
-		val host = reached.first.host
-		val own = ownKeys.renew(s.id, device) { ElamondClient(host, s.port, pin, token).rekey(it) }
-		val client = ElamondClient(host, s.port, pin, own ?: token)
+		val client = ElamondClient(reached.first.host, s.port, pin, token)
 		cardReading(
 			ui = { fresh ->
 				// The one kept came over this computer's certificate and to its token too: where it said it is

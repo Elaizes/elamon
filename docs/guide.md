@@ -385,15 +385,6 @@ key sets it. To change something, change the profile on the computer.
 | Ask again after | `unlock.grace`: how long one unlock holds |
 | Haptic feedback | `android.haptics`: a tick on long presses |
 
-Two things belong to the app itself, for every computer:
-
-- **Export pairings** saves every paired computer to a file encrypted with a passphrase, for a new
-  phone ([section 8](#a-new-phone)).
-- **Import pairings** adds the computers from such a file.
-
-Both always ask to unlock the phone. On a phone with no screen lock, the app asks you to confirm
-instead.
-
 ### How do I…
 
 - **…see what slows the computer down?** Overview → tap the CPU or Memory tile. The bottom of the
@@ -427,8 +418,8 @@ instead.
   `elamond revoke ID --with-added`.
 - **…stop a phone from seeing a computer?** On the computer, `elamond revoke ID`. On the phone, ⋮ →
   *Forget computer*.
-- **…move to a new phone?** Settings → *Export pairings* on the old phone, *Import pairings* on the
-  new one ([section 8](#a-new-phone)).
+- **…move to a new phone?** Pair it with `elamond pair` on each computer
+  ([section 8](#a-new-phone)).
 - **…reinstall the computer without pairing the phones again?** Run `elamond backup` before and
   `elamond restore` after ([section 8](#a-new-computer-or-reinstalling)).
 
@@ -820,7 +811,6 @@ use = "owner"
 | the phone was reset, or unpaired, and pairs again | `elamond pair` asks: *A phone named "Galaxy S25" had the profile galaxy-s25. Give it to this one?* (`--yes` never gives it) |
 | `elamond pair --profile galaxy-s25` | the phone takes that table, as it is |
 | `elamond revoke ID` | its table goes if you never changed it; a changed one stays, with a note, for the phone to take when it pairs again |
-| a new phone gets a key with Import pairings | a table of its own, using the old phone's |
 
 `elamond clients profile ID owner` still gives a phone another profile, one shared by several
 phones say. Its own table stays: `elamond clients profile ID galaxy-s25` gives it back.
@@ -1139,41 +1129,24 @@ activity log it started with until it restarts. Restart it right after:
 
 ### A new phone
 
-1. **On the old phone:** Settings → *Export pairings*. Choose a passphrase (at least 8 characters;
-   the app refuses easy ones, and *Generate* makes one of six random words), then where to save the
-   file (`elamon-pairings-DATE.elamon`). The file holds every paired computer with the phone's key
-   to it, encrypted.
-2. **Copy the file** to the new phone and install Elamon there.
-3. **On the new phone:** Settings → *Import pairings*, the file and its passphrase. New computers are
-   added. For a computer the phone has already, with the same certificate and addresses, the file's
-   copy replaces it. Where they differ, the app asks for each: *Replace* or *Keep this phone's*.
+Pair it as you did the first: run `elamond pair` on each computer and scan its QR code with the new
+phone ([section 3](#3-pair-the-phone)). Elamon 0.6.1 could also export its pairings to a file for a
+new phone; 0.6.2 no longer does.
 
-**Each computer gives the new phone a key of its own** the first time the app reaches it after the
-import. It shows in `elamond clients` as a new entry with the new phone's name and the old phone's
-role, *added … with the key of* the old phone's ID.
+Moving for good: forget the computers on the old phone, or reset it, then revoke its entry on each
+computer:
 
-- One token gives one such key. So a file imported on several phones gives a key to the first of
-  them only; pair the others.
-- The old phone keeps working until it's revoked, and revoking it leaves the new one paired.
-- Until the new phone has a key of its own there, don't pair the old one with that computer again:
-  pairing again ends the entry the two phones still share, and the new one is cut off with it.
-- Moving for good: forget the computers on the old phone, or reset it, then revoke its entry:
+```sh
+elamond clients
+elamond revoke OLD_ID
+```
 
-  ```sh
-  elamond clients
-  elamond revoke OLD_ID
-  ```
-
-**Families of keys.** `elamond revoke` names, loudly, the phones still paired that got a key with
-the token it revoked: a phone you don't know there got its key from that one. To the computer they
-are a family, which shares the activity log.
+**Families of keys.** A phone that imported pairings with Elamon 0.6.1 got a key of its own from
+each computer with the old phone's token. `elamond revoke` names, loudly, the phones still paired
+that got a key with the token it revoked: a phone you don't know there got its key from that one. To
+the computer they are a family, which shares the activity log.
 `elamond revoke OLD_ID --with-added` unpairs the whole family, even by an ID already gone. That's
 the way to cut off a lost or stolen phone and whatever got a key with its token.
-
-A computer that takes no more phones (64), or where the old phone's one key was already given to
-another phone, can't give the new phone a key of its own. It then sees the new phone as the old
-one: one entry for both, and revoking it cuts off both. Pair the new phone again there (scan the QR
-code of `elamond pair`; the app replaces its entry) before revoking the old one.
 
 ### Removing the service
 
@@ -1258,19 +1231,16 @@ do about those marked `!`. To see what the service reads without the app, run `e
   computer again. Only paired phones get them; whatever answers at one of them is accepted only
   with the paired id and certificate.
 
-**Backups and moved pairings**
+**Backups and keys**
 
 - A backup (`elamond backup`) is the computer's identity. It isn't encrypted: it is written for your
   eyes only (`0600`), and is only as safe as the folder you keep it in. Never put it in a shared or
   cloud folder.
-- Exported pairings are encrypted with their own passphrase. PBKDF2-HMAC-SHA256 with 600,000
-  iterations makes the key; AES-256-GCM seals the list and authenticates the header. The keys are
-  taken out of Android's key store for this alone and never written anywhere unencrypted.
-- A phone that imports pairings asks each computer for a key of its own at its first connection,
-  beside the exporting phone's, which stays until revoked ([section 8](#a-new-phone)). Any phone
-  paired with a code may get one such key, once, with its own role and no more. `elamond clients`
-  and `elamond revoke` say whose key added it, the activity log has it, and
-  `elamond revoke ID --with-added` cuts off both. At most 64 phones are paired at once.
+- A phone that imported pairings with Elamon 0.6.1 asks each computer for a key of its own at its
+  first connection, beside the exporting phone's, which stays until revoked
+  ([section 8](#a-new-phone)). Any phone paired with a code may get one such key, once, with its own
+  role and no more. `elamond clients` and `elamond revoke` say whose key added it, the activity log
+  has it, and `elamond revoke ID --with-added` cuts off both. At most 64 phones are paired at once.
 - An old key lives on in backups. `elamond restore` never lets go
   of control held off, and brings back phones unpaired since only with `--with-old-phones`.
 

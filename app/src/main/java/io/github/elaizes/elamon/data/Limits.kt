@@ -89,12 +89,6 @@ object Limits {
 	/** Results and errors kept for the snackbar while no screen shows them. */
 	const val MESSAGES_KEPT = 8
 
-	/**
-	 * After asking a computer for a key of this phone's own failed, how long before a connection asks
-	 * again: the home screen connects every few seconds, and each request is in the computer's log.
-	 */
-	const val OWN_KEY_RETRY_MS = 30_000L
-
 	// ---- pairing ----------------------------------------------------------------------------------
 
 	/** Digits in a pairing code. */

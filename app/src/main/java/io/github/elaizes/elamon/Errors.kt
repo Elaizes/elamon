@@ -25,7 +25,8 @@ private val CODE_MESSAGES = mapOf(
 	"not_allowed" to R.string.err_not_allowed,
 	"too_many_requests" to R.string.err_too_many_requests,
 	"process_changed" to R.string.err_process_changed,
-	// Pairing, or a key of the phone's own, past the phones the computer takes; a token that gave one already.
+	// Pairing past the phones the computer takes; a key of a phone's own that a token gave already,
+	// which only Elamon 0.6.1 asks for (the service's list of codes still has it).
 	"too_many_phones" to R.string.err_too_many_phones,
 	"rekey_refused" to R.string.err_rekey_refused,
 	// Codes of the links editor elamond 0.5 had; errors.json lists them until the service's 0.6 list replaces it.

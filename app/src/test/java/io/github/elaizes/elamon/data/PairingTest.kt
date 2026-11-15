@@ -50,8 +50,6 @@ class PairingTest {
 		assertNull(previousPairing(id, fp, here.copy(clientId = ""), "token"))
 		assertNull(previousPairing(id, fp, here, null))
 		assertNull(previousPairing(id, fp, here, ""))
-		// A token from Import pairings is still the other phone's, whose entry would be unpaired.
-		assertNull(previousPairing(id, fp, here.copy(tokenShared = true), "token"))
 	}
 
 	@Test

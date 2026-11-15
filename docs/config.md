@@ -135,7 +135,7 @@ use = "default"
 | `elamond pair --profile ID`, ID a phone's table that no paired phone has | the phone takes that table as its own, as it is, instead of a new one |
 | the same phone pairs again, with its key still good | the new entry takes the table the old one had, and the old entry is unpaired: the app shows its key to the service ([protocol](protocol.md#post-apiv1pair)) |
 | a phone pairs whose key is gone (the phone was reset, or its entry unpaired), and an unpaired phone of the same name had a table | `elamond pair` asks whether to give that table to it; `--yes` gives it none by name, nor does `--profile`, which decides |
-| a phone gets a key of its own after Import pairings | a table for it, using the profile of the phone the key came from |
+| a phone on Elamon 0.6.1 gets a key of its own after Import pairings | a table for it, using the profile of the phone the key came from |
 | `elamond revoke` | the phone's table goes when it is as pairing wrote it (`name` and `use` alone) and nothing else has it: no profile uses it, it isn't `default_profile`, no other phone has it as its profile; otherwise it stays, with a note, for a phone paired again to take |
 | the service starts, and phones paired before 0.6.1 have no table | each gets one, using the profile it had (`use = "owner"` for one that had `owner`) |
 

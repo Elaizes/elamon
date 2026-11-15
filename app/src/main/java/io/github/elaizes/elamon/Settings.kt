@@ -64,7 +64,7 @@ data class Prefs(
 			intervalMs = p.intervalMs.coerceIn(Intervals.MIN_MS, Intervals.MAX_MS),
 			keepScreenOn = p.android.keepScreenOn,
 			confirmActions = p.confirmActions,
-			unlockFor = p.unlock.kinds.mapNotNull { k -> Guarded.entries.find { it.key == k && !it.fixed } }.toSet(),
+			unlockFor = p.unlock.kinds.mapNotNull { k -> Guarded.entries.find { it.key == k } }.toSet(),
 			unlockGrace = UnlockGrace.of(p.unlock.grace),
 			haptics = p.android.haptics,
 			fahrenheit = p.fahrenheit,

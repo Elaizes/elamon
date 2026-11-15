@@ -281,13 +281,6 @@ class ElamondClient(
 		ProtocolJson.decodeFromString<PairResponse>(readBody(c, Limits.SMALL_BODY_MAX))
 	}
 
-	/**
-	 * A key of this phone's own, for one whose token came with Import pairings: a new entry named
-	 * [device] in the computer's list of phones, with the role of the token sent, which stays good.
-	 */
-	suspend fun rekey(device: String): PairResponse =
-		post<RekeyRequest, PairResponse>(REKEY_PATH, RekeyRequest(device), maxBytes = Limits.SMALL_BODY_MAX)
-
 	/** What this phone shows here, described with the widget types it draws ([WIDGET_TYPES]). */
 	suspend fun ui(): UiDoc = get("$UI_PATH?widgets=" + WIDGET_TYPES.joinToString(","))
 
@@ -402,9 +395,6 @@ class ElamondClient(
 			}
 	}
 }
-
-/** Where a phone asks for a key of its own. */
-const val REKEY_PATH = "/api/v1/rekey"
 
 const val UI_PATH = "/api/v1/ui"
 const val STREAM_PATH = "/api/v1/stream"

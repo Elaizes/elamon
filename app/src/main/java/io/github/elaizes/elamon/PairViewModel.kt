@@ -211,7 +211,7 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 	}
 }
 
-/** What the computer's list of paired phones will call this one, when it pairs or asks for a key of its own. */
+/** What the computer's list of paired phones will call this one, when it pairs. */
 fun deviceName(context: Context): String =
 	runCatching { android.provider.Settings.Global.getString(context.contentResolver, "device_name") }.getOrNull()
 		?.takeIf { it.isNotBlank() }

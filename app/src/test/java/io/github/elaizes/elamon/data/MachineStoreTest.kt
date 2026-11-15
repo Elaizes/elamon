@@ -122,6 +122,48 @@ class MachineStoreTest {
 		assertEquals("secret-b", again.token(again.get("b")!!))
 	}
 
+	/**
+	 * The list exactly as Elamon 0.6.1 writes it: defaults left out, every field it has, those since
+	 * dropped included (`tokenShared`, written only when true; false here too). An update that can't
+	 * read it would lose every pairing: every computer comes back, its token opening as 0.6.1 sealed it.
+	 */
+	@Test
+	fun aListWrittenBy061KeepsEveryPairing() {
+		val cipher = FakeCipher()
+		val b64 = java.util.Base64.getEncoder()
+		fun sealed(id: String, token: String): String {
+			val s = cipher.seal(token.toByteArray(Charsets.UTF_8), tokenAad(id))
+			return """"tokenSealed":"${b64.encodeToString(s.data)}","tokenIv":"${b64.encodeToString(s.iv)}","tokenBound":true"""
+		}
+		val (a, b, c) = listOf("0123456789abcdef0123456789abcdef", "fedcba9876543210fedcba9876543210", "00112233445566778899aabbccddeeff")
+		val json = "[" +
+			"""{"id":"$a","name":"Test computer","hosts":["192.0.2.10","laptop.example.net"],"port":47823,"fingerprint":"${"a".repeat(64)}",""" +
+			"""${sealed(a, "secret-a")},"lastHost":"192.0.2.10","os":"NixOS","addedAt":1763200000000,"clientId":"0123abcd","role":"admin"},""" +
+			"""{"id":"$b","name":"Server","hosts":["192.0.2.20"],"port":47823,"fingerprint":"${"b".repeat(64)}",""" +
+			"""${sealed(b, "secret-b")},"addedAt":1763200000001,"clientId":"4567cdef","role":"monitor","tokenShared":true},""" +
+			"""{"id":"$c","name":"Laptop","hosts":["192.0.2.30"],"port":47900,"fingerprint":"${"c".repeat(64)}",""" +
+			"""${sealed(c, "secret-c")},"tokenShared":false}""" +
+			"]"
+		val file = MemoryFile(json)
+		val store = MachineStore(file, FakeCipher(cipher.keys))
+		assertEquals(listOf(a, b, c), store.machines.value.map { it.id })
+		// Nothing to change in it, so it isn't written.
+		assertEquals(emptyList<String>(), file.writes)
+		val first = store.get(a)!!
+		assertEquals("Test computer", first.name)
+		assertEquals(listOf("192.0.2.10", "laptop.example.net"), first.hosts)
+		assertEquals("192.0.2.10", first.lastHost)
+		assertEquals("a".repeat(64), first.fingerprint)
+		assertEquals("0123abcd" to "admin", first.clientId to first.role)
+		assertEquals(47900, store.get(c)!!.port)
+		assertEquals(listOf("secret-a", "secret-b", "secret-c"), store.machines.value.map { store.token(it) })
+		// Written again, and read again, every pairing is still there.
+		store.update(b) { it.copy(lastHost = "192.0.2.20") }
+		val again = MachineStore(file, FakeCipher(cipher.keys))
+		assertEquals(listOf("secret-a", "secret-b", "secret-c"), again.machines.value.map { again.token(it) })
+		assertEquals("192.0.2.20", again.get(b)!!.lastHost)
+	}
+
 	@Test
 	fun aTokenInPlainTextInTheFileIsNeitherSentNorKept() {
 		val file = MemoryFile("""[{"id":"a","name":"Test computer","hosts":["192.168.200.101"],"port":47823,"fingerprint":"aa","token":"secret-a"}]""")
@@ -254,49 +296,6 @@ class MachineStoreTest {
 	}
 
 	@Test
-	fun anExportOpensEveryTokenItCanAndCountsTheRest() {
-		val keys = MemoryKeys()
-		val store = paired(cipher = FakeCipher(keys))
-		store.put(machine("c"), "secret-c")
-		val (all, leftOut) = store.withTokens()
-		assertEquals(listOf("secret-a", "secret-b", "secret-c"), all.map { it.token })
-		assertTrue(all.all { it.tokenSealed == null && it.tokenIv == null })
-		assertEquals(0, leftOut)
-		// A key store that lost its key: nothing to open, all left out.
-		val reset = MachineStore(MemoryFile(ProtocolJson.encodeToString(store.machines.value)), FakeCipher(MemoryKeys()))
-		assertEquals(emptyList<Machine>() to 3, reset.withTokens())
-	}
-
-	@Test
-	fun anImportSealsEveryTokenHereAndReplacesByIdInPlace() {
-		val file = MemoryFile()
-		val store = paired(file)
-		val fromOldPhone = listOf(machine("b").copy(token = "secret-new", tokenSealed = "theirs", tokenIv = "theirs"), machine("c").copy(token = "secret-c"))
-		val merged = store.addImported(fromOldPhone)
-		assertEquals(1 to 1, merged.added to merged.replaced)
-		assertEquals(listOf("a", "b", "c"), store.machines.value.map { it.id })
-		assertNothingPlain(file.writes.last())
-		assertEquals("secret-a", store.token(store.get("a")!!))
-		assertEquals("secret-new", store.token(store.get("b")!!))
-		assertEquals("secret-c", store.token(store.get("c")!!))
-		// Sealed with this phone's key, not carried over from the other phone.
-		assertNotEquals("theirs", store.get("b")!!.tokenSealed)
-	}
-
-	@Test
-	fun anImportTheKeyStoreCantSealChangesNothing() {
-		val file = MemoryFile()
-		val cipher = FakeCipher()
-		val store = paired(file, cipher)
-		val writes = file.writes.size
-		val list = store.machines.value
-		cipher.sealing = false
-		assertFailsWith<KeystoreException> { store.addImported(listOf(machine("c").copy(token = "secret-c"))) }
-		assertEquals(writes, file.writes.size)
-		assertEquals(list, store.machines.value)
-	}
-
-	@Test
 	fun gcmNeverDropsAKeyForAnErrorThatMayPass() {
 		val keys = MemoryKeys()
 		// Not an AES key: the cipher refuses it, as a key store that fails refuses its key.
@@ -405,14 +404,10 @@ class MachineStoreTest {
 		assertEquals(2, file.durable.size)
 		store.put(machine("c"), "secret-c")
 		assertEquals(3, file.durable.size)
-		store.addImported(listOf(machine("d").copy(token = "secret-new")))
-		assertEquals(4, file.durable.size)
-		assertTrue(store.ownToken(store.get("d")!!, "secret-own", "0123abcd", "admin"))
-		assertEquals(5, file.durable.size)
 		// What can be written again if lost needn't wait.
 		store.update("a") { it.copy(lastHost = "laptop.lan") }
 		store.remove("b")
-		assertEquals(5, file.durable.size)
+		assertEquals(3, file.durable.size)
 		assertEquals(file.writes.last(), file.json)
 	}
 }

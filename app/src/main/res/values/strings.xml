@@ -246,7 +246,6 @@
 	<string name="settings_unlock_units">Units</string>
 	<string name="settings_unlock_profile">Power profile</string>
 	<string name="settings_unlock_media">Media and volume</string>
-	<string name="settings_unlock_transfer">Pairings and these settings</string>
 	<!-- "5 min" -->
 	<string name="settings_unlock_grace">Ask again after</string>
 	<string name="settings_unlock_every_time">Every time</string>
@@ -259,68 +258,6 @@
 	<string name="settings_licence_elamon">Elamon is free software under the GNU General Public License, version 3 or later.</string>
 	<string name="settings_licence_inter">The Inter typeface:</string>
 	<string name="settings_close">Close</string>
-
-	<!-- Settings → Pairings: moving the paired computers to another phone in a file sealed with a passphrase -->
-	<string name="settings_pairings">Pairings</string>
-	<string name="settings_export">Export pairings</string>
-	<string name="settings_export_summary">Save the paired computers to a file, encrypted with a passphrase, for a new phone</string>
-	<string name="settings_export_none">No computers are paired yet</string>
-	<string name="settings_import">Import pairings</string>
-	<string name="settings_import_summary">Add the computers from a file another phone exported</string>
-	<string name="transfer_export_question">Export every pairing to a file?</string>
-	<string name="transfer_import_question">Import pairings from a file?</string>
-	<string name="transfer_passphrase">Passphrase</string>
-	<string name="transfer_passphrase_again">The same again</string>
-	<!-- The eye beside a passphrase field, a toggle: on shows what is typed. -->
-	<string name="transfer_show">Show the passphrase</string>
-	<plurals name="transfer_too_short">
-		<item quantity="one">At least %1$d character; a few words are best</item>
-		<item quantity="other">At least %1$d characters; a few words are best</item>
-	</plurals>
-	<string name="transfer_differ">The two differ</string>
-	<string name="transfer_weak">Too easy to guess: not one character or a few over and over, a run like 123456 or qwerty, or a common password. Generate makes one of six random words.</string>
-	<string name="transfer_generate">Generate</string>
-	<string name="transfer_generated_note">Write these words down: the new phone asks for them, and nothing can recover them.</string>
-	<string name="transfer_export_text">The file holds every paired computer with this phone\'s key to it, encrypted with the passphrase you choose here. The new phone needs it to import the file; nothing can recover it if it is lost.</string>
-	<string name="transfer_export_again">The app was closed while the file was chosen. Enter the passphrase again to write it.</string>
-	<string name="transfer_choose_file">Choose where to save</string>
-	<string name="transfer_export_button">Export</string>
-	<string name="transfer_import_text">Enter the passphrase the file was exported with.</string>
-	<string name="transfer_import_button">Import</string>
-	<string name="transfer_wrong">Wrong passphrase, or the file was changed</string>
-	<string name="transfer_encrypting">Encrypting…</string>
-	<string name="transfer_decrypting">Decrypting…</string>
-	<string name="transfer_exported_title">Pairings exported</string>
-	<plurals name="transfer_exported">
-		<item quantity="one">%1$d computer is in the file. Copy it to the new phone, install Elamon there and choose Settings → Import pairings.</item>
-		<item quantity="other">%1$d computers are in the file. Copy it to the new phone, install Elamon there and choose Settings → Import pairings.</item>
-	</plurals>
-	<plurals name="transfer_left_out">
-		<item quantity="one">%1$d computer was left out: this phone can no longer open its pairing. Pair it again.</item>
-		<item quantity="other">%1$d computers were left out: this phone can no longer open their pairings. Pair them again.</item>
-	</plurals>
-	<string name="transfer_imported_title">Pairings imported</string>
-	<string name="transfer_imported">New computers: %1$d. Already here and replaced: %2$d.</string>
-	<string name="transfer_imported_kept">Kept as they were on this phone: %1$d.</string>
-	<!-- A computer in the file differs from the one here with its id. -->
-	<string name="transfer_conflict_title">Replace %1$s?</string>
-	<string name="transfer_conflict_count">%1$d of %2$d</string>
-	<string name="transfer_conflict_certificate">The file has this computer with another certificate. Replacing it forgets this phone\'s pairing with it: keep this phone\'s unless the computer was reinstalled since.</string>
-	<string name="transfer_conflict_hosts">The file has this computer at other addresses. Replacing it reaches it there instead.</string>
-	<string name="transfer_conflict_here">On this phone</string>
-	<string name="transfer_conflict_file">In the file</string>
-	<string name="transfer_conflict_replace">Replace</string>
-	<string name="transfer_conflict_keep">Keep this phone\'s</string>
-	<string name="transfer_imported_note">Each computer gives this phone a key of its own, with the same role, the next time the app reaches it. From then on elamond clients lists both phones, and the old one can be revoked on its own. A computer that takes no more phones can\'t, and keeps seeing the two as one. Help, under Troubleshooting, says more.</string>
-	<string name="transfer_nothing_to_export">This phone can no longer open any of its pairings, so there is nothing to export.</string>
-	<string name="transfer_write_failed">The file couldn\'t be written. Nothing was exported.</string>
-	<string name="transfer_read_failed">The file couldn\'t be read.</string>
-	<string name="transfer_not_pairings">This isn\'t a file of pairings exported from Elamon.</string>
-	<string name="transfer_newer">This file is from a newer Elamon. Update the app, then import it.</string>
-	<string name="transfer_damaged">The file is damaged. Nothing was imported.</string>
-	<string name="transfer_keystore">This phone\'s key store doesn\'t work, so the pairings can\'t be kept on it. Nothing was imported.</string>
-	<string name="transfer_not_saved">The pairings couldn\'t be saved on this phone. Nothing was imported.</string>
-	<string name="transfer_no_picker">This phone has no app to choose files with.</string>
 
 	<!-- How long ago, in a chart's touch label (Fmt.ago); the unit symbols of numbers stay in Format.kt -->
 	<string name="ago_now">now</string>
@@ -396,9 +333,7 @@
 	<string name="faq_unpair_q">How do I unpair a phone?</string>
 	<string name="faq_unpair_a">In the app: the computer\'s menu, Forget computer. To also drop the phone\'s access on the computer, list the paired phones and revoke one by its ID:</string>
 	<string name="faq_new_phone_q">How do I move to a new phone?</string>
-	<string name="faq_new_phone_a">On the old phone: Settings → Export pairings, a passphrase, and where to save the file. Copy the file to the new phone, install Elamon there and choose Settings → Import pairings. The file is encrypted with the passphrase and can\'t be opened without it.</string>
-	<string name="faq_new_phone_a2">Each computer gives the new phone a key of its own, with the same role, the next time the app reaches it: elamond clients then lists it beside the old phone, as added with the key of the old phone\'s ID. Moving for good, forget the computers on the old phone or reset it, and revoke that ID; the new phone keeps working:</string>
-	<string name="faq_new_phone_a3">A computer that takes no more phones, or whose old phone\'s key gave its one key of its own to another phone already, can\'t give it one: there both phones stay one entry, and revoking it cuts off both. Then pair the new phone again with elamond pair (the app replaces the computer), and revoke the old entry.</string>
+	<string name="faq_new_phone_a">Pair it with each computer as you did the first: run elamond pair there and scan the QR code. Moving for good, forget the computers on the old phone or reset it, then revoke its ID on each computer:</string>
 	<string name="faq_new_computer_q">How do I move to a new computer, or reinstall this one?</string>
 	<string name="faq_new_computer_a">Back up the service before; it asks for a passphrase:</string>
 	<string name="faq_new_computer_a2">On the new or reinstalled system, install the service, then stop it, restore the backup and start it again. The phones connect as before, without pairing again:</string>
@@ -437,7 +372,7 @@
 	<string name="set_history">minutes of history a phone gets when it connects</string>
 	<string name="help_settings_state">The service keeps its certificate and the paired phones in ~/.local/share/elamon. Deleting that folder unpairs every phone; elamond backup keeps a copy that elamond restore puts back.</string>
 	<string name="help_privacy">Privacy</string>
-	<string name="help_privacy_body">The phone talks to your computer directly, encrypted, and trusts only the certificate it saw when pairing. Nothing passes through any server, and the app has no trackers, ads or analytics. Each phone has its own key, which the computer can revoke; on the phone it is sealed with a key that never leaves Android\'s key store, and kept out of backups; Export pairings writes it only into a file encrypted with your passphrase. Unless control is turned on, the service only reads; with it on, it acts as your user, and every action is logged with the name of the phone that asked.</string>
+	<string name="help_privacy_body">The phone talks to your computer directly, encrypted, and trusts only the certificate it saw when pairing. Nothing passes through any server, and the app has no trackers, ads or analytics. Each phone has its own key, which the computer can revoke; on the phone it is sealed with a key that never leaves Android\'s key store, and kept out of backups. Unless control is turned on, the service only reads; with it on, it acts as your user, and every action is logged with the name of the phone that asked.</string>
 	<string name="help_version">Elamon %1$s · GPL-3.0-or-later</string>
 	<string name="help_source">Source code</string>
 
