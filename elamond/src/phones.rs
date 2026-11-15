@@ -223,6 +223,32 @@ pub fn unowned_named(place: &Place, name: &str, clients: &[Client]) -> Option<St
 		.next_back()
 }
 
+/// What `elamond check` says of each table of phones.toml that none of `clients` has, as its own
+/// or as its profile, and that nothing in `config` uses or names `default_profile`: when it was
+/// unpaired, and what becomes of it.
+pub fn unowned_tables(place: &Place, clients: &[Client], config: &Config) -> Vec<String> {
+	let Ok(Some(text)) = read(place) else { return Vec::new() };
+	let Ok(doc) = text.parse::<DocumentMut>() else { return Vec::new() };
+	let file = store::shown(&path(place));
+	let has = |id: &str| clients.iter().any(|c| c.own_profile.as_deref() == Some(id) || c.profile.as_deref() == Some(id));
+	let used = |id: &str| config.default_profile == id || config.profiles.iter().any(|(other, p)| other != id && p.base.as_deref() == Some(id));
+	tables(&doc)
+		.into_iter()
+		.filter(|(id, _)| !has(id) && !used(id))
+		.map(|(id, name)| {
+			let prefix = doc.get("profiles").and_then(Item::as_table).and_then(|p| p.get(&id)).and_then(Item::as_table).map(prefix_of).unwrap_or_default();
+			let when = prefix
+				.lines()
+				.find_map(|l| l.strip_prefix("# Unpaired ").and_then(|r| r.split_once(';')).map(|(d, _)| format!(" (unpaired {d})")))
+				.unwrap_or_default();
+			match name {
+				Some(n) => format!("{file}: [profiles.{id}] is no paired phone's{when}: elamond pair offers it to a phone named \"{}\", or take it out", store::sanitize_name(&n)),
+				None => format!("{file}: [profiles.{id}] is no paired phone's{when}: elamond pair --profile {id} gives it to one, or take it out"),
+			}
+		})
+		.collect()
+}
+
 /// Says above the table `id` that the phone `client_id` named `name` has it from `at` on: the
 /// lines the service wrote there before (which phone had it, that it was unpaired) give way to that
 /// one. Nothing else is changed, and nothing written when nothing would change.
@@ -527,6 +553,35 @@ mod tests {
 		let (given, notes) = give(&place, &[], None, None, Some("owner"), "Galaxy S25", "0123abcd", AT);
 		assert_eq!(given, Profiles { profile: Some("owner".into()), own: None });
 		assert!(notes[0].starts_with("no profile of its own: the settings would have mistakes"), "{notes:?}");
+		fs::remove_dir_all(&place.dir).unwrap();
+	}
+
+	#[test]
+	fn check_names_the_tables_no_phone_has() {
+		let place = scratch();
+		settings(&place, OWNER);
+		let a = add(&place, "Galaxy S25", Some("owner"), "0123abcd", AT).unwrap();
+		let b = add(&place, "Pixel 9", None, "4567cdef", AT).unwrap();
+		let c = add(&place, "Tab", None, "89ab0123", AT).unwrap();
+		let w = add(&place, "Watch", None, "cdef0123", AT).unwrap();
+		let galaxy = client("0123abcd", "Galaxy S25", Some(&a), Some(&a));
+		// Another phone has the watch's as its profile; a profile uses the tablet's.
+		let other = client("01234567", "Other", None, Some(&w));
+		fs::write(place.dropins().join("uses.toml"), format!("[profiles.family]\nuse = \"{c}\"\n")).unwrap();
+		// Pixel 9 forgot the computer the next day: its table stays, noted.
+		let pixel = client("4567cdef", "Pixel 9", Some(&b), Some(&b));
+		let said = release(&place, &pixel, std::slice::from_ref(&galaxy), AT + 86_400, true).unwrap();
+		assert!(said.contains("stays") && said.contains("unpaired itself"), "{said}");
+		let config = place.load().unwrap();
+		let warned = unowned_tables(&place, &[galaxy.clone(), other], &config);
+		assert_eq!(
+			warned,
+			["elamond.d/phones.toml: [profiles.pixel-9] is no paired phone's (unpaired 2026-11-13): elamond pair offers it to a phone named \"Pixel 9\", or take it out"]
+				.map(|w| w.replace("elamond.d/phones.toml", &store::shown(&path(&place))))
+		);
+		// The one pairing by that name takes it, and then it is no longer named.
+		let paired = client("89abcdef", "Pixel 9", Some(&b), Some(&b));
+		assert!(unowned_tables(&place, &[galaxy, paired], &config).iter().all(|w| !w.contains("pixel-9")));
 		fs::remove_dir_all(&place.dir).unwrap();
 	}
 

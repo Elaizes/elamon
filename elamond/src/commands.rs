@@ -93,6 +93,12 @@ pub fn check(args: &[String]) -> Result<(), String> {
 				));
 			}
 			warn.extend(migrate::read_beside(&place));
+			// Tables of phones.toml left by phones unpaired: for the person to take out or keep.
+			if file.is_none()
+				&& let Ok(clients) = store::load_clients()
+			{
+				warn.extend(crate::phones::unowned_tables(&place, &clients, &c));
+			}
 			for w in warn {
 				println!("  ! {w}");
 			}
