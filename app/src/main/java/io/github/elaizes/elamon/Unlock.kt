@@ -7,12 +7,15 @@ import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 /**
  * Kinds of action the phone can be made to unlock for first, by the action's `kind` in the
  * computer's settings ([key]). [level] orders them by what they can do: an unlock for one covers,
- * within the profile's grace, only those at its level or below (`power`, `signal`, `actions`,
- * `units`, `profile`, `media`).
+ * within the profile's grace, only those at its level or below (`power`, `nut`, `signal`,
+ * `actions`, `units`, `profile`, `media`).
  */
 enum class Guarded(val key: String, val level: Int) {
 	/** Shut down, restart, sleep and lock. */
-	Power("power", 5),
+	Power("power", 6),
+
+	/** A UPS's or power station's commands and settings. */
+	Nut("nut", 5),
 
 	/** Quit and force kill. */
 	Processes("signal", 4),

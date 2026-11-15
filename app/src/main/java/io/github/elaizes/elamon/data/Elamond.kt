@@ -272,6 +272,12 @@ class ElamondClient(
 	/** One reading of [dashboard], with its graphs' history, after the service has waited for one that has everything. */
 	suspend fun snapshot(dashboard: String): DataLine = get("$SNAPSHOT_PATH?dashboard=" + query(dashboard))
 
+	/** The long history of the graph [widget] over [range] (`1h`…`all`); a service before 0.7 answers 404. */
+	suspend fun graphHistory(widget: String, range: String): GraphHistory = get(historyPath(widget, range))
+
+	/** The same of the timeline [widget]. */
+	suspend fun timelineHistory(widget: String, range: String): TimelineHistory = get(historyPath(widget, range))
+
 	/** Changes what the open stream [stream] sends, from its next line, without reconnecting. */
 	suspend fun subscribe(stream: String, change: Subscribe) {
 		post<Subscribe, Ok>("$STREAM_PATH/" + query(stream), change)
@@ -390,6 +396,11 @@ const val SNAPSHOT_PATH = "/api/v1/snapshot"
 const val ACTIONS_PATH = "/api/v1/actions"
 const val ART_PATH = "/api/v1/media/art"
 const val UNPAIR_PATH = "/api/v1/unpair"
+const val HISTORY_PATH = "/api/v1/history"
+
+/** `GET /api/v1/history` of the graph or timeline [widget] over the range [range] (`1h`, `24h`, `7d`, `30d`, `1y`, `all`). */
+fun historyPath(widget: String, range: String): String =
+	"$HISTORY_PATH?widget=" + ElamondClient.query(widget) + "&range=" + ElamondClient.query(range)
 
 /**
  * The widget types this app draws, as it tells the service (`GET /api/v1/ui?widgets=`): it

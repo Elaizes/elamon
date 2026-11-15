@@ -44,7 +44,16 @@ class ProtocolContractTest {
 		"subscribe" to Subscribe.serializer(),
 		"action-request" to ActionRequest.serializer(),
 		"action-result" to ActionResult.serializer(),
+		// What elamond 0.7 adds, in a folder of its own until the service writes them beside the others.
+		"0.7/ui-ups" to UiDoc.serializer(),
+		"0.7/stream-ups" to StreamLine.serializer(),
+		"0.7/history" to GraphHistory.serializer(),
+		"0.7/history-timeline" to TimelineHistory.serializer(),
+		"0.7/action-request-typed" to ActionRequest.serializer(),
 	)
+
+	/** The folders of fixtures under [dir], "" for itself. */
+	private val folders = listOf("", "0.7/")
 
 	/** Fixtures that aren't a body the app decodes, and the test that reads them. */
 	private val checkedElsewhere = mapOf(
@@ -52,22 +61,29 @@ class ProtocolContractTest {
 		"formats" to "FormatTest: every case the service formats",
 	)
 
-	/**
-	 * Shapes of API 1 that the service's branch still writes until it switches: nothing of them is
-	 * read any more. They may go at any time.
-	 */
-	private val apiOne = setOf("info", "sample", "sample-glance", "history", "control", "control-off", "detected", "units", "log")
-
 	/** Objects keyed by ids rather than by field names: their values are checked together, as a list's items are. */
-	private val maps = setOf("stream-data.widgets", "stream-data.history", "stream-data-detail.widgets", "stream-data-detail.history")
+	private val maps = setOf("stream-data.widgets", "stream-data.history", "stream-data-detail.widgets", "stream-data-detail.history", "0.7/stream-ups.widgets")
 
 	/** A group's widgets are widgets: what they have, the dashboards' widgets are checked for. */
-	private val asTheirParents = setOf("ui.dashboards[].widgets[].widgets")
+	private val asTheirParents = setOf("ui.dashboards[].widgets[].widgets", "0.7/ui-ups.dashboards[].widgets[].widgets")
 
 	/** Fixtures only checked one way, that the app reads them: another fixture of the same shape has every field. */
 	private val readOnly = mapOf(
 		"stream-data-detail" to "stream-data has every field of a data line",
 		"ui-default" to "ui has every field of a ui document",
+		"0.7/ui-ups" to "its fields count as ui's (alsoSent)",
+		"0.7/stream-ups" to "its fields count as stream-data's (alsoSent)",
+	)
+
+	/**
+	 * Fixtures of 0.7 whose fields count as sent in a fixture of the same shape from before, which
+	 * lacks them until the service writes it again at 0.7: a timeline's keys and state, `ranges`,
+	 * a choice's and a request's `confirm_text`.
+	 */
+	private val alsoSent = mapOf(
+		"ui" to listOf("0.7/ui-ups"),
+		"stream-data" to listOf("0.7/stream-ups"),
+		"action-request" to listOf("0.7/action-request-typed"),
 	)
 
 	/**
@@ -140,15 +156,16 @@ class ProtocolContractTest {
 		if (name in readOnly) return emptyList()
 		val back = everything.encodeToJsonElement(serializer, decoded)
 		val out = mutableListOf<String>()
-		missing(back, raw, name, out)
+		val sent = alsoSent[name].orEmpty().map(::fixture).fold(raw, ::merge)
+		missing(back, sent, name, out)
 		return out.filter { it !in leftOut }.map { "$it: the app reads it, the service never sends it" }
 	}
 
 	@Test
 	fun everyFixtureHasAShape() {
-		val files = dir.listFiles { f -> f.extension == "json" }.orEmpty().map { it.nameWithoutExtension }.toSet()
+		val files = folders.flatMap { f -> File(dir, f).listFiles { x -> x.extension == "json" }.orEmpty().map { f + it.nameWithoutExtension } }.toSet()
 		assertTrue(files.isNotEmpty(), "no fixtures in $dir")
-		assertEquals((files - apiOne).sorted(), (shapes.keys + checkedElsewhere.keys).sorted(), "a fixture without a shape in the app, or a shape without a fixture")
+		assertEquals(files.sorted(), (shapes.keys + checkedElsewhere.keys).sorted(), "a fixture without a shape in the app, or a shape without a fixture")
 	}
 
 	@Test
@@ -319,6 +336,8 @@ class ProtocolContractTest {
 			"stream-open" to listOf("stream", "ui"),
 			"stream-data" to listOf("t", "dashboard"),
 			"stream-ui" to listOf("ui"),
+			"0.7/history" to listOf("widget", "range", "from", "to", "step_ms"),
+			"0.7/history-timeline" to listOf("widget", "range", "from", "to", "segments[].from", "segments[].to"),
 		)
 		for ((name, paths) in required) {
 			for (path in paths) {
@@ -349,7 +368,8 @@ class ProtocolContractTest {
 		assertNull(bare.header)
 		assertEquals(DEFAULT_INTERVAL_MS, bare.service.intervalMs)
 		assertEquals(DEFAULT_HISTORY_SECONDS, bare.service.historySeconds)
-		assertEquals(listOf("power", "signal", "actions", "units"), bare.profile.unlock.kinds)
+		// As the default profile has it since 0.7.
+		assertEquals(listOf("power", "nut", "signal", "actions", "units"), bare.profile.unlock.kinds)
 	}
 
 	@Test
@@ -387,5 +407,89 @@ class ProtocolContractTest {
 		fun all(ws: List<Widget>): List<Widget> = ws.flatMap { listOf(it) + all(it.widgets.orEmpty()) }
 		val types = ui.dashboards.flatMap { all(it.widgets) }.map { it.type }.toSet()
 		assertTrue(types.all { it in WIDGET_TYPES }, "types the app doesn't draw: ${types - WIDGET_TYPES.toSet()}")
+	}
+
+	// ---- elamond 0.7 -------------------------------------------------------------------------------
+
+	@Test
+	fun theUpsUiAsDescribed() {
+		val ui = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), fixture("0.7/ui-ups"))
+		assertTrue("ups" in ui.service.features)
+		assertEquals(listOf("ups.eco"), ui.tabs)
+		val widgets = ui.dashboard("ups.eco")!!.widgets
+		val all = listOf("1h", "24h", "7d", "30d", "1y", "all")
+		val power = widgets.first { it.id == "ups.eco/power" }
+		assertEquals("timeline", power.type)
+		assertEquals(86_400, power.range)
+		assertEquals(all, power.ranges)
+		val watts = widgets.first { it.id == "ups.eco/watts" }
+		assertEquals(all, watts.ranges)
+		assertEquals(listOf("Grid in", "Output"), watts.series!!.map { it.label })
+		// A graph of a 0.6.2 service offers no long ranges.
+		val ui062 = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), fixture("ui"))
+		assertTrue(ui062.dashboards.flatMap { it.widgets }.all { it.ranges == null })
+		// A station's actions: kind nut, a command that is typed in carries its text.
+		val command = ui.action("nut.command.eco")!!
+		assertEquals("nut", command.kind)
+		val choices = command.params.single().choices!!
+		assertEquals("outlet.1.load.off", choices.single { it.confirmText != null }.confirmText)
+		assertEquals("outlet.1.load.off", choices.first { it.confirmText != null }.value)
+		assertNull(choices.first { it.value == "outlet.2.load.off" }.confirmText)
+		val limit = ui.action("nut.set.eco.experimental.battery.charge.max")!!.params.single()
+		assertEquals(listOf(50.0, 100.0, 1.0), listOf(limit.min, limit.max, limit.step))
+		assertTrue(ui.actions.filter { it.id.startsWith("nut.") }.all { it.kind == "nut" && it.confirm && it.unlock })
+		assertTrue("nut" in ui.profile.unlock.kinds)
+	}
+
+	@Test
+	fun theUpsStatesAsSent() {
+		val data = assertIs<DataLine>(decodeStreamLine(line("0.7/stream-ups")))
+		val segments = data.widgets.getValue("ups.eco/power").segments!!
+		assertEquals(listOf("none", "line", "none", "line", "battery"), segments.map { it.state })
+		// Oldest first, each from where the one before ends, the last at the line's time.
+		assertTrue(segments.zipWithNext().all { (a, b) -> a.to == b.from })
+		assertEquals(data.t, segments.last().to)
+		assertEquals(86_400_000L, segments.last().to - segments.first().from)
+		// A source's own level, and a toggle's value read through its map.
+		assertEquals("warning", data.widgets.getValue("ups.eco/status").level)
+		assertEquals("outlet.1.load.on", data.widgets.getValue("ups.eco/switches/outlet.eco.1").v.text())
+		// Other states have no segments.
+		assertNull(data.widgets.getValue("ups.eco/watts").segments)
+	}
+
+	@Test
+	fun historyAnswers() {
+		val graph = ProtocolJson.decodeFromJsonElement(GraphHistory.serializer(), fixture("0.7/history"))
+		assertEquals("ups.eco/watts", graph.widget)
+		assertEquals("all", graph.range)
+		assertEquals(3_600_000L, graph.stepMs)
+		assertEquals(6, graph.t.size)
+		assertEquals(graph.from, graph.t.first())
+		assertEquals(graph.to, graph.t.last() + graph.stepMs)
+		// A bucket without a point is missing in every series.
+		assertEquals(listOf(null, null), graph.v.map { it[3] })
+		assertEquals(HistoryEntry(graph.t, graph.v), graph.entry)
+		val timeline = ProtocolJson.decodeFromJsonElement(TimelineHistory.serializer(), fixture("0.7/history-timeline"))
+		assertEquals("7d", timeline.range)
+		assertEquals(timeline.from, timeline.segments.first().from)
+		assertEquals(timeline.to, timeline.segments.last().to)
+		assertEquals(7 * 86_400_000L, timeline.to - timeline.from)
+		// A state from a newer service, or none at all, reads as nothing known.
+		val odd = ProtocolJson.decodeFromString(Segment.serializer(), """{"from":1,"to":2}""")
+		assertEquals("none", odd.state)
+	}
+
+	@Test
+	fun theHistoryOfAWidgetIsAskedForByIdAndRange() {
+		assertEquals("/api/v1/history?widget=ups.eco%2Fwatts&range=24h", historyPath("ups.eco/watts", "24h"))
+		assertEquals("/api/v1/history?widget=a%20b%26c&range=all", historyPath("a b&c", "all"))
+	}
+
+	@Test
+	fun aTypedCommandSendsItsText() {
+		val typed = ActionRequest(JsonObject(mapOf("cmd" to JsonPrimitive("outlet.1.load.off"))), confirmText = "outlet.1.load.off")
+		assertEquals(fixture("0.7/action-request-typed"), ProtocolJson.encodeToJsonElement(ActionRequest.serializer(), typed))
+		// Without one, the request is as before 0.7.
+		assertEquals(fixture("action-request"), ProtocolJson.encodeToJsonElement(ActionRequest.serializer(), ActionRequest(JsonObject(mapOf("mode" to JsonPrimitive("server"))))))
 	}
 }

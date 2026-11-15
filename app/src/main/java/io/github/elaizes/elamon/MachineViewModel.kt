@@ -625,7 +625,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		const val MS_PER_SECOND = 1000L
 
 		/** Refusals after which the ui is read again: what this phone may do changed on the computer. */
-		val REREAD = setOf("not_allowed", "control_disabled", "no_such_action")
+		val REREAD = setOf("not_allowed", "control_disabled", "no_such_action", "confirm_required")
 	}
 }
 

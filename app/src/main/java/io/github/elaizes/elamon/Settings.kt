@@ -49,7 +49,7 @@ data class Prefs(
 	val useBlur: Boolean get() = blur && blurAvailable
 
 	companion object {
-		val DEFAULT_UNLOCK = setOf(Guarded.Power, Guarded.Processes, Guarded.Actions, Guarded.Units)
+		val DEFAULT_UNLOCK = setOf(Guarded.Power, Guarded.Nut, Guarded.Processes, Guarded.Actions, Guarded.Units)
 
 		/** [p], the profile a computer gives this phone, as the app takes it. */
 		fun of(p: Profile): Prefs = Prefs(

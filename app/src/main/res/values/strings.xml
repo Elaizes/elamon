@@ -265,6 +265,9 @@
 	<string name="err_no_such_stream">The connection to the computer was renewed. Try again.</string>
 	<string name="err_bad_sort">That table can\'t be sorted that way</string>
 	<string name="err_bad_param">The computer didn\'t take the value of “%1$s”</string>
+	<!-- 0.7: the long history and a station's commands -->
+	<string name="err_no_such_widget">That graph is no longer in what this computer shows this phone</string>
+	<string name="err_confirm_required">The computer asks for this command to be typed in before it runs</string>
 	<string name="done_ran">%1$s: done</string>
 	<string name="action_prompt">%1$s on %2$s</string>
 	<string name="action_question">%1$s?</string>
