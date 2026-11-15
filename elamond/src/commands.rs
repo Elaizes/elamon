@@ -88,11 +88,12 @@ pub fn check(args: &[String]) -> Result<(), String> {
 			let mut warn = settings::warnings(&c);
 			if !settings::main_in(&place.files(), &sources) && place.named.is_none() && file.is_none() {
 				warn.push(format!(
-					"there is no {} yet: the service writes the settings elamond starts with there at its next start",
+					"there is no {} yet: the service writes the settings elamond starts with there at its next start, and elamond.d/dashboards.toml with them",
 					store::shown(&place.main())
 				));
 			}
 			warn.extend(migrate::read_beside(&place));
+			warn.extend(migrate::old_main(&place));
 			// Tables of phones.toml left by phones unpaired: for the person to take out or keep.
 			if file.is_none()
 				&& let Ok(clients) = store::load_clients()

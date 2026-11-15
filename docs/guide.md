@@ -1199,6 +1199,10 @@ you don't know there got its key from that one. `elamond revoke OLD_ID --with-ad
 whole family, even by an ID already gone. That's the way to cut off a lost or stolen phone and
 whatever got a key with its token.
 
+A phone that imported pairings with 0.6.1 but never connected since still holds the old phone's
+token, and the computer can't tell the two apart: *Forget computer* on either unpairs both. Pair
+such a phone with `elamond pair` before forgetting the computer on the old one.
+
 ### Removing the service
 
 1. `systemctl --user disable --now elamond`.

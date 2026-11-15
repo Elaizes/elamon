@@ -36,9 +36,23 @@ pub fn at_start(place: &Place) {
 			}
 		}
 	}
-	if let Some(note) = write_defaults(&place.dir, env!("CARGO_PKG_VERSION")) {
+	for note in [old_main(place), write_defaults(&place.dir, env!("CARGO_PKG_VERSION")), write_schema(&place.dir)].into_iter().flatten() {
 		eprintln!("settings: {note}");
 	}
+}
+
+/// What to say of a main file with keys and no `schema`: one of elamond 0.6.0 held only what
+/// differed from the settings built into it, and is now read as the whole of them. Nothing moves it
+/// any more, but elamond 0.6.1 started once does.
+pub fn old_main(place: &Place) -> Option<String> {
+	let main = place.named.clone().unwrap_or_else(|| place.main());
+	let table: toml::Table = fs::read_to_string(&main).ok()?.parse().ok()?;
+	(!table.is_empty() && !table.contains_key("schema")).then(|| {
+		format!(
+			"{} has no `schema = 3`: if it is a file of elamond 0.6.0, which held only what differed from the settings built in, it is read now as the whole of them; start elamond 0.6.1 once to move it, then update",
+			store::shown(&main)
+		)
+	})
 }
 
 /// How the user's own elamond.toml is read, when ELAMON_CONFIG names another and it is a file of
@@ -56,6 +70,11 @@ pub fn read_beside(place: &Place) -> Option<String> {
 	})
 }
 
+/// elamond.d/dashboards.toml as the starter writes it.
+pub fn starter_dashboards() -> String {
+	format!("#:schema ../{SCHEMA_FILE}\n{DASHBOARDS}")
+}
+
 /// Writes the settings elamond starts with where there are none: the starter as the main file
 /// `main`, and the standard dashboards as elamond.d/dashboards.toml beside it unless that is there.
 /// Each begins with a `#:schema` line naming the JSON Schema beside them, for editors; never written
@@ -70,7 +89,7 @@ pub fn write_starter(main: &Path) -> io::Result<()> {
 	new(main, format!("#:schema {SCHEMA_FILE}\n{STARTER}"))?;
 	let dropins = dir.join(store::DROPIN_DIR);
 	fs::create_dir_all(&dropins)?;
-	match new(&dropins.join(DASHBOARDS_FILE), format!("#:schema ../{SCHEMA_FILE}\n{DASHBOARDS}")) {
+	match new(&dropins.join(DASHBOARDS_FILE), starter_dashboards()) {
 		Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
 		other => other,
 	}
@@ -112,12 +131,25 @@ pub fn write_defaults(dir: &Path, version: &str) -> Option<String> {
 		Err(e) if e.kind() == io::ErrorKind::NotFound => {}
 		Err(e) => return Some(format!("can't look at {shown}: {e}")),
 	}
-	let schema = serde_json::to_string_pretty(&crate::settings::json_schema()).unwrap_or_default() + "\n";
-	let written = fs::create_dir_all(dir)
-		.and_then(|()| store::replace_as(&path, (defaults_header(version) + DEFAULTS).as_bytes(), 0o444))
-		.and_then(|()| store::replace_as(&dir.join(SCHEMA_FILE), schema.as_bytes(), 0o444));
+	let written = fs::create_dir_all(dir).and_then(|()| store::replace_as(&path, (defaults_header(version) + DEFAULTS).as_bytes(), 0o444));
 	Some(match written {
-		Ok(()) => format!("wrote {shown}, the settings elamond {version} starts with, for reference, and {SCHEMA_FILE} for editors"),
+		Ok(()) => format!("wrote {shown}, the settings elamond {version} starts with, for reference"),
+		Err(e) => format!("can't write {shown}: {e}"),
+	})
+}
+
+/// Writes elamond-schema.json, the JSON Schema of the settings, into the config directory `dir`
+/// where it isn't there or isn't this elamond's: read-only, for editors (`#:schema`). A link there
+/// is left alone. What was done, when anything was.
+pub fn write_schema(dir: &Path) -> Option<String> {
+	let path = dir.join(SCHEMA_FILE);
+	let schema = serde_json::to_string_pretty(&crate::settings::json_schema()).unwrap_or_default() + "\n";
+	if fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) || fs::read_to_string(&path).is_ok_and(|t| t == schema) {
+		return None;
+	}
+	let shown = store::shown(&path);
+	Some(match fs::create_dir_all(dir).and_then(|()| store::replace_as(&path, schema.as_bytes(), 0o444)) {
+		Ok(()) => format!("wrote {shown}, the settings' schema for editors"),
 		Err(e) => format!("can't write {shown}: {e}"),
 	})
 }
@@ -152,10 +184,26 @@ mod tests {
 		fs::write(place.dropins().join(DASHBOARDS_FILE), "# mine\n").unwrap();
 		write_starter(&place.main()).unwrap();
 		assert_eq!(fs::read_to_string(place.dropins().join(DASHBOARDS_FILE)).unwrap(), "# mine\n");
-		// The schema the first lines name, beside them, written with defaults.toml.
-		write_defaults(&place.dir, "0.6.2").unwrap();
+		// The schema the first lines name, beside them: written when it isn't there or is another.
+		assert!(write_schema(&place.dir).unwrap().starts_with("wrote"));
 		let schema: serde_json::Value = serde_json::from_str(&fs::read_to_string(place.dir.join(SCHEMA_FILE)).unwrap()).unwrap();
 		assert_eq!(schema["title"], "elamond settings (schema 3)");
+		assert_eq!(write_schema(&place.dir), None);
+		fs::remove_file(place.dir.join(SCHEMA_FILE)).unwrap();
+		assert!(write_schema(&place.dir).is_some() && place.dir.join(SCHEMA_FILE).exists());
+		fs::remove_dir_all(&place.dir).unwrap();
+	}
+
+	#[test]
+	fn a_file_of_0_6_0_is_named() {
+		let place = scratch();
+		assert_eq!(old_main(&place), None);
+		for quiet in ["", "# nothing but a comment\n", "schema = 3\ncontrol = true\n"] {
+			fs::write(place.main(), quiet).unwrap();
+			assert_eq!(old_main(&place), None, "{quiet:?}");
+		}
+		fs::write(place.main(), "control = true\n").unwrap();
+		assert!(old_main(&place).unwrap().contains("elamond 0.6.0"));
 		fs::remove_dir_all(&place.dir).unwrap();
 	}
 

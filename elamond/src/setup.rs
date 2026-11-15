@@ -609,11 +609,13 @@ fn install(init: &dyn InitSystem, opts: &Opts, exe: &str, settings: &Settings) -
 	let version = env!("CARGO_PKG_VERSION");
 	if print {
 		println!("Would write {} unless elamond {version} wrote it: those settings, for reference", short(&place.dir.join(crate::migrate::DEFAULTS_FILE)));
-	} else if let Some(note) = crate::migrate::write_defaults(&place.dir, version) {
-		if note.starts_with("wrote") {
-			done(&note);
-		} else {
-			println!("  !   {note}");
+	} else {
+		for note in [crate::migrate::write_defaults(&place.dir, version), crate::migrate::write_schema(&place.dir)].into_iter().flatten() {
+			if note.starts_with("wrote") {
+				done(&note);
+			} else {
+				println!("  !   {note}");
+			}
 		}
 	}
 	let commands = init.activate(start);

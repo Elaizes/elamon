@@ -72,7 +72,9 @@ start is laid out.
 
 An empty elamond.toml is sound settings too, of no dashboards and no profiles: phones paired with
 it see nothing. `elamond check` says so: it warns of settings without dashboards, and of a
-`default_profile` that isn't among the profiles. Without any elamond.toml, the drop-ins are all there is.
+`default_profile` that isn't among the profiles. Where there is no elamond.toml at all, the service
+writes the starter files at its next start ([above](#the-starter-file)); until then the drop-ins are
+all there is.
 
 `schema` says which settings these are. `3` is a whole file, as this page describes; another number
 is a mistake (a file written for a newer elamond). A drop-in may say

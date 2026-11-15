@@ -291,6 +291,9 @@ pub struct Restored {
 	pub settings_skipped: Vec<String>,
 	/// Drop-ins there already that the backup doesn't have, which still apply.
 	pub settings_kept: Vec<PathBuf>,
+	/// The standard dashboards a fresh start wrote beside the settings, taken out: the backup's
+	/// settings, whole without them, would be read under them.
+	pub settings_removed: Vec<PathBuf>,
 }
 
 /// Puts `c` back in the data directory `dir`, and its settings in `settings` when given. Files
@@ -326,6 +329,17 @@ pub fn restore_into(c: &Contents, dir: &Path, settings: Option<&SettingsPlace>) 
 			if put(&target, text.as_bytes(), false)? {
 				restored.settings_written.push(target);
 			}
+		}
+		// A fresh install's elamond.d/dashboards.toml, untouched, over settings that never had one
+		// (a whole elamond.toml of 0.6.1, say) would put the standard dashboards back over theirs.
+		let dashboards = format!("{}/{}", store::DROPIN_DIR, crate::migrate::DASHBOARDS_FILE);
+		let stock = place.dir.join(&dashboards);
+		if c.settings.contains_key(store::CONFIG_FILE)
+			&& !c.settings.contains_key(&dashboards)
+			&& fs::read_to_string(&stock).is_ok_and(|t| t == crate::migrate::starter_dashboards())
+		{
+			fs::remove_file(&stock)?;
+			restored.settings_removed.push(stock);
 		}
 		if let Ok(entries) = fs::read_dir(place.dir.join(store::DROPIN_DIR)) {
 			let mut kept: Vec<PathBuf> = entries
@@ -497,6 +511,9 @@ pub fn restore(args: &[String]) -> Result<(), String> {
 		}
 		for note in &restored.settings_skipped {
 			println!("  Not restored:  {note}");
+		}
+		for path in &restored.settings_removed {
+			println!("  Taken out:     {}, the standard dashboards of a fresh start; the backup's settings have their own", path.display());
 		}
 		for path in &restored.settings_kept {
 			println!("  Kept:          {}, which the backup doesn't have", path.display());
@@ -827,6 +844,20 @@ mod tests {
 		assert_eq!(fs::read_to_string(to.join("cfg/elamond.toml")).unwrap(), "port = 47900\n");
 		assert_eq!(fs::read_to_string(to.join("cfg/elamond.d/on.toml")).unwrap(), "control = true\n");
 		assert_eq!(r.settings_kept, [to.join("cfg/elamond.d/mine.toml")]);
+		assert!(r.settings_removed.is_empty());
+
+		// A fresh install's starter, its dashboards.toml untouched, under a backup without one: the
+		// standard dashboards go, as they would be read over the backup's. Changed, they stay.
+		let fresh = SettingsPlace { dir: to.join("fresh"), main: to.join("fresh/elamond.toml") };
+		crate::migrate::write_starter(&fresh.main).unwrap();
+		let r = restore_into(&c, &to.join("data"), Some(&fresh)).unwrap();
+		assert_eq!(r.settings_removed, [to.join("fresh/elamond.d/dashboards.toml")]);
+		assert!(!to.join("fresh/elamond.d/dashboards.toml").exists());
+		let changed = SettingsPlace { dir: to.join("changed"), main: to.join("changed/elamond.toml") };
+		crate::migrate::write_starter(&changed.main).unwrap();
+		fs::write(to.join("changed/elamond.d/dashboards.toml"), "[dashboards.mine]\ntitle = \"Mine\"\n").unwrap();
+		let r = restore_into(&c, &to.join("data"), Some(&changed)).unwrap();
+		assert!(r.settings_removed.is_empty() && r.settings_kept.contains(&to.join("changed/elamond.d/dashboards.toml")));
 		assert_eq!(r.settings_written.len(), 2);
 
 		// A main file NixOS or Home Manager make, or one that can't be written, is left alone.

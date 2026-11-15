@@ -1,4 +1,4 @@
-//! Every JSON shape the service sends, with each optional field filled in, let parts: Vec<String> = o.iter().map(|(k, v)| format!("{}: {}", serde_json::to_string(k).unwrap(), one_line(v))).collect();ept in
+//! Every JSON shape the service sends, with each optional field filled in, kept in
 //! elamond/fixtures/, and the requests clients send checked against what the service reads. The
 //! app's tests read the same files, so a field missing or under another name on either side fails
 //! a build rather than reading as zero on a phone.
