@@ -76,6 +76,10 @@ pub mod cadence {
 	pub const FIRST_FRAME_TICKS: u32 = 3;
 	/// What `elamond snapshot` measures rates over.
 	pub const CLI_SNAPSHOT: Duration = Duration::from_secs(1);
+	/// The long history is written to disk this often, and as the service stops; never more often.
+	pub const HISTORY_FLUSH: Duration = Duration::from_secs(300);
+	/// Its files are trimmed to their windows this often, at a flush.
+	pub const HISTORY_TRIM: Duration = Duration::from_secs(86_400);
 
 	/// The cadences above in ticks of one interval, rounded, and at least every tick.
 	#[derive(Clone, Copy, Debug, PartialEq, Eq)]

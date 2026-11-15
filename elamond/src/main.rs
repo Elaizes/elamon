@@ -247,6 +247,9 @@ fn serve() -> Result<(), String> {
 		.build()
 		.map_err(|e| e.to_string())?;
 
+	// The long history is written every few minutes by a thread of its own, and as the service stops.
+	history::disk::spawn_writer(hub.long.clone()).map_err(|e| e.to_string())?;
+	let long = hub.long.clone();
 	{
 		let hub = hub.clone();
 		let id = identity.id.clone();
@@ -258,7 +261,7 @@ fn serve() -> Result<(), String> {
 			.map_err(|e| e.to_string())?;
 	}
 
-	runtime.block_on(async move {
+	let served = runtime.block_on(async move {
 		tokio::spawn(watch_settings(hub.clone()));
 		let app = server::router(hub.clone()).into_make_service_with_connect_info::<SocketAddr>();
 		let tls = RustlsConfig::from_config(Arc::new(tls));
@@ -285,7 +288,10 @@ fn serve() -> Result<(), String> {
 		}
 		upkeep.listeners.shutdown(timeout::SHUTDOWN).await;
 		Ok(())
-	})
+	});
+	// The slots still being summed too: a restart loses none of what was read.
+	long.flush(store::now(), true);
+	served
 }
 
 /// The data directory's lock, waited for while `elamond restore` writes there; refused when
@@ -518,11 +524,18 @@ fn collect_loop(
 		let shape = server::shape_of(&values, &got.caps);
 		let stamp = Some((hub.config_gen(), shape));
 		if tracked.0 != stamp {
+			let first = tracked.0.is_none();
 			tracked = (stamp, ui::tracked(&config, &values));
+			// Graphs reach back past a restart: the ring starts from the long history's 10-second points.
+			if first && let Ok(mut h) = hub.history.lock() {
+				let span = hub.interval.as_millis() as u64 * h.capacity() as u64;
+				history::prefill(&mut h, &hub.long, &tracked.1, values.t, span);
+			}
 		}
 		if let Ok(mut h) = hub.history.lock() {
 			h.push(&values, &tracked.1);
 		}
+		hub.long.push(values.t, history::recorded(&values, &tracked.1));
 		let read = ui::Sources {
 			processes: reading.processes.is_some(),
 			gpus: need.gpus,

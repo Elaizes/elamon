@@ -78,6 +78,8 @@ pub struct Config {
 	pub profiles: BTreeMap<String, ProfileDef>,
 	pub dashboards: BTreeMap<String, Dashboard>,
 	pub templates: BTreeMap<String, WidgetDef>,
+	/// `[history]`: how long the hourly history is kept.
+	pub history: HistoryDef,
 	/// Where each profile's table is: the file that set it last, and the line of its
 	/// `[profiles.<id>]` there. Filled in as the files are read, not a key of theirs.
 	#[serde(skip)]
@@ -89,6 +91,29 @@ pub struct Config {
 pub struct Whence {
 	pub file: String,
 	pub line: usize,
+}
+
+/// `[history]`.
+#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(default)]
+pub struct HistoryDef {
+	/// Days the hourly points are kept; `None` for all of them (`"all"`, the default).
+	#[serde(deserialize_with = "keep_days")]
+	pub keep: Option<u64>,
+}
+
+/// `keep`: `"all"` or a number of days, as checked before.
+fn keep_days<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u64>, D::Error> {
+	#[derive(Deserialize)]
+	#[serde(untagged)]
+	enum Keep {
+		Days(u64),
+		Word(serde::de::IgnoredAny),
+	}
+	Ok(match Keep::deserialize(d)? {
+		Keep::Days(n) => Some(n),
+		Keep::Word(_) => None,
+	})
 }
 
 /// A web page this computer hosts.
@@ -401,6 +426,7 @@ impl Config {
 			profiles: BTreeMap::new(),
 			dashboards: BTreeMap::new(),
 			templates: BTreeMap::new(),
+			history: HistoryDef::default(),
 			profile_sources: BTreeMap::new(),
 		}
 	}
@@ -824,8 +850,8 @@ fn role() -> Ty {
 }
 
 /// The records the settings are made of, by name.
-pub const RECORDS: [&str; 15] =
-	["settings", "link", "action", "param", "profile", "unlock", "android", "web", "dashboard", "item", "column", "expand", "bar", "sort", "row_action"];
+pub const RECORDS: [&str; 16] =
+	["settings", "history", "link", "action", "param", "profile", "unlock", "android", "web", "dashboard", "item", "column", "expand", "bar", "sort", "row_action"];
 
 /// The keys of a record.
 pub fn record(name: &str) -> Vec<Key> {
@@ -847,7 +873,9 @@ pub fn record(name: &str) -> Vec<Key> {
 			k("profiles", id_map(Ty::Rec("profile"))),
 			k("dashboards", id_map(Ty::Rec("dashboard"))),
 			k("templates", id_map(Ty::Widget)),
+			k("history", Ty::Rec("history")),
 		],
+		"history" => vec![k("keep", Ty::Any(vec![Ty::Enum("word", &["all"]), Ty::Int(30, i64::MAX)]))],
 		"link" => vec![req("name", Ty::Str), req("url", Ty::Str), k("unit", Ty::Str), k("scope", Ty::Enum("scope", &SCOPES)), k("icon", icon())],
 		"action" => vec![
 			req("name", Ty::Str),
@@ -1037,6 +1065,7 @@ fn describe(ty: &Ty) -> String {
 		Ty::Id => "an id (1 to 32 of a-z, 0-9, _ and -, starting with a letter or a digit)".into(),
 		Ty::Address => "an address, like \"cpu.usage\"".into(),
 		Ty::Bool => "true or false".into(),
+		Ty::Int(lo, i64::MAX) => format!("an integer, {lo} or more"),
 		Ty::Int(lo, hi) => format!("an integer from {lo} to {hi}"),
 		Ty::Num => "a number".into(),
 		Ty::Scalar => "a string, a number or true or false".into(),
@@ -1846,6 +1875,7 @@ fn schema_of(ty: &Ty) -> Value {
 		Ty::Str | Ty::Text | Ty::Address => json!({ "type": "string" }),
 		Ty::Id => json!({ "type": "string", "pattern": ID_PATTERN }),
 		Ty::Bool => json!({ "type": "boolean" }),
+		Ty::Int(lo, i64::MAX) => json!({ "type": "integer", "minimum": lo }),
 		Ty::Int(lo, hi) => json!({ "type": "integer", "minimum": lo, "maximum": hi }),
 		Ty::Num => json!({ "type": "number" }),
 		Ty::Scalar => json!({ "type": ["string", "number", "boolean"] }),
@@ -1947,6 +1977,22 @@ mod tests {
 		let mut a = serde_json::to_value(&m).unwrap().as_object().unwrap().clone();
 		merge(&mut a, serde_json::json!({ "listen": ["tailscale0"] }).as_object().unwrap().clone());
 		assert_eq!(a["listen"], serde_json::json!(["tailscale0"]));
+	}
+
+	#[test]
+	fn the_hourly_history_is_kept_for_good_or_30_days_and_more() {
+		let keep = |text: &str| read(&[("a.toml", text)]).unwrap().history.keep;
+		assert_eq!(keep(""), None);
+		assert_eq!(keep("[history]\nkeep = \"all\"\n"), None);
+		assert_eq!(keep("[history]\nkeep = 30\n"), Some(30));
+		assert_eq!(keep("[history]\nkeep = 3650\n"), Some(3650));
+		assert_eq!(mistakes(&[("a.toml", "[history]\nkeep = 29\n")]), "a.toml:2: history.keep: should be a word: all or an integer, 30 or more, not 29");
+		assert!(mistakes(&[("a.toml", "[history]\nkeep = \"forever\"\n")]).contains("a.toml:2: history.keep: no word \"forever\""));
+		assert!(mistakes(&[("a.toml", "[history]\nkeep = 30.5\n")]).contains("history.keep: should be"));
+		let e = mistakes(&[("a.toml", "[history]\nkeeps = 30\n")]);
+		assert!(e.contains("no key \"keeps\" here; did you mean keep?"), "{e}");
+		// As a drop-in over the defaults, too.
+		assert_eq!(read(&over(&[("a.toml", "[history]\nkeep = 400\n")])).unwrap().history.keep, Some(400));
 	}
 
 	#[test]

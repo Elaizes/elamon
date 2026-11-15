@@ -138,6 +138,8 @@ pub struct Hub {
 	pub frame: watch::Receiver<Arc<Frame>>,
 	/// Every value a graph or a spark shows, over the last `history_minutes`.
 	pub history: Mutex<Ring>,
+	/// The values the long history records, every 10 seconds, 5 minutes and hour, on disk.
+	pub long: Arc<crate::history::Store>,
 	pub interval: Duration,
 	/// Swapped whole when the settings files change; see `config()`.
 	config: RwLock<Arc<store::Config>>,
@@ -230,11 +232,14 @@ impl Hub {
 		dir: PathBuf,
 		place: store::Place,
 	) -> Self {
+		let long = crate::history::Store::new(dir.join(crate::history::disk::DIR));
+		long.set_keep(config.history.keep);
 		Hub {
 			id,
 			name,
 			frame,
 			history: Mutex::new(history),
+			long: Arc::new(long),
 			interval,
 			config: RwLock::new(config),
 			config_gen: AtomicU64::new(0),
@@ -449,6 +454,7 @@ impl Hub {
 		if old.default_role != new.default_role {
 			eprintln!("settings: phones pair as {} from now on", new.default_role.as_str());
 		}
+		self.long.set_keep(new.history.keep);
 		let control = new.control;
 		let names_changed = old.names != new.names;
 		if let Ok(mut c) = self.config.write() {

@@ -85,6 +85,7 @@ pub fn check(args: &[String]) -> Result<(), String> {
 				count(c.links.len(), "link"),
 				count(c.profiles.len(), "profile")
 			);
+			println!("{}", crate::history::disk::summary(&store::data_dir().join(crate::history::disk::DIR)));
 			let mut warn = settings::warnings(&c);
 			if !settings::main_in(&place.files(), &sources) && place.named.is_none() && file.is_none() {
 				warn.push(format!(
