@@ -167,8 +167,6 @@ fn ours(line: &str) -> bool {
 /// the profile `uses` (`default_profile` for none), unless the settings don't have it; its id, or
 /// why nothing was written.
 pub fn add(place: &Place, name: &str, uses: Option<&str>, client_id: &str, at: u64) -> Result<String, String> {
-	// It goes into a comment line and a string: nothing in it that doesn't show.
-	let name = &store::sanitize_name(name);
 	let text = read(place)?;
 	let mut doc = parse(place, text.as_deref().unwrap_or(""))?;
 	let now = settings_with(place, text.as_deref().unwrap_or(""))?;

@@ -326,7 +326,12 @@ pub fn load_clients() -> io::Result<Vec<Client>> {
 }
 
 pub fn load_clients_in(dir: &Path) -> io::Result<Vec<Client>> {
-	Ok(read_json(&dir.join(CLIENTS_FILE))?.unwrap_or_default())
+	let mut clients: Vec<Client> = read_json(&dir.join(CLIENTS_FILE))?.unwrap_or_default();
+	// Names go to terminals and journals: cleaned as they come in, whoever wrote the file.
+	for c in &mut clients {
+		c.name = sanitize_name(&c.name);
+	}
+	Ok(clients)
 }
 
 pub fn save_clients(clients: &[Client]) -> io::Result<()> {
@@ -481,7 +486,7 @@ fn new_key(clients: &[Client]) -> (String, String) {
 fn new_client(id: String, token: &str, name: &str, role: Role, given: Profiles, from: Option<&str>) -> Client {
 	Client {
 		id,
-		name: sanitize_name(name),
+		name: name.to_string(),
 		token_hash: sha256_hex(token.as_bytes()),
 		created: now(),
 		role,
@@ -968,6 +973,14 @@ mod tests {
 		assert_eq!(sanitize_name("\u{1b}[2J"), "[2J");
 		assert_eq!(sanitize_name(" \t"), "Phone");
 		assert_eq!(sanitize_name(&"я".repeat(100)).chars().count(), 64);
+		// The clients file is where they are cleaned on the way in, as it is read.
+		let dir = scratch();
+		let (c, _) = add_client_in(&dir, "Pixel 9", Role::Glance, None).unwrap();
+		let mut raw = load_clients_in(&dir).unwrap();
+		raw[0].name = "Pixel\u{202e}9\n".into();
+		write_private(&dir.join(CLIENTS_FILE), &serde_json::to_vec(&raw).unwrap()).unwrap();
+		assert_eq!(load_clients_in(&dir).unwrap()[0].name, "Pixel9", "{}", c.id);
+		fs::remove_dir_all(dir).unwrap();
 	}
 
 	#[test]

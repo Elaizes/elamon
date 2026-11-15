@@ -275,10 +275,9 @@ impl Hub {
 						.iter()
 						.map(|c| {
 							let family = store::family_of(&list, &c.id);
-							// Cleaned again: the file may hold what doesn't show, whoever wrote it.
 							let who = Caller {
 								id: c.id.clone(),
-								name: store::sanitize_name(&c.name),
+								name: c.name.clone(),
 								role: c.role,
 								profile: c.profile.clone(),
 								app: c.app.clone(),

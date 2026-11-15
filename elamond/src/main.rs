@@ -622,15 +622,15 @@ fn ask_person(dir: &std::path::Path, ask: &store::Ask, role: Role, code: &str, l
 	while lines.try_recv().is_ok() {}
 	let replaces = match &ask.replaces {
 		Some(r) => {
-			let keeps = r.profile.as_deref().map(|p| format!(" and keeps its profile {}", store::sanitize_name(p))).unwrap_or_default();
-			format!(" It replaces \"{}\" ({}){keeps}.", store::sanitize_name(&r.name), store::sanitize_name(&r.id))
+			let keeps = r.profile.as_deref().map(|p| format!(" and keeps its profile {}", p)).unwrap_or_default();
+			format!(" It replaces \"{}\" ({}){keeps}.", r.name, r.id)
 		}
 		None => String::new(),
 	};
 	print!(
 		"  Phone \"{}\" from {} asks to pair as {}.{replaces} Allow? [y/N] ",
-		store::sanitize_name(&ask.name),
-		store::sanitize_name(&ask.address),
+		ask.name,
+		ask.address,
 		role.as_str()
 	);
 	let _ = std::io::stdout().flush();
@@ -643,7 +643,7 @@ fn ask_person(dir: &std::path::Path, ask: &store::Ask, role: Role, code: &str, l
 		Err(a) => return a,
 	}
 	let Some(offer) = &ask.offer else { return Answer::Allow { take: None } };
-	print!("  A phone named \"{}\" had the profile {}. Give it to this one? [y/N] ", store::sanitize_name(&ask.name), store::sanitize_name(offer));
+	print!("  A phone named \"{}\" had the profile {}. Give it to this one? [y/N] ", ask.name, offer);
 	let _ = std::io::stdout().flush();
 	match answer_line(dir, ask, code, lines, deadline) {
 		Ok(line) => Answer::Allow { take: Some(yes(&line)) },
@@ -840,10 +840,10 @@ fn pair(args: &[String]) -> Result<(), String> {
 	let paired = |c: store::Client| {
 		// Withdrawn here too, should the service not get to it.
 		store::clear_pairing_code(&dir, &pairing.code);
-		println!("  Paired with \"{}\".", store::sanitize_name(&c.name));
+		println!("  Paired with \"{}\".", c.name);
 		let now: Vec<String> = store::load_clients().map(|l| l.into_iter().map(|c| c.id).collect()).unwrap_or_default();
 		for gone in before.iter().filter(|b| !now.is_empty() && !now.contains(&b.id)) {
-			println!("  It replaces \"{}\" ({}), the same phone paired before, which is unpaired now.", store::sanitize_name(&gone.name), gone.id);
+			println!("  It replaces \"{}\" ({}), the same phone paired before, which is unpaired now.", gone.name, gone.id);
 		}
 		let settings = place.load().ok();
 		match &c.own_profile {
@@ -953,15 +953,10 @@ fn percent_encode(s: &str) -> String {
 
 /// The paired phones, for the commands that list and change them.
 fn paired() -> Result<Vec<store::Client>, String> {
-	let mut list = store::load_clients().map_err(|e| match e.kind() {
+	store::load_clients().map_err(|e| match e.kind() {
 		std::io::ErrorKind::InvalidData => format!("{e}\n  fix the file, or move it away and pair the phones again"),
 		_ => e.to_string(),
-	})?;
-	// Names go to the terminal: cleaned again, should the file hold one that isn't.
-	for c in &mut list {
-		c.name = store::sanitize_name(&c.name);
-	}
-	Ok(list)
+	})
 }
 
 fn role_arg(s: &str) -> Result<Role, String> {
