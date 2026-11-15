@@ -143,7 +143,7 @@ fn v6_loopback(hex: &str) -> bool {
 
 /// Whether `name` is a unit a phone could ever be let start, stop and restart: a service, its name
 /// as systemd writes one, never one the service itself runs in. A template's instance (`@`) or an
-/// escaped name (`\`) passes only as itself: `unit_refusal` wants the exact name in the settings.
+/// escaped name (`\`) passes only as itself: an action's unit is the one a link in the settings names.
 pub fn unit_shape(name: &str) -> Result<(), &'static str> {
 	let chars_ok = name.chars().all(|c| c.is_ascii_alphanumeric() || "@._-:\\".contains(c));
 	if name.is_empty() || name.len() > limit::UNIT_MAX || !chars_ok {
@@ -177,17 +177,6 @@ fn own_units() -> &'static [String] {
 		}
 		own
 	})
-}
-
-/// Why the unit `unit` in `scope` ("user" when none) may not be started, stopped or restarted by a
-/// client, if it may not: only a service unit a link in the settings names, in that scope, ever may.
-pub fn unit_refusal(config: &store::Config, unit: &str, scope: Option<&str>) -> Option<String> {
-	if let Err(why) = unit_shape(unit) {
-		return Some(format!("{unit} {why}"));
-	}
-	let scope = scope.unwrap_or("user");
-	let on_a_link = config.links.values().any(|l| l.unit.as_deref() == Some(unit) && l.scope() == scope);
-	(!on_a_link).then(|| format!("no link in the settings names {unit} ({scope})"))
 }
 
 #[cfg(test)]
@@ -227,20 +216,12 @@ mod tests {
 	}
 
 	#[test]
-	fn only_units_a_link_names_may_be_used() {
+	fn a_unit_no_link_could_have_is_not_in_settings() {
 		let config = crate::settings::read_sources(&[crate::settings::Source::new(
 			"a.toml",
 			"[links.a]\nname = \"A\"\nurl = \"http://{host}:1\"\nunit = \"nginx.service\"\nscope = \"system\"\n[links.b]\nname = \"B\"\nurl = \"http://{host}:2\"\nunit = \"mine.service\"\n",
 		)])
 		.unwrap();
-		let allowed = |unit: &str, scope: Option<&str>| unit_refusal(&config, unit, scope).is_none();
-		assert!(allowed("nginx.service", Some("system")) && allowed("mine.service", None) && allowed("mine.service", Some("user")));
-		// Each in its own scope only, and nothing else whatever it is.
-		assert!(!allowed("nginx.service", None) && !allowed("mine.service", Some("system")));
-		for unit in ["podman-kube@https:--evil.service", "-.slice", "user@1000.service", "x.service"] {
-			assert!(!allowed(unit, None) && !allowed(unit, Some("system")), "{unit}");
-		}
-		assert!(unit_refusal(&config, "-.slice", None).unwrap().contains("isn't a service unit"));
 		// Settings with a link whose unit could never be allowed, or whose url isn't a web page's,
 		// don't load.
 		for bad in ["[links.a]\nname = \"A\"\nurl = \"http://x\"\nunit = \"elamond.service\"\n", "[links.a]\nname = \"A\"\nurl = \"file:///etc/passwd\"\n"] {

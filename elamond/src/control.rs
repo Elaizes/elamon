@@ -255,10 +255,6 @@ async fn run_spec(hub: &Hub, who: &Caller, spec: &Spec, params: &BTreeMap<String
 		let Some(unit) = link.unit.clone() else {
 			return Err(Refusal { code: ErrorCode::BadParam, message: Some("link".into()) });
 		};
-		if let Some(why) = links::unit_refusal(config, &unit, Some(link.scope())) {
-			eprintln!("control: {} asked to {op} {unit}, refused: {why}", who.name);
-			return Err(ErrorCode::NotAllowed.into());
-		}
 		eprintln!("control: {} asked to {op} {unit}", who.name);
 		return done(hub.bus.unit_op(Scope::parse(Some(link.scope())), &unit, op).await);
 	}
@@ -676,9 +672,7 @@ impl Hub {
 		let given = config.clone();
 		let mut list = tokio::task::spawn_blocking(move || links::statuses(&given)).await.unwrap_or_default();
 		for s in &mut list {
-			if let Some(u) = &s.unit
-				&& links::unit_refusal(&config, u, Some(&s.scope)).is_none()
-			{
+			if let Some(u) = &s.unit {
 				s.unit_state = self.bus.unit_state(Scope::parse(Some(&s.scope)), u).await;
 			}
 		}

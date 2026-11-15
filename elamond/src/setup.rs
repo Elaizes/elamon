@@ -343,7 +343,6 @@ fn system_units(loaded: Result<store::Config, Vec<crate::settings::Mistake>>) ->
 		.values()
 		.filter(|l| l.scope() == "system")
 		.filter_map(|l| l.unit.clone())
-		.filter(|u| crate::links::unit_shape(u).is_ok())
 		.collect();
 	units.sort();
 	units.dedup();
