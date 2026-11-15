@@ -41,7 +41,7 @@ fn xdg_dir(own: &str, xdg: &str, fallback: &str) -> PathBuf {
 	base.join("elamon")
 }
 
-fn home() -> PathBuf {
+pub fn home() -> PathBuf {
 	std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
 }
 
@@ -223,35 +223,13 @@ pub fn replace_as(path: &Path, text: &[u8], mode: u32) -> io::Result<()> {
 /// beside it can't trip over each other.
 pub fn write_private(path: &Path, data: &[u8]) -> io::Result<()> {
 	private_dir(path.parent().expect("state files live in a directory"))?;
-	replace_private(path, data)
+	replace_as(path, data, 0o600)
 }
 
 /// Makes `dir` if it isn't there, and lets only its owner in.
 pub fn private_dir(dir: &Path) -> io::Result<()> {
 	fs::create_dir_all(dir)?;
 	fs::set_permissions(dir, fs::Permissions::from_mode(0o700))
-}
-
-/// Writes a file only its owner can read, replacing it atomically, and leaves the directory it is
-/// in as it was: for a file put where someone chose, like a backup.
-pub fn replace_private(path: &Path, data: &[u8]) -> io::Result<()> {
-	let dir = match path.parent() {
-		Some(d) if !d.as_os_str().is_empty() => d,
-		_ => Path::new("."),
-	};
-	let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-	let tag = data_encoding::HEXLOWER.encode(&random_bytes::<4>());
-	let tmp = dir.join(format!(".{name}.{}.{tag}.tmp", std::process::id()));
-	let written = (|| {
-		let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
-		f.write_all(data)?;
-		f.sync_all()?;
-		fs::rename(&tmp, path)
-	})();
-	if written.is_err() {
-		let _ = fs::remove_file(&tmp);
-	}
-	written
 }
 
 /// A JSON state file: `None` when it doesn't exist. One that doesn't parse is an
@@ -335,19 +313,10 @@ pub struct ClientsLock(#[allow(dead_code)] fs::File);
 /// to writing it back. An advisory flock, so another elamond (the service, or a command) that
 /// changes the file waits, and two in one process too.
 pub fn lock_clients(dir: &Path) -> io::Result<ClientsLock> {
-	use std::os::fd::AsRawFd;
 	private_dir(dir)?;
 	let f = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600).open(dir.join(CLIENTS_LOCK_FILE))?;
-	loop {
-		// SAFETY: flock on a descriptor `f` owns; it doesn't touch memory.
-		if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } == 0 {
-			return Ok(ClientsLock(f));
-		}
-		let e = io::Error::last_os_error();
-		if e.kind() != io::ErrorKind::Interrupted {
-			return Err(e);
-		}
-	}
+	f.lock()?;
+	Ok(ClientsLock(f))
 }
 
 /// The paired phones; none when the file doesn't exist yet. A file that can't be read or
@@ -847,14 +816,10 @@ pub fn data_dir_held(dir: &Path) -> bool {
 
 /// Takes the lock on `f` if no one else holds it.
 fn try_lock(f: &fs::File) -> io::Result<bool> {
-	use std::os::fd::AsRawFd;
-	// SAFETY: flock on a descriptor `f` owns; it doesn't touch memory.
-	if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-		return Ok(true);
-	}
-	match io::Error::last_os_error() {
-		e if e.raw_os_error() == Some(libc::EWOULDBLOCK) => Ok(false),
-		e => Err(e),
+	match f.try_lock() {
+		Ok(()) => Ok(true),
+		Err(fs::TryLockError::WouldBlock) => Ok(false),
+		Err(fs::TryLockError::Error(e)) => Err(e),
 	}
 }
 

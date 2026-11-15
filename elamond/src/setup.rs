@@ -13,10 +13,9 @@
 
 use std::ffi::{CStr, OsString};
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::os::unix::ffi::OsStringExt;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -278,17 +277,13 @@ fn config_home() -> PathBuf {
 	std::env::var_os("XDG_CONFIG_HOME")
 		.map(PathBuf::from)
 		.filter(|p| p.is_absolute())
-		.unwrap_or_else(|| home().join(".config"))
-}
-
-fn home() -> PathBuf {
-	std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
+		.unwrap_or_else(|| store::home().join(".config"))
 }
 
 /// A path with the home folder written `~`, for reading.
 pub(crate) fn short(path: &Path) -> String {
-	match path.strip_prefix(home()) {
-		Ok(rest) if home() != Path::new("/") => format!("~/{}", rest.display()),
+	match path.strip_prefix(store::home()) {
+		Ok(rest) if store::home() != Path::new("/") => format!("~/{}", rest.display()),
 		_ => path.display().to_string(),
 	}
 }
@@ -309,15 +304,16 @@ struct Settings {
 
 impl Settings {
 	fn read(files: &[PathBuf]) -> Settings {
-		let mut merged = toml::Table::new();
+		let mut merged = serde_json::Map::new();
 		for path in files {
 			let Ok(text) = fs::read_to_string(path) else { continue };
 			// A file that doesn't parse is the service's to report (`--check` does); setup takes
 			// what the others give.
-			if let Ok(table) = text.parse::<toml::Table>() {
-				merge(&mut merged, table);
+			if let Ok(serde_json::Value::Object(table)) = text.parse::<toml::Table>().map(|t| serde_json::to_value(t).unwrap_or_default()) {
+				crate::settings::merge(&mut merged, table);
 			}
 		}
+		let merged = toml::Table::try_from(merged).unwrap_or_default();
 		Settings { system_units: system_units(crate::settings::load(files)), ..Settings::of(&merged) }
 	}
 
@@ -375,18 +371,6 @@ fn system_units(loaded: Result<store::Config, Vec<crate::settings::Mistake>>) ->
 fn sh_word(s: &str) -> String {
 	let plain = !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-./@:=+,%".contains(&b));
 	if plain { s.to_string() } else { format!("'{}'", s.replace('\'', r"'\''")) }
-}
-
-/// A later settings file's tables merge with the earlier ones key by key; anything else replaces.
-fn merge(into: &mut toml::Table, from: toml::Table) {
-	for (key, value) in from {
-		match (into.get_mut(&key), value) {
-			(Some(toml::Value::Table(a)), toml::Value::Table(b)) => merge(a, b),
-			(_, v) => {
-				into.insert(key, v);
-			}
-		}
-	}
 }
 
 // ---- polkit and the firewall --------------------------------------------------------------
@@ -861,20 +845,8 @@ fn exe_stays(exe: &str) -> bool {
 }
 
 fn write_file(path: &Path, text: &str, mode: u32) -> io::Result<()> {
-	let dir = path.parent().unwrap_or(Path::new("."));
-	fs::create_dir_all(dir)?;
-	let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-	let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
-	let written = (|| {
-		let mut f = fs::OpenOptions::new().write(true).create(true).truncate(true).mode(mode).open(&tmp)?;
-		f.write_all(text.as_bytes())?;
-		f.sync_all()?;
-		fs::rename(&tmp, path)
-	})();
-	if written.is_err() {
-		let _ = fs::remove_file(&tmp);
-	}
-	written
+	fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))?;
+	store::replace_as(path, text.as_bytes(), mode)
 }
 
 pub(crate) fn run_command(c: &[String]) -> Result<(), String> {
@@ -1347,10 +1319,14 @@ mod tests {
 
 	#[test]
 	fn later_files_merge_into_earlier_ones() {
-		let mut t = table("port = 48000\n[links.a]\nname = \"A\"\nurl = \"http://{host}:1\"\nunit = \"a.service\"\nscope = \"system\"\n");
-		merge(&mut t, table("[links.a]\nscope = \"user\"\n[links.b]\nname = \"B\"\nurl = \"http://{host}:2\"\nunit = \"b.service\"\nscope = \"system\"\n"));
-		merge(&mut t, table("listen = \"eno1\"\n"));
-		let s = Settings::of(&t);
+		let json = |t: toml::Table| match serde_json::to_value(t) {
+			Ok(serde_json::Value::Object(o)) => o,
+			_ => unreachable!(),
+		};
+		let mut t = json(table("port = 48000\n[links.a]\nname = \"A\"\nurl = \"http://{host}:1\"\nunit = \"a.service\"\nscope = \"system\"\n"));
+		crate::settings::merge(&mut t, json(table("[links.a]\nscope = \"user\"\n[links.b]\nname = \"B\"\nurl = \"http://{host}:2\"\nunit = \"b.service\"\nscope = \"system\"\n")));
+		crate::settings::merge(&mut t, json(table("listen = \"eno1\"\n")));
+		let s = Settings::of(&toml::Table::try_from(t).unwrap());
 		assert_eq!(s.port, 48000);
 		assert_eq!(s.system_units, Ok(vec!["b.service".into()]));
 		assert_eq!(s.interfaces(), ["eno1"]);

@@ -2,7 +2,7 @@
 name = "elamond"
 version = "0.6.1"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.89"
 description = "Serves this computer's metrics to the Elamon Android app"
 license = "GPL-3.0-or-later"
 

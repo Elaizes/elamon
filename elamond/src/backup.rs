@@ -349,7 +349,7 @@ fn put(path: &Path, data: &[u8], state: bool) -> io::Result<bool> {
 		if let Some(dir) = path.parent() {
 			fs::create_dir_all(dir)?;
 		}
-		store::replace_private(path, data)?;
+		store::replace_as(path, data, 0o600)?;
 	}
 	Ok(true)
 }
@@ -418,7 +418,7 @@ pub fn backup(args: &[String]) -> Result<(), String> {
 	let contents = collect(&dir, &settings_now())?;
 	// What can't be restored isn't worth keeping: say so now rather than on the day it's needed.
 	let summary = verify(&contents, false).map_err(|e| format!("{e}\n  in {}; fix it, then back up", dir.display()))?;
-	store::replace_private(&file, &pack(&contents)?).map_err(|e| format!("can't write {}: {e}", file.display()))?;
+	store::replace_as(&file, &pack(&contents)?, 0o600).map_err(|e| format!("can't write {}: {e}", file.display()))?;
 
 	println!("Backed up to {}:", file.display());
 	print_summary(&summary);
@@ -666,7 +666,7 @@ mod tests {
 		assert!(store::load_clients_in(&to).unwrap().iter().any(|c| c.token_hash == token_hash));
 		assert!(store::control_held_off(&to));
 		// No temporary files, and no copies of what was there.
-		assert!(!listing(&to).keys().any(|k| k.ends_with(".tmp") || k.contains("before-restore")), "{:?}", listing(&to).keys());
+		assert!(!listing(&to).keys().any(|k| k.ends_with(".saving") || k.contains("before-restore")), "{:?}", listing(&to).keys());
 
 		// Restored again: nothing more to do.
 		let written = listing(&to);

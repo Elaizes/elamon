@@ -141,14 +141,14 @@ install -Dm755 elamond-VERSION-x86_64-linux/elamond ~/.local/bin/elamond
 
 ### Building from source
 
-You need git, a C compiler and Rust 1.88 or newer.
+You need git, a C compiler and Rust 1.89 or newer.
 
 | System | Build tools |
 |---|---|
 | Fedora | `sudo dnf install git cargo gcc` |
 | Arch | `sudo pacman -S --needed git rust base-devel` |
 | openSUSE | `sudo zypper install git cargo gcc` |
-| Debian, Ubuntu | `sudo apt install git build-essential curl`, then Rust from [rustup](https://rustup.rs): theirs is older than 1.88 |
+| Debian, Ubuntu | `sudo apt install git build-essential curl`, then Rust from [rustup](https://rustup.rs): theirs is older than 1.89 |
 
 ```sh
 git clone https://github.com/Elaizes/elamon.git

@@ -123,7 +123,7 @@ nix build .#elamond                           # the service's package, for x86_6
 nix develop .#emulator                        # an x86_64 Android emulator for trying the app
 ```
 
-Without Nix: Android SDK 37, JDK 17, and Rust 1.88 or newer. A release build is signed when
+Without Nix: Android SDK 37, JDK 17, and Rust 1.89 or newer. A release build is signed when
 `~/.android/elamon-release.properties` (or the file `-Pelamon.signing` names) gives `storeFile`,
 `storePassword`, `keyAlias` and `keyPassword`; otherwise it stays unsigned.
 
