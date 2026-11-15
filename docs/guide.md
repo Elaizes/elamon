@@ -1,8 +1,10 @@
 # Elamon user guide
 
-> **Test software in active development.** Features, settings and the protocol between the app
-> and the service can change from one version to the next, and things may break. Use it where
-> that's fine, and update the app and the service together.
+> **A personal project.** Elamon is made for two computers on NixOS, its author's and a friend's,
+> and grows with what they need. It isn't tied to them, though: every change is built and tested
+> on NixOS and on Debian, Ubuntu, Fedora, Arch and openSUSE Tumbleweed, so it should work for you
+> too. This guide is all the support there is; settings and the protocol may still change between
+> versions, so update the app and the service together.
 
 Elamon lets you watch and control a Linux computer from an Android phone. It has two parts:
 
@@ -15,10 +17,12 @@ The phone talks to the computer directly: on the same network, or over a VPN bot
 
 ## Quick start
 
-1. **Install the service.** As yourself, run
+1. **Install the service.** On NixOS, turn on the module ([section 1](#nixos-and-home-manager)).
+   Elsewhere, as yourself, run
    `curl -fsSL https://raw.githubusercontent.com/Elaizes/elamon/main/install.sh | sh`
-   ([section 1](#1-install-the-service)). On NixOS, use the module instead.
-2. **Set it up.** The install ends with `elamond setup`. Run as root the commands it prints.
+   ([section 1](#with-one-command)).
+2. **Set it up.** Off NixOS, the install ends with `elamond setup`: run as root the commands it
+   prints.
 3. **Pair the phone.** Run `elamond pair`, scan the QR code with the phone, and answer `y` on the
    computer ([section 3](#3-pair-the-phone)).
 4. **Watch.** The app shows the computer's load, temperatures, memory, processes and more.
@@ -40,8 +44,42 @@ The phone talks to the computer directly: on the same network, or over a VPN bot
 
 ## 1. Install the service
 
-This works the same way on every distribution that runs systemd: Debian, Ubuntu, Fedora, Arch,
-openSUSE and the rest. On NixOS, the module does it ([below](#nixos-and-home-manager)).
+On NixOS, the module (or Home Manager's) does it all: first below. On any other distribution
+that runs systemd, one command does it, the same way everywhere: Debian, Ubuntu, Fedora, Arch and
+openSUSE Tumbleweed are the ones it is tested on with every change, and others with systemd
+should work alike.
+
+### NixOS and Home Manager
+
+Add the flake to your inputs:
+
+```nix
+inputs.elamon = {
+  url = "github:Elaizes/elamon";
+  inputs.nixpkgs.follows = "nixpkgs";
+};
+```
+
+**NixOS.** Import the module, turn the service on, then run `sudo nixos-rebuild switch`:
+
+```nix
+imports = [ inputs.elamon.nixosModules.default ];
+
+services.elamond = {
+  enable = true;        # runs for everyone who logs in
+  openFirewall = true;  # TCP 47823, and UDP 5353 for discovery
+};
+users.users.YOUR_USER.linger = true;  # keeps it running while you're logged out
+```
+
+The polkit rule comes from `services.elamond.control`
+([section 5](#power-the-profile-and-system-units-polkit)). All options:
+[section 7](#nixos-module).
+
+**Home Manager**, for one user: `imports = [ inputs.elamon.homeModules.default ];` and
+`services.elamond.enable = true;`. The firewall stays the system's job. On NixOS,
+`openFirewall` works without `enable`. On another distribution, `elamond setup` leaves Home
+Manager's unit alone and prints what needs root.
 
 ### With one command
 
@@ -157,38 +195,6 @@ cargo build --release
 install -Dm755 target/release/elamond ~/.local/bin/elamond
 ~/.local/bin/elamond setup
 ```
-
-### NixOS and Home Manager
-
-Add the flake to your inputs:
-
-```nix
-inputs.elamon = {
-  url = "github:Elaizes/elamon";
-  inputs.nixpkgs.follows = "nixpkgs";
-};
-```
-
-**NixOS.** Import the module, turn the service on, then run `sudo nixos-rebuild switch`:
-
-```nix
-imports = [ inputs.elamon.nixosModules.default ];
-
-services.elamond = {
-  enable = true;        # runs for everyone who logs in
-  openFirewall = true;  # TCP 47823, and UDP 5353 for discovery
-};
-users.users.YOUR_USER.linger = true;  # keeps it running while you're logged out
-```
-
-The polkit rule comes from `services.elamond.control`
-([section 5](#power-the-profile-and-system-units-polkit)). All options:
-[section 7](#nixos-module).
-
-**Home Manager**, for one user: `imports = [ inputs.elamon.homeModules.default ];` and
-`services.elamond.enable = true;`. The firewall stays the system's job. On NixOS,
-`openFirewall` works without `enable`. On another distribution, `elamond setup` leaves Home
-Manager's unit alone and prints what needs root.
 
 ### Nix on another distribution
 

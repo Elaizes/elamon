@@ -1,10 +1,14 @@
 # Elamon
 
-> **Test software in active development.** This is an early test version: features, settings and
-> the protocol between the app and the service change from one version to the next, and things may
-> break. Use it where that's fine, and update the app and the service together.
-
 Watch and control a Linux computer from your Android phone, live.
+
+> **A personal project.** Elamon is made for its author's computer and a friend's, both on NixOS,
+> and grows with what the two of them need: what comes next is decided by that, not by requests.
+> Still, nothing in it is tied to them. Every change is built and tested on NixOS (a VM test of
+> the module) and on Debian, Ubuntu, Fedora, Arch and openSUSE Tumbleweed (the service installed
+> and started in each), so it should work on yours too. Use it if it fits; there is no support
+> beyond the guide, and settings and the protocol may still change between versions: update the
+> app and the service together.
 
 - **Elamon**, the Android app (Android 8 and newer). No Google services, no trackers, no ads.
 - **elamond**, the Elamon service, a small program on the computer (Linux, any distribution, any
@@ -51,24 +55,7 @@ The app: Material You with frosted glass on Android 12 and newer, light, dark or
 
 ## Quick start
 
-1. Install the service. On any distribution with systemd and glibc 2.28 or newer, this puts the
-   newest release's `elamond` in `~/.local/bin`, its checksum checked, and lets `elamond setup`
-   install it for your user:
-
-   ```sh
-   curl -fsSL https://raw.githubusercontent.com/Elaizes/elamon/main/install.sh | sh
-   ```
-
-   Then run what it prints as root: lingering, the firewall, the polkit rule. `elamond update`
-   installs a newer release later. To do it by hand instead, take the binary from the
-   [releases](https://github.com/Elaizes/elamon/releases) (or build it with `cargo`):
-
-   ```sh
-   install -Dm755 elamond ~/.local/bin/elamond
-   ~/.local/bin/elamond setup
-   ```
-
-   On NixOS, from this flake:
+1. Install the service. On NixOS, from this flake (Home Manager has a module too):
 
    ```nix
    imports = [ inputs.elamon.nixosModules.default ];
@@ -78,7 +65,16 @@ The app: Material You with frosted glass on Android 12 and newer, light, dark or
    };
    ```
 
-   Building from source, Home Manager and the details:
+   On another distribution with systemd and glibc 2.28 or newer, this puts the newest release's
+   `elamond` in `~/.local/bin`, its checksum checked, and lets `elamond setup` install it for your
+   user; then run what it prints as root (lingering, the firewall, the polkit rule):
+
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/Elaizes/elamon/main/install.sh | sh
+   ```
+
+   `elamond update` installs a newer release later. By hand, from the
+   [releases](https://github.com/Elaizes/elamon/releases) or `cargo`, and the details:
    [section 1 of the guide](docs/guide.md#1-install-the-service).
 
 2. Run `elamond pair` on the computer and point the phone's camera at the QR code it prints, or
@@ -138,9 +134,12 @@ maestro/run.sh                                    # the app on an emulator only 
 The protocol between the app and the service: [docs/protocol.md](docs/protocol.md); the settings,
 dashboards and profiles: [docs/config.md](docs/config.md).
 
-## Not there yet
+## Where it's going
 
-The service for Windows and macOS, and published app builds.
+Next, as its two users need them: a UPS's state, history and controls (through NUT), readings of
+our own and the system journal, notifications through ntfy, and controlling monitors under
+Hyprland. Not planned: the
+service for Windows or macOS, app stores (the app is the APK in each release), a web version.
 
 ## License
 
