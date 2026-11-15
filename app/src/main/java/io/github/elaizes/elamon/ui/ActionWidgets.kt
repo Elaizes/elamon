@@ -198,7 +198,7 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 				summary = captionOf(w, s),
 				icon = icon(w.icon ?: action?.icon),
 				accent = if (w.color != null) accent(w.color) else MaterialTheme.colorScheme.secondary,
-				enabled = enabled,
+				enabled = takesTap(enabled, running),
 				onClick = run,
 				trailing = outcome(running, result, scope.vm, action),
 			)
@@ -210,7 +210,7 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 		Column(
 			modifier.heightIn(min = Sizes.powerTileMin).clip(InnerTileShape)
 				.background(if (danger) Metric.colors.hot.copy(alpha = Alpha.DANGER) else MaterialTheme.colorScheme.surfaceContainerHigh)
-				.clickable(enabled = enabled && !running, role = Role.Button, onClick = run)
+				.clickable(enabled = takesTap(enabled, running), role = Role.Button, onClick = run)
 				.padding(vertical = Space.l, horizontal = Space.xs),
 			horizontalAlignment = Alignment.CenterHorizontally,
 			verticalArrangement = Arrangement.spacedBy(Space.xsPlus, Alignment.CenterVertically),
@@ -223,7 +223,7 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	}
 	Surface(shape = InnerTileShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = modifier.fillMaxWidth()) {
 		Row(
-			Modifier.clickable(enabled = enabled && !running, role = Role.Button, onClick = run).padding(horizontal = Space.l, vertical = Space.mPlus),
+			Modifier.clickable(enabled = takesTap(enabled, running), role = Role.Button, onClick = run).padding(horizontal = Space.l, vertical = Space.mPlus),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
 			// While it runs, the spinner in place of the play mark; how it ended, under the name: a tile
@@ -238,6 +238,9 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 		}
 	}
 }
+
+/** Whether a button takes a tap: its action may run and isn't running already, or a second tap would ask again for nothing. */
+internal fun takesTap(enabled: Boolean, running: Boolean): Boolean = enabled && !running
 
 /** What a button shows at its end: a spinner while its action runs, then how the command ended, its output a tap away. */
 private fun outcome(running: Boolean, result: ActionResult?, vm: MachineViewModel, action: Action?): (@Composable () -> Unit)? = when {
