@@ -1224,7 +1224,7 @@ fn revoke(args: &[String]) -> Result<(), String> {
 	// Each one's own profile, under the same lock: taken out when nothing else has it.
 	let place = store::Place::here();
 	for c in &gone {
-		if let Some(said) = phones::release(&place, c, &keep, store::now()) {
+		if let Some(said) = phones::release(&place, c, &keep, store::now(), false) {
 			println!("  {}: {said}.", c.name);
 		}
 	}

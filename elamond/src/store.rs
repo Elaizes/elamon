@@ -470,6 +470,21 @@ pub fn rekey_client(dir: &Path, from: &str, name: &str, give: impl FnOnce(&[Clie
 	Ok(Added { client, token, replaced: None })
 }
 
+/// Unpairs the entry `id` in `dir` alone, as the phone itself asks: `release` is told of it and of
+/// the phones left while the lock is still held, so pairing and the commands wait for both. None
+/// when the entry was paired no more.
+pub fn unpair_client(dir: &Path, id: &str, release: impl FnOnce(&Client, &[Client])) -> io::Result<Option<Client>> {
+	let _lock = lock_clients(dir)?;
+	let mut clients = load_clients_in(dir)?;
+	let Some(at) = clients.iter().position(|c| c.id == id) else {
+		return Ok(None);
+	};
+	let gone = clients.remove(at);
+	save_clients_in(dir, &clients)?;
+	release(&gone, &clients);
+	Ok(Some(gone))
+}
+
 /// A new phone's id and token: short ids, as phones and people know them, never one another phone
 /// has or came by.
 fn new_key(clients: &[Client]) -> (String, String) {

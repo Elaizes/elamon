@@ -653,6 +653,7 @@ pub fn router(hub: Arc<Hub>) -> Router {
 		.route("/api/v1/actions/{id}", post(crate::control::action).layer(body()))
 		.route("/api/v1/media/art", get(crate::control::art))
 		.route("/api/v1/rekey", post(rekey).layer(body()))
+		.route("/api/v1/unpair", post(unpair))
 		.route_layer(middleware::from_fn_with_state(hub.clone(), auth));
 	Router::new()
 		.route("/api/v1/hello", get(hello))
@@ -1062,6 +1063,38 @@ async fn rekey(
 	.await
 }
 
+/// `POST /api/v1/unpair`: a phone that forgets this computer unpairs itself, its entry alone (never
+/// those added with its key), whatever its role and with control off too. Its own table in
+/// phones.toml stays, noted, for `elamond pair` to offer it by name when it pairs again.
+async fn unpair(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>) -> Response {
+	hub.act_as(&who, None, false, "unpaired itself".into(), async {
+		let (dir, place, id) = (hub.dir.clone(), hub.place.clone(), who.id.clone());
+		let done = tokio::task::spawn_blocking(move || {
+			let mut said = None;
+			let gone = store::unpair_client(&dir, &id, |gone, left| said = crate::phones::release(&place, gone, left, store::now(), true));
+			gone.map(|g| g.map(|_| said))
+		})
+		.await
+		.unwrap_or_else(|e| Err(std::io::Error::other(e)));
+		match done {
+			Ok(Some(said)) => {
+				eprintln!("pairing: \"{}\" ({}) unpaired itself", who.name, who.id);
+				if let Some(n) = said {
+					eprintln!("pairing: \"{}\" ({}): {n}", who.name, who.id);
+				}
+				reload(&hub);
+				Ok(Json(json!({ "ok": true })).into_response().into())
+			}
+			// Unpaired meanwhile, by `elamond revoke`: its token is no one's now.
+			Ok(None) => Err(ErrorCode::Unauthorized.into()),
+			Err(e) => {
+				eprintln!("pairing: \"{}\" ({}) asked to be unpaired, but {e}", who.name, who.id);
+				Err(ErrorCode::Storage.into())
+			}
+		}
+	})
+	.await
+}
 
 /// The widget types a client draws, from `widgets=value,gauge,…`: those the service knows, the
 /// rest left out, so what it keeps for a client is one of few sets whatever the client sends.
@@ -1391,6 +1424,8 @@ dashboards = ["overview", "control"]
 		("POST", "/api/v1/actions/echo", r#"{"params":{"word":"nothing"}}"#, Some(Role::Operate), true),
 		("POST", "/api/v1/actions/nothing", "", None, false),
 		("POST", "/api/v1/rekey", r#"{"device":"Route phone"}"#, None, false),
+		// Last: each phone unpairs itself once it has been through the rest.
+		("POST", "/api/v1/unpair", "", None, false),
 	];
 
 	fn role_of(phone: &str) -> Role {
@@ -1797,6 +1832,42 @@ dashboards = ["overview", "control"]
 		let e = log.iter().find(|e| e.client_id == "id-glance").unwrap();
 		assert_eq!((e.phone.as_str(), e.what.as_str(), e.result.as_str()), ("glance", "phone added: New phone", "ok"));
 		assert!(e.message.as_deref().is_some_and(|m| m.starts_with("id ") && m.ends_with(", glance")), "{e:?}");
+		remove_test_dir(&hub.dir);
+	}
+
+	#[tokio::test]
+	async fn a_phone_that_forgets_the_computer_unpairs_itself_alone() {
+		// Control off, and the least role: neither stops it.
+		let (hub, _tx) = hub(false);
+		let (status, v) = call(&hub, "POST", "/api/v1/rekey", "monitor", r#"{"device":"New phone"}"#).await;
+		assert_eq!(status, StatusCode::OK, "{v}");
+		let added = v["token"].as_str().unwrap().to_string();
+		let ok = (StatusCode::OK, serde_json::json!({ "ok": true }));
+		assert_eq!(call(&hub, "POST", "/api/v1/unpair", "glance", "").await, ok);
+		assert_eq!(call(&hub, "GET", "/api/v1/ui", "glance", "").await.0, StatusCode::UNAUTHORIZED);
+
+		// Its entry alone: the one added with its key stays paired, as do the others.
+		assert_eq!(call(&hub, "POST", "/api/v1/unpair", "monitor", "").await, ok);
+		assert_eq!(call(&hub, "GET", "/api/v1/ui", "monitor", "").await.0, StatusCode::UNAUTHORIZED);
+		assert_eq!(call_as(&hub, "GET", "/api/v1/ui", &added, "").await.0, StatusCode::OK);
+		assert_eq!(call(&hub, "GET", "/api/v1/ui", "admin", "").await.0, StatusCode::OK);
+
+		// Its table stays, though as pairing wrote it and nobody else's (revoke would take it out),
+		// noted, and offered by name to the phone pairing again.
+		assert_eq!(call_as(&hub, "POST", "/api/v1/unpair", &added, "").await, ok);
+		assert_eq!(call_as(&hub, "GET", "/api/v1/ui", &added, "").await.0, StatusCode::UNAUTHORIZED);
+		let text = std::fs::read_to_string(crate::phones::path(&hub.place)).unwrap();
+		assert!(text.contains("# Unpaired ") && text.contains("[profiles.new-phone]"), "{text}");
+		let left = store::load_clients_in(&hub.dir).unwrap();
+		assert!(left.iter().all(|c| !["id-glance", "id-monitor"].contains(&c.id.as_str()) && c.name != "New phone"));
+		assert_eq!(crate::phones::unowned_named(&hub.place, "New phone", &left).as_deref(), Some("new-phone"));
+		// Asked again, the token is no one's.
+		assert_eq!(call_as(&hub, "POST", "/api/v1/unpair", &added, "").await.0, StatusCode::UNAUTHORIZED);
+
+		let log = hub.activity.newest(usize::MAX);
+		for phone in ["glance", "monitor", "New phone"] {
+			assert!(log.iter().any(|e| e.phone == phone && e.what == "unpaired itself" && e.result == "ok"), "{phone}: {log:?}");
+		}
 		remove_test_dir(&hub.dir);
 	}
 
@@ -2376,7 +2447,7 @@ dashboards = ["overview", "control"]
 			let c = list.iter().find(|c| c.id == gone).unwrap().clone();
 			list.retain(|c| c.id != gone);
 			store::save_clients_in(&hub.dir, &list).unwrap();
-			assert!(crate::phones::release(&hub.place, &c, &list, store::now()).unwrap().contains("stays"));
+			assert!(crate::phones::release(&hub.place, &c, &list, store::now(), false).unwrap().contains("stays"));
 		}
 
 		// --yes gives it none by name.

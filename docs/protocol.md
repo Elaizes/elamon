@@ -215,7 +215,8 @@ stay paired. Any role may ask, and it needs no control (it works with `control =
 table in [phones.toml](config.md#phones) stays, whatever is in it, with a note above it
 (`# Unpaired <date>; kept for a phone paired again (elamond pair offers it to one named "<name>").`),
 so that `elamond pair` offers it to the phone when it pairs again. The service's journal says
-`pairing: "<name>" (<id>) unpaired itself`. 500 `storage` when the list of phones can't be written,
+`pairing: "<name>" (<id>) unpaired itself`, and the [activity log](#activity-log) `unpaired itself`.
+500 `storage` when the list of phones can't be written,
 or no longer parses (it is never written over).
 
 A service before 0.6.2 answers 404 `not_found`; a client then forgets the computer all the same and

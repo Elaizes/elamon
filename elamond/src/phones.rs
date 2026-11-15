@@ -244,9 +244,10 @@ pub fn note_taken(place: &Place, id: &str, name: &str, client_id: &str, at: u64)
 /// What becomes of the table of the phone `gone`, unpaired, the phones `remaining` still paired:
 /// taken out when it is as pairing wrote it (`name` and `use` alone) and nothing else has it (no
 /// profile uses it, it isn't `default_profile`, no phone has it as its profile); otherwise kept,
-/// as it is, with a note for a phone paired again to take it. What was done, for the person and
-/// the journal; none for a phone without a table of its own.
-pub fn release(place: &Place, gone: &Client, remaining: &[Client], at: u64) -> Option<String> {
+/// as it is, with a note for a phone paired again to take it; always kept, noted, when the phone
+/// unpaired itself (`keep`), as it will pair again. What was done, for the person and the journal;
+/// none for a phone without a table of its own.
+pub fn release(place: &Place, gone: &Client, remaining: &[Client], at: u64, keep: bool) -> Option<String> {
 	let own = gone.own_profile.as_deref()?;
 	let file = store::shown(&path(place));
 	let stays = |why: &str| Some(format!("its profile {own} stays in {file}: {why}"));
@@ -284,6 +285,9 @@ pub fn release(place: &Place, gone: &Client, remaining: &[Client], at: u64) -> O
 	}
 	for c in remaining.iter().filter(|c| c.profile.as_deref() == Some(own)) {
 		why.push(format!("\"{}\" ({}) has it as its profile", c.name, c.id));
+	}
+	if keep {
+		why.push("the phone unpaired itself".into());
 	}
 	if why.is_empty() {
 		return Some(match take_out(&mut doc, own).and_then(|()| write(place, &doc.to_string())) {
@@ -383,7 +387,7 @@ pub fn give(
 	};
 	// The table of the entry replaced, when the new one doesn't keep it, as revoking would leave it.
 	if let Some(old) = replaced.filter(|o| o.own_profile.is_some() && o.own_profile != profiles.own)
-		&& let Some(n) = release(place, old, remaining, at)
+		&& let Some(n) = release(place, old, remaining, at, false)
 	{
 		notes.push(format!("of \"{}\" ({}), unpaired: {n}", old.name, old.id));
 	}
@@ -566,13 +570,13 @@ mod tests {
 		let remaining = [other.clone()];
 		let gone = |id: &str, name: &str, own: &str| client(id, name, Some(own), Some(own));
 
-		let said = release(&place, &gone("0123abcd", "Galaxy S25", &a), &remaining, AT).unwrap();
+		let said = release(&place, &gone("0123abcd", "Galaxy S25", &a), &remaining, AT, false).unwrap();
 		assert!(said.contains("galaxy-s25 is taken out"), "{said}");
-		let said = release(&place, &gone("4567cdef", "Pixel 9", &b), &remaining, AT).unwrap();
+		let said = release(&place, &gone("4567cdef", "Pixel 9", &b), &remaining, AT, false).unwrap();
 		assert!(said.contains("stays") && said.contains("changed since pairing"), "{said}");
-		let said = release(&place, &gone("89ab0123", "Tab", &c), &remaining, AT).unwrap();
+		let said = release(&place, &gone("89ab0123", "Tab", &c), &remaining, AT, false).unwrap();
 		assert!(said.contains("kids uses it"), "{said}");
-		let said = release(&place, &watch, &remaining, AT).unwrap();
+		let said = release(&place, &watch, &remaining, AT, false).unwrap();
 		assert!(said.contains("\"Other\" (01234567) has it as its profile"), "{said}");
 
 		let text = phones(&place);
