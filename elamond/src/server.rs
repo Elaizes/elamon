@@ -1,4 +1,4 @@
-//! The HTTPS API clients talk to: docs/protocol.md, API 2. Pairing and keys of their own here, with
+//! Th HTTPS API clients talk to: docs/protocol.md, API 2. Pairing and keys of their own here, with
 //! `GET /api/v1/ui` and snapshots; the stream is in `stream`, acting in `control`.
 
 use std::collections::{BTreeSet, HashMap};
@@ -19,7 +19,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::watch;
 
-use crate::access::{Caller, RateLimiter, Role};
+use crate::access::{Caller, Role};
 use crate::actions::Caps;
 use crate::activity::Activity;
 use crate::consts::{cadence, limit, protocol, timeout};
@@ -156,8 +156,6 @@ pub struct Hub {
 	control_off: AtomicBool,
 	/// Why the settings files don't parse, while they don't: control is off meanwhile.
 	settings_broken: Mutex<Option<String>>,
-	/// How often each phone may act.
-	pub rate: Mutex<RateLimiter>,
 	pub activity: Activity,
 	/// Unix time the computer booted, as read when the service started: process start times
 	/// count from it.
@@ -246,7 +244,6 @@ impl Hub {
 			pair_lock: tokio::sync::Mutex::new(()),
 			control_off: AtomicBool::new(store::control_held_off(&dir)),
 			settings_broken: Mutex::new(None),
-			rate: Mutex::new(RateLimiter::default()),
 			activity: Activity::load(&dir),
 			boot_time: sysinfo::System::boot_time().unwrap_or(0),
 			stream_notes: Mutex::new(HashMap::new()),
@@ -1061,7 +1058,7 @@ struct RekeyRequest {
 /// a new entry named `device`, with the role and profile of the entry whose token asked and a new token, the
 /// same answer as pairing's. That token stays good, so the phone it was copied from keeps working
 /// until it is revoked on its own. Any role may ask, and none is raised by it; it counts as acting
-/// (the rate and the activity log, both the family's), but needs no control. Only an entry paired
+/// (the activity log, the family's), but needs no control. Only an entry paired
 /// with a code may ask, and once (403 `rekey_refused`), and not past `limit::PHONES_MAX` phones
 /// (403 `too_many_phones`).
 async fn rekey(
@@ -1351,8 +1348,7 @@ dashboards = ["overview", "control"]
 		Frame { seq, shape: shape_of(&values, &caps), values: Arc::new(values), caps: Arc::new(caps), read: all, features: Arc::new(vec!["processes"]) }
 	}
 
-	/// A hub with its state in a directory of its own, the phones above paired, and a rate
-	/// limit out of the way.
+	/// A hub with its state in a directory of its own, the phones above paired.
 	/// A test's data directory gone, though the app a phone said it is may still be being written
 	/// down in the background (clients.json, under its lock): that write is waited out, not raced.
 	fn remove_test_dir(dir: &std::path::Path) {
@@ -1389,7 +1385,6 @@ dashboards = ["overview", "control"]
 		std::fs::write(place.main(), crate::settings::DEFAULTS).unwrap();
 		std::fs::write(place.dropins().join("base.toml"), format!("control = {control}\n{SETTINGS}")).unwrap();
 		let mut hub = Hub::new("id".into(), "test".into(), rx, Ring::new(10), Duration::from_millis(250), Arc::new(config), dir, place);
-		*hub.rate.lock().unwrap() = RateLimiter::new(10_000, Duration::from_secs(1));
 		change(&mut hub);
 		(Arc::new(hub), tx)
 	}
@@ -1465,7 +1460,7 @@ dashboards = ["overview", "control"]
 				for (method, path, body, need, needs_control) in ROUTES {
 					let (status, v) = call(&hub, method, path, phone, body).await;
 					let error = v.get("error").and_then(|e| e.as_str()).unwrap_or("");
-					assert!(!matches!(status.as_u16(), 401 | 405 | 415 | 422 | 429) && error != "not_found", "{method} {path} as {phone}: {status} {v}");
+					assert!(!matches!(status.as_u16(), 401 | 405 | 415 | 422) && error != "not_found", "{method} {path} as {phone}: {status} {v}");
 					let got = match error {
 						"not_allowed" | "control_disabled" => error,
 						_ => "let through",
@@ -1797,26 +1792,6 @@ dashboards = ["overview", "control"]
 	}
 
 	#[tokio::test]
-	async fn a_phone_that_acts_too_often_is_slowed_down() {
-		let (hub, _tx) = hub(true);
-		*hub.rate.lock().unwrap() = RateLimiter::default();
-		let reboot = r#"{"params":{"nothing":1}}"#;
-		let mut statuses = Vec::new();
-		for _ in 0..limit::ACTS_BURST + 3 {
-			statuses.push(call(&hub, "POST", "/api/v1/actions/power.reboot", "admin", reboot).await.0);
-		}
-		assert!(statuses[..limit::ACTS_BURST as usize].iter().all(|s| *s == StatusCode::BAD_REQUEST), "{statuses:?}");
-		assert!(statuses[limit::ACTS_BURST as usize..].iter().all(|s| *s == StatusCode::TOO_MANY_REQUESTS), "{statuses:?}");
-		// Another phone isn't held up, and reading isn't counted.
-		assert_eq!(call(&hub, "POST", "/api/v1/actions/power.reboot", "old", reboot).await.0, StatusCode::BAD_REQUEST);
-		assert_eq!(call(&hub, "GET", "/api/v1/ui", "admin", "").await.0, StatusCode::OK);
-		// Only the first refusal of the run is logged.
-		let log = hub.activity.newest(usize::MAX);
-		assert_eq!(log.iter().filter(|e| e.result == "too_many_requests").count(), 1);
-		remove_test_dir(&hub.dir);
-	}
-
-	#[tokio::test]
 	async fn a_phone_gets_a_key_of_its_own_beside_the_one_it_came_with() {
 		// Control off: a key of its own needs none, whatever the role.
 		let (hub, _tx) = hub(false);
@@ -1881,9 +1856,8 @@ dashboards = ["overview", "control"]
 	}
 
 	#[tokio::test]
-	async fn a_token_gives_one_key_of_its_own_and_its_family_one_rate() {
+	async fn a_token_gives_one_key_of_its_own() {
 		let (hub, _tx) = hub(true);
-		*hub.rate.lock().unwrap() = RateLimiter::default();
 		let (status, v) = call(&hub, "POST", "/api/v1/rekey", "monitor", r#"{"device":"New"}"#).await;
 		assert_eq!(status, StatusCode::OK, "{v}");
 		let new = v["token"].as_str().unwrap().to_string();
@@ -1893,19 +1867,9 @@ dashboards = ["overview", "control"]
 		assert_eq!((status, v["error"].as_str()), refused);
 		let (status, v) = call_as(&hub, "POST", "/api/v1/rekey", &new, r#"{"device":"Again"}"#).await;
 		assert_eq!((status, v["error"].as_str()), refused);
-		// The two share one rate: what is left of the burst, then 429 for either.
-		let mut statuses = Vec::new();
-		for i in 0..limit::ACTS_BURST - 3 + 2 {
-			let token = if i % 2 == 0 { "t-monitor".to_string() } else { new.clone() };
-			statuses.push(call_as(&hub, "POST", "/api/v1/actions/profile.set", &token, r#"{"params":{"profile":"nothing"}}"#).await.0);
-		}
-		let used = (limit::ACTS_BURST - 3) as usize;
-		assert!(statuses[..used].iter().all(|s| *s == StatusCode::FORBIDDEN), "{statuses:?}");
-		assert!(statuses[used..].iter().all(|s| *s == StatusCode::TOO_MANY_REQUESTS), "{statuses:?}");
-		// Another phone isn't held up.
+		// Another phone may have one of its own.
 		assert_eq!(call(&hub, "POST", "/api/v1/rekey", "operate", r#"{"device":"Mine"}"#).await.0, StatusCode::OK);
 		let log = hub.activity.newest(usize::MAX);
-		assert_eq!(log.iter().filter(|e| e.result == "too_many_requests").count(), 1);
 		assert_eq!(log.iter().filter(|e| e.result == "rekey_refused").count(), 2);
 		// The new phone's entries carry the family they share.
 		assert!(log.iter().filter(|e| e.client_id != "id-monitor" && e.phone == "New").all(|e| e.family.as_deref() == Some("id-monitor")));

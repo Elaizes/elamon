@@ -65,8 +65,6 @@ pub mod cadence {
 	pub const NETWORK_POLL: Duration = Duration::from_secs(5);
 	/// `elamond pair` looks for the new phone.
 	pub const PAIR_POLL: Duration = Duration::from_millis(500);
-	/// A phone that used up `limit::ACTS_BURST` may make one more acting request per this.
-	pub const ACT_REFILL: Duration = Duration::from_secs(1);
 	/// One stream of a phone is logged per this, as it opens and as it closes; those the phone
 	/// opens in between are only counted, in the next line about it.
 	pub const STREAM_LOG_QUIET: Duration = Duration::from_secs(10);
@@ -176,8 +174,6 @@ pub mod limit {
 	pub const UNIT_MAX: usize = 256;
 	/// Wrong guesses, from anywhere, before a pairing code is thrown away.
 	pub const PAIRING_ATTEMPTS: u32 = 20;
-	/// Acting requests one phone may make in a row; then one more for each `cadence::ACT_REFILL`.
-	pub const ACTS_BURST: u32 = 10;
 	/// Entries kept in the activity log, in memory and in its file.
 	pub const ACTIVITY_MAX: usize = 500;
 	/// Of those, the most one phone's family (it and the keys of its own it asked for) keeps:

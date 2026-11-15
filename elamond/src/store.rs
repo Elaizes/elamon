@@ -547,7 +547,7 @@ pub fn note_client(dir: &Path, id: &str, app: Option<&str>, address: Option<&str
 }
 
 /// The family of the entry `id` among `clients`: the entry whose key it came by, following `from`
-/// as far as it goes, or itself. A family shares one rate of acting and one share of the activity
+/// as far as it goes, or itself. A family shares one share of the activity
 /// log, however many keys of its own it asked for.
 pub fn family_of(clients: &[Client], id: &str) -> String {
 	let mut at = id.to_string();

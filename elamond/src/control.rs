@@ -2,7 +2,7 @@
 //! (power, the power profile, signals, the links' units, media, the volume) or one the settings
 //! add; and what the collector reads through D-Bus and commands for the values.
 //!
-//! Every acting request goes through `Hub::act_as`: the phone's rate, its role, then control
+//! Every acting request goes through `Hub::act_as`: the phone's role, then control
 //! (`control = true` in the settings and no `elamond control off`). Each is recorded in the
 //! activity log, let through or not; those let through are also logged to the journal with the
 //! phone's name.
@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-use crate::access::{Caller, Rate, Role};
+use crate::access::{Caller, Role};
 use crate::actions::{self, Caps, Spec};
 use crate::activity::{self, Entry};
 use crate::bus::{Player, PowerCaps, Profiles, Scope};
@@ -100,20 +100,16 @@ impl Hub {
 		self.control_on()
 	}
 
-	/// An acting request from `who`, described for the log as `what`: refused when the phone acts
-	/// too often (429 `too_many_requests`), when its role is below `need` (403 `not_allowed`) or,
-	/// with `control`, when control is off (403 `control_disabled`), in that order; otherwise
-	/// `work` runs. Either way it goes in the activity log, except the refusals for acting too
-	/// often after the first in a row, which would only crowd it.
+	/// An acting request from `who`, described for the log as `what`: refused when its role
+	/// is below `need` (403 `not_allowed`) or, with `control`, when control is off (403
+	/// `control_disabled`), in that order; otherwise `work` runs. Either way it goes in the activity log.
 	pub async fn act_as(&self, who: &Caller, need: Option<Role>, control: bool, what: String, work: impl Future<Output = Result<Acted, Refusal>>) -> Response {
-		// One rate for a phone and the keys of their own its token gave.
-		let rate = self.rate.lock().map(|mut r| r.take(&who.family, Instant::now())).unwrap_or(Rate::Allowed);
-		let outcome = match rate {
-			Rate::Refused { first: false } => return error(ErrorCode::TooManyRequests),
-			Rate::Refused { first: true } => Err(ErrorCode::TooManyRequests.into()),
-			Rate::Allowed if need.is_some_and(|r| who.role < r) => Err(ErrorCode::NotAllowed.into()),
-			Rate::Allowed if control && !self.control_now() => Err(ErrorCode::ControlDisabled.into()),
-			Rate::Allowed => work.await,
+		let outcome = if need.is_some_and(|r| who.role < r) {
+			Err(ErrorCode::NotAllowed.into())
+		} else if control && !self.control_now() {
+			Err(ErrorCode::ControlDisabled.into())
+		} else {
+			work.await
 		};
 		let (result, message, response) = match outcome {
 			Ok(a) => ("ok".to_string(), a.note, a.response),

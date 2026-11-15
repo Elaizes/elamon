@@ -76,10 +76,6 @@
     "status": 409
   },
   {
-    "error": "too_many_requests",
-    "status": 429
-  },
-  {
     "error": "storage",
     "status": 500
   },

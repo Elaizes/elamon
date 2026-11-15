@@ -41,8 +41,6 @@ pub enum ErrorCode {
 	NoArt,
 	/// A signal named the process's start time, and the process with that pid started at another.
 	ProcessChanged,
-	/// Too many acting requests from this phone, or too many wrong pairing codes from this address.
-	TooManyRequests,
 	/// A state file couldn't be written.
 	Storage,
 	/// What was asked failed; `message` says why.
@@ -52,7 +50,7 @@ pub enum ErrorCode {
 impl ErrorCode {
 	/// Every code, in the order of docs/protocol.md, for elamond/fixtures/errors.json.
 	#[cfg(test)]
-	pub const ALL: [ErrorCode; 22] = [
+	pub const ALL: [ErrorCode; 21] = [
 		ErrorCode::BadParam,
 		ErrorCode::BadSort,
 		ErrorCode::UnknownSignal,
@@ -72,7 +70,6 @@ impl ErrorCode {
 		ErrorCode::NoSuchStream,
 		ErrorCode::NoArt,
 		ErrorCode::ProcessChanged,
-		ErrorCode::TooManyRequests,
 		ErrorCode::Storage,
 		ErrorCode::Failed,
 	];
@@ -98,7 +95,6 @@ impl ErrorCode {
 			ErrorCode::NoSuchStream => ("no_such_stream", StatusCode::NOT_FOUND),
 			ErrorCode::NoArt => ("no_art", StatusCode::NOT_FOUND),
 			ErrorCode::ProcessChanged => ("process_changed", StatusCode::CONFLICT),
-			ErrorCode::TooManyRequests => ("too_many_requests", StatusCode::TOO_MANY_REQUESTS),
 			ErrorCode::Storage => ("storage", StatusCode::INTERNAL_SERVER_ERROR),
 			ErrorCode::Failed => ("failed", StatusCode::BAD_GATEWAY),
 		}

@@ -685,10 +685,6 @@ phone, what (*power reboot*, *unit restart nginx.service*, *action Fan quiet*…
   so a phone that keeps asking pushes out only its own.
 - What was carried out is also in the journal: `journalctl --user -u elamond`.
 
-**Rate limit.** A phone may ask the computer to do 10 things in a row, then one a second. More are
-refused for a moment (*Too many requests*). A phone and the keys its token gave share that rate.
-Watching is never limited.
-
 ## 7. Settings reference
 
 ### `elamond.toml`
@@ -1170,7 +1166,7 @@ role, *added … with the key of* the old phone's ID.
 
 **Families of keys.** `elamond revoke` names, loudly, the phones still paired that got a key with
 the token it revoked: a phone you don't know there got its key from that one. To the computer they
-are a family, which shares one rate of acting and one share of the activity log.
+are a family, which shares the activity log.
 `elamond revoke OLD_ID --with-added` unpairs the whole family, even by an ID already gone. That's
 the way to cut off a lost or stolen phone and whatever got a key with its token.
 
@@ -1204,7 +1200,6 @@ do about those marked `!`. To see what the service reads without the app, run `e
 | *Control is off* | Set `control = true` in `elamond.toml` or a drop-in; the service takes it up within a few seconds. If it's set, `elamond control status` tells whether `elamond control off` holds it off, or whether the settings stopped parsing. |
 | Pairing ends with the phone turned away | Answer `y` at `elamond pair` within 90 seconds, and keep it running until the phone is paired ([section 3](#3-pair-the-phone)). |
 | *This phone's role on the computer doesn't allow that* | `elamond clients` shows the phone's role, `elamond clients role ID ROLE` changes it ([section 6](#6-roles-who-may-do-what)). An action may ask for `admin` (`role` in its settings). |
-| *Too many requests* | The phone asked for more than 10 things in a row; wait a few seconds. |
 | *Nothing to show here* | The phone's role or profile shows none of the computer's dashboards: `elamond clients role` or `elamond clients profile`. |
 | *The computer didn't allow that* | polkit refused. Install the rule `elamond setup` prints; `elamond setup --check` tells whether it's there ([section 5](#power-the-profile-and-system-units-polkit)). |
 | The phone keeps dropping off | The journal has a line for each stream a phone opens and closes, with its address, how long it lasted and why it ended: `journalctl --user -u elamond -e`. |
