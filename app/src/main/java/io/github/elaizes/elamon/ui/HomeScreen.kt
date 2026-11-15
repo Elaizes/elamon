@@ -68,6 +68,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.Settings
+import io.github.elaizes.elamon.allWidgets
 import io.github.elaizes.elamon.pollEach
 import io.github.elaizes.elamon.data.APP_API
 import io.github.elaizes.elamon.data.ElamondClient
@@ -103,8 +104,9 @@ internal sealed interface Live {
 /**
  * The card of a computer that answers: the figures of the first tab of its ui as kept ([ui] with
  * false), read with [snapshot]. A tab the computer refuses (gone from what it shows this phone:
- * renamed, or the role or profile changed) has the ui read from the computer again (true), and the
- * figures once more. What fails is thrown, for [cardError].
+ * renamed, or the role or profile changed), or a reading with a widget the kept ui hasn't (the
+ * dashboards changed), has the ui read from the computer again (true), and the figures once more.
+ * What fails is thrown, for [cardError].
  */
 internal suspend fun cardReading(ui: suspend (fresh: Boolean) -> UiDoc, snapshot: suspend (String) -> DataLine): Live {
 	var doc = ui(false)
@@ -112,13 +114,16 @@ internal suspend fun cardReading(ui: suspend (fresh: Boolean) -> UiDoc, snapshot
 	while (true) {
 		val tab = tabsShown(doc).firstOrNull() ?: return Live.Online(emptyList())
 		try {
-			return Live.Online(homeStats(doc, tab, snapshot(tab).widgets))
+			val states = snapshot(tab).widgets
+			// A reading has the states of the tab's widgets and the header's.
+			val known = allWidgets(listOfNotNull(doc.dashboard(tab), doc.header?.let(doc::dashboard)).flatMap { it.widgets }).map { it.id }
+			if (!again || known.containsAll(states.keys)) return Live.Online(homeStats(doc, tab, states))
 		} catch (e: ElamondException) {
 			val stale = e.status in HTTP_CLIENT_ERRORS && e.kind != ElamondException.Kind.Unauthorized
 			if (!stale || !again) throw e
-			again = false
-			doc = ui(true)
 		}
+		again = false
+		doc = ui(true)
 	}
 }
 
@@ -262,7 +267,7 @@ fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: 
 
 /**
  * One reading of [s], on whichever of its addresses answers. Its `ui` is the one kept on the
- * phone, asked for where there is none or its first tab is refused ([cardReading]).
+ * phone, asked for where there is none or it is out of date ([cardReading]).
  */
 private suspend fun reading(s: Machine, store: MachineStore, cache: UiCache): Live {
 	// Opened by the key store off the main thread, the first time.

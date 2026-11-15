@@ -60,6 +60,17 @@ class HomeCardTest {
 	}
 
 	@Test
+	fun aStateTheKeptUiHasntHasItReadAgain() = runTest {
+		// The CPU added on the computer since the ui was kept: the reading has a state the kept ui
+		// doesn't know. The ui is read again, and its figures are the computer's own.
+		val c = Computer(setOf("home"), data)
+		val older = ui.copy(version = "old", dashboards = ui.dashboards.map { if (it.id == "home") it.copy(widgets = it.widgets.drop(1)) else it })
+		val live = cardReading(ui = { fresh -> c.asked += fresh; if (fresh) ui else older }, snapshot = c::snapshot)
+		assertEquals(listOf("CPU", "Memory", "Temperature"), assertIs<Live.Online>(live).stats.map { it.label })
+		assertEquals(listOf(false, true), c.asked)
+	}
+
+	@Test
 	fun readAgainOnceOnly() = runTest {
 		val c = Computer(emptySet(), data)
 		val e = assertFailsWith<ElamondException> { cardReading(ui = { fresh -> c.asked += fresh; kept }, snapshot = c::snapshot) }
