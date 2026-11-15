@@ -25,6 +25,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -371,11 +372,28 @@ class ElamondClient(
 suspend fun reachPaired(machine: Machine): Pair<ElamondClient, Hello>? =
 	ElamondClient.firstReachable(machine.hostsToTry(), machine.port, machine.fingerprint, machine.id)
 
+/**
+ * Asks the paired [machine] to unpair this phone, whose [token] it is, as the phone forgets it: once,
+ * on the first of its addresses that answers, over the certificate pinned for it, in
+ * [Limits.UNPAIR_MS] in all. True when the computer has it unpaired: it did, or had already (401);
+ * false when it couldn't be told: not reached, a service before 0.6.2 (404), any other answer.
+ */
+suspend fun unpair(machine: Machine, token: String): Boolean = withTimeoutOrNull(Limits.UNPAIR_MS) {
+	try {
+		val host = reachPaired(machine)?.first?.host ?: return@withTimeoutOrNull false
+		ElamondClient(host, machine.port, machine.fingerprint, token).request("POST", UNPAIR_PATH)
+		true
+	} catch (e: ElamondException) {
+		e.kind == ElamondException.Kind.Unauthorized
+	}
+} ?: false
+
 const val UI_PATH = "/api/v1/ui"
 const val STREAM_PATH = "/api/v1/stream"
 const val SNAPSHOT_PATH = "/api/v1/snapshot"
 const val ACTIONS_PATH = "/api/v1/actions"
 const val ART_PATH = "/api/v1/media/art"
+const val UNPAIR_PATH = "/api/v1/unpair"
 
 /**
  * The widget types this app draws, as it tells the service (`GET /api/v1/ui?widgets=`): it

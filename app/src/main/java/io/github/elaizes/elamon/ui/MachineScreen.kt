@@ -52,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -74,6 +75,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import io.github.elaizes.elamon.BuildConfig
 import io.github.elaizes.elamon.Compat
 import io.github.elaizes.elamon.Conn
@@ -94,6 +98,7 @@ import io.github.elaizes.elamon.data.UiDoc
 import io.github.elaizes.elamon.data.Widget
 import io.github.elaizes.elamon.data.WidgetState
 import io.github.elaizes.elamon.data.tabsShown
+import io.github.elaizes.elamon.data.unpair
 
 /**
  * A computer's screen: its tabs and the pages their widgets open, as the computer describes them
@@ -105,7 +110,8 @@ fun MachineScreen(
 	owner: ViewModelStoreOwner,
 	onBack: () -> Unit,
 	onPairAgain: (PairTarget) -> Unit,
-	onForgotten: () -> Unit,
+	/** With the computer's name when it couldn't be told to unpair the phone. */
+	onForgotten: (untold: String?) -> Unit,
 	onHelp: () -> Unit,
 	onSettings: () -> Unit,
 ) {
@@ -131,6 +137,8 @@ fun MachineScreen(
 	LaunchedEffect(current) { current?.let(vm::show) }
 	var menu by remember { mutableStateOf(false) }
 	var confirmForget by remember { mutableStateOf(false) }
+	var forgetting by remember { mutableStateOf(false) }
+	val background = rememberCoroutineScope()
 	val haze = remember { HazeState() }
 	val snackbar = remember { SnackbarHostState() }
 	val lists = remember { mutableMapOf<String, LazyListState>() }
@@ -343,20 +351,40 @@ fun MachineScreen(
 
 	if (confirmForget) {
 		GlassDialog(
-			onDismiss = { confirmForget = false },
+			onDismiss = { if (!forgetting) confirmForget = false },
 			title = stringResource(R.string.machine_forget_title, machine.name),
 			text = { Text(stringResource(R.string.machine_forget_body)) },
 			confirm = {
-				TextButton(onClick = {
-					MachineStore.get(ctx).remove(machine.id)
-					forgetKept(ctx, machine.id)
-					confirmForget = false
-					onForgotten()
-				}) { Text(stringResource(R.string.machine_forget_confirm)) }
+				TextButton(enabled = !forgetting, onClick = {
+					forgetting = true
+					// The computer asked to unpair this phone, a few seconds at most; forgotten here whatever it says.
+					background.launch {
+						val store = MachineStore.get(ctx)
+						val token = withContext(Dispatchers.Default) { store.token(machine) }
+						val told = token != null && unpair(machine, token)
+						store.remove(machine.id)
+						forgetKept(ctx, machine.id)
+						onForgotten(machine.name.takeUnless { told })
+					}
+				}) {
+					if (forgetting) CircularProgressIndicator(Modifier.size(Sizes.iconM), strokeWidth = Sizes.spinnerStroke)
+					else Text(stringResource(R.string.machine_forget_confirm))
+				}
 			},
-			dismiss = { TextButton(onClick = { confirmForget = false }) { Text(stringResource(R.string.cancel)) } },
+			dismiss = { TextButton(onClick = { confirmForget = false }, enabled = !forgetting) { Text(stringResource(R.string.cancel)) } },
 		)
 	}
+}
+
+/** A computer forgotten here that couldn't be told to unpair the phone: how to remove the phone there. */
+@Composable
+fun ForgottenUntold(name: String, onDismiss: () -> Unit) {
+	GlassDialog(
+		onDismiss = onDismiss,
+		title = stringResource(R.string.machine_forgotten_untold_title, name),
+		text = { Text(stringResource(R.string.machine_forgotten_untold_body)) },
+		confirm = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.ok)) } },
+	)
 }
 
 /** The pills under the computer's name: the header dashboard's widgets with their states. */

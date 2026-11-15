@@ -21,6 +21,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.graphics.drawable.toDrawable
@@ -36,6 +38,7 @@ import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.Profile
 import io.github.elaizes.elamon.data.UiCache
 import io.github.elaizes.elamon.ui.ElamonTheme
+import io.github.elaizes.elamon.ui.ForgottenUntold
 import io.github.elaizes.elamon.ui.Guard
 import io.github.elaizes.elamon.ui.GuardDialog
 import io.github.elaizes.elamon.ui.GuardState
@@ -63,6 +66,9 @@ sealed interface Screen {
 class Nav : ViewModel() {
 	val stack = mutableStateListOf<Screen>(Screen.Home)
 	val top get() = stack.last()
+
+	/** A computer just forgotten that couldn't be told to unpair the phone, by its name: said over home. */
+	var untold by mutableStateOf<String?>(null)
 
 	/** View models of the screens that keep their own (a computer, a pairing), while they're on the stack. */
 	private val stores = mutableMapOf<Screen, ViewModelStore>()
@@ -189,7 +195,10 @@ class MainActivity : FragmentActivity() {
 											owner = nav.owner(screen),
 											onBack = { nav.pop() },
 											onPairAgain = { nav.push(Screen.Pair(it)) },
-											onForgotten = { nav.reset(Screen.Home) },
+											onForgotten = { untold ->
+												nav.untold = untold
+												nav.reset(Screen.Home)
+											},
 											onHelp = { nav.push(Screen.Help) },
 											onSettings = { nav.push(Screen.Settings(screen.id)) },
 										)
@@ -209,6 +218,7 @@ class MainActivity : FragmentActivity() {
 					}
 					// One confirmation for every action that may ask, over whatever screen asked.
 					GuardDialog(guard)
+					nav.untold?.let { ForgottenUntold(it) { nav.untold = null } }
 				}
 			}
 		}

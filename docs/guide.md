@@ -349,6 +349,10 @@ Charts are full the moment you open a computer, because the service keeps the la
 **The ⋮ menu** has *Settings*, *Help* and *Forget computer*. Back closes a page first, then the
 computer.
 
+**Forget computer** removes it from the phone and asks the computer to unpair the phone too. To
+see it again, pair again: `elamond pair` offers the phone its profile back. When the computer can't
+be told, the app says so: remove the phone there with `elamond revoke` ([section 9](#9-troubleshooting)).
+
 **Good to know:**
 
 - A discrete graphics card that has powered itself down shows as *Asleep*. The service leaves it
@@ -396,8 +400,8 @@ help, the source and licences.
   `elamond control on` lets them act again. They still see the computer meanwhile.
 - **…cut off a lost or stolen phone?** On the computer, run `elamond clients`, then
   `elamond revoke ID --with-added`.
-- **…stop a phone from seeing a computer?** On the computer, `elamond revoke ID`. On the phone, ⋮ →
-  *Forget computer*.
+- **…stop a phone from seeing a computer?** On the phone, ⋮ → *Forget computer*, which unpairs it
+  on the computer too. On the computer, `elamond revoke ID`.
 - **…move to a new phone?** Pair it with `elamond pair` on each computer
   ([section 8](#a-new-phone)).
 - **…reinstall the computer without pairing the phones again?** Run `elamond backup` before and
@@ -1113,8 +1117,8 @@ Pair it as you did the first: run `elamond pair` on each computer and scan its Q
 phone ([section 3](#3-pair-the-phone)). Elamon 0.6.1 could also export its pairings to a file for a
 new phone; 0.6.2 no longer does.
 
-Moving for good: forget the computers on the old phone, or reset it, then revoke its entry on each
-computer:
+Moving for good: forget the computers on the old phone, which unpairs it on each computer it
+reaches. Where it couldn't, or the old phone is reset already, revoke its entry on the computer:
 
 ```sh
 elamond clients
@@ -1137,7 +1141,8 @@ the way to cut off a lost or stolen phone and whatever got a key with its token.
    ([section 2](#2-open-the-firewall)), and, if nothing else needs it,
    `sudo loginctl disable-linger YOUR_USER`.
 
-In the app, ⋮ → *Forget computer*.
+In the app, ⋮ → *Forget computer*. With the service gone it can't tell the computer, and there is
+nothing left to revoke.
 
 ## 9. Troubleshooting
 
@@ -1152,6 +1157,7 @@ do about those marked `!`. To see what the service reads without the app, run `e
 | *The computer's certificate changed* | The service's data was deleted or the system reinstalled. Restore a backup ([section 8](#a-new-computer-or-reinstalling)), or forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` every phone says this: pair it again ([section 10](#a-new-certificate)). |
 | *Control is off* | Set `control = true` in `elamond.toml` or a drop-in; the service takes it up within a few seconds. If it's set, `elamond control status` tells whether `elamond control off` holds it off, or whether the settings stopped parsing. |
 | Pairing ends with the phone turned away | Answer `y` at `elamond pair` within 90 seconds, and keep it running until the phone is paired ([section 3](#3-pair-the-phone)). |
+| *… was forgotten here* after *Forget computer* | The computer couldn't be reached, or its service is older than 0.6.2, so the phone is still paired there. On the computer, `elamond clients` lists the phones, `elamond revoke ID` removes this one. |
 | *This phone's role on the computer doesn't allow that* | `elamond clients` shows the phone's role, `elamond clients role ID ROLE` changes it ([section 6](#6-roles-who-may-do-what)). An action may ask for `admin` (`role` in its settings). |
 | *Nothing to show here* | The phone's role or profile shows none of the computer's dashboards: `elamond clients role` or `elamond clients profile`. |
 | *The computer didn't allow that* | polkit refused. Install the rule `elamond setup` prints; `elamond setup --check` tells whether it's there ([section 5](#power-the-profile-and-system-units-polkit)). |

@@ -8,6 +8,7 @@
 	<string name="back">Back</string>
 	<string name="retry">Try again</string>
 	<string name="cancel">Cancel</string>
+	<string name="ok">OK</string>
 	<string name="help">Help</string>
 	<string name="settings">Settings</string>
 	<string name="loading">Loading…</string>
@@ -73,8 +74,11 @@
 	<string name="machine_more">More</string>
 	<string name="machine_forget">Forget computer</string>
 	<string name="machine_forget_title">Forget %1$s?</string>
-	<string name="machine_forget_body">This phone will stop showing it. To see it again, pair again. To also remove the phone on the computer, run elamond revoke there.</string>
+	<string name="machine_forget_body">This phone will stop showing it, and the computer will be asked to remove this phone too. To see it again, pair again: elamond pair offers this phone its profile back.</string>
 	<string name="machine_forget_confirm">Forget</string>
+	<!-- After forgetting, when the computer couldn't be reached or didn't take the request (a service before 0.6.2). -->
+	<string name="machine_forgotten_untold_title">%1$s was forgotten here</string>
+	<string name="machine_forgotten_untold_body">The computer couldn\'t be told. To remove this phone there, run elamond revoke on it (elamond clients lists the phones).</string>
 	<string name="machine_unpaired_title">This phone isn\'t paired anymore</string>
 	<string name="machine_unpaired_body">The computer no longer accepts it, maybe after elamond revoke. Run elamond pair on the computer and pair again.</string>
 	<!-- The same notice when the phone itself can no longer read the key it was given. -->

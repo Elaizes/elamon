@@ -20,6 +20,9 @@ object Limits {
 	const val BYTES_TIMEOUT_MS = 10_000
 	const val REQUEST_TIMEOUT_MS = 15_000
 
+	/** Asking the computer to unpair the phone as it forgets the computer, reaching it included: not to keep the user waiting. */
+	const val UNPAIR_MS = 5_000L
+
 	/** An action may run as long as the service lets it (an hour), and its answer needs a moment more. */
 	const val ACTION_TIMEOUT_MS = 3_700_000
 
