@@ -259,9 +259,6 @@ object ChartStyle {
 	val tile = 56.dp
 	val sparkline = 36.dp
 
-	/** The monitors' arrangement, at most this tall under the list of them. */
-	val displays = 96.dp
-
 	/** Core bars in the CPU tile's place and on the CPU page, and the gap between them. */
 	val cores = 44.dp
 	val coresDetail = 56.dp

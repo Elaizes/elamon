@@ -8,52 +8,34 @@ object Hosts {
 		return parts.size == 4 && parts.all { p -> p.length in 1..3 && p.all { it in '0'..'9' } && p.toInt() <= 255 }
 	}
 
-	/** An IPv6 literal without brackets or zone: hex groups, one "::" at most, an IPv4 tail allowed. */
+	/** An IPv6 literal without brackets or zone: up to eight hex groups, one "::" at most, an IPv4 tail allowed. */
 	fun isIpv6(s: String): Boolean {
-		if (s.length < 2 || s.count { it == ':' } < 2) return false
-		val double = s.indexOf("::")
-		if (double >= 0 && s.indexOf("::", double + 1) >= 0) return false
-		val groups = mutableListOf<String>()
-		var tailV4 = false
-		val head = if (double >= 0) s.substring(0, double) else s
-		val tail = if (double >= 0) s.substring(double + 2) else ""
-		for ((i, part) in listOf(head, tail).withIndex()) {
-			if (part.isEmpty()) continue
-			val gs = part.split(':')
-			for ((j, g) in gs.withIndex()) {
-				// The last group of the whole address may be an IPv4 address, counting as two.
-				val last = j == gs.lastIndex && (i == 1 || double < 0)
-				if (last && g.contains('.')) {
-					if (!isIpv4(g)) return false
-					tailV4 = true
-				} else {
-					if (g.length !in 1..4 || !g.all { it.isHexDigitAscii() }) return false
-					groups += g
-				}
-			}
-		}
-		val count = groups.size + if (tailV4) 2 else 0
-		return if (double >= 0) count <= 7 else count == 8
+		val v4 = s.substringAfterLast(':').takeIf { '.' in it }
+		if (v4 != null && !isIpv4(v4)) return false
+		// An IPv4 tail counts as two groups.
+		val halves = (if (v4 != null) s.dropLast(v4.length) + "0:0" else s).split("::")
+		if (halves.size > 2) return false
+		val groups = halves.flatMap { if (it.isEmpty()) emptyList() else it.split(':') }
+		if (!groups.all { it.length in 1..4 && it.all { c -> c.isHexDigit() } }) return false
+		return if (halves.size == 2) groups.size <= 7 else groups.size == 8
 	}
 
-	/** Letters, digits and hyphens in dot-separated labels; the last label isn't all digits. */
+	/** Letters, digits and hyphens in dot-separated labels of up to 63; the last label isn't all digits. */
 	fun isDnsName(s: String): Boolean {
 		val name = s.removeSuffix(".")
-		if (name.isEmpty() || name.length > DNS_NAME_MAX) return false
+		if (name.length > DNS_NAME_MAX) return false
 		val labels = name.split('.')
-		if (labels.any { l -> l.length !in 1..DNS_LABEL_MAX || l.startsWith('-') || l.endsWith('-') || !l.all { it.isLetterOrDigitAscii() || it == '-' } }) return false
-		return !labels.last().all { it in '0'..'9' }
+		return labels.all { DNS_LABEL.matches(it) } && !labels.last().all { it in '0'..'9' }
 	}
 
 	/** Something to connect to: an IPv4 or IPv6 address or a DNS name, nothing else. */
 	fun isValid(s: String): Boolean = isIpv4(s) || isIpv6(s) || isDnsName(s)
 
-	/** The longest name the DNS carries, and the longest of its labels. */
+	/** The longest name the DNS carries; a label is 1 to 63 letters, digits and inner hyphens. */
 	private const val DNS_NAME_MAX = 253
-	private const val DNS_LABEL_MAX = 63
+	private val DNS_LABEL = Regex("[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
 
-	private fun Char.isHexDigitAscii() = this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'
-	private fun Char.isLetterOrDigitAscii() = this in '0'..'9' || this in 'a'..'z' || this in 'A'..'Z'
+	private fun Char.isHexDigit() = this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'
 }
 
 /** A port as written, or null unless it is a number from 1 to [Limits.PORT_MAX]. */

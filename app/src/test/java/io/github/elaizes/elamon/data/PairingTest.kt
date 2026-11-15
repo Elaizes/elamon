@@ -15,25 +15,6 @@ class PairingTest {
 		Machine(id = id, name = "My PC", hosts = listOf("192.168.200.10"), port = DEFAULT_PORT, fingerprint = fingerprint)
 
 	@Test
-	fun aNewComputerOrTheSameCertificateReplacesNothingUnasked() {
-		assertEquals(PairCheck.Fine, pairCheck(id, fp, emptyList(), replaces = null))
-		assertEquals(PairCheck.Fine, pairCheck(id, fp, listOf(machine("f".repeat(32))), replaces = null))
-		// The same computer under the same certificate: its token is renewed, nothing lost.
-		assertEquals(PairCheck.Fine, pairCheck(id, fp, listOf(machine(id)), replaces = null))
-		assertEquals(PairCheck.Fine, pairCheck(id, fp.uppercase(), listOf(machine(id)), replaces = null))
-	}
-
-	@Test
-	fun anotherCertificateUnderAnIdHereIsAskedAboutFirst() {
-		val here = machine(id, otherFp)
-		assertEquals(PairCheck.Replaces(here), pairCheck(id, fp, listOf(machine("f".repeat(32)), here), replaces = null))
-		// Paired again from another computer's screen: this one is still asked about.
-		assertEquals(PairCheck.Replaces(here), pairCheck(id, fp, listOf(here), replaces = "f".repeat(32)))
-		// Paired again from its own screen, after its certificate changed: replaced knowingly.
-		assertEquals(PairCheck.Fine, pairCheck(id, fp, listOf(here), replaces = id))
-	}
-
-	@Test
 	fun pairingAgainProvesItIsThePhoneOnlyToTheComputerItTrusts() {
 		val here = machine(id).copy(clientId = "0123abcd")
 		val proof = PreviousPairing("0123abcd", "token")
@@ -76,16 +57,6 @@ class PairingTest {
 		assertNull(fingerprintPrefix("ab".repeat(33)))
 		assertEquals("abcdef0123456789", fingerprintPrefix("ABCDEF0123456789"))
 		assertEquals(fp, fingerprintPrefix(fp))
-	}
-
-	@Test
-	fun tapsTooSoonAfterTheScreenOrTheAppCameAreIgnored() {
-		val shown = 50_000L
-		assertFalse(tapCounts(shown, shown))
-		assertFalse(tapCounts(shown + Limits.TAP_QUIET_MS - 1, shown))
-		assertTrue(tapCounts(shown + Limits.TAP_QUIET_MS, shown))
-		// A clock that went back doesn't let one through.
-		assertFalse(tapCounts(shown - 5_000, shown))
 	}
 
 	@Test

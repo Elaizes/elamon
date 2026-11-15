@@ -112,7 +112,7 @@ class NamesReachTest {
 			// Nothing pinned yet (found on the network, A's id known): B answers with its own id.
 			assertNull(ElamondClient.firstReachable(listOf(loopbackName), b.port, null, idA))
 			// Paired with A: B isn't A, so A is offline.
-			val machine = Machine(id = idA, name = "A", hosts = listOf(loopbackName), port = b.port, fingerprint = pinA, token = "t")
+			val machine = Machine(id = idA, name = "A", hosts = listOf(loopbackName), port = b.port, fingerprint = pinA)
 			assertNull(reachPaired(machine))
 			// B itself, by the same name, is B.
 			val reached = assertNotNull(ElamondClient.firstReachable(listOf(loopbackName), b.port, b.fingerprint, idB))

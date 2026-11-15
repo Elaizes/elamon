@@ -1,9 +1,6 @@
 package io.github.elaizes.elamon
 
-import android.content.BroadcastReceiver
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -26,7 +23,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
-import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toDrawable
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
@@ -221,33 +217,12 @@ class MainActivity : FragmentActivity() {
 
 	override fun onNewIntent(intent: Intent) {
 		super.onNewIntent(intent)
-		// Whatever handed it over may have been under a finger: taps that land on pairing wait a moment.
-		Arrival.now()
 		handle(intent)
-	}
-
-	/** The screen going off ends any grace an unlock left, even while the app stays in front. */
-	private val screenOff = object : BroadcastReceiver() {
-		override fun onReceive(context: Context, intent: Intent) {
-			if (intent.action == Intent.ACTION_SCREEN_OFF) forgetUnlock()
-		}
-	}
-
-	override fun onStart() {
-		super.onStart()
-		ContextCompat.registerReceiver(this, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
-	}
-
-	override fun onResume() {
-		super.onResume()
-		// Brought to the front, maybe by another app over what was being tapped there.
-		Arrival.now()
 	}
 
 	override fun onStop() {
 		super.onStop()
-		unregisterReceiver(screenOff)
-		// To the background (or the screen off): the next action asks again. A rotation isn't leaving.
+		// To the background: the next action asks again. A rotation isn't leaving.
 		if (!isChangingConfigurations) forgetUnlock()
 	}
 

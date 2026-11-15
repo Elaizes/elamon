@@ -133,15 +133,15 @@ class PairLinkTest {
 		assertEquals("My PCgnp.exe", assertIs<PairLink.Target>(changed("name" to "My PC\u202Egnp.exe")).target.name)
 	}
 
-	private fun machine(id: String) = Machine(id = id, name = id, hosts = listOf("h"), port = 1, fingerprint = "f", token = "t")
+	private fun machine(id: String) = Machine(id = id, name = id, hosts = listOf("h"), port = 1, fingerprint = "f")
 
 	@Test
 	fun pairingAgainKeepsThePlace() {
 		val list = listOf(machine("a"), machine("b"), machine("c"))
-		// The same computer: in its own place, with the new token.
-		val again = machine("b").copy(token = "new")
+		// The same computer: in its own place, as the new entry.
+		val again = machine("b").copy(lastHost = "new")
 		assertEquals(listOf("a", "b", "c"), withMachine(list, again).map { it.id })
-		assertEquals("new", withMachine(list, again)[1].token)
+		assertEquals("new", withMachine(list, again)[1].lastHost)
 		// A reset computer with a new id takes the old entry's place, and the old entry is gone.
 		assertEquals(listOf("a", "d", "c"), withMachine(list, machine("d"), replacing = "b").map { it.id })
 		// Nothing to replace: added at the end.

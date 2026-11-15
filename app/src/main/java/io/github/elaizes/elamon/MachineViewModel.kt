@@ -234,7 +234,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		// answered): the stream starts over with the new token instead of staying turned away.
 		viewModelScope.launch {
 			store.machines
-				.map { list -> list.find { it.id == machineId }?.let { Triple(it.token, it.tokenSealed, it.fingerprint) } }
+				.map { list -> list.find { it.id == machineId }?.let { Pair(it.tokenSealed, it.fingerprint) } }
 				.distinctUntilChanged()
 				.drop(1)
 				.collect { if (it != null) credentialsChanged() }

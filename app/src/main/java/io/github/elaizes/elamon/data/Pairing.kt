@@ -1,25 +1,5 @@
 package io.github.elaizes.elamon.data
 
-/** What pairing with a computer does to the list of computers here, told before the code is sent. */
-sealed interface PairCheck {
-	/** A computer not here yet, the same one under the same certificate, or the one being paired again: nothing to ask. */
-	data object Fine : PairCheck
-
-	/** [existing] is here under the same id with another certificate: pairing forgets it, so it is asked first. */
-	data class Replaces(val existing: Machine) : PairCheck
-}
-
-/**
- * What pairing with the computer that said hello as [id], presenting the certificate [fingerprint],
- * does to [list]. [replaces] is the computer being paired again from its own screen, after its
- * certificate changed: that one is replaced knowingly.
- */
-fun pairCheck(id: String, fingerprint: String, list: List<Machine>, replaces: String?): PairCheck {
-	val existing = list.find { it.id == id } ?: return PairCheck.Fine
-	if (existing.fingerprint.equals(fingerprint, ignoreCase = true) || existing.id == replaces) return PairCheck.Fine
-	return PairCheck.Replaces(existing)
-}
-
 /**
  * What pairing again with the computer that said hello as [id] sends as proof that this is the phone
  * paired with it before: [existing], its entry here, and its [token] there ([PreviousPairing]). Only
@@ -51,6 +31,3 @@ private val SERVICE_ID = Regex("[0-9a-f]{${Limits.ID_HEX}}")
  */
 fun fingerprintPrefix(announced: String?): String? =
 	announced?.lowercase()?.takeIf { p -> p.length in 1..Limits.FINGERPRINT_HEX && p.all { it in '0'..'9' || it in 'a'..'f' } }
-
-/** Whether a tap at [now] counts on what pairs, the screen having been ready, or the app brought to the front, since [since]. */
-fun tapCounts(now: Long, since: Long): Boolean = now - since >= Limits.TAP_QUIET_MS

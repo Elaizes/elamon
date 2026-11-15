@@ -3,7 +3,6 @@ package io.github.elaizes.elamon
 import android.app.Application
 import android.content.Context
 import android.os.Build
-import android.os.SystemClock
 import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
@@ -26,13 +25,11 @@ import io.github.elaizes.elamon.data.ElamondException
 import io.github.elaizes.elamon.data.Hello
 import io.github.elaizes.elamon.data.KeystoreException
 import io.github.elaizes.elamon.data.Limits
-import io.github.elaizes.elamon.data.PairCheck
 import io.github.elaizes.elamon.data.PairTarget
 import io.github.elaizes.elamon.data.Machine
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.cleanName
 import io.github.elaizes.elamon.data.isServiceId
-import io.github.elaizes.elamon.data.pairCheck
 import io.github.elaizes.elamon.data.pairedId
 import io.github.elaizes.elamon.data.previousPairing
 import io.github.elaizes.elamon.data.withEndpoints
@@ -51,23 +48,9 @@ data class PairState(
 	/** It has been out a while: the computer is asking whether to allow this phone. */
 	val confirmOnComputer: Boolean = false,
 	@StringRes val codeError: Int? = null,
-	/** Pairing would forget this computer, paired here with another certificate: asked first, with both. */
-	val replacing: Machine? = null,
 	/** Paired and saved: the screen moves on to the computer. */
 	val paired: Machine? = null,
 )
-
-/**
- * When the app was last brought to the front or handed a link (elapsed realtime): a tap meant for
- * whatever was in front before may land on the pairing screen just after, so it waits a moment.
- */
-object Arrival {
-	@Volatile var at: Long = 0L
-
-	fun now() {
-		at = SystemClock.elapsedRealtime()
-	}
-}
 
 /**
  * The computer adds the phone as it answers the pairing request, so that request and saving its
@@ -88,7 +71,7 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 	/** Finds the computer on one of its addresses and reads the certificate it presents. */
 	fun connect() {
 		probe?.cancel()
-		_state.update { it.copy(step = PairStep.Connecting, codeError = null, replacing = null) }
+		_state.update { it.copy(step = PairStep.Connecting, codeError = null) }
 		probe = viewModelScope.launch {
 			val step = try {
 				val reached = ElamondClient.firstReachable(target.hosts, target.port, target.fingerprint, target.id)
@@ -118,10 +101,9 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 
 	/**
 	 * Asks for a token with [code]; only ever on the user's word, never by itself. A computer here
-	 * under the same id with another certificate is never replaced unasked: the first call shows
-	 * the warning ([PairState.replacing]), and only a call with [replaceConfirmed] goes on.
+	 * under the same id with another certificate is replaced by the pairing.
 	 */
-	fun pair(code: String, replaceConfirmed: Boolean = false) {
+	fun pair(code: String) {
 		val s = _state.value
 		val ready = s.step as? PairStep.Ready ?: return
 		if (s.busy || s.paired != null || !isServiceId(ready.hello.id)) return
@@ -129,12 +111,7 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 		if (digits.length != Limits.PAIRING_DIGITS) return
 		val app = getApplication<Application>()
 		val store = MachineStore.get(app)
-		val check = pairCheck(ready.hello.id, ready.fingerprint, store.machines.value, target.replaces)
-		if (check is PairCheck.Replaces && !replaceConfirmed) {
-			_state.update { it.copy(replacing = check.existing, codeError = null) }
-			return
-		}
-		_state.update { it.copy(busy = true, confirmOnComputer = false, codeError = null, replacing = null) }
+		_state.update { it.copy(busy = true, confirmOnComputer = false, codeError = null) }
 		val device = deviceName(app)
 		pairingScope.launch {
 			// elamond holds the answer until the computer allows the phone: said after a moment.
@@ -195,11 +172,6 @@ class PairViewModel(app: Application, private val target: PairTarget) : AndroidV
 				slow.cancel()
 			}
 		}
-	}
-
-	/** The warning about replacing a computer answered with Cancel: nothing is sent. */
-	fun keepExisting() {
-		_state.update { it.copy(replacing = null) }
 	}
 
 	class Factory(private val app: Application, private val target: PairTarget) : ViewModelProvider.Factory {

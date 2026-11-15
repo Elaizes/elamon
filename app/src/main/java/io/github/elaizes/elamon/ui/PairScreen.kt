@@ -1,7 +1,6 @@
 package io.github.elaizes.elamon.ui
 
 import android.app.Application
-import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -54,7 +53,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import io.github.elaizes.elamon.Arrival
 import io.github.elaizes.elamon.PairState
 import io.github.elaizes.elamon.PairStep
 import io.github.elaizes.elamon.PairViewModel
@@ -63,7 +61,6 @@ import io.github.elaizes.elamon.data.ElamondClient
 import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.data.PairTarget
 import io.github.elaizes.elamon.data.Machine
-import io.github.elaizes.elamon.data.tapCounts
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,11 +75,6 @@ fun PairScreen(target: PairTarget, owner: ViewModelStoreOwner, onBack: () -> Uni
 
 	val paired by rememberUpdatedState(onPaired)
 	state.paired?.let { machine -> LaunchedEffect(machine) { paired(machine) } }
-
-	// A tap that comes too soon after what it lands on appeared, or after the app came to the front
-	// (a link opened by another app over what was tapped there), is ignored.
-	val shownAt = remember(state.step, state.replacing) { SystemClock.elapsedRealtime() }
-	val tap = { action: () -> Unit -> { if (tapCounts(SystemClock.elapsedRealtime(), maxOf(shownAt, Arrival.at))) action() } }
 
 	Scaffold(
 		topBar = {
@@ -112,13 +104,8 @@ fun PairScreen(target: PairTarget, owner: ViewModelStoreOwner, onBack: () -> Uni
 					}
 				}
 				is PairStep.Ready -> {
-					val replacing = state.replacing
-					if (replacing != null) {
-						ReplaceWarning(replacing, s.fingerprint, onReplace = tap { vm.pair(code, replaceConfirmed = true) }, onCancel = vm::keepExisting)
-					} else {
-						Icon(ElIcons.Laptop, null, Modifier.size(Sizes.pairIcon), tint = MaterialTheme.colorScheme.primary)
-						Ready(target, s, state, code, onCode = { code = it }, tap = tap) { vm.pair(code) }
-					}
+					Icon(ElIcons.Laptop, null, Modifier.size(Sizes.pairIcon), tint = MaterialTheme.colorScheme.primary)
+					Ready(target, s, state, code, onCode = { code = it }) { vm.pair(code) }
 				}
 			}
 		}
@@ -126,7 +113,7 @@ fun PairScreen(target: PairTarget, owner: ViewModelStoreOwner, onBack: () -> Uni
 }
 
 @Composable
-private fun Ready(target: PairTarget, s: PairStep.Ready, state: PairState, code: String, onCode: (String) -> Unit, tap: (() -> Unit) -> () -> Unit, onPair: () -> Unit) {
+private fun Ready(target: PairTarget, s: PairStep.Ready, state: PairState, code: String, onCode: (String) -> Unit, onPair: () -> Unit) {
 	Text(
 		stringResource(R.string.pair_with, s.hello.name),
 		style = MaterialTheme.typography.headlineSmall,
@@ -150,7 +137,7 @@ private fun Ready(target: PairTarget, s: PairStep.Ready, state: PairState, code:
 			Text(stringResource(R.string.pair_compare), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium)
 			Fingerprint(s.fingerprint)
 			if (!digitsMatch) {
-				FilledTonalButton(onClick = tap { digitsMatch = true }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.pair_digits_match)) }
+				FilledTonalButton(onClick = { digitsMatch = true }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.pair_digits_match)) }
 			}
 		}
 		OutlinedTextField(
@@ -162,7 +149,7 @@ private fun Ready(target: PairTarget, s: PairStep.Ready, state: PairState, code:
 			isError = state.codeError != null,
 			supportingText = { Text(stringResource(state.codeError ?: if (codeOpen) R.string.pair_code_hint else R.string.pair_code_after_digits)) },
 			keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
-			keyboardActions = KeyboardActions(onDone = { if (code.length == Limits.PAIRING_DIGITS) tap(onPair)() }),
+			keyboardActions = KeyboardActions(onDone = { if (code.length == Limits.PAIRING_DIGITS) onPair() }),
 			textStyle = MaterialTheme.typography.headlineSmall.copy(textAlign = TextAlign.Center, fontFamily = FontFamily.Monospace),
 			modifier = Modifier.fillMaxWidth(),
 		)
@@ -182,7 +169,7 @@ private fun Ready(target: PairTarget, s: PairStep.Ready, state: PairState, code:
 		}
 	}
 	val busy = state.busy || state.paired != null
-	Button(onClick = tap(onPair), enabled = !busy && codeOpen && code.length == Limits.PAIRING_DIGITS, modifier = Modifier.fillMaxWidth()) {
+	Button(onClick = onPair, enabled = !busy && codeOpen && code.length == Limits.PAIRING_DIGITS, modifier = Modifier.fillMaxWidth()) {
 		if (busy) CircularProgressIndicator(Modifier.size(Sizes.iconM), strokeWidth = Sizes.spinnerStroke)
 		else Text(stringResource(R.string.pair))
 	}
@@ -201,21 +188,4 @@ private fun Fingerprint(fp: String) {
 			.background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(Radius.m))
 			.padding(Space.m),
 	)
-}
-
-/**
- * The computer is already here under the same id with another certificate: pairing would forget
- * that pairing. Both certificates are shown, and pairing goes on only on a second word.
- */
-@Composable
-private fun ReplaceWarning(existing: Machine, fingerprint: String, onReplace: () -> Unit, onCancel: () -> Unit) {
-	IconBadge(Icons.Default.Warning, MaterialTheme.colorScheme.error, Sizes.badgeNotice)
-	Text(stringResource(R.string.pair_replace_title), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
-	Text(stringResource(R.string.pair_replace_body, existing.name), style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
-	Text(stringResource(R.string.pair_replace_old), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-	Fingerprint(existing.fingerprint)
-	Text(stringResource(R.string.pair_replace_new), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-	Fingerprint(fingerprint)
-	Button(onClick = onReplace, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.pair_replace_button)) }
-	TextButton(onClick = onCancel) { Text(stringResource(R.string.cancel)) }
 }

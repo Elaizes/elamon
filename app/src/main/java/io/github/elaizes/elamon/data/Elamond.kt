@@ -177,7 +177,7 @@ class ElamondClient(
 	private fun checkStatus(c: HttpURLConnection) {
 		val code = c.responseCode
 		if (code in 200..299) return
-		val body = runCatching { c.errorStream?.use { String(readUpTo(it, Limits.SMALL_BODY_MAX), Charsets.UTF_8) } }.getOrNull().orEmpty()
+		val body = runCatching { c.errorStream?.use { it.reader().readText() } }.getOrNull().orEmpty()
 		throw ElamondException.fromResponse(code, body)
 	}
 
@@ -209,14 +209,11 @@ class ElamondClient(
 		c.outputStream.use { it.write(body.toByteArray()) }
 	}
 
-	/** The answer's body as text, refused when it is longer than [max] bytes: up front when it says so, else as it comes. */
-	private fun readBody(c: HttpURLConnection, max: Int): String {
-		checkLength(c.contentLengthLong, max)
-		return String(c.inputStream.use { readCapped(it, max) }, Charsets.UTF_8)
-	}
+	private fun readBody(c: HttpURLConnection): String = c.inputStream.use { it.reader().readText() }
+
 
 	/**
-	 * A request with an optional JSON body; returns the response body, of at most [maxBytes].
+	 * A request with an optional JSON body; returns the response body.
 	 * [finishOnCancel] keeps the connection when the caller is cancelled, as [exchange] says.
 	 */
 	suspend fun request(
@@ -225,28 +222,26 @@ class ElamondClient(
 		body: String? = null,
 		timeoutMs: Int = Limits.REQUEST_TIMEOUT_MS,
 		finishOnCancel: Boolean = false,
-		maxBytes: Int = Limits.BODY_MAX,
 	): String = exchange(path, timeoutMs, finishOnCancel) { c ->
 		c.requestMethod = method
 		if (body != null) send(c, body)
 		checkStatus(c)
-		readBody(c, maxBytes)
+		readBody(c)
 	}
 
-	suspend inline fun <reified T> get(path: String, maxBytes: Int = Limits.BODY_MAX): T =
-		decode(request("GET", path, maxBytes = maxBytes))
+	suspend inline fun <reified T> get(path: String): T =
+		decode(request("GET", path))
 
 	suspend inline fun <reified B, reified T> post(
 		path: String,
 		body: B,
 		timeoutMs: Int = Limits.REQUEST_TIMEOUT_MS,
 		finishOnCancel: Boolean = false,
-		maxBytes: Int = Limits.BODY_MAX,
-	): T = decode(request("POST", path, ProtocolJson.encodeToString(body), timeoutMs, finishOnCancel, maxBytes))
+	): T = decode(request("POST", path, ProtocolJson.encodeToString(body), timeoutMs, finishOnCancel))
 
 	/**
 	 * An answer read as [T], off the main thread whoever asks (a `ui` or a snapshot with a table of
-	 * processes is large), as [decodeChecked] reads it: broken or nested too deep, a protocol error.
+	 * processes is large), as [decodeChecked] reads it: a broken one is a protocol error.
 	 */
 	suspend inline fun <reified T> decode(text: String): T = withContext(Dispatchers.Default) { decodeChecked(serializer<T>(), text) }
 
@@ -254,16 +249,15 @@ class ElamondClient(
 		request("DELETE", path)
 	}
 
-	/** Raw bytes, for album art: at most [Limits.ART_MAX]. */
+	/** Raw bytes, for album art. */
 	suspend fun bytes(path: String): ByteArray = exchange(path, Limits.BYTES_TIMEOUT_MS) { c ->
 		checkStatus(c)
-		checkLength(c.contentLengthLong, Limits.ART_MAX)
-		c.inputStream.use { readCapped(it, Limits.ART_MAX) }
+		c.inputStream.use { it.readBytes() }
 	}
 
 	suspend fun hello(): Hello = exchange("/api/v1/hello", Limits.HELLO_TIMEOUT_MS) { c ->
 		checkStatus(c)
-		val h = ProtocolJson.decodeFromString<Hello>(readBody(c, Limits.SMALL_BODY_MAX))
+		val h = ProtocolJson.decodeFromString<Hello>(readBody(c))
 		if (h.app != "elamon") throw ElamondException(ElamondException.Kind.NotElamond)
 		// Shown on the pairing screen: a name that can't pass for another, or reorder what follows it.
 		h.copy(name = cleanName(h.name))
@@ -273,7 +267,7 @@ class ElamondClient(
 		c.requestMethod = "POST"
 		send(c, ProtocolJson.encodeToString(PairRequest.serializer(), PairRequest(code, device, previous)))
 		checkStatus(c)
-		ProtocolJson.decodeFromString<PairResponse>(readBody(c, Limits.SMALL_BODY_MAX))
+		ProtocolJson.decodeFromString<PairResponse>(readBody(c))
 	}
 
 	/** What this phone shows here, described with the widget types it draws ([WIDGET_TYPES]). */
@@ -284,7 +278,7 @@ class ElamondClient(
 
 	/** Changes what the open stream [stream] sends, from its next line, without reconnecting. */
 	suspend fun subscribe(stream: String, change: Subscribe) {
-		post<Subscribe, Ok>("$STREAM_PATH/" + query(stream), change, maxBytes = Limits.SMALL_BODY_MAX)
+		post<Subscribe, Ok>("$STREAM_PATH/" + query(stream), change)
 	}
 
 	/**
@@ -306,8 +300,8 @@ class ElamondClient(
 		// the failed read that follows is that cancellation, not a lost computer.
 		closeOnCancel(close = { c.disconnect() }) {
 			call { checkStatus(c) }
-			// Line by line, none longer than the largest the service sends.
-			val reader = call { LineReader(c.inputStream, Limits.STREAM_LINE_MAX) }
+			// Line by line.
+			val reader = call { c.inputStream.bufferedReader() }
 			while (true) {
 				currentCoroutineContext().ensureActive()
 				val line = call { reader.readLine() } ?: throw ElamondException(ElamondException.Kind.Unreachable, "closed")

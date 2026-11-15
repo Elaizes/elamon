@@ -54,11 +54,6 @@
 	<string name="pair_declined">The computer didn\'t allow this phone. Run elamond pair again and answer y.</string>
 	<string name="pair_too_many_phones">The computer has as many phones paired as it takes. Revoke one there with elamond revoke, then pair again.</string>
 	<!-- The computer is already paired here under another certificate. -->
-	<string name="pair_replace_title">Already paired with another certificate</string>
-	<string name="pair_replace_body">%1$s is on this phone already, paired with another certificate. Replacing forgets that pairing: go on only if the computer was reinstalled or its certificate made anew.</string>
-	<string name="pair_replace_old">Paired with</string>
-	<string name="pair_replace_new">Presented now</string>
-	<string name="pair_replace_button">Replace and pair</string>
 	<string name="pair_bad_id">The computer gave an id this app doesn\'t take. Check that it is your computer and that its elamond is up to date.</string>
 	<string name="pair_other_id">The computer answered as another computer than the one it said it was, so nothing was saved.</string>
 	<string name="pair_failed">Can\'t pair</string>

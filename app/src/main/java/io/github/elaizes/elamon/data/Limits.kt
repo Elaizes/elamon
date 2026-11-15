@@ -30,35 +30,6 @@ object Limits {
 	/** How long a stream asked for a line every [intervalMs] may stay silent. */
 	fun streamReadTimeoutMs(intervalMs: Int): Int = maxOf(STREAM_SILENCE_MS, intervalMs * STREAM_MISSED_SAMPLES)
 
-	// ---- sizes, bytes ---------------------------------------------------------------------------
-	// Whatever answers, nothing it sends can take the phone's memory: a longer answer is refused,
-	// up front when it says its length.
-
-	/** Hello, a pairing, an error: a little JSON. */
-	const val SMALL_BODY_MAX = 64 * 1024
-
-	/**
-	 * Any other answer. The largest the service sends is a snapshot or a data line with a table of every process it lists:
-	 * 10,000 of them, with command lines of up to 400 bytes, come to about 6 MB.
-	 */
-	const val BODY_MAX = 8 * 1024 * 1024
-
-	/** A cover image. */
-	const val ART_MAX = 4 * 1024 * 1024
-
-	/**
-	 * One line of the stream: a data line, with a table of every process (as
-	 * large as [BODY_MAX] says), or the history, about 1 MB at the 7,200 readings the service keeps at most.
-	 */
-	const val STREAM_LINE_MAX = BODY_MAX
-
-	/**
-	 * Objects and arrays inside each other in anything the service sends. Its deepest, a `ui` with
-	 * groups in groups, is under 10; this takes some 30 groups inside each other. Reading JSON
-	 * into the app's types is recursive: a document much deeper would overflow the stack.
-	 */
-	const val JSON_DEPTH_MAX = 64
-
 	// ---- retrying ---------------------------------------------------------------------------------
 
 	/** The first wait before looking for a lost computer again; it doubles this many times, never past the cap. */
@@ -114,12 +85,6 @@ object Limits {
 
 	/** Characters in a computer's or a phone's name, as the service caps them. */
 	const val NAME_MAX = 64
-
-	/**
-	 * How long after the pairing screen is ready, or the app is brought to the front, a tap on what
-	 * pairs is ignored: one meant for whatever was in front before may land on it.
-	 */
-	const val TAP_QUIET_MS = 1_000L
 
 	/** Digits a pairing link's version may have; anything longer is broken, not new. */
 	const val PAIR_LINK_VERSION_DIGITS = 9

@@ -16,10 +16,10 @@ class Sealed(val data: ByteArray, val iv: ByteArray)
  */
 interface TokenCipher {
 	/** [plain] sealed under a fresh IV, bound to [aad]; throws when it can't be. */
-	fun seal(plain: ByteArray, aad: ByteArray?): Sealed
+	fun seal(plain: ByteArray, aad: ByteArray): Sealed
 
 	/** What [sealed] holds, sealed with [aad]; throws when it can't be opened: the key is gone, the data damaged, or another [aad]. */
-	fun open(sealed: Sealed, aad: ByteArray?): ByteArray
+	fun open(sealed: Sealed, aad: ByteArray): ByteArray
 }
 
 /**
@@ -59,7 +59,7 @@ class GcmTokenCipher(
 	private val invalidated: (Throwable) -> Boolean = ::permanentlyInvalidated,
 ) : TokenCipher {
 	@Synchronized
-	override fun seal(plain: ByteArray, aad: ByteArray?): Sealed {
+	override fun seal(plain: ByteArray, aad: ByteArray): Sealed {
 		val existing = try {
 			keys.existing()
 		} catch (e: Exception) {
@@ -78,11 +78,11 @@ class GcmTokenCipher(
 	}
 
 	@Synchronized
-	override fun open(sealed: Sealed, aad: ByteArray?): ByteArray {
+	override fun open(sealed: Sealed, aad: ByteArray): ByteArray {
 		val key = keys.existing() ?: throw GeneralSecurityException("no key")
 		val c = Cipher.getInstance(TRANSFORMATION)
 		c.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(Limits.TOKEN_TAG_BITS, sealed.iv))
-		aad?.let(c::updateAAD)
+		c.updateAAD(aad)
 		return c.doFinal(sealed.data)
 	}
 
@@ -93,16 +93,16 @@ class GcmTokenCipher(
 		throw KeystoreException(e)
 	}
 
-	private fun sealOrThrow(key: SecretKey, plain: ByteArray, aad: ByteArray?): Sealed = try {
+	private fun sealOrThrow(key: SecretKey, plain: ByteArray, aad: ByteArray): Sealed = try {
 		sealWith(key, plain, aad)
 	} catch (e: Exception) {
 		throw KeystoreException(e)
 	}
 
-	private fun sealWith(key: SecretKey, plain: ByteArray, aad: ByteArray?): Sealed {
+	private fun sealWith(key: SecretKey, plain: ByteArray, aad: ByteArray): Sealed {
 		val c = Cipher.getInstance(TRANSFORMATION)
 		c.init(Cipher.ENCRYPT_MODE, key)
-		aad?.let(c::updateAAD)
+		c.updateAAD(aad)
 		val data = c.doFinal(plain)
 		return Sealed(data, c.iv ?: throw GeneralSecurityException("no IV"))
 	}

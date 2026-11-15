@@ -23,19 +23,9 @@ data class Machine(
 	val hosts: List<String>,
 	val port: Int,
 	val fingerprint: String,
-	/**
-	 * A token in plain text, as lists from before 0.5 kept it: never sent, and dropped as the list
-	 * loads. The store keeps a token only sealed.
-	 */
-	val token: String = "",
 	/** The token sealed ([MachineStore.token] opens it), and the IV it was sealed with, in base64. */
 	val tokenSealed: String? = null,
 	val tokenIv: String? = null,
-	/**
-	 * The token was sealed bound to this entry's id ([tokenAad]). One sealed without it is sealed
-	 * again bound as the list is loaded.
-	 */
-	val tokenBound: Boolean = false,
 	val lastHost: String? = null,
 	/** This phone's id in the computer's list of paired phones (`elamond clients`); null while it isn't known. */
 	val clientId: String? = null,
@@ -76,39 +66,17 @@ class MachineStore(private val file: MachineFile, private val cipher: TokenCiphe
 	/** Entries paired again under a new id, by the id they had; for as long as the app runs. */
 	private val replacedBy = ConcurrentHashMap<String, String>()
 
-	/**
-	 * The list as kept, tokens sealed without their computer's id sealed again bound to it, and the
-	 * list written again at once when that changed anything. One write replaces the whole list, so an
-	 * app stopped midway finds either the old list, to do it again, or the new one: never one that
-	 * lost a token.
-	 */
-	private fun load(): List<Machine> {
-		val kept = runCatching { ProtocolJson.decodeFromString<List<Machine>>(file.read() ?: "[]") }.getOrDefault(emptyList())
-		// Names are cleaned as they are read too, and a token is taken only sealed.
-		val loaded = kept.map { boundIfUnbound(it.copy(name = cleanName(it.name), token = "")) }
-		if (loaded != kept) file.write(ProtocolJson.encodeToString(loaded))
-		return loaded
-	}
+	/** The list as kept. One write replaces the whole list, so an app stopped midway finds either the old list or the new one. */
+	private fun load(): List<Machine> =
+		runCatching { ProtocolJson.decodeFromString<List<Machine>>(file.read() ?: "[]") }.getOrDefault(emptyList())
 
-	/** Writes [list], any token in plain text left out: only the sealed one is kept. */
 	private fun save(list: List<Machine>, now: Boolean = false) {
-		val kept = list.map { if (it.token.isEmpty()) it else it.copy(token = "") }
-		val json = ProtocolJson.encodeToString(kept)
+		val json = ProtocolJson.encodeToString(list)
 		if (now) file.writeNow(json) else file.write(json)
-		_machines.value = kept
+		_machines.value = list
 	}
 
-	/**
-	 * [m] whose token was sealed without its id, opened and sealed again bound to it; as it is when
-	 * it can't be: the key store fails, or lost the key.
-	 */
-	private fun boundIfUnbound(m: Machine): Machine {
-		if (m.tokenBound) return m
-		val token = open(m, aad = null) ?: return m
-		return runCatching { sealed(m, token) }.getOrDefault(m)
-	}
-
-	/** [m] with [token] sealed in it, bound to its id, and no plain one; throws [KeystoreException] when it can't be sealed. */
+	/** [m] with [token] sealed in it, bound to its id; throws [KeystoreException] when it can't be sealed. */
 	private fun sealed(m: Machine, token: String): Machine {
 		val s = try {
 			cipher.seal(token.toByteArray(Charsets.UTF_8), tokenAad(m.id))
@@ -117,18 +85,7 @@ class MachineStore(private val file: MachineFile, private val cipher: TokenCiphe
 		}
 		val data = B64.encodeToString(s.data)
 		opened[cacheKey(m.id, data)] = token
-		return m.copy(token = "", tokenSealed = data, tokenIv = B64.encodeToString(s.iv), tokenBound = true)
-	}
-
-	/** What [m]'s sealed token holds, opened with [aad]; null when it can't be opened. */
-	private fun open(m: Machine, aad: ByteArray?): String? {
-		val data = m.tokenSealed ?: return null
-		val iv = m.tokenIv ?: return null
-		return try {
-			String(cipher.open(Sealed(B64D.decode(data), B64D.decode(iv)), aad), Charsets.UTF_8)
-		} catch (e: Exception) {
-			null
-		}
+		return m.copy(tokenSealed = data, tokenIv = B64.encodeToString(s.iv))
 	}
 
 	/**
@@ -138,10 +95,13 @@ class MachineStore(private val file: MachineFile, private val cipher: TokenCiphe
 	 */
 	fun token(machine: Machine): String? {
 		val data = machine.tokenSealed ?: return null
+		val iv = machine.tokenIv ?: return null
 		opened[cacheKey(machine.id, data)]?.let { return it }
-		// One still unbound is sealed again bound the next time the app starts.
-		val aad = if (machine.tokenBound) tokenAad(machine.id) else null
-		return open(machine, aad)?.also { opened[cacheKey(machine.id, data)] = it }
+		return try {
+			String(cipher.open(Sealed(B64D.decode(data), B64D.decode(iv)), tokenAad(machine.id)), Charsets.UTF_8)
+		} catch (e: Exception) {
+			null
+		}?.also { opened[cacheKey(machine.id, data)] = it }
 	}
 
 	fun get(id: String): Machine? = _machines.value.find { it.id == id }
