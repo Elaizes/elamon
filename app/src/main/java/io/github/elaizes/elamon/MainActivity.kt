@@ -40,7 +40,6 @@ import io.github.elaizes.elamon.ui.Guard
 import io.github.elaizes.elamon.ui.GuardDialog
 import io.github.elaizes.elamon.ui.GuardState
 import io.github.elaizes.elamon.ui.HelpScreen
-import io.github.elaizes.elamon.ui.HelpTopic
 import io.github.elaizes.elamon.ui.HomeScreen
 import io.github.elaizes.elamon.ui.LocalGuard
 import io.github.elaizes.elamon.ui.MachineScreen
@@ -55,7 +54,7 @@ sealed interface Screen {
 	data object Home : Screen
 	data class Machine(val id: String) : Screen
 	data class Pair(val target: PairTarget) : Screen
-	data class Help(val topic: String? = null) : Screen
+	data object Help : Screen
 	/** The settings in force, those of the computer [machine] or of the first one paired. */
 	data class Settings(val machine: String? = null) : Screen
 }
@@ -167,7 +166,7 @@ class MainActivity : FragmentActivity() {
 								Screen.Home -> HomeScreen(
 									onOpen = { nav.push(Screen.Machine(it.id)) },
 									onPair = { nav.push(Screen.Pair(it)) },
-									onHelp = { nav.push(Screen.Help()) },
+									onHelp = { nav.push(Screen.Help) },
 									onSettings = { nav.push(Screen.Settings()) },
 								)
 								is Screen.Machine -> {
@@ -191,7 +190,7 @@ class MainActivity : FragmentActivity() {
 											onBack = { nav.pop() },
 											onPairAgain = { nav.push(Screen.Pair(it)) },
 											onForgotten = { nav.reset(Screen.Home) },
-											onHelp = { nav.push(Screen.Help(it)) },
+											onHelp = { nav.push(Screen.Help) },
 											onSettings = { nav.push(Screen.Settings(screen.id)) },
 										)
 									}
@@ -201,10 +200,10 @@ class MainActivity : FragmentActivity() {
 									owner = nav.owner(screen),
 									onBack = { nav.pop() },
 									onPaired = { nav.paired(it.id) },
-									onHelp = { nav.push(Screen.Help(HelpTopic.TROUBLESHOOTING)) },
+									onHelp = { nav.push(Screen.Help) },
 								)
-								is Screen.Help -> HelpScreen(screen.topic, onBack = { nav.pop() })
-								is Screen.Settings -> SettingsScreen(screen.machine, onBack = { nav.pop() }, onHelp = { nav.push(Screen.Help()) })
+								is Screen.Help -> HelpScreen(onBack = { nav.pop() })
+								is Screen.Settings -> SettingsScreen(screen.machine, onBack = { nav.pop() }, onHelp = { nav.push(Screen.Help) })
 							}
 						}
 					}

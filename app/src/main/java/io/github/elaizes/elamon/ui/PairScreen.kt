@@ -100,7 +100,7 @@ fun PairScreen(target: PairTarget, owner: ViewModelStoreOwner, onBack: () -> Uni
 					Icon(ElIcons.Laptop, null, Modifier.size(Sizes.pairIcon), tint = MaterialTheme.colorScheme.primary)
 					Notice(Icons.Default.Warning, stringResource(R.string.pair_failed), stringResource(s.message)) {
 						Button(onClick = { vm.connect() }) { Text(stringResource(R.string.retry)) }
-						TextButton(onClick = onHelp) { Text(stringResource(R.string.troubleshooting_button)) }
+						TextButton(onClick = onHelp) { Text(stringResource(R.string.help)) }
 					}
 				}
 				is PairStep.Ready -> {

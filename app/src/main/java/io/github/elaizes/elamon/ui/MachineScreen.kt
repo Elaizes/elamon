@@ -106,7 +106,7 @@ fun MachineScreen(
 	onBack: () -> Unit,
 	onPairAgain: (PairTarget) -> Unit,
 	onForgotten: () -> Unit,
-	onHelp: (String?) -> Unit,
+	onHelp: () -> Unit,
 	onSettings: () -> Unit,
 ) {
 	val ctx = LocalContext.current
@@ -235,20 +235,20 @@ fun MachineScreen(
 								stringResource(if (app) R.string.compat_app_body else R.string.compat_service_body, state.hello?.version.orEmpty(), BuildConfig.VERSION_NAME),
 							) {
 								Button(onClick = { vm.retry() }) { Text(stringResource(R.string.retry)) }
-								TextButton(onClick = { onHelp(null) }) { Text(stringResource(R.string.help)) }
+								TextButton(onClick = { onHelp() }) { Text(stringResource(R.string.help)) }
 							}
 						}
 						ui == null && state.conn == Conn.Offline -> Centered {
 							Notice(ElIcons.Laptop, stringResource(R.string.machine_unreachable_title, name), stringResource(R.string.machine_unreachable_body)) {
 								if (state.tried.isNotEmpty()) Tried(state.tried)
 								Button(onClick = { vm.retry() }) { Text(stringResource(R.string.retry)) }
-								TextButton(onClick = { onHelp(HelpTopic.TROUBLESHOOTING) }) { Text(stringResource(R.string.troubleshooting_button)) }
+								TextButton(onClick = { onHelp() }) { Text(stringResource(R.string.help)) }
 							}
 						}
 						// The computer answers, but this phone's role or profile has no tab there.
 						ui != null && current == null -> Centered {
 							Notice(ElIcons.Eye, stringResource(R.string.machine_nothing_title), stringResource(R.string.machine_nothing_body, name)) {
-								TextButton(onClick = { onHelp(null) }) { Text(stringResource(R.string.help)) }
+								TextButton(onClick = { onHelp() }) { Text(stringResource(R.string.help)) }
 							}
 						}
 						ui == null || current == null || launcher == null -> Centered { CircularProgressIndicator() }
@@ -302,7 +302,7 @@ fun MachineScreen(
 						IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.machine_more)) }
 						DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
 							DropdownMenuItem(text = { Text(stringResource(R.string.settings)) }, onClick = { menu = false; onSettings() })
-							DropdownMenuItem(text = { Text(stringResource(R.string.help)) }, onClick = { menu = false; onHelp(null) })
+							DropdownMenuItem(text = { Text(stringResource(R.string.help)) }, onClick = { menu = false; onHelp() })
 							DropdownMenuItem(text = { Text(stringResource(R.string.machine_forget)) }, onClick = { menu = false; confirmForget = true })
 						}
 					},
