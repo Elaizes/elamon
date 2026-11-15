@@ -199,39 +199,6 @@
 	<string name="err_unknown">Something went wrong</string>
 
 	<!-- Settings -->
-	<string name="settings_appearance">Appearance</string>
-	<string name="settings_theme">Theme</string>
-	<string name="settings_theme_system">System</string>
-	<string name="settings_theme_light">Light</string>
-	<string name="settings_theme_dark">Dark</string>
-	<string name="settings_pure_black">Pure black</string>
-	<string name="settings_wallpaper_colours">Wallpaper colours</string>
-	<string name="settings_needs_android_12">Needs Android 12</string>
-	<string name="settings_blur">Blur</string>
-	<string name="settings_animations">Animations</string>
-	<string name="settings_data">Data</string>
-	<string name="settings_interval">Update every</string>
-	<!-- Seconds, maybe with decimals: "1 s", "0.25 s". -->
-	<string name="settings_interval_seconds">%1$s s</string>
-	<string name="settings_temperature">Temperature</string>
-	<string name="settings_network_speed">Network speed</string>
-	<string name="settings_bytes">Bytes</string>
-	<string name="settings_bits">Bits</string>
-	<string name="settings_keep_screen_on">Keep screen on</string>
-	<string name="settings_control">Control</string>
-	<string name="settings_confirm_actions">Confirm actions</string>
-	<string name="settings_haptics">Haptic feedback</string>
-	<!-- Which actions need the phone unlocked first, with a fingerprint, the face or the screen lock, in place of the confirmation. -->
-	<string name="settings_unlock">Ask to unlock before</string>
-	<string name="settings_unlock_power">Power</string>
-	<string name="settings_unlock_processes">Ending processes</string>
-	<string name="settings_unlock_actions">Actions</string>
-	<string name="settings_unlock_units">Units</string>
-	<string name="settings_unlock_profile">Power profile</string>
-	<string name="settings_unlock_media">Media and volume</string>
-	<!-- "5 min" -->
-	<string name="settings_unlock_grace">Ask again after</string>
-	<string name="settings_unlock_every_time">Every time</string>
 	<string name="settings_about">About</string>
 	<string name="settings_help_summary">Installing the service, the firewall, pairing</string>
 	<string name="settings_source">Source code</string>
@@ -339,10 +306,5 @@
 	<!-- The same, for settings made by the NixOS or Home Manager module. -->
 	<string name="settings_profile_nix">Set in Nix: services.elamond.settings.profiles.%1$s</string>
 	<!-- Where the profile is, for a phone the computer doesn't tell (any role but admin). -->
-	<string name="settings_profile_table">On the computer: the table [profiles.%1$s] (a phone\'s own profile is in elamond.d/phones.toml)</string>
-	<string name="settings_where">How the app looks and behaves is set on the computer, in the profile it gives this phone: each line below names its key there. Change it in the profile\'s table (elamond edit opens a file and checks it), or give this phone another profile:</string>
-	<string name="settings_on">On</string>
-	<string name="settings_off">Off</string>
-	<string name="settings_unlock_none">Nothing</string>
-	<string name="settings_unlock_minutes">%1$d min</string>
+	<string name="settings_profile_table">Changed on the computer, in the table [profiles.%1$s] of its settings (docs/config.md#phones)</string>
 </resources>

@@ -360,24 +360,10 @@ computer.
 ### Settings
 
 How the app looks and behaves with a computer comes from that computer: from the phone's
-**profile** there ([section 7](#profiles)). The Settings screen shows what applies and which profile
-key sets it. To change something, change the profile on the computer.
-
-| Setting | Profile key |
-|---|---|
-| Theme | `theme`: follow the phone (`system`), or always `light` or `dark` |
-| Pure black | `pure_black`: black instead of dark grey in dark mode; saves power on OLED screens |
-| Wallpaper colours | `android.dynamic_color`: colours from the wallpaper (Android 12+) |
-| Blur | `android.blur`: frosted glass behind the bars and dialogs (Android 12+) |
-| Animations | `animations`: rolling numbers and moving gauges |
-| Update every | `interval_ms`: slower saves data on mobile networks |
-| Temperature | `fahrenheit`: °C or °F |
-| Network speed | `network_bits`: bytes per second, or bits per second as providers state it |
-| Keep screen on | `android.keep_screen_on`: while a computer is open, to use the phone as a dashboard |
-| Confirm actions | `confirm_actions`: ask before actions that ask to be confirmed |
-| Ask to unlock before | `unlock.for`: the kinds of action the phone is unlocked for first |
-| Ask again after | `unlock.grace`: how long one unlock holds |
-| Haptic feedback | `android.haptics`: a tick on long presses |
+**profile** there ([section 7](#profiles)). The Settings screen names the profile each computer
+gives this phone and where it is changed: the file and line, for an admin phone, or "Set in Nix".
+To change something, change the profile on the computer. The rest of the screen is the app's own:
+help, the source and licences.
 
 ### How do I…
 
@@ -811,7 +797,7 @@ phones say. Its own table stays: `elamond clients profile ID galaxy-s25` gives i
 
 Phones paired before 0.6.1 get their tables at the first start of 0.6.1, each using the profile it had.
 
-In the app, Settings shows the phone's profile and where to change it.
+In the app, Settings names the phone's profile and where to change it.
 
 ### Dashboards and widgets
 

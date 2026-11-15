@@ -1,16 +1,11 @@
 package io.github.elaizes.elamon.ui
 
-import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -31,24 +26,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import io.github.elaizes.elamon.BuildConfig
-import io.github.elaizes.elamon.Guarded
 import io.github.elaizes.elamon.R
-import io.github.elaizes.elamon.ThemeMode
-import io.github.elaizes.elamon.UnlockGrace
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.Profile
 import io.github.elaizes.elamon.data.UiCache
 import io.github.elaizes.elamon.data.withoutControls
 
 /**
- * What applies here, and where it is set: how the app looks and behaves comes from the profile
- * the computer gives this phone (the one [machine], or the first paired), each row with the key of
- * elamond's settings it comes from. What stays the app's own: help and licences.
+ * Which profile each computer gives this phone, and where it is changed (how the app looks and
+ * behaves comes from there). What stays the app's own: help, source and licences.
  */
 @Composable
 fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
@@ -59,10 +49,8 @@ fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
 	var license by remember { mutableStateOf(false) }
 	val machines by MachineStore.get(ctx).machines.collectAsStateWithLifecycle()
 	val profiles by UiCache.get(ctx).profiles.collectAsStateWithLifecycle()
-	val computer = machines.find { it.id == machine } ?: machines.firstOrNull()
-	val profile = computer?.let { profiles[it.id] }
-	val res = resources()
-	val key = { k: String -> "profiles.${profile?.id ?: DEFAULT_PROFILE}.$k" }
+	// The computer Settings was opened from, or all of them from the home screen.
+	val shown = machines.filter { machine == null || it.id == machine }.ifEmpty { machines.take(1) }
 
 	CompositionLocalProvider(LocalHaze provides haze) {
 		Box(Modifier.fillMaxSize()) {
@@ -72,85 +60,30 @@ fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
 				contentPadding = listPadding(),
 				verticalArrangement = Arrangement.spacedBy(Space.s),
 			) {
-				item {
-					BigTitle(
-						stringResource(R.string.settings),
-						list = list,
-						subtitle = {
-							Text(
-								when {
-									computer == null -> stringResource(R.string.settings_from_defaults)
-									profile == null -> stringResource(R.string.settings_from_unknown, computer.name)
-									else -> stringResource(R.string.settings_from_profile, profile.name.ifEmpty { profile.id }, computer.name)
-								},
-								style = MaterialTheme.typography.titleSmall,
-								color = MaterialTheme.colorScheme.onSurfaceVariant,
-							)
-						},
-					)
-				}
-				// Where to change it, under its name: the file and line an admin is told, or the table.
-				profile?.let { pr ->
+				item { BigTitle(stringResource(R.string.settings), list = list) }
+				// Which profile each computer gives this phone, and where it is changed.
+				if (shown.isEmpty()) {
 					item {
 						Text(
-							profilePlaceText(profilePlace(pr)),
+							stringResource(R.string.settings_from_defaults),
 							style = MaterialTheme.typography.bodyMedium,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
 							modifier = Modifier.padding(horizontal = Space.xl, vertical = Space.xs),
 						)
 					}
-				}
-				item {
-					Text(
-						stringResource(R.string.settings_where),
-						style = MaterialTheme.typography.bodyMedium,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-						modifier = Modifier.padding(horizontal = Space.xl, vertical = Space.xs),
-					)
-				}
-				item { CodeBlock("elamond clients profile ${computer?.clientId ?: "ID"} ${profile?.id ?: DEFAULT_PROFILE}") }
-
-				item { GroupLabel(stringResource(R.string.settings_appearance)) }
-				item {
-					ListGroup {
-						Ref(R.string.settings_theme, themeName(p.theme), key("theme"))
-						GroupDivider()
-						Ref(R.string.settings_pure_black, onOff(p.pureBlack), key("pure_black"))
-						GroupDivider()
-						Ref(R.string.settings_wallpaper_colours, onOff(p.dynamicColor), key("android.dynamic_color"), note = if (android.os.Build.VERSION.SDK_INT < 31) stringResource(R.string.settings_needs_android_12) else null)
-						GroupDivider()
-						Ref(R.string.settings_blur, onOff(p.blur), key("android.blur"), note = if (!p.blurAvailable) stringResource(R.string.settings_needs_android_12) else null)
-						GroupDivider()
-						Ref(R.string.settings_animations, onOff(p.animations), key("animations"))
-					}
-				}
-
-				item { GroupLabel(stringResource(R.string.settings_data)) }
-				item {
-					ListGroup {
-						Ref(R.string.settings_interval, stringResource(R.string.settings_interval_seconds, Fmt.seconds(p.intervalMs)), key("interval_ms"))
-						GroupDivider()
-						Ref(R.string.settings_temperature, if (p.fahrenheit) Fmt.FAHRENHEIT else Fmt.CELSIUS, key("fahrenheit"))
-						GroupDivider()
-						Ref(R.string.settings_network_speed, stringResource(if (p.networkBits) R.string.settings_bits else R.string.settings_bytes), key("network_bits"))
-						GroupDivider()
-						Ref(R.string.settings_keep_screen_on, onOff(p.keepScreenOn), key("android.keep_screen_on"))
-					}
-				}
-
-				item { GroupLabel(stringResource(R.string.settings_control)) }
-				item {
-					ListGroup {
-						Ref(R.string.settings_confirm_actions, onOff(p.confirmActions), key("confirm_actions"))
-						GroupDivider()
-						Ref(R.string.settings_haptics, onOff(p.haptics), key("android.haptics"))
-						GroupDivider()
-						Ref(
-							R.string.settings_unlock,
-							Guarded.entries.filter { it in p.unlockFor }.joinToString(", ") { res.getString(it.title()) }.ifEmpty { res.getString(R.string.settings_unlock_none) },
-							key("unlock.for"),
-						)
-						GroupDivider()
-						Ref(R.string.settings_unlock_grace, graceName(p.unlockGrace), key("unlock.grace"))
+				} else {
+					item {
+						ListGroup {
+							shown.forEachIndexed { i, m ->
+								if (i > 0) GroupDivider()
+								val profile = profiles[m.id]
+								if (profile == null) {
+									ListRow(stringResource(R.string.settings_from_unknown, m.name))
+								} else {
+									ListRow(stringResource(R.string.settings_from_profile, profile.name.ifEmpty { profile.id }, m.name), profilePlaceText(profilePlace(profile)))
+								}
+							}
+						}
 					}
 				}
 
@@ -229,47 +162,3 @@ private fun profilePlaceText(place: ProfilePlace): String = when (place) {
 
 /** Where Nix keeps what it builds: settings there are set in Nix, not in a file to edit. */
 private const val NIX_STORE = "/nix/store/"
-
-/** A setting as it applies, and the key of elamond's settings it comes from. */
-@Composable
-private fun Ref(@StringRes title: Int, value: String, key: String, note: String? = null) {
-	Column(Modifier.fillMaxWidth().padding(horizontal = Space.xl, vertical = Space.m), verticalArrangement = Arrangement.spacedBy(Space.xxs)) {
-		Row(verticalAlignment = Alignment.CenterVertically) {
-			Text(stringResource(title), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-			Spacer(Modifier.width(Space.m))
-			Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.End)
-		}
-		Text(key, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
-		note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-	}
-}
-
-@Composable
-private fun onOff(on: Boolean): String = stringResource(if (on) R.string.settings_on else R.string.settings_off)
-
-@Composable
-private fun themeName(t: ThemeMode): String = stringResource(
-	when (t) {
-		ThemeMode.System -> R.string.settings_theme_system
-		ThemeMode.Light -> R.string.settings_theme_light
-		ThemeMode.Dark -> R.string.settings_theme_dark
-	}
-)
-
-@Composable
-private fun graceName(g: UnlockGrace): String =
-	if (g == UnlockGrace.EveryTime) stringResource(R.string.settings_unlock_every_time) else stringResource(R.string.settings_unlock_minutes, g.minutes)
-
-@StringRes
-internal fun Guarded.title(): Int = when (this) {
-	Guarded.Power -> R.string.settings_unlock_power
-	Guarded.Processes -> R.string.settings_unlock_processes
-	Guarded.Actions -> R.string.settings_unlock_actions
-	Guarded.Units -> R.string.settings_unlock_units
-	Guarded.Profile -> R.string.settings_unlock_profile
-	Guarded.Media -> R.string.settings_unlock_media
-}
-
-/** The profile a phone has when the computer names none. */
-private const val DEFAULT_PROFILE = "default"
-
