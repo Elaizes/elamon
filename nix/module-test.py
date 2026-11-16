@@ -54,7 +54,7 @@ with subtest("the listed user's service takes the port, and says it speaks API 2
 	machine.succeed("systemctl start user@1000.service")
 	machine.wait_until_succeeds("ss -ltnpe | grep :47823 | grep -q uid:1000", timeout=60)
 	hello = json.loads(machine.succeed("curl -sk https://localhost:47823/api/v1/hello"))
-	assert hello["app"] == "elamon" and hello["api"] == 2 and hello["widgets"] == 1 and hello["min_app"] == "0.6.0", hello
+	assert hello["app"] == "elamon" and hello["api"] == 2 and hello["widgets"] == 2 and hello["min_app"] == "0.6.0", hello
 	# What the computer can do is no stranger's business: only a paired phone reads it, in ui.
 	assert "features" not in hello, hello
 
