@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde_json::Value;
 
 use crate::format;
+use crate::history::timeline;
 use crate::settings::{Bound, Labels, Widget};
 use crate::ui::{Dashboard, Obj, Put, Sources, UiWidget};
 use crate::values::{self, Item, Level, Limits, Scalar, View, V};
@@ -102,8 +103,17 @@ pub fn state(w: &UiWidget, s: &States) -> Option<Obj> {
 		"text" => {
 			if let Some(t) = d.text.as_deref().filter(|t| format::holds_values(t)) {
 				o.put("text", fill(s, t));
-				o.put("level", d.level.clone().unwrap_or_else(|| "normal".into()));
+				// A timeline's in its place has its status's level.
+				let own = d.value.as_deref().and_then(|a| s.view.get(a)).and_then(|x| x.level).map(|l| l.as_str().to_string());
+				o.put("level", d.level.clone().or(own).unwrap_or_else(|| "normal".into()));
 			}
+		}
+		"timeline" => {
+			let to = s.view.values.t;
+			let from = to.saturating_sub(d.range.unwrap_or(crate::consts::cadence::TIMELINE_RANGE).saturating_mul(1000));
+			let changes = d.source.as_deref().and_then(|src| s.view.values.timelines.get(src));
+			let segments = timeline::segments(changes.map_or(&[][..], |c| c.as_slice()), from, to);
+			o.put("segments", timeline::json(&segments));
 		}
 		"media" => media_state(s, &mut o),
 		_ => {}

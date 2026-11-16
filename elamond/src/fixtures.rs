@@ -536,6 +536,39 @@ fn history() {
 	std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// `GET /api/v1/history` of the fixture station's timeline over `7d` (0.7/history-timeline.json),
+/// from its power's changes, at the fixture sample's `t`.
+#[test]
+fn history_timeline() {
+	let values = ups_values(&ui_ups_source());
+	let answer = crate::history::api::timeline(&values.timelines["eco"], "ups.eco/power", "7d", sample().t).unwrap();
+	check_compact("0.7/history-timeline", &Value::Object(answer));
+}
+
+/// A client that doesn't draw timelines gets the fixture station's as a text: its status, how long
+/// it has been so, and the status's level.
+#[test]
+fn a_timeline_reaches_an_older_app_as_its_status() {
+	let config = ui_ups_source();
+	let values = ups_values(&config);
+	let caps = crate::actions::Caps::all(&values.power_profiles);
+	let draws: std::collections::BTreeSet<String> = crate::settings::WIDGET_TYPES.iter().filter(|t| **t != "timeline").map(|t| t.to_string()).collect();
+	let ui = crate::ui::build(&crate::ui::tests::input(&config, &values, &caps, Role::Glance, "owner", Some(&draws)));
+	let d = ui.dashboard("ups.eco").unwrap();
+	let w = d.widgets.iter().find(|w| w.id == "ups.eco/power").unwrap();
+	let json = &ui.doc["dashboards"][0]["widgets"].as_array().unwrap().iter().find(|w| w["id"] == "ups.eco/power").unwrap().clone();
+	assert_eq!(json, &serde_json::json!({ "id": "ups.eco/power", "type": "text", "span": 4, "label": "Power", "icon": "power", "level": "normal" }));
+	let sorts = std::collections::HashMap::new();
+	let s = crate::states::States { view: crate::values::View::new(&values, Role::Glance, ui.units), control: false, sorts: &sorts, read: crate::ui::Sources::ALL };
+	assert_eq!(Value::Object(crate::states::state(w, &s).unwrap()), serde_json::json!({ "text": "On battery · 12 min", "level": "warning" }));
+	// Unreachable, it has been so for no time the service knows of: the status alone.
+	let mut gone = values.clone();
+	gone.scalars.remove("eco.status.since");
+	gone.scalars.insert("eco.status".into(), crate::values::source_scalar("status", crate::values::V::Text("Unreachable".into()), Some(crate::values::Level::Critical)));
+	let s = crate::states::States { view: crate::values::View::new(&gone, Role::Glance, ui.units), control: false, sorts: &sorts, read: crate::ui::Sources::ALL };
+	assert_eq!(Value::Object(crate::states::state(w, &s).unwrap()), serde_json::json!({ "text": "Unreachable", "level": "critical" }));
+}
+
 // ---- 0.7: a UPS source -----------------------------------------------------------------------
 
 /// The settings 0.7/ui-ups.json and 0.7/stream-ups.json describe.
@@ -659,11 +692,11 @@ fn stream_ups() -> Value {
 	Value::Object(crate::states::data(sample().t, ui.dashboard("ups.eco").unwrap(), None, &s, None))
 }
 
-/// What of 0.7/ui-ups.json and 0.7/stream-ups.json the service has yet: not the timeline's segments,
-/// nor the station's actions (`nut.command.*`, `nut.set.*`) and the widgets that run them, which
-/// they leave out, nor the `version` of a document without them.
+/// What of 0.7/ui-ups.json and 0.7/stream-ups.json the service has yet: not the station's actions
+/// (`nut.command.*`, `nut.set.*`) and the widgets that run them, which they leave out, nor the
+/// `version` of a document without them.
 fn without_what_comes_later(mut v: Value) -> Value {
-	let later = |id: &str| id == "ups.eco/power" || id.starts_with("ups.eco/switches") || id == "ups.eco/charge_limit";
+	let later = |id: &str| id.starts_with("ups.eco/switches") || id == "ups.eco/charge_limit";
 	if let Some(o) = v.as_object_mut() {
 		o.remove("version");
 		if let Some(Value::Array(actions)) = o.get_mut("actions") {
@@ -694,7 +727,7 @@ fn compact_text(v: &Value) -> String {
 }
 
 /// What the service builds of the fixture station is 0.7/ui-ups.json and 0.7/stream-ups.json, but
-/// for what comes with the timeline's state and the station's actions.
+/// for what comes with the station's actions.
 #[test]
 fn ups_so_far() {
 	assert_eq!(compact_text(&without_what_comes_later(ui_ups().doc)), compact_text(&without_what_comes_later(fixture_0_7("ui-ups.json"))));
@@ -702,13 +735,13 @@ fn ups_so_far() {
 }
 
 #[test]
-#[ignore = "the service has no timeline segments nor station actions yet; ups_so_far checks the rest"]
+#[ignore = "the service has no station actions yet (stage 2); ups_so_far checks the rest"]
 fn ui_ups_whole() {
 	check_compact("0.7/ui-ups", &ui_ups().doc);
 }
 
 #[test]
-#[ignore = "the service has no timeline segments nor station actions yet; ups_so_far checks the rest"]
+#[ignore = "the service has no station actions yet (stage 2); ups_so_far checks the rest"]
 fn stream_ups_whole() {
 	check_compact("0.7/stream-ups", &stream_ups());
 }
@@ -734,6 +767,7 @@ fn the_starter_ups_dashboard_shows_what_a_station_has() {
 			[
 				"ups.eco/status",
 				"ups.eco/charge",
+				"ups.eco/power",
 				"ups.eco/now",
 				"ups.eco/now/grid",
 				"ups.eco/now/output",

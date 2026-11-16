@@ -13,13 +13,16 @@ use std::time::{Duration, SystemTime};
 use tokio::sync::{mpsc, oneshot, watch};
 use upst_core::history::recordable;
 use upst_core::poll::{self, Poller, Update};
-use upst_core::status::{flag_info, Severity, Status};
+use upst_core::status::{flag_info, Severity};
 use upst_core::target::Server;
 use upst_core::{fmt as nut_fmt, Event, Link, Ups};
 
 use crate::access::Role;
 use crate::consts::{limit, timeout};
 use crate::format;
+pub use crate::history::timeline::Supply;
+use crate::history::timeline::{Change, Timeline};
+use crate::history::Store;
 use crate::settings::{Config, NutSource};
 use crate::values::{self, AddressDef, Item, Level, Scalar, Values, V};
 
@@ -52,37 +55,6 @@ pub fn def_of(var: &str) -> AddressDef {
 		}
 	};
 	AddressDef { pattern: "", unit, format, role }
-}
-
-/// Where a station's power comes from, as its timeline has it: on line (or on bypass), on
-/// battery, or not known.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Supply {
-	Line,
-	Battery,
-	#[default]
-	None,
-}
-
-impl Supply {
-	pub fn as_str(self) -> &'static str {
-		match self {
-			Supply::Line => "line",
-			Supply::Battery => "battery",
-			Supply::None => "none",
-		}
-	}
-
-	/// From `ups.status`: on battery with `OB`; on line with `OL`, or on bypass.
-	pub fn of(status: &Status) -> Supply {
-		if status.has("OB") {
-			Supply::Battery
-		} else if status.has("OL") || status.power() == upst_core::Power::Bypass {
-			Supply::Line
-		} else {
-			Supply::None
-		}
-	}
 }
 
 /// The level of what upst-core weighs as `s`.
@@ -151,8 +123,10 @@ const OUTLET_LIVE: [&str; 4] = ["status", "realpower", "voltage", "current"];
 pub struct Station {
 	id: String,
 	ups: Ups,
-	/// Where the power comes from, and since when (Unix seconds).
-	supply: (Supply, Option<u64>),
+	/// Where the power comes from now.
+	supply: Supply,
+	/// And since when, as far as the service has seen.
+	timeline: Timeline,
 	/// The variables made values: no more than `limit::NUT_VARS_MAX`.
 	vars: BTreeSet<String>,
 	/// More than those were left out, which the journal said.
@@ -173,9 +147,11 @@ pub struct Snapshot {
 	pub known: BTreeMap<String, &'static str>,
 	/// Its numbers the long history may keep.
 	pub kept: Vec<String>,
-	/// Where its power comes from, and since when (Unix seconds).
+	/// Where its power comes from, and since when (Unix seconds) while it comes from somewhere.
 	pub supply: Supply,
 	pub since: Option<u64>,
+	/// Its power's changes, oldest first.
+	pub timeline: Arc<Vec<Change>>,
 	/// Its item of the `ups` collection, and of `outlets` (all but `source` and `critical`).
 	pub item: BTreeMap<&'static str, V>,
 	pub outlets: BTreeMap<u32, BTreeMap<&'static str, V>>,
@@ -185,7 +161,13 @@ pub struct Snapshot {
 }
 
 impl Station {
+	/// The station of the source `id`, its timeline kept in memory alone.
 	pub fn new(id: &str, src: &NutSource) -> Station {
+		Station::keeping(id, src, Timeline::memory())
+	}
+
+	/// The station of the source `id`, with its timeline as far as it goes.
+	pub fn keeping(id: &str, src: &NutSource, timeline: Timeline) -> Station {
 		let label = Server { host: src.host.clone(), port: src.port }.to_string();
 		// What any station comes to have, known from the start: the first time upsd is lost, or the
 		// power comes from somewhere, makes no new `ui`.
@@ -193,7 +175,8 @@ impl Station {
 		Station {
 			id: id.to_string(),
 			ups: Ups::builder(&src.ups, &label).capacity_wh(src.capacity_wh).history(None).build(),
-			supply: (Supply::None, None),
+			supply: Supply::None,
+			timeline,
 			vars: BTreeSet::new(),
 			too_many: false,
 			known,
@@ -201,17 +184,23 @@ impl Station {
 		}
 	}
 
-	fn supplied(&mut self, s: Supply, at: SystemTime) {
-		if s != self.supply.0 {
-			self.supply = (s, Some(upst_core::unix(at) as u64));
-		}
+	/// The power comes from `s` from `at` on, as `events` say.
+	fn supplied(&mut self, s: Supply, at: SystemTime, events: &[Event]) {
+		self.supply = s;
+		let code = events.first().map_or("-", Event::code);
+		self.timeline.set(s, upst_core::unix(at) as u64, code);
+	}
+
+	/// The source stops being read at `at`: its timeline ends.
+	fn close(&mut self, at: SystemTime) {
+		self.timeline.close(upst_core::unix(at) as u64);
 	}
 
 	/// A poll of every variable, answered at `at`; the first is where watching starts. Returns
 	/// what it implies.
 	pub fn polled(&mut self, vars: Vec<(String, String)>, at: SystemTime) -> Vec<Event> {
 		let events = self.ups.apply(vars, at);
-		self.supplied(Supply::of(self.ups.status()), at);
+		self.supplied(Supply::of(self.ups.status()), at, &events);
 		events
 	}
 
@@ -219,13 +208,16 @@ impl Station {
 	/// (`Link::Down`), since `at`.
 	pub fn lost(&mut self, link: Link, at: SystemTime) -> Option<Event> {
 		let event = self.ups.lost(link, at);
-		self.supplied(Supply::None, at);
+		self.supplied(Supply::None, at, event.as_slice());
 		event
 	}
 
 	/// Its values now, `at` the time of the last update.
 	pub fn snapshot(&mut self, at: SystemTime) -> Snapshot {
-		let mut s = Snapshot { supply: self.supply.0, since: self.supply.1, polls: self.ups.polls(), ..Default::default() };
+		let timeline = self.timeline.changes();
+		// Since its last change, which is to how it is now.
+		let since = timeline.last().filter(|c| c.state == self.supply && self.supply != Supply::None).map(|c| c.t);
+		let mut s = Snapshot { supply: self.supply, since, timeline, polls: self.ups.polls(), ..Default::default() };
 		let id = self.id.clone();
 		let address = |var: &str| format!("{id}.{var}");
 		let up = self.ups.is_live();
@@ -266,7 +258,7 @@ impl Station {
 		}
 		let (status, level) = status_of(&self.ups);
 		s.scalars.insert(address("status"), values::source_scalar("status", V::Text(status.into()), Some(level)));
-		s.scalars.insert(address("status.power"), values::source_scalar("status.power", V::Text(self.supply.0.as_str().into()), None));
+		s.scalars.insert(address("status.power"), values::source_scalar("status.power", V::Text(self.supply.as_str().into()), None));
 		s.scalars.insert(address("link"), values::source_scalar("link", V::Text(link_word(self.ups.link()).into()), None));
 		if let Link::Stale(why) | Link::Down(why) = self.ups.link() {
 			s.scalars.insert(address("link.error"), values::source_scalar("link.error", V::Text(why.clone()), None));
@@ -324,7 +316,7 @@ impl Station {
 			item.insert("mfr", m);
 		}
 		item.insert("status", V::Text(status.into()));
-		item.insert("power", V::Text(self.supply.0.as_str().into()));
+		item.insert("power", V::Text(self.supply.as_str().into()));
 		item.insert("link", V::Text(link_word(self.ups.link()).into()));
 		item.insert("ecoflow", V::Bool(self.ups.ecoflow()));
 		item
@@ -382,6 +374,7 @@ pub fn put(values: &mut Values, config: &Config, snapshots: &BTreeMap<String, Ar
 			values.scalars.insert(format!("{id}.status.since"), values::source_scalar("status.since", age, None));
 		}
 		values.known.extend(snap.known.iter().map(|(a, f)| (a.clone(), *f)));
+		values.timelines.insert(id.clone(), snap.timeline.clone());
 		if src.history {
 			values.kept.extend(snap.kept.iter().cloned());
 		}
@@ -424,6 +417,7 @@ struct Running {
 	snapshot: Arc<Mutex<Arc<Snapshot>>>,
 	demand: watch::Sender<Demand>,
 	_stop: oneshot::Sender<()>,
+	task: tokio::task::JoinHandle<()>,
 }
 
 /// Every source of the settings, each read by a poller of its own.
@@ -434,15 +428,16 @@ pub struct Runtime {
 
 #[derive(Default)]
 struct Inner {
-	/// Where the sources' tasks run, once the service has started them.
-	handle: Option<tokio::runtime::Handle>,
+	/// Where the sources' tasks run, once the service has started them, and the history they keep.
+	handle: Option<(tokio::runtime::Handle, Arc<Store>)>,
 	sources: BTreeMap<String, Running>,
 }
 
 impl Runtime {
-	/// Starts the sources of `config`, their tasks on `handle`.
-	pub fn start(&self, handle: tokio::runtime::Handle, config: &Config) {
-		self.lock().handle = Some(handle);
+	/// Starts the sources of `config`, their tasks on `handle`, their timelines and their last
+	/// readings kept in `store`.
+	pub fn start(&self, handle: tokio::runtime::Handle, config: &Config, store: Arc<Store>) {
+		self.lock().handle = Some((handle, store));
 		self.apply(config);
 	}
 
@@ -454,7 +449,7 @@ impl Runtime {
 	/// changed starts. Before `start`, nothing runs.
 	pub fn apply(&self, config: &Config) {
 		let mut inner = self.lock();
-		let Some(handle) = inner.handle.clone() else { return };
+		let Some((handle, store)) = inner.handle.clone() else { return };
 		inner.sources.retain(|id, r| {
 			let keep = config.sources.get(id) == Some(&r.src);
 			if !keep {
@@ -464,7 +459,7 @@ impl Runtime {
 		});
 		for (id, src) in &config.sources {
 			if !inner.sources.contains_key(id) {
-				match spawn(&handle, id, src) {
+				match spawn(&handle, &store, id, src) {
 					Ok(r) => {
 						inner.sources.insert(id.clone(), r);
 					}
@@ -480,12 +475,23 @@ impl Runtime {
 		inner.sources.iter().map(|(id, r)| (id.clone(), r.snapshot.lock().unwrap_or_else(|p| p.into_inner()).clone())).collect()
 	}
 
+	/// Stops every source, its timeline ending now, and waits a moment for their tasks to end: as
+	/// the service stops.
+	pub async fn stop(&self) {
+		let sources = std::mem::take(&mut self.lock().sources);
+		// Each told to stop as the rest of it goes, before any is waited for.
+		let tasks: Vec<_> = sources.into_values().map(|r| r.task).collect();
+		for task in tasks {
+			let _ = tokio::time::timeout(Duration::from_secs(1), task).await;
+		}
+	}
+
 	/// How often each source is to be asked now: `live` while a client shows a source's values,
-	/// `tracked` what graphs and sparks show.
-	pub fn set_demand(&self, live: bool, tracked: &BTreeSet<String>) {
+	/// `tracked` what graphs and sparks show, `timelines` the sources timelines show.
+	pub fn set_demand(&self, live: bool, tracked: &BTreeSet<String>, timelines: &BTreeSet<String>) {
 		let inner = self.lock();
 		for (id, r) in &inner.sources {
-			let graphed = tracked.iter().any(|a| a.split('.').next() == Some(id.as_str()));
+			let graphed = timelines.contains(id) || tracked.iter().any(|a| a.split('.').next() == Some(id.as_str()));
 			let want = if live {
 				Demand::Live
 			} else if r.src.history || graphed {
@@ -499,7 +505,7 @@ impl Runtime {
 }
 
 /// A poller for `src`, and the task that takes in what it reports.
-fn spawn(handle: &tokio::runtime::Handle, id: &str, src: &NutSource) -> std::io::Result<Running> {
+fn spawn(handle: &tokio::runtime::Handle, store: &Arc<Store>, id: &str, src: &NutSource) -> std::io::Result<Running> {
 	let (tx, updates) = mpsc::unbounded_channel();
 	let mut cfg = poll::Config::new(Server { host: src.host.clone(), port: src.port });
 	cfg.names = Some(vec![src.ups.clone()]);
@@ -507,47 +513,61 @@ fn spawn(handle: &tokio::runtime::Handle, id: &str, src: &NutSource) -> std::io:
 	cfg.timeout = timeout::NUT;
 	cfg.meta = !src.commands.is_empty() || !src.settings.is_empty();
 	let poller = Poller::spawn(cfg, move |u| tx.send(u).is_ok())?;
-	let mut station = Station::new(id, src);
+	let timeline = Timeline::load(&store.dir().join(crate::history::timeline::DIR), id, store.last_seen(id));
+	let mut station = Station::keeping(id, src, timeline);
 	let snapshot = Arc::new(Mutex::new(Arc::new(station.snapshot(SystemTime::now()))));
 	let (demand, wanted) = watch::channel(Demand::Background);
 	let (stop, stopped) = oneshot::channel();
-	handle.spawn(run(station, src.clone(), poller, updates, wanted, stopped, snapshot.clone()));
-	Ok(Running { src: src.clone(), snapshot, demand, _stop: stop })
+	let task = Task { id: id.to_string(), src: src.clone(), poller, updates, wanted, stopped, out: snapshot.clone(), store: store.clone() };
+	let task = handle.spawn(task.run(station));
+	Ok(Running { src: src.clone(), snapshot, demand, _stop: stop, task })
 }
 
-/// A source's task: what the poller reports becomes the source's snapshot, and the poller asks as
-/// often as wanted, until the source is stopped.
-async fn run(
-	mut station: Station,
+/// What a source's task works with, besides its station.
+struct Task {
+	id: String,
 	src: NutSource,
 	poller: Poller,
-	mut updates: mpsc::UnboundedReceiver<Update>,
-	mut wanted: watch::Receiver<Demand>,
-	mut stopped: oneshot::Receiver<()>,
+	updates: mpsc::UnboundedReceiver<Update>,
+	wanted: watch::Receiver<Demand>,
+	stopped: oneshot::Receiver<()>,
+	/// Where its snapshot is left.
 	out: Arc<Mutex<Arc<Snapshot>>>,
-) {
-	let mut asking = Asking { interval: src.background(), paused: false };
-	asking.set(&poller, &src, *wanted.borrow_and_update());
-	loop {
-		tokio::select! {
-			_ = &mut stopped => break,
-			changed = wanted.changed() => {
-				if changed.is_err() {
-					break;
+	store: Arc<Store>,
+}
+
+impl Task {
+	/// What the poller reports becomes the source's snapshot, and the poller asks as often as
+	/// wanted, until the source is stopped; then its timeline ends.
+	async fn run(mut self, mut station: Station) {
+		let mut asking = Asking { interval: self.src.background(), paused: false };
+		asking.set(&self.poller, &self.src, *self.wanted.borrow_and_update());
+		loop {
+			tokio::select! {
+				_ = &mut self.stopped => break,
+				changed = self.wanted.changed() => {
+					if changed.is_err() {
+						break;
+					}
+					asking.set(&self.poller, &self.src, *self.wanted.borrow_and_update());
 				}
-				asking.set(&poller, &src, *wanted.borrow_and_update());
-			}
-			u = updates.recv() => {
-				let Some(u) = u else { break };
-				if let Some(at) = station.update(&src, u) {
-					let s = Arc::new(station.snapshot(at));
-					*out.lock().unwrap_or_else(|p| p.into_inner()) = s;
+				u = self.updates.recv() => {
+					let Some(u) = u else { break };
+					let read = matches!(&u, Update::Vars { ups, .. } if *ups == self.src.ups);
+					if let Some(at) = station.update(&self.src, u) {
+						if read {
+							self.store.seen(&self.id, upst_core::unix(at) as u64);
+						}
+						let s = Arc::new(station.snapshot(at));
+						*self.out.lock().unwrap_or_else(|p| p.into_inner()) = s;
+					}
 				}
 			}
 		}
+		station.close(SystemTime::now());
+		// Dropped, the poller tells its thread to end, which it does once a call in flight returns.
+		drop(self.poller);
 	}
-	// Dropped, the poller tells its thread to end, which it does once a call in flight returns.
-	drop(poller);
 }
 
 /// How the poller asks now.

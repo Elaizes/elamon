@@ -2017,6 +2017,54 @@ dashboards = ["overview", "control"]
 		remove_test_dir(&hub.dir);
 	}
 
+	#[tokio::test]
+	async fn history_answers_for_a_timeline_in_the_clients_ui_alone() {
+		let (hub, tx) = hub(true);
+		// The starter dashboard of a UPS source, which all see, and a timeline only monitor and up see.
+		let extra = "[sources.eco]\nkind = \"nut\"\nups = \"ups\"\n\
+			[dashboards.secret]\ntitle = \"Secret\"\nrole = \"monitor\"\n\
+			[[dashboards.secret.widgets]]\nid = \"power\"\ntype = \"timeline\"\nsource = \"eco\"\nrange = 3600\n\
+			[profiles.default]\ndashboards = [\"overview\", \"ups\", \"secret\"]\n";
+		let config = crate::settings::read_over_defaults(&[crate::settings::Source::new("test.toml", format!("control = true\n{SETTINGS}{extra}"))]).unwrap();
+		hub.set_config(config.clone());
+		// The fixture station, its power's changes from 1699977600 to 1699999280, on battery since.
+		let values = crate::fixtures::ups_values(&config);
+		let caps = Caps::all(&values.power_profiles);
+		tx.send_replace(Arc::new(Frame { seq: 2, shape: shape_of(&values, &caps), values: Arc::new(values), caps: Arc::new(caps), read: Sources::ALL, features: Arc::new(vec!["processes", "ups"]) }));
+		let path = |w: &str, r: &str| format!("/api/v1/history?widget={w}&range={r}");
+		let segments = |v: &serde_json::Value| -> Vec<(u64, u64, String)> {
+			v["segments"].as_array().unwrap().iter().map(|s| (s["from"].as_u64().unwrap(), s["to"].as_u64().unwrap(), s["state"].as_str().unwrap().to_string())).collect()
+		};
+		for phone in PHONES {
+			let (status, v) = call(&hub, "GET", &path("ups.eco/power", "all"), phone, "").await;
+			assert_eq!(status, StatusCode::OK, "{phone}: {v}");
+			let (from, to) = (v["from"].as_u64().unwrap(), v["to"].as_u64().unwrap());
+			assert_eq!((v["widget"].as_str(), v["range"].as_str(), from), (Some("ups.eco/power"), Some("all"), 1_699_977_600_000), "{v}");
+			let s = segments(&v);
+			let states: Vec<&str> = s.iter().map(|s| s.2.as_str()).collect();
+			// Years to now: its first hours are too short to tell apart, and made one, `none` among them.
+			assert_eq!(states, ["none", "battery"], "{v}");
+			assert_eq!((s[0].0, s[1].0, s[1].1), (from, 1_699_999_280_000, to));
+			// A week back from now: on battery all of it, as nothing has changed since.
+			let (_, week) = call(&hub, "GET", &path("ups.eco/power", "7d"), phone, "").await;
+			let (from, to) = (week["from"].as_u64().unwrap(), week["to"].as_u64().unwrap());
+			assert_eq!((to - from, segments(&week)), (7 * 86_400_000, vec![(from, to, "battery".to_string())]), "{week}");
+			let (status, v) = call(&hub, "GET", &path("secret/power", "1h"), phone, "").await;
+			if role_of(phone) < Role::Monitor {
+				assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("no_such_widget")), "{phone}: {v}");
+			} else {
+				assert_eq!((status, v["range"].as_str(), segments(&v).len()), (StatusCode::OK, Some("1h"), 1), "{phone}: {v}");
+			}
+		}
+		let (status, v) = call(&hub, "GET", &path("ups.eco/power", "2d"), "admin", "").await;
+		assert_eq!((status, v["error"].as_str(), v["message"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_param"), Some("range")), "{v}");
+		// A client that doesn't draw timelines has a text in their place, and no history of them.
+		assert_eq!(call(&hub, "GET", "/api/v1/ui?widgets=value,text,status,graph", "admin", "").await.0, StatusCode::OK);
+		let (status, v) = call(&hub, "GET", &path("ups.eco/power", "24h"), "admin", "").await;
+		assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("no_such_widget")), "{v}");
+		remove_test_dir(&hub.dir);
+	}
+
 	/// The lines of a stream as they come, each in time.
 	struct Lines(axum::body::BodyDataStream);
 

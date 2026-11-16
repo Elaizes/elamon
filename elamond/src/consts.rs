@@ -6,7 +6,7 @@ pub mod protocol {
 	pub const API_VERSION: u32 = 2;
 	/// The dictionary of widget types and their keys (`hello`'s `widgets`): it grows, a type or a
 	/// key added, never changed.
-	pub const WIDGETS_VERSION: u32 = 1;
+	pub const WIDGETS_VERSION: u32 = 2;
 	/// The oldest app that understands this service; an older one asks to be updated.
 	pub const MIN_APP: &str = "0.6.0";
 	/// The header a client says what it is in: `Elamon-Client: android/0.6.0`.
@@ -208,6 +208,9 @@ pub mod limit {
 	pub const UIS_KEPT: usize = 64;
 	/// A UPS source's variables made values at most; any more are left out, said once.
 	pub const NUT_VARS_MAX: usize = 256;
+	/// Changes of a UPS source's power kept at most, in memory and in its timeline's file (which may hold
+	/// twice as many before it is written anew with these): the oldest go.
+	pub const TIMELINE_CHANGES: usize = 10_000;
 }
 
 /// `elamond backup` and `elamond restore`.

@@ -1,10 +1,12 @@
 //! The history of the values graphs and sparks show: the last minutes of each in memory, at every
 //! reading (`ring`), and on disk every 10 seconds for a day, every 5 minutes for 30 days and every
-//! hour for good (`disk`), which `GET /api/v1/history` answers from (`api`).
+//! hour for good (`disk`), which `GET /api/v1/history` answers from (`api`); and when each UPS
+//! source was on line, on battery or not known (`timeline`).
 
 pub mod api;
 pub mod disk;
 pub mod ring;
+pub mod timeline;
 
 use std::collections::{BTreeMap, BTreeSet};
 

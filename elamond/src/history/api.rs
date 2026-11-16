@@ -1,5 +1,5 @@
 //! `GET /api/v1/history` (docs/protocol.md): a graph's long history over one of six ranges, each
-//! bucket the mean of a tier's points in it.
+//! bucket the mean of a tier's points in it; a timeline's segments over one.
 
 use std::sync::Arc;
 
@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::disk::{Point, Store, Tier, EARLIEST_SECS};
+use super::timeline::{self, Change};
 use crate::access::Caller;
 use crate::errors::ErrorCode;
 use crate::format;
@@ -42,15 +43,20 @@ pub struct HistoryQuery {
 	range: Option<String>,
 }
 
-/// The long history of a graph in the client's `ui`: the one it has now, for its role, profile and
-/// the widget types it last said it draws. A timeline's comes with timelines.
+/// The long history of a graph or a timeline in the client's `ui`: the one it has now, for its role,
+/// profile and the widget types it last said it draws.
 pub async fn history(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Extension(app): Extension<ClientApp>, Query(q): Query<HistoryQuery>) -> Response {
 	let Some(widget) = q.widget.filter(|w| !w.is_empty()) else { return error_with(ErrorCode::BadParam, "widget") };
 	let Some(range) = q.range.filter(|r| plan(r).is_some()) else { return error_with(ErrorCode::BadParam, "range") };
 	let key = hub.ui_key(&who, &app.kind, hub.draws_of(&who.id, &app.kind));
 	let frame = hub.frame.borrow().clone();
 	let ui = hub.ui(&key, &frame);
-	let Some(w) = graph_in(&ui, &widget) else { return error(ErrorCode::NoSuchWidget) };
+	let Some(w) = widget_in(&ui, &widget) else { return error(ErrorCode::NoSuchWidget) };
+	if w.kind == "timeline" {
+		let changes = w.def.source.as_deref().and_then(|s| frame.values.timelines.get(s)).cloned().unwrap_or_default();
+		let o = timeline(&changes, &widget, &range, crate::activity::now_ms()).unwrap_or_default();
+		return json_response(serde_json::to_string(&o).unwrap_or_default());
+	}
 	let addresses: Vec<String> = w.def.values.iter().flatten().cloned().collect();
 	let (store, units) = (hub.long.clone(), ui.units);
 	let answer = tokio::task::spawn_blocking(move || {
@@ -66,9 +72,35 @@ pub async fn history(State(hub): State<Arc<Hub>>, Extension(who): Extension<Call
 	}
 }
 
-/// The graph `id` of `ui`.
-fn graph_in<'a>(ui: &'a Ui, id: &str) -> Option<&'a UiWidget> {
-	ui.dashboards.iter().flat_map(|d| d.all_widgets()).find(|w| w.id == id && w.kind == "graph")
+/// The graph or timeline `id` of `ui`.
+fn widget_in<'a>(ui: &'a Ui, id: &str) -> Option<&'a UiWidget> {
+	ui.dashboards.iter().flat_map(|d| d.all_widgets()).find(|w| w.id == id && (w.kind == "graph" || w.kind == "timeline"))
+}
+
+/// The answer for the timeline `widget` over `range` at `now_ms`, from its source's `changes`: the
+/// segments from the range before `now_ms` (for `all`, its first change) to `now_ms`. None for a
+/// range there isn't.
+pub fn timeline(changes: &[Change], widget: &str, range: &str, now_ms: u64) -> Option<Obj> {
+	let secs: Option<u64> = match range {
+		"1h" => Some(3600),
+		"24h" => Some(86_400),
+		"7d" => Some(7 * 86_400),
+		"30d" => Some(30 * 86_400),
+		"1y" => Some(365 * 86_400),
+		"all" => None,
+		_ => return None,
+	};
+	let from = match secs {
+		Some(s) => now_ms.saturating_sub(s * 1000),
+		None => changes.first().map_or(now_ms, |c| c.t.saturating_mul(1000).min(now_ms)),
+	};
+	let mut o = Obj::new();
+	o.put("widget", widget);
+	o.put("range", range);
+	o.put("from", from);
+	o.put("to", now_ms);
+	o.put("segments", timeline::json(&timeline::segments(changes, from, now_ms)));
+	Some(o)
 }
 
 /// The answer for the graph `widget` over `range` at `now_ms`: for each of its series'

@@ -252,8 +252,8 @@ fn serve() -> Result<(), String> {
 	// The long history is written every few minutes by a thread of its own, and as the service stops.
 	history::disk::spawn_writer(hub.long.clone()).map_err(|e| e.to_string())?;
 	// Each UPS source's poller, its updates taken in by a task.
-	hub.nut.start(runtime.handle().clone(), &hub.config());
-	let long = hub.long.clone();
+	hub.nut.start(runtime.handle().clone(), &hub.config(), hub.long.clone());
+	let stopping = hub.clone();
 	{
 		let hub = hub.clone();
 		let id = identity.id.clone();
@@ -293,8 +293,10 @@ fn serve() -> Result<(), String> {
 		upkeep.listeners.shutdown(timeout::SHUTDOWN).await;
 		Ok(())
 	});
-	// The slots still being summed too: a restart loses none of what was read.
-	long.flush(store::now(), true);
+	// The sources' timelines end now; the slots still being summed are written too: a restart loses
+	// none of what was read.
+	runtime.block_on(stopping.nut.stop());
+	stopping.long.flush(store::now(), true);
 	served
 }
 
@@ -504,6 +506,8 @@ fn collect_loop(
 	let mut seq: u64 = 0;
 	// What the history ring keeps, and the settings and shape it was worked out for.
 	let mut tracked: (Option<(u64, u64)>, std::collections::BTreeSet<String>) = (None, Default::default());
+	// The sources timelines show, worked out with it.
+	let mut timelines = std::collections::BTreeSet::new();
 	let mut slow_said: Option<std::time::Instant> = None;
 	loop {
 		let started = std::time::Instant::now();
@@ -532,6 +536,7 @@ fn collect_loop(
 		if tracked.0 != stamp {
 			let first = tracked.0.is_none();
 			tracked = (stamp, ui::tracked(&config, &values));
+			timelines = ui::timelines(&config, &values);
 			// Graphs reach back past a restart: the ring starts from the long history's 10-second points.
 			if first && let Ok(mut h) = hub.history.lock() {
 				let span = hub.interval.as_millis() as u64 * h.capacity() as u64;
@@ -539,7 +544,7 @@ fn collect_loop(
 			}
 		}
 		// Upsd is asked often while a client shows a source's values, less while its history is kept.
-		hub.nut.set_demand(need.sources, &tracked.1);
+		hub.nut.set_demand(need.sources, &tracked.1, &timelines);
 		if let Ok(mut h) = hub.history.lock() {
 			h.push(&values, &tracked.1);
 		}

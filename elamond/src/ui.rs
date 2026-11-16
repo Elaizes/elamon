@@ -574,6 +574,20 @@ impl Ctx<'_> {
 					return g;
 				}
 			}
+			// The source's status and how long it has been so, coloured by the status.
+			"timeline" if self.draws("text") => {
+				let src = w.def.source.clone().unwrap_or_default();
+				let text = format!("{{{src}.status}}{}{{{src}.status.since:duration}}", format::PARTS);
+				let def = Widget {
+					kind: Some("text".into()),
+					label: w.def.label.clone(),
+					icon: w.def.icon.clone(),
+					text: Some(text),
+					value: Some(format!("{src}.status")),
+					..Default::default()
+				};
+				return UiWidget { id: w.id, kind: "text".into(), span: w.span, def, widgets: Vec::new() };
+			}
 			_ => {}
 		}
 		let label = w.def.label.clone();
@@ -811,6 +825,15 @@ pub fn tracked(config: &Config, values: &Values) -> BTreeSet<String> {
 				_ => {}
 			}
 		}
+	}
+	out
+}
+
+/// The sources the timelines of any dashboard show: asked in the background, as graphs' are.
+pub fn timelines(config: &Config, values: &Values) -> BTreeSet<String> {
+	let mut out = BTreeSet::new();
+	for d in all_dashboards(config, values) {
+		out.extend(d.all_widgets().into_iter().filter(|w| w.kind == "timeline").filter_map(|w| w.def.source.clone()));
 	}
 	out
 }

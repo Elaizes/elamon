@@ -8,6 +8,25 @@ use crate::access::Role;
 use crate::settings::{self, Source};
 use crate::values::{Units, View};
 
+/// A history of a test's own, taken away when it ends.
+pub struct Scratch(Arc<Store>);
+
+impl Scratch {
+	pub fn new() -> Scratch {
+		Scratch(Arc::new(Store::new(crate::history::disk::tests::scratch("nut"))))
+	}
+
+	pub fn store(&self) -> Arc<Store> {
+		self.0.clone()
+	}
+}
+
+impl Drop for Scratch {
+	fn drop(&mut self) {
+		let _ = std::fs::remove_dir_all(self.0.dir());
+	}
+}
+
 /// The tests that run pollers, one at a time: a thread left from one is never counted by another.
 static POLLERS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -280,8 +299,9 @@ async fn sources_on_the_demo_upsd_are_asked_as_often_as_wanted() {
 	let server = demo::Server::spawn().unwrap();
 	let port = server.addr().port();
 	let config = source(&format!("{}{}", demo_source("rack", "rack", "127.0.0.1", port, ""), demo_source("pack", "pack", "127.0.0.1", port, "history = false\n")));
+	let history = Scratch::new();
 	let rt = Runtime::default();
-	rt.start(tokio::runtime::Handle::current(), &config);
+	rt.start(tokio::runtime::Handle::current(), &config, history.store());
 	for id in ["rack", "pack"] {
 		let s = wait_for(&rt, id, Duration::from_secs(5), |s| s.scalars.contains_key(&format!("{id}.battery.charge"))).await;
 		assert_eq!(text(&s, &format!("{id}.status")).as_deref(), Some("On line"), "{id}");
@@ -293,17 +313,17 @@ async fn sources_on_the_demo_upsd_are_asked_as_often_as_wanted() {
 	assert_eq!(text(&rack, "rack.outlet.1.desc").as_deref(), Some("Servers"));
 	assert_eq!(rack.item.get("name"), Some(&V::Text("Smart 1500 RM (simulated)".into())));
 	// Shown on some client's screen: every 200 ms.
-	rt.set_demand(true, &BTreeSet::new());
+	rt.set_demand(true, &BTreeSet::new(), &BTreeSet::new());
 	let live = polls_over(&rt, "rack", Duration::from_millis(2000)).await;
 	assert!(live >= 6, "{live} polls in 2 s while shown");
 	// Nobody looks: rack's history is kept, every second; pack's isn't, nor is it graphed: not asked.
-	rt.set_demand(false, &BTreeSet::new());
+	rt.set_demand(false, &BTreeSet::new(), &BTreeSet::new());
 	tokio::time::sleep(Duration::from_millis(300)).await;
 	let (rack, pack) = tokio::join!(polls_over(&rt, "rack", Duration::from_millis(2500)), polls_over(&rt, "pack", Duration::from_millis(2500)));
 	assert!((1..=4).contains(&rack), "{rack} polls in 2.5 s in the background");
 	assert_eq!(pack, 0, "pack polled while nothing needs it");
 	// A graph of pack's values has it asked again.
-	rt.set_demand(false, &["pack.battery.charge".to_string()].into());
+	rt.set_demand(false, &["pack.battery.charge".to_string()].into(), &BTreeSet::new());
 	let pack = polls_over(&rt, "pack", Duration::from_millis(1600)).await;
 	assert!(pack >= 1, "{pack} polls of a graphed source");
 	drop(rt);
@@ -316,19 +336,61 @@ async fn a_station_that_loses_power_and_then_upsd() {
 	// The demo's rack goes on battery 20 s into its run: 19 s of it have passed.
 	let (server, _) = demo::Server::spawn_with_history(19.0, 1.0).unwrap();
 	let config = source(&demo_source("rack", "rack", "127.0.0.1", server.addr().port(), ""));
+	let history = Scratch::new();
 	let rt = Runtime::default();
-	rt.start(tokio::runtime::Handle::current(), &config);
-	rt.set_demand(true, &BTreeSet::new());
+	rt.start(tokio::runtime::Handle::current(), &config, history.store());
+	rt.set_demand(true, &BTreeSet::new(), &BTreeSet::new());
 	let s = wait_for(&rt, "rack", Duration::from_secs(30), |s| text(s, "rack.status").as_deref() == Some("On battery")).await;
 	assert_eq!(s.supply, Supply::Battery);
 	assert_eq!(s.scalars["rack.status"].level, Some(Level::Warning));
-	assert!(s.since.is_some());
+	// Its timeline: on line, then on battery since it went.
+	let states: Vec<Supply> = s.timeline.iter().map(|c| c.state).collect();
+	assert_eq!(states, [Supply::Line, Supply::Battery]);
+	assert_eq!(s.since, Some(s.timeline[1].t));
+	let now = s.timeline[1].t * 1000 + 5000;
+	let segs = crate::history::timeline::segments(&s.timeline, now - 600_000, now);
+	assert_eq!(segs.last().map(|g| (g.from, g.state)), Some((s.timeline[1].t * 1000, Supply::Battery)));
 	server.stop();
 	let s = wait_for(&rt, "rack", Duration::from_secs(10), |s| text(s, "rack.status").as_deref() == Some("Unreachable")).await;
 	assert_eq!(text(&s, "rack.link").as_deref(), Some("down"));
 	assert!(text(&s, "rack.link.error").is_some_and(|e| !e.is_empty()));
 	assert!(!s.scalars.contains_key("rack.battery.charge") && s.known.contains_key("rack.battery.charge"));
 	assert_eq!(s.supply, Supply::None);
+	assert_eq!(s.timeline.last().map(|c| c.state), Some(Supply::None));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_timeline_is_kept_across_a_restart() {
+	let _one = POLLERS.lock().await;
+	let server = demo::Server::spawn().unwrap();
+	let config = source(&demo_source("rack", "rack", "127.0.0.1", server.addr().port(), ""));
+	let history = Scratch::new();
+	let rt = Runtime::default();
+	rt.start(tokio::runtime::Handle::current(), &config, history.store());
+	let first = wait_for(&rt, "rack", Duration::from_secs(5), |s| s.supply == Supply::Line).await;
+	let on = first.timeline[0].t;
+	// Stopped in a later second than it was first read.
+	tokio::time::sleep(Duration::from_millis(1100)).await;
+	// Stopped, as the service does: its timeline ends, and when it was last read is kept.
+	rt.stop().await;
+	assert!(rt.snapshots().is_empty());
+	let store = history.store();
+	let file = std::fs::read_to_string(store.dir().join("timeline").join("rack")).unwrap();
+	assert!(file.starts_with(&format!("{on} line -\n")) && file.ends_with(" none -\n") && file.lines().count() == 2, "{file}");
+	store.flush(crate::store::now(), true);
+	let last = Store::new(store.dir().to_path_buf()).last_seen("rack").expect("kept");
+	assert!(last >= on);
+	let rt = Runtime::default();
+	rt.start(tokio::runtime::Handle::current(), &config, history.store());
+	let before: Vec<Supply> = rt.snapshots()["rack"].timeline.iter().map(|c| c.state).collect();
+	assert_eq!(before, [Supply::Line, Supply::None]);
+	let again = wait_for(&rt, "rack", Duration::from_secs(5), |s| s.supply == Supply::Line).await;
+	let after: Vec<(u64, Supply)> = again.timeline.iter().map(|c| (c.t, c.state)).collect();
+	assert_eq!((after.len(), after[0], after[2].1), (3, (on, Supply::Line), Supply::Line));
+	// On line since it was read again, not since it was first.
+	assert_eq!(again.since, Some(after[2].0));
+	rt.stop().await;
+	server.stop();
 }
 
 /// The threads named after a poller of `host`, as the kernel keeps their names (15 bytes).
@@ -344,8 +406,9 @@ async fn a_source_taken_out_of_the_settings_stops_its_thread() {
 	let server = demo::Server::spawn().unwrap();
 	// Only this test asks `localhost`: its poller's thread is the only one of that name.
 	let config = source(&demo_source("rack", "rack", "localhost", server.addr().port(), ""));
+	let history = Scratch::new();
 	let rt = Runtime::default();
-	rt.start(tokio::runtime::Handle::current(), &config);
+	rt.start(tokio::runtime::Handle::current(), &config, history.store());
 	wait_for(&rt, "rack", Duration::from_secs(5), |s| s.polls > 0).await;
 	assert_eq!(pollers_of("localhost"), 1);
 	// Changed, it starts again: still one.

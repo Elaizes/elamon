@@ -655,6 +655,8 @@ pub struct Values {
 	pub known: BTreeMap<String, &'static str>,
 	/// The sources' numbers the long history keeps, besides what graphs and sparks show.
 	pub kept: BTreeSet<String>,
+	/// Each source's power timeline, by its id.
+	pub timelines: BTreeMap<String, std::sync::Arc<Vec<crate::history::timeline::Change>>>,
 }
 
 impl Values {

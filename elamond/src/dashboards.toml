@@ -154,6 +154,13 @@ color = "battery"
 caption = "{{item}.battery.runtime:duration}"
 
 [[dashboards.ups.widgets]]
+id = "power"
+type = "timeline"
+source = "{item}"
+label = "Power"
+icon = "power"
+
+[[dashboards.ups.widgets]]
 id = "now"
 type = "group"
 label = "Power now"

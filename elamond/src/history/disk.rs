@@ -92,11 +92,13 @@ pub struct Store {
 	writer: Mutex<Writer>,
 	/// Files that couldn't be read, said in the journal once each.
 	unreadable: Mutex<HashSet<PathBuf>>,
+	/// When each source was last read live.
+	seen: Mutex<Seen>,
 }
 
-/// What the readings made in memory.
+/// What the readings made in memory: the slots being summed, and the points of those that ended.
 #[derive(Default)]
-struct Made {
+pub struct Made {
 	/// For each address, the slot of each tier being summed.
 	open: HashMap<String, [Option<Sum>; 3]>,
 	/// For each tier, the points of each address not written yet, in the order they were made.
@@ -118,6 +120,38 @@ impl Sum {
 }
 
 impl Made {
+	/// Readings at `secs` (Unix seconds), each summed into its slot of each tier. A slot that time
+	/// has moved on from becomes a point, for every address, whether it has a reading now or not.
+	pub fn push<'a>(&mut self, secs: u64, readings: impl IntoIterator<Item = (&'a str, f64)>) {
+		for (address, x) in readings {
+			if address.is_empty() || !x.is_finite() {
+				continue;
+			}
+			if !self.open.contains_key(address) {
+				self.open.insert(address.to_string(), [None; 3]);
+			}
+			let Made { open, pending } = self;
+			let sums = open.get_mut(address).expect("just put there");
+			for tier in Tier::ALL {
+				let slot = tier.slot(secs);
+				let sum = &mut sums[tier.index()];
+				match sum {
+					Some(s) if s.slot == slot => {
+						s.sum += x;
+						s.count += 1;
+					}
+					_ => {
+						if let Some(s) = sum.take() {
+							pending[tier.index()].entry(address.to_string()).or_default().push((s.slot, s.mean()));
+						}
+						*sum = Some(Sum { slot, sum: x, count: 1 });
+					}
+				}
+			}
+		}
+		self.close(|tier, slot| slot != tier.slot(secs));
+	}
+
 	/// The slots summed that `done` says are over become points.
 	fn close(&mut self, done: impl Fn(Tier, u32) -> bool) {
 		let Made { open, pending } = self;
@@ -141,6 +175,21 @@ struct Writer {
 	failing: bool,
 }
 
+/// When each source was last read live, as `state.json` keeps it beside the tiers:
+/// `{"version":1,"sources":{"eco":{"last":1700000000}}}`, Unix seconds. A recorder fills in the
+/// history from then, and a timeline left on line or battery ends then.
+#[derive(Default)]
+struct Seen {
+	/// Its file was read.
+	read: bool,
+	last: BTreeMap<String, u64>,
+	/// Changed since it was written.
+	changed: bool,
+}
+
+/// The file of `Seen`.
+pub const STATE: &str = "state.json";
+
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 	m.lock().unwrap_or_else(|p| p.into_inner())
 }
@@ -154,6 +203,7 @@ impl Store {
 			made: Mutex::new(Made::default()),
 			writer: Mutex::new(Writer::default()),
 			unreadable: Mutex::new(HashSet::new()),
+			seen: Mutex::new(Seen::default()),
 		}
 	}
 
@@ -165,35 +215,7 @@ impl Store {
 	/// Readings at `t_ms` (Unix ms), each summed into its slot of each tier. A slot that time has
 	/// moved on from becomes a point, for every address, whether it has a reading now or not.
 	pub fn push<'a>(&self, t_ms: u64, readings: impl IntoIterator<Item = (&'a str, f64)>) {
-		let secs = t_ms / 1000;
-		let mut made = lock(&self.made);
-		for (address, x) in readings {
-			if address.is_empty() || !x.is_finite() {
-				continue;
-			}
-			if !made.open.contains_key(address) {
-				made.open.insert(address.to_string(), [None; 3]);
-			}
-			let Made { open, pending } = &mut *made;
-			let sums = open.get_mut(address).expect("just put there");
-			for tier in Tier::ALL {
-				let slot = tier.slot(secs);
-				let sum = &mut sums[tier.index()];
-				match sum {
-					Some(s) if s.slot == slot => {
-						s.sum += x;
-						s.count += 1;
-					}
-					_ => {
-						if let Some(s) = sum.take() {
-							pending[tier.index()].entry(address.to_string()).or_default().push((s.slot, s.mean()));
-						}
-						*sum = Some(Sum { slot, sum: x, count: 1 });
-					}
-				}
-			}
-		}
-		made.close(|tier, slot| slot != tier.slot(secs));
+		lock(&self.made).push(t_ms / 1000, readings);
 	}
 
 	/// Writes the points made since the last flush (with `all`, as the service stops, the slots
@@ -212,17 +234,7 @@ impl Store {
 				.flat_map(|t| made.pending[t.index()].iter().map(|(a, p)| (*t, a.clone(), p.clone())))
 				.collect()
 		};
-		for tier in Tier::ALL.into_iter().filter(|t| batch.iter().any(|(b, ..)| b == t)) {
-			// Where it can't be made, each file of the tier says so below.
-			let _ = fs::DirBuilder::new().recursive(true).mode(0o700).create(self.dir.join(tier.name()));
-		}
-		let (mut failures, mut first) = (0, None);
-		for (tier, address, points) in &batch {
-			if let Err(e) = self.append(*tier, address, points, now) {
-				failures += 1;
-				first.get_or_insert(e);
-			}
-		}
+		self.write_batch(&mut writer, &batch, now, "their points of the last minutes are lost");
 		// Forgotten once written, or once given up on; those made meanwhile stay.
 		{
 			let mut made = lock(&self.made);
@@ -236,9 +248,29 @@ impl Store {
 				}
 			}
 		}
+		self.save_seen();
+		if !all && now >= writer.trimmed.saturating_add(cadence::HISTORY_TRIM.as_secs()) {
+			self.trim_files(now);
+			writer.trimmed = now;
+		}
+	}
+
+	/// Appends each of `batch` to its file; what can't be written is said once, until it can be.
+	fn write_batch(&self, writer: &mut Writer, batch: &[(Tier, String, Vec<Point>)], now: u64, lost: &str) {
+		for tier in Tier::ALL.into_iter().filter(|t| batch.iter().any(|(b, ..)| b == t)) {
+			// Where it can't be made, each file of the tier says so below.
+			let _ = fs::DirBuilder::new().recursive(true).mode(0o700).create(self.dir.join(tier.name()));
+		}
+		let (mut failures, mut first) = (0, None);
+		for (tier, address, points) in batch {
+			if let Err(e) = self.append(*tier, address, points, now) {
+				failures += 1;
+				first.get_or_insert(e);
+			}
+		}
 		match first {
 			Some(e) if !writer.failing => {
-				eprintln!("history: can't write {failures} of {} files in {} ({e}); their points of the last minutes are lost", batch.len(), self.dir.display());
+				eprintln!("history: can't write {failures} of {} files in {} ({e}); {lost}", batch.len(), self.dir.display());
 				writer.failing = true;
 			}
 			None if writer.failing && !batch.is_empty() => {
@@ -247,9 +279,72 @@ impl Store {
 			}
 			_ => {}
 		}
-		if !all && now >= writer.trimmed.saturating_add(cadence::HISTORY_TRIM.as_secs()) {
-			self.trim_files(now);
-			writer.trimmed = now;
+	}
+
+	/// When the source `id` was last read live, as the history last kept it.
+	pub fn last_seen(&self, id: &str) -> Option<u64> {
+		let mut seen = lock(&self.seen);
+		self.read_seen(&mut seen);
+		seen.last.get(id).copied()
+	}
+
+	/// The source `id` was read live at `t` (Unix seconds): kept from the next flush.
+	pub fn seen(&self, id: &str, t: u64) {
+		let mut seen = lock(&self.seen);
+		self.read_seen(&mut seen);
+		match seen.last.get_mut(id) {
+			Some(last) if *last == t => return,
+			Some(last) => *last = t,
+			None => {
+				seen.last.insert(id.to_string(), t);
+			}
+		}
+		seen.changed = true;
+	}
+
+	fn read_seen(&self, seen: &mut Seen) {
+		if std::mem::replace(&mut seen.read, true) {
+			return;
+		}
+		let path = self.dir.join(STATE);
+		let v: serde_json::Value = match fs::read(&path) {
+			Ok(b) => serde_json::from_slice(&b).unwrap_or_default(),
+			Err(e) if e.kind() == io::ErrorKind::NotFound => return,
+			Err(e) => {
+				eprintln!("history: can't read {} ({e}); a recorder fills in the history from its start", path.display());
+				return;
+			}
+		};
+		for (id, s) in v["sources"].as_object().into_iter().flatten() {
+			if let Some(last) = s["last"].as_u64() {
+				seen.last.insert(id.clone(), last);
+			}
+		}
+	}
+
+	/// Writes `state.json` when it changed: a new file renamed over it, not synced.
+	fn save_seen(&self) {
+		let mut seen = lock(&self.seen);
+		if !seen.changed {
+			return;
+		}
+		let sources: serde_json::Map<String, serde_json::Value> = seen.last.iter().map(|(id, t)| (id.clone(), serde_json::json!({ "last": t }))).collect();
+		let text = serde_json::json!({ "version": 1, "sources": sources }).to_string();
+		let path = self.dir.join(STATE);
+		let tmp = self.dir.join(format!(".{STATE}.tmp"));
+		let written = fs::DirBuilder::new()
+			.recursive(true)
+			.mode(0o700)
+			.create(&self.dir)
+			.and_then(|()| fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp))
+			.and_then(|mut f| f.write_all(text.as_bytes()))
+			.and_then(|()| fs::rename(&tmp, &path));
+		match written {
+			Ok(()) => seen.changed = false,
+			Err(e) => {
+				let _ = fs::remove_file(&tmp);
+				eprintln!("history: can't write {} ({e})", path.display());
+			}
 		}
 	}
 
