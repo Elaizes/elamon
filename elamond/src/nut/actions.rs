@@ -88,9 +88,24 @@ impl Station {
 	/// What upsd says the station offers (each time it is connected to again): kept, and the
 	/// writable variables the source's `settings` allow returned, for upsd to describe.
 	pub fn offers(&mut self, cmds: Vec<CmdInfo>, rw: Vec<String>) -> Vec<String> {
-		let ask = rw.iter().filter(|v| allows(&self.src.settings, v)).cloned().collect();
+		let ask: Vec<String> = rw.iter().filter(|v| allows(&self.src.settings, v)).cloned().collect();
 		self.meta = Some(Meta { cmds, rw });
+		self.asked = ask.iter().cloned().collect();
 		ask
+	}
+
+	/// The variables the station has now that the source's `settings` allow and upsd wasn't asked
+	/// about since it said what the station offers, for it to describe: one it then says is
+	/// writable is offered as one it listed. upsd may list a variable as writable only once it has
+	/// had it from the station (nutflow, in the second after the station is reached), and says
+	/// what the station offers only as the service connects.
+	pub fn undescribed(&mut self) -> Vec<String> {
+		if self.meta.is_none() || self.src.settings.is_empty() {
+			return Vec::new();
+		}
+		let new: Vec<String> = self.ups.vars().keys().filter(|n| allows(&self.src.settings, n) && !self.asked.contains(*n)).cloned().collect();
+		self.asked.extend(new.iter().cloned());
+		new
 	}
 
 	/// What upsd says of a writable variable.
@@ -131,7 +146,8 @@ impl Station {
 			let param = Param { id: "cmd".into(), label: "Command".into(), kind: ParamKind::Choice(choices), optional: false, default: None, typed };
 			out.push(spec(format!("nut.command.{}", self.id), name, "power", &self.src, param));
 		}
-		let mut vars: Vec<&String> = meta.rw.iter().filter(|v| allows(&self.src.settings, v)).collect();
+		let writable = self.infos.iter().filter(|(_, i)| i.kind.iter().any(|k| k == "RW")).map(|(v, _)| v);
+		let mut vars: Vec<&String> = meta.rw.iter().chain(writable).filter(|v| allows(&self.src.settings, v)).collect();
 		vars.sort();
 		vars.dedup();
 		let mut unoffered = Vec::new();

@@ -146,6 +146,8 @@ pub struct Station {
 	/// each writable variable the source's `settings` allow.
 	meta: Option<actions::Meta>,
 	infos: BTreeMap<String, VarInfo>,
+	/// The variables upsd was asked about since it last said what the station offers.
+	asked: BTreeSet<String>,
 	/// Those that take neither a list of values nor a range, which the journal said.
 	unoffered: BTreeSet<String>,
 }
@@ -199,6 +201,7 @@ impl Station {
 			outlets: BTreeMap::new(),
 			meta: None,
 			infos: BTreeMap::new(),
+			asked: BTreeSet::new(),
 			unoffered: BTreeSet::new(),
 		}
 	}
@@ -571,15 +574,25 @@ impl Runtime {
 	}
 }
 
-/// A poller for `src`, and the task that takes in what it reports.
-fn spawn(handle: &tokio::runtime::Handle, store: &Arc<Store>, id: &str, src: &NutSource) -> std::io::Result<Running> {
+/// A poller of `src`'s upsd, and where its updates come.
+fn poller(src: &NutSource) -> std::io::Result<(Poller, mpsc::UnboundedReceiver<Update>)> {
 	let (tx, updates) = mpsc::unbounded_channel();
 	let mut cfg = poll::Config::new(Server { host: src.host.clone(), port: src.port });
 	cfg.names = Some(vec![src.ups.clone()]);
 	cfg.interval = Duration::from_millis(src.background());
 	cfg.timeout = timeout::NUT;
-	cfg.meta = !src.commands.is_empty() || !src.settings.is_empty();
-	let poller = Poller::spawn(cfg, move |u| tx.send(u).is_ok())?;
+	cfg.meta = offers_wanted(src);
+	Ok((Poller::spawn(cfg, move |u| tx.send(u).is_ok())?, updates))
+}
+
+/// Whether upsd is asked what the station offers: for a source with commands or settings.
+fn offers_wanted(src: &NutSource) -> bool {
+	!src.commands.is_empty() || !src.settings.is_empty()
+}
+
+/// A poller for `src`, and the task that takes in what it reports.
+fn spawn(handle: &tokio::runtime::Handle, store: &Arc<Store>, id: &str, src: &NutSource) -> std::io::Result<Running> {
+	let (poller, updates) = poller(src)?;
 	let timeline = Timeline::load(&store.dir().join(crate::history::timeline::DIR), id, store.last_seen(id));
 	let mut station = Station::keeping(id, src, timeline);
 	let snapshot = Arc::new(Mutex::new(Arc::new(station.snapshot(SystemTime::now()))));
@@ -674,6 +687,8 @@ impl Task {
 			}
 		}
 		let mut at = SystemTime::now();
+		// upsd had no data for the station since it last said what the station offers.
+		let mut stale_offer = false;
 		loop {
 			tokio::select! {
 				_ = &mut self.stopped => break,
@@ -697,6 +712,11 @@ impl Task {
 				}
 				u = self.updates.recv() => {
 					let Some(u) = u else { break };
+					match &u {
+						Update::Meta { ups, .. } if *ups == self.src.ups => stale_offer = false,
+						Update::NoData { ups, .. } if *ups == self.src.ups => stale_offer = true,
+						_ => {}
+					}
 					let u = match self.offered(&mut station, u) {
 						Some(u) => u,
 						None => {
@@ -711,6 +731,13 @@ impl Task {
 						if read && keep_seen {
 							self.store.seen(&self.id, upst_core::unix(at) as u64);
 						}
+						if read && std::mem::take(&mut stale_offer) && offers_wanted(&self.src) {
+							self.renew(&mut asking);
+						} else if read {
+							for var in station.undescribed() {
+								self.poller.describe(&self.src.ups, &var);
+							}
+						}
 						let s = Arc::new(station.snapshot(at));
 						*self.out.lock().unwrap_or_else(|p| p.into_inner()) = s;
 					}
@@ -721,6 +748,21 @@ impl Task {
 		station.close(SystemTime::now());
 		// Dropped, the poller tells its thread to end, which it does once a call in flight returns.
 		drop(self.poller);
+	}
+
+	/// Starts the poller anew, for upsd to say again what the station offers, which it says only as
+	/// the poller connects: one that connected while upsd had no data for the station (nutflow
+	/// before it has reached the station) has nothing of it. The old poller's thread ends.
+	fn renew(&mut self, asking: &mut Asking) {
+		match poller(&self.src) {
+			Ok((poller, updates)) => {
+				self.poller = poller;
+				self.updates = updates;
+				*asking = Asking { interval: self.src.background(), paused: false };
+				asking.set(&self.poller, &self.src, *self.wanted.borrow());
+			}
+			Err(e) => eprintln!("nut {}: can't start asking upsd anew ({e}): the station's commands and settings may be missing", self.id),
+		}
 	}
 
 	/// Takes in what upsd says the station offers, and how the station answered an action (which

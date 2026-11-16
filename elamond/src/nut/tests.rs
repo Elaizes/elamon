@@ -220,6 +220,44 @@ fn a_station_s_actions_are_what_it_offers_as_far_as_its_source_allows() {
 }
 
 #[test]
+fn a_setting_upsd_didn_t_list_yet_is_asked_about_once_the_station_has_it() {
+	use upst_core::nut::VarInfo;
+	let config = source(
+		"[sources.eco]\nkind = \"nut\"\nups = \"ups\"\nuser = \"elamon\"\npassword_file = \"/etc/elamon/nut.password\"\n\
+		 settings = [\"experimental.battery.*\"]\n",
+	);
+	let mut st = Station::new("eco", &config.sources["eco"]);
+	st.polled(station_vars("OL"), at(1000));
+	// Nothing to ask before upsd has said what the station offers.
+	assert!(st.undescribed().is_empty());
+	// nutflow in the second after it reached the station: no writable variable yet.
+	assert!(st.offers(Vec::new(), Vec::new()).is_empty());
+	assert!(st.undescribed().is_empty());
+	let mut later = station_vars("OL");
+	later.extend(vars(&[("experimental.battery.charge.max", "100"), ("experimental.battery.health", "98")]));
+	st.polled(later.clone(), at(1001));
+	// Each once.
+	assert_eq!(st.undescribed(), ["experimental.battery.charge.max", "experimental.battery.health"]);
+	st.polled(later, at(1002));
+	assert!(st.undescribed().is_empty());
+	let info = |kind: &[&str], ranges: &[(&str, &str)]| VarInfo {
+		desc: None,
+		kind: kind.iter().map(|s| s.to_string()).collect(),
+		enum_values: Vec::new(),
+		ranges: ranges.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect(),
+	};
+	st.described("experimental.battery.charge.max".into(), info(&["RW", "RANGE", "NUMBER"], &[("50", "100")]));
+	st.described("experimental.battery.health".into(), info(&["NUMBER"], &[]));
+	// The one upsd says is writable is offered; the other isn't.
+	let ids = |s: &Snapshot| s.actions.iter().map(|a| a.id.clone()).collect::<Vec<_>>();
+	assert_eq!(ids(&st.snapshot(at(1002))), ["nut.set.eco.experimental.battery.charge.max"]);
+	// Upsd saying again what the station offers, it is asked again about what it doesn't list.
+	assert_eq!(st.offers(Vec::new(), vec!["experimental.battery.charge.max".into()]), ["experimental.battery.charge.max"]);
+	assert_eq!(st.undescribed(), ["experimental.battery.health"]);
+	assert_eq!(ids(&st.snapshot(at(1002))), ["nut.set.eco.experimental.battery.charge.max"]);
+}
+
+#[test]
 fn a_dashboard_keeps_its_shape_while_upsd_is_lost() {
 	let config = source(
 		r#"
@@ -456,6 +494,90 @@ async fn a_timeline_is_kept_across_a_restart() {
 	assert_eq!(again.since, Some(after[2].0));
 	rt.stop().await;
 	server.stop();
+}
+
+/// A upsd of a test's own on 127.0.0.1 for one UPS, `ups`, as nutflow is before it has reached
+/// the station: it answers, without data, commands or writable variables; once `data` is set, the
+/// station has an outlet to switch and a charge limit. `connections` counts those it took.
+struct FakeUpsd {
+	port: u16,
+	data: Arc<AtomicBool>,
+	connections: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl FakeUpsd {
+	fn spawn() -> FakeUpsd {
+		let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+		let port = listener.local_addr().unwrap().port();
+		let (data, connections) = (Arc::new(AtomicBool::new(false)), Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+		let (d, n) = (data.clone(), connections.clone());
+		std::thread::spawn(move || {
+			for conn in listener.incoming().flatten() {
+				n.fetch_add(1, Ordering::SeqCst);
+				let d = d.clone();
+				std::thread::spawn(move || FakeUpsd::answer(conn, &d));
+			}
+		});
+		FakeUpsd { port, data, connections }
+	}
+
+	fn answer(conn: std::net::TcpStream, data: &AtomicBool) {
+		use std::io::{BufRead, Write};
+		let mut out = conn.try_clone().unwrap();
+		for line in std::io::BufReader::new(conn).lines() {
+			let Ok(line) = line else { return };
+			let has = data.load(Ordering::SeqCst);
+			let words: Vec<&str> = line.split_whitespace().collect();
+			let list = |what: &str, rows: &[String]| format!("BEGIN LIST {what}\n{}END LIST {what}\n", rows.iter().map(|r| format!("{r}\n")).collect::<String>());
+			let reply = match words[..] {
+				["VER"] => "Network UPS Tools upsd 2.8.4 - test\n".to_string(),
+				["LIST", "UPS"] => list("UPS", &["UPS ups \"Station\"".into()]),
+				["LIST", "CMD", u] if has => list(&format!("CMD {u}"), &[format!("CMD {u} outlet.1.load.off")]),
+				["LIST", "CMD", u] => list(&format!("CMD {u}"), &[]),
+				["LIST", "RW", u] if has => list(&format!("RW {u}"), &[format!("RW {u} experimental.battery.charge.max \"100\"")]),
+				["LIST", "VAR", u] if has => list(&format!("VAR {u}"), &[format!("VAR {u} ups.status \"OL\""), format!("VAR {u} experimental.battery.charge.max \"100\"")]),
+				["LIST", "RW" | "VAR", _] => "ERR DATA-STALE\n".into(),
+				["LIST", "RANGE", u, v] => list(&format!("RANGE {u} {v}"), &[format!("RANGE {u} {v} \"50\" \"100\"")]),
+				["GET", "CMDDESC", u, c] => format!("CMDDESC {u} {c} \"Turn off outlet 1\"\n"),
+				["GET", "DESC", u, v] => format!("DESC {u} {v} \"Charge limit\"\n"),
+				["GET", "TYPE", u, v] => format!("TYPE {u} {v} RW RANGE NUMBER\n"),
+				["LOGOUT"] => {
+					let _ = out.write_all(b"OK Goodbye\n");
+					return;
+				}
+				_ => "ERR UNKNOWN-COMMAND\n".into(),
+			};
+			if out.write_all(reply.as_bytes()).is_err() {
+				return;
+			}
+		}
+	}
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn what_the_station_offers_is_asked_again_once_upsd_has_its_data() {
+	let _one = POLLERS.lock().await;
+	let upsd = FakeUpsd::spawn();
+	let extra = "user = \"elamon\"\npassword_file = \"/etc/elamon/nut.password\"\ncommands = [\"outlet.*\"]\nsettings = [\"experimental.*\"]\n";
+	let config = source(&demo_source("eco", "ups", "127.0.0.1", upsd.port, extra));
+	let history = Scratch::new();
+	let rt = Runtime::default();
+	rt.start(tokio::runtime::Handle::current(), &config, history.store());
+	rt.set_demand(true, &BTreeSet::new(), &BTreeSet::new());
+	// upsd answers, but hasn't reached the station: nothing offered.
+	wait_for(&rt, "eco", Duration::from_secs(5), |s| text(s, "eco.status").as_deref() == Some("No data")).await;
+	tokio::time::sleep(Duration::from_millis(500)).await;
+	assert!(rt.snapshots()["eco"].actions.is_empty());
+	// Once it has, what the station offers is asked again, on a connection of its own.
+	upsd.data.store(true, Ordering::SeqCst);
+	let s = wait_for(&rt, "eco", Duration::from_secs(10), |s| s.actions.len() == 2).await;
+	let ids: Vec<&str> = s.actions.iter().map(|a| a.id.as_str()).collect();
+	assert_eq!(ids, ["nut.command.eco", "nut.set.eco.experimental.battery.charge.max"]);
+	assert_eq!(upsd.connections.load(Ordering::SeqCst), 2);
+	// The poller asked anew stays one: it doesn't start again while the station has data.
+	tokio::time::sleep(Duration::from_millis(1000)).await;
+	assert_eq!(upsd.connections.load(Ordering::SeqCst), 2);
+	rt.stop().await;
 }
 
 /// The threads named after a poller of `host`, as the kernel keeps their names (15 bytes).
