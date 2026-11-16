@@ -147,6 +147,8 @@ pub struct Hub {
 	pub long: Arc<crate::history::Store>,
 	/// The UPS sources of the settings, each read by a poller of its own.
 	pub nut: crate::nut::Runtime,
+	/// The `command`, `http` and `file` sources, each read by a task of its own while it is needed.
+	pub feeds: crate::feeds::Runtime,
 	pub interval: Duration,
 	/// Swapped whole when the settings files change; see `config()`.
 	config: RwLock<Arc<store::Config>>,
@@ -171,8 +173,10 @@ pub struct Hub {
 	pub boot_time: u64,
 	/// When a stream of each phone last sent its first line at once (`first_at_once`).
 	first_lines: Mutex<HashMap<String, Instant>>,
-	/// What the clients looking now need read, by who asked: streams and snapshots.
-	wants: Mutex<HashMap<u64, Sources>>,
+	/// What the clients looking now need read, by who asked: streams and snapshots. Beside the
+	/// costlier sources, the heads of the addresses on their screens (`ui::Dashboard::source_heads`):
+	/// the `command`, `http` and `file` sources to read.
+	wants: Mutex<HashMap<u64, (Sources, BTreeSet<String>)>>,
 	next_want: AtomicU64,
 	/// Each `ui` built lately, by what decides it.
 	uis: Mutex<HashMap<UiKey, CachedUi>>,
@@ -248,6 +252,7 @@ impl Hub {
 			history: Mutex::new(history),
 			long: Arc::new(long),
 			nut: crate::nut::Runtime::default(),
+			feeds: crate::feeds::Runtime::default(),
 			interval,
 			config: RwLock::new(config),
 			config_gen: AtomicU64::new(0),
@@ -464,6 +469,7 @@ impl Hub {
 		}
 		self.long.set_keep(new.history.keep);
 		self.nut.apply(&new);
+		self.feeds.apply(&new);
 		let control = new.control;
 		let names_changed = old.names != new.names;
 		if let Ok(mut c) = self.config.write() {
@@ -516,17 +522,25 @@ impl Hub {
 		self.refresh.store(true, Ordering::SeqCst);
 	}
 
-	/// Asks for `sources` to be read for as long as the answer is held.
-	pub fn want(self: &Arc<Self>, sources: Sources) -> Want {
+	/// Asks for `sources` to be read, and the settings' sources whose ids `heads` has, for as long
+	/// as the answer is held.
+	pub fn want(self: &Arc<Self>, sources: Sources, heads: BTreeSet<String>) -> Want {
 		let id = self.next_want.fetch_add(1, Ordering::SeqCst);
-		self.wants.lock().unwrap_or_else(|p| p.into_inner()).insert(id, sources);
+		self.wants.lock().unwrap_or_else(|p| p.into_inner()).insert(id, (sources, heads));
 		Want { hub: self.clone(), id }
 	}
 
 	/// What the clients looking now need read; none when nobody looks.
 	pub fn wanted(&self) -> Option<Sources> {
 		let wants = self.wants.lock().unwrap_or_else(|p| p.into_inner());
-		(!wants.is_empty()).then(|| wants.values().fold(Sources::default(), |a, b| a.union(*b)))
+		(!wants.is_empty()).then(|| wants.values().fold(Sources::default(), |a, b| a.union(b.0)))
+	}
+
+	/// The heads of the addresses on the screens of the clients looking now: the `command`, `http`
+	/// and `file` sources to read.
+	pub fn wanted_heads(&self) -> BTreeSet<String> {
+		let wants = self.wants.lock().unwrap_or_else(|p| p.into_inner());
+		wants.values().flat_map(|(_, h)| h.iter().cloned()).collect()
 	}
 
 	/// Clients looking now: streams and snapshots.
@@ -637,8 +651,8 @@ pub struct Want {
 
 impl Want {
 	/// Asks for other sources from now on.
-	pub fn set(&self, sources: Sources) {
-		self.hub.wants.lock().unwrap_or_else(|p| p.into_inner()).insert(self.id, sources);
+	pub fn set(&self, sources: Sources, heads: BTreeSet<String>) {
+		self.hub.wants.lock().unwrap_or_else(|p| p.into_inner()).insert(self.id, (sources, heads));
 	}
 }
 
@@ -1152,6 +1166,13 @@ pub(crate) fn needs_of(ui: &Ui, dashboard: &ui::Dashboard) -> Sources {
 	dashboard.needs().union(header)
 }
 
+/// The heads of the addresses a dashboard on screen names, and the header: the `command`, `http`
+/// and `file` sources it needs read.
+pub(crate) fn heads_of(ui: &Ui, dashboard: &ui::Dashboard) -> BTreeSet<String> {
+	let header = ui.header.as_deref().and_then(|h| ui.dashboard(h));
+	dashboard.source_heads().iter().chain(header.into_iter().flat_map(|h| h.source_heads())).cloned().collect()
+}
+
 /// A `data` line's object for `dashboard` of `ui`, as `who` sees the reading `frame`, with its
 /// history when `history`.
 pub(crate) fn data_of(hub: &Hub, ui: &Ui, dashboard: &ui::Dashboard, who: &Caller, frame: &Frame, sorts: &HashMap<String, String>, history: bool) -> ui::Obj {
@@ -1192,10 +1213,10 @@ async fn snapshot(
 	let mut rx = hub.frame.clone();
 	let mut frame = rx.borrow_and_update().clone();
 	let ui = hub.ui(&key, &frame);
-	let Some(need) = dashboard_in(&ui, q.dashboard.as_deref()).map(|d| needs_of(&ui, d)) else {
+	let Some((need, heads)) = dashboard_in(&ui, q.dashboard.as_deref()).map(|d| (needs_of(&ui, d), heads_of(&ui, d))) else {
 		return error(ErrorCode::NoSuchDashboard);
 	};
-	let _want = hub.want(need);
+	let _want = hub.want(need, heads);
 	let deadline = tokio::time::Instant::now() + hub.interval * (cadence::FIRST_FRAME_TICKS + 1);
 	while !frame.read.covers(need) {
 		match tokio::time::timeout_at(deadline, rx.changed()).await {
@@ -2384,6 +2405,43 @@ dashboards = ["overview", "control"]
 		tokio::time::sleep(Duration::from_millis(50)).await;
 		assert_eq!(hub.watchers(), 0);
 		assert!(hub.streams.lock().unwrap().is_empty());
+		remove_test_dir(&hub.dir);
+	}
+
+	/// The sources the clients have on screen are wanted while they are.
+	#[tokio::test]
+	async fn the_sources_on_screen_are_wanted_while_they_are() {
+		let (hub, _tx) = hub(false);
+		let heads = |ids: &[&str]| ids.iter().map(|s| s.to_string()).collect::<BTreeSet<String>>();
+		let a = hub.want(Sources::default(), heads(&["app"]));
+		let b = hub.want(Sources::default(), heads(&["job", "app"]));
+		assert_eq!(hub.wanted_heads(), heads(&["app", "job"]));
+		b.set(Sources::default(), heads(&["zone"]));
+		assert_eq!(hub.wanted_heads(), heads(&["app", "zone"]));
+		drop((a, b));
+		assert!(hub.wanted_heads().is_empty() && hub.wanted().is_none());
+		remove_test_dir(&hub.dir);
+	}
+
+	/// A stream wants read the sources its dashboard shows; on another dashboard, no more.
+	#[tokio::test]
+	async fn a_stream_wants_the_sources_its_dashboard_shows() {
+		let (hub, tx) = hub(true);
+		let text = format!(
+			"control = true\n{SETTINGS}\n[sources.app]\nkind = \"http\"\nurl = \"http://localhost:8080/status\"\n[profiles.default]\ndashboards = [\"overview\", \"app\"]\n[dashboards.app]\ntitle = \"App\"\n[[dashboards.app.widgets]]\ntype = \"value\"\nvalue = \"app.state\"\n"
+		);
+		hub.set_config(crate::settings::read_over_defaults(&[crate::settings::Source::new("test.toml", text)]).unwrap());
+		tick(&hub, &tx);
+		let mut lines = Lines::open(&hub, "/api/v1/stream?dashboard=app", "t-monitor").await;
+		let id = lines.next().await.unwrap()["stream"].as_str().unwrap().to_string();
+		let _ticks = ticking(&hub, tx);
+		assert_eq!(lines.next_of("data").await.unwrap()["dashboard"], "app");
+		assert_eq!(hub.wanted_heads(), BTreeSet::from(["app".to_string()]));
+		let (status, _) = call(&hub, "POST", &format!("/api/v1/stream/{id}"), "monitor", r#"{"dashboard":"overview"}"#).await;
+		assert_eq!(status, StatusCode::OK);
+		assert_eq!(lines.next_of("data").await.unwrap()["dashboard"], "overview");
+		assert!(hub.wanted_heads().is_empty(), "{:?}", hub.wanted_heads());
+		drop(lines);
 		remove_test_dir(&hub.dir);
 	}
 

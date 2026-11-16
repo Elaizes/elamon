@@ -466,14 +466,23 @@ fn defaults_table(name: &str) -> Result<String, String> {
 }
 
 /// `elamond values`: every address this computer has now, with its value, unit and format; then
-/// the collections and how many items each has, and the UPS sources. `elamond values <source>`:
-/// that source's, asked of its upsd.
+/// the collections and how many items each has, and the sources. `elamond values <source>`: that
+/// source's, read there and then (a UPS's asked of its upsd).
 pub fn values(args: &[String]) -> Result<(), String> {
 	let config = store::load_config()?;
 	match args {
 		[] => {}
 		[id] if !id.starts_with('-') => {
-			print!("{}", crate::nut::cli::values(&config, id)?);
+			let listing = match config.feeds.get(id) {
+				Some(feed) => crate::feeds::cli::listing(&config, id, feed)?,
+				None if config.sources.contains_key(id) => crate::nut::cli::values(&config, id)?,
+				None => {
+					let ids = source_ids(&config);
+					let there = if ids.is_empty() { "the settings have none".to_string() } else { format!("the settings have {}", ids.join(", ")) };
+					return Err(format!("no source \"{id}\" ({there}); `elamond values` lists this computer's own"));
+				}
+			};
+			print!("{listing}");
 			return Ok(());
 		}
 		_ => return Err("usage: elamond values [SOURCE]".into()),
@@ -521,10 +530,17 @@ pub fn values(args: &[String]) -> Result<(), String> {
 	Ok(())
 }
 
-/// The line naming the UPS sources, after the computer's values.
+/// The ids of every source of `config`, of any kind, sorted.
+fn source_ids(config: &settings::Config) -> Vec<&str> {
+	let mut ids: Vec<&str> = config.sources.keys().chain(config.feeds.keys()).map(String::as_str).collect();
+	ids.sort_unstable();
+	ids
+}
+
+/// The line naming the sources, after the computer's values.
 fn sources_line(config: &settings::Config) -> Option<String> {
-	let each: Vec<String> = config.sources.keys().map(|id| format!("{id} (elamond values {id})")).collect();
-	(!each.is_empty()).then(|| format!("UPS sources: {}", each.join(", ")))
+	let ids = source_ids(config);
+	(!ids.is_empty()).then(|| format!("Sources: {} (elamond values <id>)", ids.join(", ")))
 }
 
 #[cfg(test)]
@@ -601,6 +617,15 @@ mod tests {
 			"{out}"
 		);
 		fs::remove_dir_all(dir).unwrap();
+	}
+
+	/// `elamond values` ends naming the sources, of every kind.
+	#[test]
+	fn the_sources_are_named_after_the_values() {
+		let text = "[sources.zone]\nkind = \"file\"\npath = \"/sys/x\"\n[sources.eco]\nkind = \"nut\"\nups = \"ups\"\n[sources.app]\nkind = \"http\"\nurl = \"http://localhost:8080\"\n";
+		let config = settings::read_sources(&[Source::new("a.toml", text)]).unwrap();
+		assert_eq!(sources_line(&config).as_deref(), Some("Sources: app, eco, zone (elamond values <id>)"));
+		assert_eq!(sources_line(&settings::read_sources(&[]).unwrap()), None);
 	}
 
 	#[test]

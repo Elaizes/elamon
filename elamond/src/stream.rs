@@ -21,7 +21,7 @@ use tokio::sync::{mpsc, watch, Notify};
 use crate::access::Caller;
 use crate::consts::{cadence, limit};
 use crate::errors::ErrorCode;
-use crate::server::{self, body_of, data_of, dashboard_in, draws_from, error, needs_of, ClientApp, Hub, TokenHash, Want};
+use crate::server::{self, body_of, data_of, dashboard_in, draws_from, error, heads_of, needs_of, ClientApp, Hub, TokenHash, Want};
 use crate::ui::{Obj, Put, Sources, Ui};
 
 /// An open stream, as the hub knows it.
@@ -164,10 +164,11 @@ pub async fn open(
 
 	let mut words = vec![format!("dashboard {}", dashboard.as_deref().unwrap_or("none")), format!("every {} ms", interval.as_millis())];
 	let need = dashboard.as_deref().and_then(|d| ui.dashboard(d)).map(|d| needs_of(&ui, d)).unwrap_or_default();
+	let heads = dashboard.as_deref().and_then(|d| ui.dashboard(d)).map(|d| heads_of(&ui, d)).unwrap_or_default();
 	words.extend(need.words().into_iter().map(String::from));
 	hub.stream_opened(&who, peer.ip(), &words.join(", "));
 	let run = Run {
-		want: hub.want(need),
+		want: hub.want(need, heads.clone()),
 		hub: hub.clone(),
 		id: id.clone(),
 		token,
@@ -177,6 +178,7 @@ pub async fn open(
 		shared,
 		dashboard,
 		need,
+		heads,
 		interval,
 		sorts: HashMap::new(),
 		last: None,
@@ -225,6 +227,8 @@ struct Run {
 	shared: Arc<Mutex<Arc<Ui>>>,
 	dashboard: Option<String>,
 	need: Sources,
+	/// The heads of the addresses its dashboard and the header name (`heads_of`).
+	heads: BTreeSet<String>,
 	want: Want,
 	interval: Duration,
 	sorts: HashMap<String, String>,
@@ -333,10 +337,13 @@ impl Run {
 	}
 
 	fn update_need(&mut self) {
-		let need = self.dashboard.as_deref().and_then(|d| self.ui.dashboard(d)).map(|d| needs_of(&self.ui, d)).unwrap_or_default();
-		if need != self.need {
+		let on = self.dashboard.as_deref().and_then(|d| self.ui.dashboard(d));
+		let need = on.map(|d| needs_of(&self.ui, d)).unwrap_or_default();
+		let heads = on.map(|d| heads_of(&self.ui, d)).unwrap_or_default();
+		if need != self.need || heads != self.heads {
 			self.need = need;
-			self.want.set(need);
+			self.heads = heads.clone();
+			self.want.set(need, heads);
 		}
 	}
 

@@ -53,7 +53,7 @@ fn ask(src: &NutSource) -> Result<Asked, String> {
 }
 
 /// Rows of cells, each column as wide as its widest, two spaces between.
-fn table(rows: &[Vec<String>], indent: &str) -> String {
+pub(crate) fn table(rows: &[Vec<String>], indent: &str) -> String {
 	let n = rows.iter().map(Vec::len).max().unwrap_or(0);
 	let widths: Vec<usize> = (0..n).map(|i| rows.iter().filter_map(|r| r.get(i)).map(|c| c.chars().count()).max().unwrap_or(0)).collect();
 	let mut out = String::new();

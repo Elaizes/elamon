@@ -503,7 +503,7 @@ async fn run_action(program: &str, args: &[String], limit: Duration) -> std::io:
 }
 
 /// Kills a process group when dropped, unless its number has been taken out.
-struct Group(Option<i32>);
+pub(crate) struct Group(pub(crate) Option<i32>);
 
 impl Drop for Group {
 	fn drop(&mut self) {
@@ -515,7 +515,7 @@ impl Drop for Group {
 }
 
 /// The next bytes from a pipe; at its end the pipe is let go of, and then this never finishes.
-async fn read_some<R: AsyncRead + Unpin>(pipe: &mut Option<R>, buf: &mut [u8]) -> usize {
+pub(crate) async fn read_some<R: AsyncRead + Unpin>(pipe: &mut Option<R>, buf: &mut [u8]) -> usize {
 	let Some(r) = pipe else { return std::future::pending().await };
 	match r.read(buf).await {
 		Ok(n) if n > 0 => n,

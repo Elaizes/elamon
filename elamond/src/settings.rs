@@ -79,8 +79,12 @@ pub struct Config {
 	pub profiles: BTreeMap<String, ProfileDef>,
 	pub dashboards: BTreeMap<String, Dashboard>,
 	pub templates: BTreeMap<String, WidgetDef>,
-	/// UPSes and power stations, as upsd serves them.
+	/// UPSes and power stations, as upsd serves them: the sources of kind `nut`.
 	pub sources: BTreeMap<String, NutSource>,
+	/// The sources of kind `command`, `http` and `file`, taken out of `[sources]` as the files are
+	/// read: what a program prints, a web service answers or a file holds.
+	#[serde(skip)]
+	pub feeds: BTreeMap<String, Feed>,
 	/// `[history]`: how long the hourly history is kept.
 	pub history: HistoryDef,
 	/// Where each profile's table is: the file that set it last, and the line of its
@@ -182,6 +186,74 @@ impl NutSource {
 	pub fn critical(&self, n: u32) -> bool {
 		self.outlets.get(&n.to_string()).is_some_and(|o| o.critical)
 	}
+}
+
+/// `[sources.<id>]` of kind `command`, `http` or `file`: what a program prints, a web service
+/// answers or a file holds, read every `interval` while it is needed, its values named
+/// `<id>.<path>`. Each kind's own keys are left out of the others (`elamond check`).
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct Feed {
+	pub kind: FeedKind,
+	/// `command`: the program and its arguments, run without a shell.
+	#[serde(default)]
+	pub command: Vec<String>,
+	/// `http`: what is asked with GET.
+	#[serde(default)]
+	pub url: Option<String>,
+	/// `http`: the file whose first line is the token sent with each request; the path alone is
+	/// kept here, the token is read at each request (`feeds::Token`).
+	#[serde(default)]
+	pub token_file: Option<PathBuf>,
+	/// `http`: the header the token goes in; `Authorization: Bearer <token>` without one.
+	#[serde(default)]
+	pub header: Option<String>,
+	/// `file`: what is read.
+	#[serde(default)]
+	pub path: Option<PathBuf>,
+	#[serde(default)]
+	pub format: FeedFormat,
+	/// Seconds between reads while it is needed.
+	#[serde(default = "feed_interval")]
+	pub interval: u64,
+	/// Seconds a read may take.
+	#[serde(default = "feed_timeout")]
+	pub timeout: u64,
+	/// Keep the long history of its numbers.
+	#[serde(default)]
+	pub history: bool,
+	/// The least role that sees its values.
+	#[serde(default = "monitor")]
+	pub role: Role,
+}
+
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FeedKind {
+	Command,
+	Http,
+	File,
+}
+
+/// How what a source reads is taken: as JSON, as one text, or as `key = value` lines.
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum FeedFormat {
+	#[default]
+	Json,
+	Text,
+	Lines,
+}
+
+fn feed_interval() -> u64 {
+	crate::consts::cadence::FEED_INTERVAL_SECS
+}
+
+fn feed_timeout() -> u64 {
+	crate::consts::timeout::FEED_SECS
+}
+
+fn monitor() -> Role {
+	Role::Monitor
 }
 
 fn localhost() -> String {
@@ -513,6 +585,7 @@ impl Config {
 			dashboards: BTreeMap::new(),
 			templates: BTreeMap::new(),
 			sources: BTreeMap::new(),
+			feeds: BTreeMap::new(),
 			history: HistoryDef::default(),
 			profile_sources: BTreeMap::new(),
 		}
@@ -756,16 +829,25 @@ pub fn read_merged(sources: &[Source]) -> Result<(Config, Map<String, Value>), V
 		}
 	};
 	let raw = merged.clone();
-	let merged = Value::Object(merged);
+	let mut merged = Value::Object(merged);
 	let mut bad = Vec::new();
 	check_top(&merged, false, &mut bad);
 	if !bad.is_empty() {
 		return Err(bad.into_iter().map(|(p, m)| at(&p, m)).collect());
 	}
-	let mut config: Config = match serde_json::from_value(merged) {
-		Ok(c) => c,
-		Err(e) => return Err(vec![Mistake { file: None, line: None, path: String::new(), message: e.to_string() }]),
-	};
+	// `sources` keeps the UPSes; the other kinds are taken out to `feeds`.
+	let mut feeds = Map::new();
+	if let Some(Value::Object(s)) = merged.get_mut("sources") {
+		let ids: Vec<String> = s.iter().filter(|(_, v)| v.get("kind").and_then(Value::as_str) != Some("nut")).map(|(id, _)| id.clone()).collect();
+		for id in ids {
+			if let Some(v) = s.remove(&id) {
+				feeds.insert(id, v);
+			}
+		}
+	}
+	let read = |e: serde_json::Error| vec![Mistake { file: None, line: None, path: String::new(), message: e.to_string() }];
+	let mut config: Config = serde_json::from_value(merged).map_err(read)?;
+	config.feeds = serde_json::from_value(Value::Object(feeds)).map_err(read)?;
 	for id in config.profiles.keys() {
 		if let Some((i, line)) = whence.get(&join("profiles", id)) {
 			config.profile_sources.insert(id.clone(), Whence { file: all[*i].name.clone(), line: *line });
@@ -795,30 +877,33 @@ pub fn warnings(c: &Config) -> Vec<String> {
 	}
 	for (id, s) in &c.sources {
 		if let Some(p) = &s.password_file {
-			out.extend(password_file_warning(id, p));
+			out.extend(secret_file_warning(id, "password_file", p, "its station's commands and settings fail until it is"));
+		}
+	}
+	for (id, f) in &c.feeds {
+		if let Some(p) = &f.token_file {
+			out.extend(secret_file_warning(id, "token_file", p, "its reads fail until it is"));
 		}
 	}
 	out
 }
 
-/// What is wrong with a source's password file as `elamond check` finds it, without reading it: one
-/// that isn't there, can't be read, may be read by others, or would be read as settings. A
-/// warning, not a mistake: the Nix build checks the settings where the file isn't.
-fn password_file_warning(id: &str, p: &std::path::Path) -> Vec<String> {
+/// What is wrong with a source's password or token file (its `key`) as `elamond check` finds it,
+/// without reading it: one that isn't there, can't be read, may be read by others, or would be
+/// read as settings; `then`, what follows. A warning, not a mistake: the Nix build checks the
+/// settings where the file isn't.
+fn secret_file_warning(id: &str, key: &str, p: &std::path::Path, then: &str) -> Vec<String> {
 	use std::os::unix::fs::PermissionsExt;
 	let mut out = Vec::new();
 	let shown = p.display();
-	let then = "its station's commands and settings fail until it is";
 	match std::fs::File::open(p).and_then(|f| f.metadata()) {
-		Err(e) => out.push(format!("sources.{id}.password_file {shown} can't be read ({e}): {then}")),
-		Ok(m) if m.permissions().mode() & 0o077 != 0 => {
-			out.push(format!("sources.{id}.password_file {shown} may be read by others: chmod 600 it; {then}"))
-		}
+		Err(e) => out.push(format!("sources.{id}.{key} {shown} can't be read ({e}): {then}")),
+		Ok(m) if m.permissions().mode() & 0o077 != 0 => out.push(format!("sources.{id}.{key} {shown} may be read by others: chmod 600 it; {then}")),
 		Ok(_) => {}
 	}
 	let dropin = p.parent().and_then(std::path::Path::file_name).is_some_and(|d| d == crate::store::DROPIN_DIR);
 	if dropin && p.extension().is_some_and(|e| e == "toml") {
-		out.push(format!("sources.{id}.password_file {shown} is read as settings, being a .toml in elamond.d/: keep it elsewhere"));
+		out.push(format!("sources.{id}.{key} {shown} is read as settings, being a .toml in elamond.d/: keep it elsewhere"));
 	}
 	out
 }
@@ -933,6 +1018,8 @@ pub enum Ty {
 	Rec(&'static str),
 	Any(Vec<Ty>),
 	Widget,
+	/// A source: the keys of its `kind`'s record.
+	Source,
 }
 
 #[derive(Clone, Debug)]
@@ -979,10 +1066,51 @@ fn role() -> Ty {
 }
 
 /// The records the settings are made of, by name.
-pub const RECORDS: [&str; 18] = [
-	"settings", "history", "source", "outlet", "link", "action", "param", "profile", "unlock", "android", "web", "dashboard", "item", "column", "expand", "bar", "sort",
-	"row_action",
+pub const RECORDS: [&str; 21] = [
+	"settings", "history", "source_nut", "source_command", "source_http", "source_file", "outlet", "link", "action", "param", "profile", "unlock", "android", "web",
+	"dashboard", "item", "column", "expand", "bar", "sort", "row_action",
 ];
+
+/// The kinds of source, each with its record (`source_<kind>`).
+pub const SOURCE_KINDS: [&str; 4] = ["nut", "command", "http", "file"];
+/// How a `command`, `http` or `file` source's output is taken.
+pub const SOURCE_FORMATS: [&str; 3] = ["json", "text", "lines"];
+
+/// The keys every `command`, `http` and `file` source takes besides its own.
+fn feed_keys() -> Vec<Key> {
+	vec![
+		k("format", Ty::Enum("source format", &SOURCE_FORMATS)),
+		k("interval", Ty::Int(1, 86_400)),
+		k("timeout", Ty::Int(1, 60)),
+		k("history", Ty::Bool),
+		k("role", role()),
+	]
+}
+
+/// `more` added to `keys`, a key in both taking either's values.
+fn merge_keys(keys: &mut Vec<Key>, more: Vec<Key>) {
+	for key in more {
+		match keys.iter_mut().find(|k| k.name == key.name) {
+			Some(have) if format!("{:?}", have.ty) != format!("{:?}", key.ty) => {
+				have.ty = Ty::Any(vec![have.ty.clone(), key.ty]);
+			}
+			Some(_) => {}
+			None => keys.push(key),
+		}
+	}
+}
+
+/// The keys a source of `kind` takes, or, without one of the kinds, any kind's (none required).
+pub fn source_keys(kind: Option<&str>) -> Vec<Key> {
+	if let Some(kind) = kind.filter(|k| SOURCE_KINDS.contains(k)) {
+		return record(&format!("source_{kind}"));
+	}
+	let mut keys = vec![k("kind", Ty::Enum("source kind", &SOURCE_KINDS))];
+	for kind in SOURCE_KINDS {
+		merge_keys(&mut keys, record(&format!("source_{kind}")).into_iter().filter(|k| k.name != "kind").map(|k| Key { required: false, ..k }).collect());
+	}
+	keys
+}
 
 /// The keys of a record.
 pub fn record(name: &str) -> Vec<Key> {
@@ -1004,12 +1132,18 @@ pub fn record(name: &str) -> Vec<Key> {
 			k("profiles", id_map(Ty::Rec("profile"))),
 			k("dashboards", id_map(Ty::Rec("dashboard"))),
 			k("templates", id_map(Ty::Widget)),
-			k("sources", id_map(Ty::Rec("source"))),
+			k("sources", id_map(Ty::Source)),
 			k("history", Ty::Rec("history")),
 		],
 		"history" => vec![k("keep", Ty::Any(vec![Ty::Enum("word", &["all"]), Ty::Int(30, i64::MAX)]))],
-		"source" => vec![
-			req("kind", Ty::Str),
+		"source_command" => [req("kind", Ty::Enum("source kind", &["command"])), req("command", list(Ty::Str))].into_iter().chain(feed_keys()).collect(),
+		"source_http" => [req("kind", Ty::Enum("source kind", &["http"])), req("url", Ty::Str), k("token_file", Ty::Str), k("header", Ty::Str)]
+			.into_iter()
+			.chain(feed_keys())
+			.collect(),
+		"source_file" => [req("kind", Ty::Enum("source kind", &["file"])), req("path", Ty::Str)].into_iter().chain(feed_keys()).collect(),
+		"source_nut" => vec![
+			req("kind", Ty::Enum("source kind", &["nut"])),
 			req("ups", Ty::Str),
 			k("host", Ty::Str),
 			k("port", Ty::Int(1, 65535)),
@@ -1197,15 +1331,7 @@ pub fn widget_keys(kind: Option<&str>) -> Vec<Key> {
 		_ => WIDGET_TYPES.to_vec(),
 	};
 	for t in kinds {
-		for key in type_keys(t) {
-			match keys.iter_mut().find(|k| k.name == key.name) {
-				Some(have) if format!("{:?}", have.ty) != format!("{:?}", key.ty) => {
-					have.ty = Ty::Any(vec![have.ty.clone(), key.ty]);
-				}
-				Some(_) => {}
-				None => keys.push(key),
-			}
-		}
+		merge_keys(&mut keys, type_keys(t));
 	}
 	keys
 }
@@ -1227,6 +1353,7 @@ fn describe(ty: &Ty) -> String {
 		Ty::Map(_) | Ty::IdMap(_) | Ty::Rec(_) => "a table".into(),
 		Ty::Any(ts) => ts.iter().map(describe).collect::<Vec<_>>().join(" or "),
 		Ty::Widget => "a widget (a table with a type)".into(),
+		Ty::Source => "a source (a table with a kind)".into(),
 	}
 }
 
@@ -1448,6 +1575,31 @@ fn check(v: &Value, ty: &Ty, path: &str, partial: bool, out: &mut Found) {
 			Some(o) => check_widget(o, path, partial, out),
 			None => wrong(out),
 		},
+		Ty::Source => match v.as_object() {
+			Some(o) => check_source_keys(o, path, partial, out),
+			None => wrong(out),
+		},
+	}
+}
+
+/// A source's keys, against its kind's: without a kind (in a file that leaves it to another), or
+/// of one there isn't, any kind's.
+fn check_source_keys(o: &Map<String, Value>, path: &str, partial: bool, out: &mut Found) {
+	match o.get("kind").and_then(Value::as_str) {
+		Some(kind) if SOURCE_KINDS.contains(&kind) => check_keys(o, &source_keys(Some(kind)), path, partial, "here", out),
+		Some(kind) => {
+			let line = format!("no source kind \"{kind}\"; a source is of kind nut, command, http or file{}", did_you_mean(kind, SOURCE_KINDS));
+			out.push((join(path, "kind"), line));
+			let mut rest = o.clone();
+			rest.remove("kind");
+			check_keys(&rest, &source_keys(None), path, partial, "here", out);
+		}
+		None => {
+			if !partial && !o.contains_key("kind") {
+				out.push((path.into(), "kind is missing".into()));
+			}
+			check_keys(o, &source_keys(None), path, partial, "here", out);
+		}
 	}
 }
 
@@ -1523,6 +1675,9 @@ fn semantics(c: &Config) -> Found {
 	for (id, s) in &c.sources {
 		check_nut_source(id, s, &mut push);
 	}
+	for (id, f) in &c.feeds {
+		check_feed(id, f, &mut push);
+	}
 	for (id, a) in &c.actions {
 		check_action(id, a, &mut push);
 	}
@@ -1580,19 +1735,81 @@ fn no_collection(name: &str) -> String {
 	format!("no collection \"{name}\"{}", did_you_mean(name, values::COLLECTIONS.iter().map(|c| c.name)))
 }
 
+/// A source's id is the first part of its values' addresses: not one of the computer's, nor `item`.
+fn check_source_id(id: &str, push: &mut impl FnMut(String, String)) {
+	let path = join("sources", id);
+	if values::known_prefix(id) {
+		push(path, format!("\"{id}\" is the first part of this computer's own values ({id}.…): give the source another id"));
+	} else if id == "item" {
+		push(path, "\"item\" stands for the item of a for_each: give the source another id".into());
+	}
+}
+
+/// A `command`, `http` or `file` source as the settings can tell it is sound, without running,
+/// asking or reading anything.
+fn check_feed(id: &str, f: &Feed, push: &mut impl FnMut(String, String)) {
+	let path = join("sources", id);
+	let at = |key: &str| join(&path, key);
+	check_source_id(id, push);
+	let absolute = |key: &str, p: &Option<PathBuf>, push: &mut dyn FnMut(String, String)| {
+		if let Some(p) = p.as_ref().filter(|p| !p.is_absolute()) {
+			push(at(key), format!("{} should be an absolute path", p.display()));
+		}
+	};
+	match f.kind {
+		FeedKind::Command => {
+			if f.command.first().is_none_or(|p| p.trim().is_empty()) {
+				push(at("command"), "is empty: give the program and its arguments".into());
+			}
+		}
+		FeedKind::Http => {
+			if let Some(Err(why)) = f.url.as_deref().map(url_shape) {
+				push(at("url"), why.into());
+			}
+			if let Some(h) = &f.header {
+				if !(1..=64).contains(&h.len()) || !h.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+					push(at("header"), format!("\"{h}\" isn't a header's name: 1 to 64 of A-Z, a-z, 0-9 and -"));
+				}
+				if f.token_file.is_none() {
+					push(at("header"), "is the header the token goes in: give token_file too".into());
+				}
+			}
+			absolute("token_file", &f.token_file, push);
+		}
+		FeedKind::File => absolute("path", &f.path, push),
+	}
+}
+
+/// Whether `url` is one a source asks: `http://` or `https://`, a host, no spaces, and no user or
+/// password in it. What is wrong never repeats the URL, which may hold them.
+fn url_shape(url: &str) -> Result<(), &'static str> {
+	let rest = url.split_once("://").map_or(url, |(_, r)| r);
+	let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+	if authority.contains('@') {
+		return Err("put the credentials in token_file, not in the URL");
+	}
+	let Some(rest) = url.strip_prefix("http://").or_else(|| url.strip_prefix("https://")) else {
+		return Err("should start with http:// or https://");
+	};
+	if url.chars().any(char::is_whitespace) {
+		return Err("has spaces in it: write them as %20");
+	}
+	let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+	let host = match authority.strip_prefix('[') {
+		Some(v6) => v6.split_once(']').map_or("", |(h, _)| h),
+		None => authority.split(':').next().unwrap_or(""),
+	};
+	if host.is_empty() {
+		return Err("has no host: http://<host>[:port]/…");
+	}
+	Ok(())
+}
+
 /// A source as the settings can tell it is sound, without asking upsd anything.
 fn check_nut_source(id: &str, s: &NutSource, push: &mut impl FnMut(String, String)) {
 	let path = join("sources", id);
 	let at = |key: &str| join(&path, key);
-	// Its id is the first part of its values' addresses: not one of the computer's.
-	if values::known_prefix(id) {
-		push(path.clone(), format!("\"{id}\" is the first part of this computer's own values ({id}.…): give the source another id"));
-	} else if id == "item" {
-		push(path.clone(), "\"item\" stands for the item of a for_each: give the source another id".into());
-	}
-	if s.kind != "nut" {
-		push(at("kind"), "only kind = \"nut\" in this version".into());
-	}
+	check_source_id(id, push);
 	if s.ups.is_empty() || s.ups.chars().count() > 64 || s.ups.chars().any(char::is_whitespace) {
 		push(at("ups"), format!("\"{}\" isn't a UPS's name on upsd: 1 to 64 characters, no spaces", s.ups));
 	}
@@ -2114,6 +2331,7 @@ fn schema_of(ty: &Ty) -> Value {
 		Ty::Rec(name) => json!({ "$ref": format!("#/$defs/{name}") }),
 		Ty::Any(ts) => json!({ "anyOf": ts.iter().map(schema_of).collect::<Vec<_>>() }),
 		Ty::Widget => json!({ "$ref": "#/$defs/widget" }),
+		Ty::Source => json!({ "$ref": "#/$defs/source" }),
 	}
 }
 
@@ -2145,6 +2363,9 @@ pub fn json_schema() -> Value {
 		.collect();
 	widget["allOf"] = Value::Array(per_type);
 	defs.insert("widget".into(), widget);
+	// A source is of one kind, with that kind's keys.
+	let kinds: Vec<Value> = SOURCE_KINDS.iter().map(|k| json!({ "$ref": format!("#/$defs/source_{k}") })).collect();
+	defs.insert("source".into(), json!({ "anyOf": kinds }));
 	let mut top = object_schema(&record("settings"));
 	top["$schema"] = "https://json-schema.org/draft/2020-12/schema".into();
 	top["title"] = format!("elamond settings (schema {SCHEMA})").into();
@@ -2264,7 +2485,7 @@ kind = "nut"
 ups = "ups"
 
 [sources.bad]
-kind = "snmp"
+kind = "nut"
 ups = "my ups"
 capacity_wh = 0
 interval_ms = 2000
@@ -2285,7 +2506,6 @@ settings = ["battery.charge.low"]
 		for want in [
 			"a.toml:2: sources.cpu: \"cpu\" is the first part of this computer's own values (cpu.…): give the source another id",
 			"sources.item: \"item\" stands for the item of a for_each",
-			"a.toml:11: sources.bad.kind: only kind = \"nut\" in this version",
 			"sources.bad.ups: \"my ups\" isn't a UPS's name on upsd: 1 to 64 characters, no spaces",
 			"sources.bad.capacity_wh: should be above 0",
 			"sources.bad.background_ms: should be interval_ms (2000) or more, not 1000",
@@ -2331,6 +2551,207 @@ settings = ["battery.charge.low"]
 		assert!(no("type = \"button\"\naction = \"nut.command.ecco\"\n").contains("no action \"nut.command.ecco\""));
 		assert!(no("type = \"slider\"\nvalue = \"eco.x\"\naction = \"nut.set.eco.x\"\nparam = \"cmd\"\n").contains("no parameter \"cmd\" in nut.set.eco.x"));
 		assert!(no("type = \"button\"\naction = \"nut.command.eco\"\nparams = { value = 1 }\n").contains("no parameter \"value\" in nut.command.eco"));
+	}
+
+	#[test]
+	fn a_command_a_web_service_and_a_file_are_sources_of_their_own() {
+		// Every key, as the fixture has them (its sources: the journal it shows is S2's).
+		let text = include_str!("../fixtures/0.8/ui-sources.toml");
+		let c = read(&[("ui-sources.toml", text)]).or_else(|_| read(&[("ui-sources.toml", text.split("[profiles.owner]").next().unwrap())])).unwrap();
+		assert!(c.sources.is_empty());
+		assert_eq!(c.feeds.keys().collect::<Vec<_>>(), ["app", "backup", "zone"]);
+		let backup = &c.feeds["backup"];
+		assert_eq!((backup.kind, backup.command.join(" "), backup.format), (FeedKind::Command, "backup-status --short".to_string(), FeedFormat::Lines));
+		assert_eq!((backup.interval, backup.timeout, backup.history, backup.role), (300, 30, false, Role::Monitor));
+		let app = &c.feeds["app"];
+		assert_eq!((app.kind, app.url.as_deref(), app.header.as_deref(), app.format), (FeedKind::Http, Some("http://localhost:8080/status"), Some("X-Api-Key"), FeedFormat::Json));
+		assert_eq!(app.token_file.as_deref(), Some(std::path::Path::new("/etc/elamon/app.token")));
+		let zone = &c.feeds["zone"];
+		assert_eq!((zone.kind, zone.path.as_deref(), zone.format), (FeedKind::File, Some(std::path::Path::new("/sys/class/thermal/thermal_zone0/temp")), FeedFormat::Text));
+		assert_eq!((zone.interval, zone.timeout, zone.history, zone.role), (5, 1, true, Role::Glance));
+		// What a source leaves out.
+		let bare = read(&[("a.toml", "[sources.up]\nkind = \"command\"\ncommand = [\"uptime\"]\n")]).unwrap();
+		let up = &bare.feeds["up"];
+		assert_eq!((up.format, up.interval, up.timeout, up.history, up.role), (FeedFormat::Json, 10, 5, false, Role::Monitor));
+		assert!(up.url.is_none() && up.token_file.is_none() && up.header.is_none() && up.path.is_none());
+		// Beside a UPS, which stays where it was.
+		let both = read(&[("a.toml", "[sources.eco]\nkind = \"nut\"\nups = \"ups\"\n[sources.up]\nkind = \"file\"\npath = \"/proc/uptime\"\n")]).unwrap();
+		assert!(both.sources.keys().eq(["eco"]) && both.feeds.keys().eq(["up"]));
+	}
+
+	#[test]
+	fn each_kind_takes_its_own_keys() {
+		let e = mistakes(&[(
+			"a.toml",
+			r#"[sources.a]
+kind = "command"
+command = ["x"]
+url = "http://localhost"
+
+[sources.b]
+kind = "http"
+url = "http://localhost"
+ups = "u"
+interval = 0
+timeout = 61
+format = "xml"
+role = "root"
+
+[sources.c]
+kind = "file"
+
+[sources.d]
+kind = "htp"
+url = "http://localhost"
+lable = 1
+
+[sources.e]
+kind = "nut"
+ups = "u"
+path = "/x"
+
+[sources.f]
+kind = "http"
+interval = 86401
+"#,
+		)]);
+		for want in [
+			"a.toml:4: sources.a.url: no key \"url\" here",
+			"a.toml:9: sources.b.ups: no key \"ups\" here",
+			"a.toml:10: sources.b.interval: should be an integer from 1 to 86400, not 0",
+			"a.toml:11: sources.b.timeout: should be an integer from 1 to 60, not 61",
+			"a.toml:12: sources.b.format: no source format \"xml\"",
+			"a.toml:13: sources.b.role: no role \"root\"",
+			"a.toml:19: sources.d.kind: no source kind \"htp\"; a source is of kind nut, command, http or file; did you mean http?",
+			"a.toml:21: sources.d.lable: no key \"lable\" here",
+			"a.toml:26: sources.e.path: no key \"path\" here",
+			"sources.f.interval: should be an integer from 1 to 86400, not 86401",
+		] {
+			assert!(e.contains(want), "missing: {want}\nin:\n{e}");
+		}
+		// What each kind needs, of the settings as merged.
+		let e = mistakes(&[("a.toml", "[sources.c]\nkind = \"file\"\n[sources.f]\nkind = \"http\"\n[sources.g]\nkind = \"command\"\n")]);
+		assert!(e.contains("sources.c: path is missing") && e.contains("sources.f: url is missing") && e.contains("sources.g: command is missing"), "{e}");
+		// What every one of the three takes, a UPS doesn't.
+		assert!(mistakes(&[("a.toml", "[sources.e]\nkind = \"nut\"\nups = \"u\"\ninterval = 5\n")]).contains("sources.e.interval: no key \"interval\" here"));
+		assert!(mistakes(&[("a.toml", "[sources.e]\ncommand = [\"x\"]\n")]).contains("sources.e: kind is missing"));
+		// A file that leaves the kind to another takes any kind's keys; the settings as merged, only
+		// the kind's.
+		let base = ("elamond.toml", "[sources.app]\nkind = \"http\"\nurl = \"http://localhost:8080/status\"\n");
+		let c = read(&[base, ("elamond.d/app.toml", "[sources.app]\ninterval = 30\ntoken_file = \"/etc/elamon/app.token\"\n")]).unwrap();
+		assert_eq!((c.feeds["app"].interval, c.feeds["app"].token_file.is_some()), (30, true));
+		let e = mistakes(&[base, ("elamond.d/app.toml", "[sources.app]\npath = \"/x\"\n")]);
+		assert!(e.contains("sources.app.path: no key \"path\" here"), "{e}");
+		let e = mistakes(&[base, ("elamond.d/app.toml", "[sources.app]\npaht = \"/x\"\n")]);
+		assert!(e.contains("elamond.d/app.toml:2: sources.app.paht: no key \"paht\" here; did you mean path?"), "{e}");
+	}
+
+	#[test]
+	fn a_source_is_checked_without_running_asking_or_reading_it() {
+		let e = mistakes(&[(
+			"a.toml",
+			r#"
+[sources.cpu]
+kind = "command"
+command = ["true"]
+
+[sources.item]
+kind = "file"
+path = "/x"
+
+[sources.none]
+kind = "command"
+command = []
+
+[sources.blank]
+kind = "command"
+command = ["", "x"]
+
+[sources.ftp]
+kind = "http"
+url = "ftp://example.net/status"
+
+[sources.creds]
+kind = "http"
+url = "https://user:secret-pass@example.net/status"
+
+[sources.hostless]
+kind = "http"
+url = "http:///status"
+
+[sources.spaced]
+kind = "http"
+url = "http://example.net/a status"
+
+[sources.header]
+kind = "http"
+url = "http://localhost:8080/status"
+header = "X Api:Key"
+
+[sources.relative]
+kind = "http"
+url = "http://[::1]:8080/status"
+token_file = "app.token"
+
+[sources.where]
+kind = "file"
+path = "sys/temp"
+"#,
+		)]);
+		for want in [
+			"a.toml:2: sources.cpu: \"cpu\" is the first part of this computer's own values (cpu.…): give the source another id",
+			"sources.item: \"item\" stands for the item of a for_each",
+			"a.toml:12: sources.none.command: is empty: give the program and its arguments",
+			"sources.blank.command: is empty: give the program and its arguments",
+			"sources.ftp.url: should start with http:// or https://",
+			"sources.creds.url: put the credentials in token_file, not in the URL",
+			"sources.hostless.url: has no host",
+			"sources.spaced.url: has spaces in it",
+			"sources.header.header: \"X Api:Key\" isn't a header's name: 1 to 64 of A-Z, a-z, 0-9 and -",
+			"sources.header.header: is the header the token goes in: give token_file too",
+			"sources.relative.token_file: app.token should be an absolute path",
+			"sources.where.path: sys/temp should be an absolute path",
+		] {
+			assert!(e.contains(want), "missing: {want}\nin:\n{e}");
+		}
+		// The credentials go nowhere, the mistake included; a sound URL is no mistake.
+		assert!(!e.contains("secret-pass") && !e.contains("relative.url"), "{e}");
+		for good in ["http://localhost", "https://example.net:8443/a?b=c#d", "http://192.0.2.1/status", "http://[::1]/"] {
+			assert_eq!(url_shape(good), Ok(()), "{good}");
+		}
+		assert!(url_shape("user:secret-pass@example.net").is_err_and(|e| e.contains("credentials")));
+		// A timeout longer than the interval makes a slow source, not a mistake.
+		read(&[("a.toml", "[sources.slow]\nkind = \"command\"\ncommand = [\"x\"]\ninterval = 1\ntimeout = 60\n")]).unwrap();
+	}
+
+	#[test]
+	fn a_token_file_is_warned_of_but_never_read() {
+		use std::os::unix::fs::PermissionsExt;
+		let dir = std::env::temp_dir().join(format!("elamond-token-{}", data_encoding::HEXLOWER.encode(&crate::store::random_bytes::<6>())));
+		let dropins = dir.join(crate::store::DROPIN_DIR);
+		std::fs::create_dir_all(&dropins).unwrap();
+		let file = |path: &std::path::Path, mode: u32| {
+			std::fs::write(path, "marker-token\n").unwrap();
+			std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+			path.display().to_string()
+		};
+		let warned = |path: String| {
+			let c = read(&[("a.toml", format!("[sources.app]\nkind = \"http\"\nurl = \"http://localhost:8080\"\ntoken_file = \"{path}\"\n").as_str())]).unwrap();
+			let w: Vec<String> = warnings(&c).into_iter().filter(|w| w.starts_with("sources.")).collect();
+			assert!(w.iter().all(|w| !w.contains("marker-token")), "{w:?}");
+			w
+		};
+		assert!(warned(file(&dir.join("private"), 0o600)).is_empty());
+		let open = warned(file(&dir.join("open"), 0o640));
+		assert!(open[0].starts_with("sources.app.token_file ") && open[0].ends_with("/open may be read by others: chmod 600 it; its reads fail until it is"), "{open:?}");
+		let gone = warned(dir.join("gone").display().to_string());
+		assert!(gone[0].contains("/gone can't be read (") && gone[0].ends_with("its reads fail until it is"), "{gone:?}");
+		let settings = warned(file(&dropins.join("app.toml"), 0o600));
+		assert!(settings[0].ends_with("is read as settings, being a .toml in elamond.d/: keep it elsewhere"), "{settings:?}");
+		// An empty one isn't read, so isn't warned of.
+		std::fs::write(dir.join("private"), "").unwrap();
+		assert!(warned(dir.join("private").display().to_string()).is_empty());
+		std::fs::remove_dir_all(&dir).unwrap();
 	}
 
 	#[test]
@@ -2617,8 +3038,11 @@ label = "{item.nmae}"
 		assert_eq!(schema["$schema"], "https://json-schema.org/draft/2020-12/schema");
 		// The schema these settings are (G39).
 		assert_eq!(schema["title"], format!("elamond settings (schema {SCHEMA})"));
-		for text in [DEFAULTS, include_str!("../fixtures/ui-source.toml"), include_str!("../fixtures/0.7/ui-ups-source.toml")] {
-			assert!(valid(&schema, &as_json(text), &schema));
+		// The sources of 0.8's fixture, of each kind, and one a drop-in leaves the kind of to another.
+		let sources = include_str!("../fixtures/0.8/ui-sources.toml").split("[profiles.owner]").next().unwrap();
+		let partial = "[sources.app]\ninterval = 30\n";
+		for text in [DEFAULTS, include_str!("../fixtures/ui-source.toml"), include_str!("../fixtures/0.7/ui-ups-source.toml"), sources, partial] {
+			assert!(valid(&schema, &as_json(text), &schema), "{text}");
 		}
 		for bad in [
 			"[[dashboards.a.widgets]]\ntype = \"guage\"\n",
@@ -2629,6 +3053,10 @@ label = "{item.nmae}"
 			"[profiles.p]\ntheme = \"blue\"\n",
 			"[actions.a]\nname = \"a\"\ncommand = [\"a\"]\nrole = \"glance\"\n",
 			"pages = 1\n",
+			"[sources.a]\nkind = \"ftp\"\n",
+			"[sources.a]\nkind = \"http\"\nups = \"u\"\n",
+			"[sources.a]\nkind = \"nut\"\ninterval = 5\n",
+			"[sources.a]\nkind = \"file\"\nformat = \"xml\"\n",
 		] {
 			assert!(!valid(&schema, &as_json(bad), &schema), "{bad}");
 		}
@@ -2665,7 +3093,7 @@ label = "{item.nmae}"
 		for k in widget_keys(None) {
 			want("widget key", k.name.into(), named(k.name));
 		}
-		for r in ["item", "column", "expand", "bar", "sort", "row_action", "link", "action", "param", "dashboard"] {
+		for r in ["item", "column", "expand", "bar", "sort", "row_action", "link", "action", "param", "dashboard", "source_nut", "source_command", "source_http", "source_file"] {
 			for k in record(r) {
 				want(r, k.name.into(), named(k.name));
 			}
