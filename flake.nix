@@ -2,8 +2,15 @@
 	description = "Elamon — watch and control a computer from an Android phone";
 
 	inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+	# nutflow, a NUT server for EcoFlow stations, serves a mock station to the UPS VM test
+	# (checks.x86_64-linux.ups) and nothing else: neither the package nor the modules use it, so
+	# a flake that takes elamon never fetches it to build.
+	inputs.nutflow = {
+		url = "github:Dolfost/nutflow";
+		inputs.nixpkgs.follows = "nixpkgs";
+	};
 
-	outputs = { self, nixpkgs, ... }:
+	outputs = { self, nixpkgs, nutflow, ... }:
 		let
 			# elamond runs on PCs and on ARM boards alike.
 			systems = [ "x86_64-linux" "aarch64-linux" ];
