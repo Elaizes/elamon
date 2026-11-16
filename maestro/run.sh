@@ -62,9 +62,23 @@ restore_font_scale() {
 }
 
 work=$(mktemp -d)
-trap 'kill "${service:-}" "${pairing:-}" 2>/dev/null; restore_font_scale; rm -rf "$work"' EXIT
+trap 'kill "${service:-}" "${pairing:-}" "${upsd:-}" 2>/dev/null; restore_font_scale; rm -rf "$work"' EXIT
 
 mkdir -p "$work/cfg/elamond.d" "$work/data"
+# A simulated upsd (upst-core's demo, UPS "rack") on a loopback port of its own, for the UPS tab.
+DEMO_UPSD=${DEMO_UPSD:-elamond/target/debug/examples/demo_upsd}
+[[ -x "$DEMO_UPSD" ]] || (cd elamond && cargo build --example demo_upsd --locked)
+"$DEMO_UPSD" > "$work/upsd.addr" 2> "$OUT/upsd.log" &
+upsd=$!
+for _ in $(seq 20); do
+	grep -q ':[0-9][0-9]*$' "$work/upsd.addr" && break
+	sleep 0.5
+done
+upsd_port=$(sed -n 's/^.*:\([0-9][0-9]*\)$/\1/p' "$work/upsd.addr" | head -n 1)
+[[ -n "$upsd_port" ]] || { echo "maestro/run.sh: the simulated upsd printed no address" >&2; exit 1; }
+# Any password does for the demo; the service reads it from a file, as it does anywhere.
+echo "demo" > "$work/nut.password"
+chmod 600 "$work/nut.password"
 # The test's own settings, a drop-in: the service writes the starter files beside it.
 cat > "$work/cfg/elamond.d/test.toml" <<TOML
 port = $PORT
@@ -113,7 +127,18 @@ spark = true
 [profiles.phone]
 name = "Phone"
 theme = "dark"
-dashboards = ["overview", "processes", "sensors", "control", "test"]
+dashboards = ["overview", "processes", "sensors", "control", "ups", "test"]
+
+# A UPS on the simulated upsd: its tab, the beeper's switch and the low-battery level it may set.
+[sources.rack]
+kind = "nut"
+ups = "rack"
+host = "127.0.0.1"
+port = $upsd_port
+user = "elamon"
+password_file = "$work/nut.password"
+commands = ["beeper.*"]
+settings = ["battery.charge.low"]
 
 [profiles.lean]
 use = "phone"
@@ -162,6 +187,10 @@ flow maestro/admin-again.yaml
 flow maestro/profile.yaml
 (run_elamond clients profile all phone)
 flow maestro/profile-back.yaml
+# The UPS tab of the simulated upsd: the status, the power, a long range, the beeper switched off
+# (the station's own value says so afterwards). Here, as the phone has every tab again.
+flow -e NAME="$NAME" maestro/ups.yaml
+(run_elamond values rack) | grep -E 'ups\.beeper\.status' | grep -qi disabled || fail "the beeper wasn't switched off on the simulated upsd: $( (run_elamond values rack) )"
 # Its own profile again, then two keys added to its table with the screen open: the last table in
 # the file is the phone's.
 (run_elamond clients profile all "$own")

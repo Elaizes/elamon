@@ -1,0 +1,53 @@
+# The UPS tab: run.sh gave the test service a source, "rack", on a simulated upsd (upst-core's demo)
+# and the tab to the phone's profile. Right after profile-back.yaml, the computer's screen is open.
+# The tab is titled by the station's name; its status, the timeline, "Power now", a long range on
+# the watts graph, and the beeper switch under "Station", which asks first and then flips.
+# (The outlet switches' typed confirmation isn't tried: the simulated rack offers no outlet commands.)
+appId: io.github.elaizes.elamon.debug
+---
+- tapOn: "Smart 1500.*"
+- extendedWaitUntil:
+    visible: "On line.*"
+    timeout: 20000
+- waitForAnimationToEnd
+- takeScreenshot: 30-ups
+- assertVisible: "Status"
+# The timeline's legend, once the source has been read for a moment.
+- extendedWaitUntil:
+    visible: "On line · .*"
+    timeout: 20000
+- assertVisible: "Power now"
+- assertVisible: "Output"
+- takeScreenshot: 31-ups-power
+# The watts graph is the one with the legend "Output"; its chips are right below it.
+- scrollUntilVisible:
+    element: "Output"
+    timeout: 20000
+- takeScreenshot: 32-ups-watts
+- tapOn:
+    text: "24 h"
+    below: "Output"
+- extendedWaitUntil:
+    notVisible: "Loading…"
+    timeout: 20000
+- assertNotVisible: "Couldn.t load.*"
+- takeScreenshot: 33-ups-watts-24h
+# The beeper is under Station, which starts closed.
+- scrollUntilVisible:
+    element: "Station"
+    timeout: 20000
+- tapOn: "Station"
+- scrollUntilVisible:
+    element: "Beeper"
+    timeout: 10000
+- takeScreenshot: 34-ups-beeper
+- tapOn: "Beeper"
+- extendedWaitUntil:
+    visible: "Beeper\\?"
+    timeout: 10000
+- takeScreenshot: 35-ups-beeper-confirm
+- tapOn:
+    text: "Beeper"
+    rightOf: "Cancel"
+- waitForAnimationToEnd
+- takeScreenshot: 36-ups-beeper-off
