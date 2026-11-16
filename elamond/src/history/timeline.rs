@@ -13,7 +13,7 @@ use std::sync::Arc;
 use serde_json::Value;
 use upst_core::{Power, Status};
 
-use crate::consts::limit;
+use crate::consts::{cadence, limit};
 use crate::ui::{Obj, Put};
 
 /// The folder of the timelines in the history's.
@@ -110,8 +110,9 @@ impl Timeline {
 	}
 
 	/// The timeline of the source `id` in `dir`, as its file has it; one that doesn't end in `none`
-	/// gets a change to `none` at `last` (when the source was last read, or its last change if that
-	/// was later): it wasn't watched since. A file that can't be read is taken as empty.
+	/// gets a change to `none` at `last` (when the source was last read), or a second after its
+	/// last change when that was later (`last` is written less often): it wasn't watched since. A
+	/// file that can't be read is taken as empty.
 	pub fn load(dir: &Path, id: &str, last: Option<u64>) -> Timeline {
 		let file = dir.join(super::disk::file_name(id));
 		let changes = match read(&file) {
@@ -126,8 +127,9 @@ impl Timeline {
 		if over {
 			t.trim();
 		}
+		// Never in the second of its last change, which would take that change's place.
 		if let Some(c) = t.changes.last().filter(|c| c.state != Supply::None) {
-			let at = last.unwrap_or(c.t).max(c.t);
+			let at = last.unwrap_or(0).max(c.t + 1);
 			t.set(Supply::None, at, "-");
 		}
 		t
@@ -144,16 +146,24 @@ impl Timeline {
 	}
 
 	/// The power is `s` from `at` (Unix seconds) on, as the event `code` says: a change, written at
-	/// once, unless it was so already.
+	/// once, unless it was so already. An `at` well before its last change is the clock set back:
+	/// the changes after it are dropped, its file written anew.
 	pub fn set(&mut self, s: Supply, at: u64, code: &str) {
 		if self.closed {
 			return;
 		}
 		self.live = s;
+		let back = self.changes.last().is_some_and(|c| c.t > at.saturating_add(cadence::CLOCK_BACK_SECS));
+		if back {
+			Arc::make_mut(&mut self.changes).retain(|c| c.t <= at);
+		}
 		if self.state() == s {
+			if back {
+				self.rewrite();
+			}
 			return;
 		}
-		// A clock set back doesn't reorder it.
+		// A moment just before its last change, read out of order, doesn't reorder it.
 		let at = self.changes.last().map_or(at, |c| at.max(c.t));
 		let change = Change::new(at, s, code);
 		let line = change.line();
@@ -165,7 +175,7 @@ impl Timeline {
 		if changes.last().map_or(Supply::None, |c| c.state) != s {
 			changes.push(change);
 		}
-		if self.changes.len() > 2 * limit::TIMELINE_CHANGES {
+		if back || self.changes.len() > 2 * limit::TIMELINE_CHANGES {
 			self.trim();
 		} else {
 			let written = self.file.as_deref().map_or(Ok(()), |f| append(f, &line));
@@ -175,7 +185,7 @@ impl Timeline {
 
 	/// What a recorder kept from `from` to `until` (Unix seconds) in place of what the timeline has
 	/// of that time: `window`, its changes then, the first at `from`. Then what the source says now
-	/// goes on, and the file is written anew.
+	/// goes on, and the file is written anew, with the newest `TIMELINE_CHANGES` alone.
 	pub fn merge(&mut self, from: u64, until: u64, window: Vec<Change>) {
 		let mut all: Vec<Change> = self.changes.iter().filter(|c| c.t < from).cloned().collect();
 		all.extend(window.into_iter().filter(|c| (from..until).contains(&c.t)));
@@ -187,7 +197,7 @@ impl Timeline {
 			all.push(Change::new(at, self.live, "-"));
 		}
 		self.changes = Arc::new(all);
-		self.rewrite();
+		self.trim();
 	}
 
 	/// The source stops being read at `at`: nothing is known from then on, and nothing more is
@@ -445,6 +455,50 @@ mod tests {
 	}
 
 	#[test]
+	fn a_timeline_left_in_the_second_of_a_change_keeps_it() {
+		let dir = scratch("left");
+		for id in ["eco", "pack"] {
+			let mut t = Timeline::load(&dir, id, None);
+			t.set(L, 1000, "-");
+			t.set(B, 2000, "power.lost");
+		}
+		// When it was last read is kept less often than its changes: here from before the last one.
+		assert_eq!(states(&Timeline::load(&dir, "eco", Some(1700))), [(1000, L), (2000, B), (2001, N)]);
+		assert_eq!(states(&Timeline::load(&dir, "pack", None)), [(1000, L), (2000, B), (2001, N)]);
+		// Kept as the file has it.
+		assert_eq!(states(&Timeline::load(&dir, "eco", Some(5000))), [(1000, L), (2000, B), (2001, N)]);
+		fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
+	fn a_clock_set_back_drops_what_came_after_it() {
+		let dir = scratch("clock");
+		let mut t = Timeline::load(&dir, "eco", None);
+		// Read from the boot on, with a clock two hours ahead; then NTP sets it back.
+		t.set(L, 17_200, "-");
+		t.set(L, 10_000, "-");
+		assert_eq!(states(&t), [(10_000, L)]);
+		// An outage after that is as long as it was, not one second at the time the clock had.
+		t.set(B, 10_060, "power.lost");
+		t.set(L, 10_120, "power.restored");
+		assert_eq!(states(&t), [(10_000, L), (10_060, B), (10_120, L)]);
+		assert_eq!(states(&Timeline::load(&dir, "eco", Some(10_130))), [(10_000, L), (10_060, B), (10_120, L), (10_130, N)]);
+		// Set back while upsd isn't read: what came after goes all the same.
+		let mut t = Timeline::load(&dir, "eco", None);
+		t.set(L, 10_200, "-");
+		t.set(N, 10_150, "upsd.lost");
+		assert_eq!(states(&t), [(10_000, L), (10_060, B), (10_120, L), (10_130, N)]);
+		assert_eq!(fs::read_to_string(dir.join("eco")).unwrap().lines().count(), 4);
+		// A moment a few seconds back, read out of order, is taken in the second of the last change.
+		let mut t = Timeline::memory();
+		t.set(L, 1000, "-");
+		t.set(B, 2000, "-");
+		t.set(N, 1997, "-");
+		assert_eq!(states(&t), [(1000, L), (2000, N)]);
+		fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
 	fn a_recorder_s_past_takes_the_place_of_what_the_timeline_has_of_that_time() {
 		let dir = scratch("merge");
 		let mut t = Timeline::load(&dir, "eco", None);
@@ -481,6 +535,13 @@ mod tests {
 		assert_eq!(t.changes().last().unwrap().t, 1000 + 2 * n);
 		let lines = fs::read_to_string(dir.join("eco")).unwrap().lines().count();
 		assert_eq!(lines, limit::TIMELINE_CHANGES);
+		// A recorder's past as well.
+		let window: Vec<Change> = (0..n + 10).map(|k| Change::new(k * 10, if k % 2 == 0 { L } else { B }, "-")).collect();
+		let mut t = Timeline::load(&dir, "pack", None);
+		t.merge(0, (n + 10) * 10, window);
+		assert_eq!(t.changes().len(), limit::TIMELINE_CHANGES);
+		assert_eq!(t.changes().last(), Some(&Change::new((n + 10) * 10, N, "-")));
+		assert_eq!(fs::read_to_string(dir.join("pack")).unwrap().lines().count(), limit::TIMELINE_CHANGES);
 		fs::remove_dir_all(&dir).unwrap();
 	}
 }

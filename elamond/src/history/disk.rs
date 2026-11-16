@@ -199,20 +199,29 @@ struct Writer {
 	failing: bool,
 }
 
-/// When each source was last read live, as `state.json` keeps it beside the tiers:
-/// `{"version":1,"sources":{"eco":{"last":1700000000}}}`, Unix seconds. A recorder fills in the
-/// history from then, and a timeline left on line or battery ends then.
+/// When each source was last read live, and to when its history is whole, as `state.json` keeps
+/// them beside the tiers: `{"version":2,"sources":{"eco":{"last":1700000000,"filled":1699990000}}}`,
+/// Unix seconds. A timeline left on line or battery ends at `last`; a recorder fills in the history
+/// from `filled`, which only a recorder's journal moves on, or reading the source without one.
+/// Version 1 (0.7.0) has `last` alone, which meant both.
 #[derive(Default)]
 struct Seen {
 	/// Its file was read.
 	read: bool,
 	last: BTreeMap<String, u64>,
+	filled: BTreeMap<String, u64>,
 	/// Changed since it was written.
 	changed: bool,
 }
 
 /// The file of `Seen`.
 pub const STATE: &str = "state.json";
+
+/// Whether `t` (Unix seconds) isn't ahead of the clock: one that is was taken before the clock was
+/// set back.
+fn not_ahead(t: u64) -> bool {
+	t <= crate::store::now().saturating_add(cadence::CLOCK_BACK_SECS)
+}
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 	m.lock().unwrap_or_else(|p| p.into_inner())
@@ -320,25 +329,39 @@ impl Store {
 		}
 	}
 
-	/// When the source `id` was last read live, as the history last kept it.
+	/// When the source `id` was last read live, as the history last kept it; none when that is
+	/// ahead of the clock, which was set back since.
 	pub fn last_seen(&self, id: &str) -> Option<u64> {
 		let mut seen = lock(&self.seen);
 		self.read_seen(&mut seen);
-		seen.last.get(id).copied()
+		seen.last.get(id).copied().filter(|t| not_ahead(*t))
+	}
+
+	/// To when the history of the source `id` is whole, as the history last kept it: a recorder
+	/// fills it in from then. None as for `last_seen`.
+	pub fn filled_until(&self, id: &str) -> Option<u64> {
+		let mut seen = lock(&self.seen);
+		self.read_seen(&mut seen);
+		seen.filled.get(id).copied().filter(|t| not_ahead(*t))
 	}
 
 	/// The source `id` was read live at `t` (Unix seconds): kept from the next flush.
 	pub fn seen(&self, id: &str, t: u64) {
+		self.keep(id, t, false);
+	}
+
+	/// The history of the source `id` is whole to `t` (Unix seconds): kept from the next flush.
+	pub fn filled(&self, id: &str, t: u64) {
+		self.keep(id, t, true);
+	}
+
+	fn keep(&self, id: &str, t: u64, filled: bool) {
 		let mut seen = lock(&self.seen);
 		self.read_seen(&mut seen);
-		match seen.last.get_mut(id) {
-			Some(last) if *last == t => return,
-			Some(last) => *last = t,
-			None => {
-				seen.last.insert(id.to_string(), t);
-			}
+		let map = if filled { &mut seen.filled } else { &mut seen.last };
+		if map.insert(id.to_string(), t) != Some(t) {
+			seen.changed = true;
 		}
-		seen.changed = true;
 	}
 
 	fn read_seen(&self, seen: &mut Seen) {
@@ -354,9 +377,13 @@ impl Store {
 				return;
 			}
 		};
+		let filled = if v["version"].as_u64().unwrap_or(1) >= 2 { "filled" } else { "last" };
 		for (id, s) in v["sources"].as_object().into_iter().flatten() {
 			if let Some(last) = s["last"].as_u64() {
 				seen.last.insert(id.clone(), last);
+			}
+			if let Some(t) = s[filled].as_u64() {
+				seen.filled.insert(id.clone(), t);
 			}
 		}
 	}
@@ -367,8 +394,15 @@ impl Store {
 		if !seen.changed {
 			return;
 		}
-		let sources: serde_json::Map<String, serde_json::Value> = seen.last.iter().map(|(id, t)| (id.clone(), serde_json::json!({ "last": t }))).collect();
-		let text = serde_json::json!({ "version": 1, "sources": sources }).to_string();
+		let mut sources = serde_json::Map::new();
+		for (key, map) in [("last", &seen.last), ("filled", &seen.filled)] {
+			for (id, t) in map {
+				if let serde_json::Value::Object(o) = sources.entry(id.clone()).or_insert_with(|| serde_json::json!({})) {
+					o.insert(key.into(), (*t).into());
+				}
+			}
+		}
+		let text = serde_json::json!({ "version": 2, "sources": sources }).to_string();
 		let path = self.dir.join(STATE);
 		let tmp = self.dir.join(format!(".{STATE}.tmp"));
 		let written = fs::DirBuilder::new()
@@ -715,6 +749,35 @@ pub mod tests {
 		fn pending_points(&self) -> usize {
 			lock(&self.made).pending.iter().flat_map(|p| p.values()).map(Vec::len).sum()
 		}
+	}
+
+	#[test]
+	fn when_a_source_was_read_and_to_when_it_is_filled_in_are_kept_apart() {
+		let dir = scratch("state");
+		let now = crate::store::now();
+		let store = Store::new(dir.clone());
+		store.seen("eco", now - 60);
+		store.filled("eco", now - 3600);
+		store.seen("pack", now - 10);
+		store.flush(now, true);
+		let again = Store::new(dir.clone());
+		assert_eq!((again.last_seen("eco"), again.filled_until("eco")), (Some(now - 60), Some(now - 3600)));
+		// Read, never filled in.
+		assert_eq!((again.last_seen("pack"), again.filled_until("pack")), (Some(now - 10), None));
+		// A file of 0.7.0, `last` alone: filled in to then.
+		fs::write(dir.join(STATE), format!(r#"{{"version":1,"sources":{{"eco":{{"last":{}}}}}}}"#, now - 60)).unwrap();
+		let again = Store::new(dir.clone());
+		assert_eq!((again.last_seen("eco"), again.filled_until("eco")), (Some(now - 60), Some(now - 60)));
+		// Written ahead of the clock, which was set back since: as if never kept.
+		let ahead = now + 7200;
+		fs::write(dir.join(STATE), format!(r#"{{"version":2,"sources":{{"eco":{{"last":{ahead},"filled":{ahead}}}}}}}"#)).unwrap();
+		let again = Store::new(dir.clone());
+		assert_eq!((again.last_seen("eco"), again.filled_until("eco")), (None, None));
+		// Read again, it is kept as the clock has it now.
+		again.seen("eco", now);
+		again.flush(now, true);
+		assert_eq!(Store::new(dir.clone()).last_seen("eco"), Some(now));
+		fs::remove_dir_all(&dir).unwrap();
 	}
 
 	#[test]

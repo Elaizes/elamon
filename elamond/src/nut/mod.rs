@@ -673,9 +673,11 @@ impl Task {
 	async fn run(mut self, mut station: Station) {
 		let mut asking = Asking { interval: self.src.background(), paused: false };
 		asking.set(&self.poller, &self.src, *self.wanted.borrow_and_update());
-		// When the source was last read is kept, for the next start to fill in from; not while its
-		// history is filled in: until that is done, it is still when the service read it before.
-		let mut keep_seen = true;
+		// When the source was last read is kept, for a timeline left on line or battery to end then.
+		// Read, its history is whole to then too, which the next start's recorder fills in from:
+		// with a recorder, only once that has filled in what came before this start. A recorder
+		// that can't be reached leaves it where it was, for one that can be to fill in from.
+		let mut whole = self.src.recorder.is_none();
 		if let Some(addr) = self.src.recorder.clone() {
 			let recalled = recall(&self.id, &self.src, &addr, &self.store, &mut station, self.filler.clone(), self.cancel.clone());
 			tokio::select! {
@@ -683,7 +685,7 @@ impl Task {
 					station.close(SystemTime::now());
 					return;
 				}
-				started = recalled => keep_seen = !started,
+				_ = recalled => {}
 			}
 		}
 		let mut at = SystemTime::now();
@@ -699,8 +701,7 @@ impl Task {
 					asking.set(&self.poller, &self.src, *self.wanted.borrow_and_update());
 				}
 				Some(f) = self.filled.recv() => {
-					self.filled_in(&mut station, f);
-					keep_seen = true;
+					whole = self.filled_in(&mut station, f);
 					let s = Arc::new(station.snapshot(at));
 					*self.out.lock().unwrap_or_else(|p| p.into_inner()) = s;
 				}
@@ -728,8 +729,12 @@ impl Task {
 					let read = matches!(&u, Update::Vars { ups, .. } if *ups == self.src.ups);
 					if let Some(t) = station.update(&self.src, u) {
 						at = t;
-						if read && keep_seen {
-							self.store.seen(&self.id, upst_core::unix(at) as u64);
+						if read {
+							let t = upst_core::unix(at) as u64;
+							self.store.seen(&self.id, t);
+							if whole {
+								self.store.filled(&self.id, t);
+							}
 						}
 						if read && std::mem::take(&mut stale_offer) && offers_wanted(&self.src) {
 							self.renew(&mut asking);
@@ -788,31 +793,33 @@ impl Task {
 	}
 
 	/// The timeline the recorder's journal made takes the place of the station's then, and the
-	/// history is whole to then; or the journal says why not.
-	fn filled_in(&self, station: &mut Station, f: Filled) {
+	/// history is whole to then; or the journal says why not. Whether it is.
+	fn filled_in(&self, station: &mut Station, f: Filled) -> bool {
 		match f.result {
 			Ok(window) => {
 				station.recalled(f.from, f.until, window);
-				self.store.seen(&self.id, f.until);
+				self.store.filled(&self.id, f.until);
 				let before = match f.from {
 					0 => "all it had".to_string(),
 					from => format!("the {}", format::format(format::Shown::Num(f.until.saturating_sub(from) as f64), "duration", "s")),
 				};
 				recorder::say(&self.id, format!("history filled in from the recorder's {}: {before} before this start", f.label));
+				true
 			}
 			Err(e) => {
 				let addr = self.src.recorder.as_deref().unwrap_or_default();
 				recorder::say(&self.id, format!("recorder {addr}: {e}; no history from before elamond"));
+				false
 			}
 		}
 	}
 }
 
 /// The last hour of the source's journal at the recorder `addr`, taken in by its station before
-/// anything read now; then its history filled in from the journal in the background, what that
-/// made of its timeline sent to `filled`. Whether that was started: a recorder that can't be
+/// anything read now; then its history filled in from the journal in the background, from where
+/// it was last whole, what that made of its timeline sent to `filled`. A recorder that can't be
 /// reached, or hasn't the UPS, is a line in the journal.
-async fn recall(id: &str, src: &NutSource, addr: &str, store: &Arc<Store>, station: &mut Station, filled: mpsc::Sender<Filled>, cancel: Arc<AtomicBool>) -> bool {
+async fn recall(id: &str, src: &NutSource, addr: &str, store: &Arc<Store>, station: &mut Station, filled: mpsc::Sender<Filled>, cancel: Arc<AtomicBool>) {
 	let since = store.last_seen(id);
 	let until = crate::store::now();
 	let (s, a) = (src.clone(), addr.to_string());
@@ -826,17 +833,16 @@ async fn recall(id: &str, src: &NutSource, addr: &str, store: &Arc<Store>, stati
 		Ok(r) => r,
 		Err(e) => {
 			recorder::say(id, format!("recorder {addr}: {e}; no history from before elamond"));
-			return false;
+			return;
 		}
 	};
 	station.warm(&recorded.recent, upst_core::from_unix(until as f64), since);
-	let from = since.unwrap_or(0);
+	let from = store.filled_until(id).unwrap_or(0);
 	let (id, addr, store, history, label) = (id.to_string(), addr.to_string(), store.clone(), src.history, recorded.label);
 	tokio::task::spawn_blocking(move || {
 		let result = recorder::backfill(&addr, &label, &id, history, from, until, &store, &cancel);
 		let _ = filled.blocking_send(Filled { label, from, until, result });
 	});
-	true
 }
 
 /// How the poller asks now.

@@ -88,6 +88,11 @@ pub mod cadence {
 	/// What of a recorder's journal a source starts from, as if it had read it, in seconds: its
 	/// estimates and events go on from there.
 	pub const WARM_UP: u64 = 3600;
+	/// A time more than this many seconds before one taken earlier is the clock set back (one that
+	/// ran ahead from the boot until NTP set it), not two moments read out of order: what was taken
+	/// after it is of a time that hasn't come, and is dropped rather than kept ahead of all that
+	/// follows.
+	pub const CLOCK_BACK_SECS: u64 = 5;
 
 	/// The cadences above in ticks of one interval, rounded, and at least every tick.
 	#[derive(Clone, Copy, Debug, PartialEq, Eq)]

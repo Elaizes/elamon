@@ -736,7 +736,7 @@ async fn a_recorder_fills_in_the_history_and_the_timeline() {
 	// Filled in up to the start: that is where the next start goes on from.
 	rt.stop().await;
 	store.flush(crate::store::now(), true);
-	let until = Store::new(store.dir().to_path_buf()).last_seen("past").unwrap();
+	let until = Store::new(store.dir().to_path_buf()).filled_until("past").unwrap();
 	assert!((now..=crate::store::now()).contains(&until), "{until}");
 	// Started again, with nothing new in the journal: nothing is added.
 	let before = sizes(store.dir());
@@ -786,14 +786,59 @@ async fn a_recorder_out_of_reach_is_a_line_and_the_source_works_without() {
 	assert!(lone[0].starts_with(&format!("recorder 127.0.0.1:{closed}: ")) && lone[0].ends_with("; no history from before elamond"), "{lone:?}");
 	let other = said("other", 1).await;
 	assert_eq!(other, [format!("recorder {}: it has no journal of rack@127.0.0.1:{ups} (it has pack@nas); no history from before elamond", rec.addr)]);
-	// Read live, its last reading is kept: the next start fills in from there.
+	// Read live, its last reading is kept; what came before this start isn't filled in: the next
+	// start fills in from before it.
 	let store = history.store();
 	store.flush(crate::store::now(), true);
-	assert!(Store::new(store.dir().to_path_buf()).last_seen("lone").is_some());
+	let kept = Store::new(store.dir().to_path_buf());
+	assert!(kept.last_seen("lone").is_some());
+	assert_eq!(kept.filled_until("lone"), None);
 	tokio::time::sleep(Duration::from_millis(300)).await;
 	assert_eq!(recorder::tests::said("lone").len(), 1);
 	rt.stop().await;
 	server.stop();
+	std::fs::remove_dir_all(&journals).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recorder_out_of_reach_at_one_start_fills_in_at_the_next() {
+	use upst_core::journal::Journal;
+	let _one = POLLERS.lock().await;
+	let server = demo::Server::spawn().unwrap();
+	let ups = server.addr().port();
+	let history = Scratch::new();
+	// Started, read live, its recorder not there yet.
+	let closed = closed_port();
+	let config = source(&demo_source("late", "rack", "127.0.0.1", ups, &format!("recorder = \"127.0.0.1:{closed}\"\n")));
+	let rt = Runtime::default();
+	rt.start(tokio::runtime::Handle::current(), &config, history.store());
+	wait_for(&rt, "late", Duration::from_secs(5), |s| s.supply == Supply::Line).await;
+	assert!(said("late", 1).await[0].ends_with("; no history from before elamond"));
+	rt.stop().await;
+	history.store().flush(crate::store::now(), true);
+	// Its recorder kept half an hour on battery, three hours ago.
+	let label = format!("rack@127.0.0.1:{ups}");
+	let journals = crate::history::disk::tests::scratch("journals-late");
+	let t0 = (crate::store::now() - 3 * 3600) / 10 * 10;
+	let mut j = Journal::open(&journals, &label, t0 as f64).unwrap();
+	for k in 0..180 {
+		j.poll((t0 + k * 10) as f64, &owned(&[("ups.status", "OB DISCHRG".into()), ("battery.charge", (90 - k / 10).to_string())])).unwrap();
+		j.tick((t0 + k * 10) as f64).unwrap();
+	}
+	let path = j.path.clone();
+	drop(j);
+	let rec = recorder::tests::Recorder::serve(vec![(label.clone(), path)]);
+	// Started again with it: all it has is filled in, not only what came since the source was read.
+	let config = source(&demo_source("late", "rack", "127.0.0.1", ups, &format!("recorder = \"{}\"\n", rec.addr)));
+	let store = Arc::new(Store::new(history.store().dir().to_path_buf()));
+	let rt = Runtime::default();
+	rt.start(tokio::runtime::Handle::current(), &config, store.clone());
+	let lines = said("late", 2).await;
+	assert_eq!(lines[1], format!("history filled in from the recorder's {label}: all it had before this start"));
+	wait_for(&rt, "late", Duration::from_secs(5), |s| s.timeline.first().map(|c| (c.t, c.state)) == Some((t0, Supply::Battery))).await;
+	rt.stop().await;
+	server.stop();
+	drop(rec);
 	std::fs::remove_dir_all(&journals).unwrap();
 }
 
