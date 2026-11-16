@@ -413,18 +413,20 @@ async fn sources_on_the_demo_upsd_are_asked_as_often_as_wanted() {
 	assert_eq!(rack.scalars["rack.ups.realpower"].unit, "W");
 	assert_eq!(text(&rack, "rack.outlet.1.desc").as_deref(), Some("Servers"));
 	assert_eq!(rack.item.get("name"), Some(&V::Text("Smart 1500 RM (simulated)".into())));
-	// Shown on some client's screen: every 200 ms.
-	rt.set_demand(true, &BTreeSet::new(), &BTreeSet::new());
-	let live = polls_over(&rt, "rack", Duration::from_millis(2000)).await;
+	// Shown on some client's screen: every 200 ms; pack, which isn't shown, not at all.
+	rt.set_demand(&["rack".to_string()].into(), &BTreeSet::new(), &BTreeSet::new());
+	tokio::time::sleep(Duration::from_millis(300)).await;
+	let (live, pack) = tokio::join!(polls_over(&rt, "rack", Duration::from_millis(2000)), polls_over(&rt, "pack", Duration::from_millis(2000)));
 	assert!(live >= 6, "{live} polls in 2 s while shown");
+	assert_eq!(pack, 0, "pack polled while another source is shown");
 	// Nobody looks: rack's history is kept, every second; pack's isn't, nor is it graphed: not asked.
-	rt.set_demand(false, &BTreeSet::new(), &BTreeSet::new());
+	rt.set_demand(&BTreeSet::new(), &BTreeSet::new(), &BTreeSet::new());
 	tokio::time::sleep(Duration::from_millis(300)).await;
 	let (rack, pack) = tokio::join!(polls_over(&rt, "rack", Duration::from_millis(2500)), polls_over(&rt, "pack", Duration::from_millis(2500)));
 	assert!((1..=4).contains(&rack), "{rack} polls in 2.5 s in the background");
 	assert_eq!(pack, 0, "pack polled while nothing needs it");
 	// A graph of pack's values has it asked again.
-	rt.set_demand(false, &["pack.battery.charge".to_string()].into(), &BTreeSet::new());
+	rt.set_demand(&BTreeSet::new(), &["pack.battery.charge".to_string()].into(), &BTreeSet::new());
 	let pack = polls_over(&rt, "pack", Duration::from_millis(1600)).await;
 	assert!(pack >= 1, "{pack} polls of a graphed source");
 	drop(rt);
@@ -440,7 +442,7 @@ async fn a_station_that_loses_power_and_then_upsd() {
 	let history = Scratch::new();
 	let rt = Runtime::default();
 	rt.start(tokio::runtime::Handle::current(), &config, history.store());
-	rt.set_demand(true, &BTreeSet::new(), &BTreeSet::new());
+	rt.set_demand(&["rack".to_string()].into(), &BTreeSet::new(), &BTreeSet::new());
 	let s = wait_for(&rt, "rack", Duration::from_secs(30), |s| text(s, "rack.status").as_deref() == Some("On battery")).await;
 	assert_eq!(s.supply, Supply::Battery);
 	assert_eq!(s.scalars["rack.status"].level, Some(Level::Warning));
@@ -563,7 +565,7 @@ async fn what_the_station_offers_is_asked_again_once_upsd_has_its_data() {
 	let history = Scratch::new();
 	let rt = Runtime::default();
 	rt.start(tokio::runtime::Handle::current(), &config, history.store());
-	rt.set_demand(true, &BTreeSet::new(), &BTreeSet::new());
+	rt.set_demand(&["eco".to_string()].into(), &BTreeSet::new(), &BTreeSet::new());
 	// upsd answers, but hasn't reached the station: nothing offered.
 	wait_for(&rt, "eco", Duration::from_secs(5), |s| text(s, "eco.status").as_deref() == Some("No data")).await;
 	tokio::time::sleep(Duration::from_millis(500)).await;
@@ -627,7 +629,7 @@ async fn what_a_source_may_run_changes_as_it_runs() {
 	let history = Scratch::new();
 	let rt = Runtime::default();
 	rt.start(tokio::runtime::Handle::current(), &with("commands = [\"beeper.*\"]\n"), history.store());
-	rt.set_demand(true, &BTreeSet::new(), &BTreeSet::new());
+	rt.set_demand(&["tune".to_string()].into(), &BTreeSet::new(), &BTreeSet::new());
 	let commands = |s: &Snapshot| -> Vec<String> {
 		match s.actions.iter().find(|a| a.id == "nut.command.tune").map(|a| &a.params[0].kind) {
 			Some(ParamKind::Choice(c)) => c.iter().map(|(v, _)| v.clone()).collect(),

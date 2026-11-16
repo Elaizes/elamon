@@ -556,11 +556,12 @@ fn collect_loop(
 				history::prefill(&mut h, &hub.long, &tracked.1, values.t, span);
 			}
 		}
-		// Upsd is asked often while a client shows a source's values, less while its history is kept.
-		hub.nut.set_demand(need.sources, &tracked.1, &timelines);
-		// A command, web service or file is read only while a client shows it, a graph tracks it or
-		// its history is kept.
-		hub.feeds.set_demand(&hub.wanted_heads(), &tracked.1);
+		// Upsd is asked often for a source while a client shows its values, less while its history is
+		// kept. A command, web service or file is read only while a client shows it, a graph tracks it
+		// or its history is kept.
+		let heads = hub.wanted_heads();
+		hub.nut.set_demand(&heads, &tracked.1, &timelines);
+		hub.feeds.set_demand(&heads, &tracked.1);
 		if let Ok(mut h) = hub.history.lock() {
 			h.push(&values, &tracked.1);
 		}

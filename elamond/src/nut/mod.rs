@@ -563,13 +563,14 @@ impl Runtime {
 		}
 	}
 
-	/// How often each source is to be asked now: `live` while a client shows a source's values,
-	/// `tracked` what graphs and sparks show, `timelines` the sources timelines show.
-	pub fn set_demand(&self, live: bool, tracked: &BTreeSet<String>, timelines: &BTreeSet<String>) {
+	/// How often each source is to be asked now: often while a client shows its values (`heads`, the
+	/// first parts of the addresses on the clients' screens: `Hub::wanted_heads`), `tracked` what
+	/// graphs and sparks show, `timelines` the sources timelines show.
+	pub fn set_demand(&self, heads: &BTreeSet<String>, tracked: &BTreeSet<String>, timelines: &BTreeSet<String>) {
 		let inner = self.lock();
 		for (id, r) in &inner.sources {
 			let graphed = timelines.contains(id) || tracked.iter().any(|a| a.split('.').next() == Some(id.as_str()));
-			let want = if live {
+			let want = if heads.contains(id) {
 				Demand::Live
 			} else if r.src.history || graphed {
 				Demand::Background

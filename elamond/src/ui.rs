@@ -186,7 +186,7 @@ pub struct Sources {
 	pub displays: bool,
 	/// Whether links answer, and the states of their units.
 	pub links: bool,
-	/// A UPS source's values: upsd is asked more often while a client shows them.
+	/// Some source's values: which sources, `Dashboard::source_heads` says.
 	pub sources: bool,
 }
 
@@ -244,7 +244,7 @@ impl Sources {
 			(self.gpus, "GPUs"),
 			(self.displays, "monitors"),
 			(self.links, "links"),
-			(self.sources, "UPS sources"),
+			(self.sources, "sources"),
 		]
 		.into_iter()
 		.filter_map(|(on, w)| on.then_some(w))
