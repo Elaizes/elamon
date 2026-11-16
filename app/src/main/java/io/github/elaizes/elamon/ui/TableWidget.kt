@@ -402,16 +402,26 @@ fun TableSheet(scope: DashScope) {
 					Text(stringResource(R.string.control_open))
 				}
 			}
-			val actions = w.rowActions.orEmpty().mapNotNull { ra -> scope.actions.action(ra.action)?.let { ra to it } }
-			if (actions.isNotEmpty()) {
+			// The actions this phone may run on the row, and the row's pages it has (a link's journal).
+			val shown = Tables.rowButtons(scope.ui, w, row)
+			if (shown.isNotEmpty()) {
+				// While an action of this computer's runs, the others wait: a second tap would be turned away.
+				val busy = scope.actions.running.running.isNotEmpty()
 				FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sPlus), verticalArrangement = Arrangement.spacedBy(Space.s), modifier = Modifier.padding(top = Space.s), maxItemsInEachRow = ROW_ACTIONS_IN_A_ROW) {
-					for ((ra, action) in actions) {
+					for ((ra, target, action) in shown) {
+						if (target != null) {
+							FilledTonalButton(onClick = { scope.tables.close(); scope.open(target) }, modifier = Modifier.weight(1f)) {
+								Text(ra.label ?: scope.ui.dashboard(target)?.title ?: target, maxLines = 1, overflow = TextOverflow.Ellipsis)
+							}
+							continue
+						}
+						if (action == null) continue
 						val params = Params.fill(ra.params, row.f)
 						val label = ra.label ?: action.name
 						val kill = params["signal"].text() == "kill"
 						FilledTonalButton(
 							onClick = { scope.actions.launch(action, params, "$label $name", key = action.id + "/" + row.key, button = label, afterAsking = { scope.tables.close() }) },
-							enabled = scope.actions.enabled(action, null) && !gone,
+							enabled = scope.actions.enabled(action, null) && !gone && !busy,
 							modifier = Modifier.weight(1f),
 						) {
 							Text(label, color = if (kill) Metric.colors.hot else Color.Unspecified, maxLines = 1, overflow = TextOverflow.Ellipsis)

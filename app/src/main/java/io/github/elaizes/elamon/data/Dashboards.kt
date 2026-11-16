@@ -78,7 +78,21 @@ class UniqueKeys {
 
 // ---- tables ----------------------------------------------------------------------------------
 
+/** A row action as a row's sheet offers it: the page it [opens], or the action it [runs]. */
+data class RowButton(val rowAction: RowAction, val opens: String?, val runs: Action?)
+
 object Tables {
+	/**
+	 * What the sheet of [w]'s [row] offers of its row actions: the page one opens,
+	 * `<open>.<the row's key>`, while [ui] has it, or the action one runs, while [ui] has that. One
+	 * with neither (a page or an action this phone isn't given, a kind this app doesn't know) isn't.
+	 */
+	fun rowButtons(ui: UiDoc, w: Widget, row: Row): List<RowButton> = w.rowActions.orEmpty().mapNotNull { ra ->
+		val opens = ra.open?.let { "$it.${row.key}" }?.takeIf { ui.dashboard(it) != null }
+		val runs = if (ra.open == null) ui.action(ra.action) else null
+		if (opens == null && runs == null) null else RowButton(ra, opens, runs)
+	}
+
 	/** The text columns a table's search looks in: those that hold words, not figures. */
 	fun textColumns(columns: List<Column>): List<Column> = columns.filter { it.format == null || it.format == "text" }
 

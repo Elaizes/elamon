@@ -568,6 +568,31 @@ class ProtocolContractTest {
 	}
 
 	@Test
+	fun aRowActionOpensTheRowsPageWhereTheUiHasIt() {
+		val ui = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), fixture("0.8/ui-sources"))
+		val links = findWidget(ui, "control/links")!!
+		val (restart, journal) = links.rowActions!!
+		assertEquals("unit.restart", restart.action)
+		assertNull(restart.open)
+		assertEquals(listOf("unit_log", "Journal"), listOf(journal.open, journal.label))
+		assertNull(journal.action)
+		assertEquals(JsonObject(emptyMap()), journal.params)
+		// The link example has its page: both are offered, the journal opening it.
+		val example = Tables.rowButtons(ui, links, Row("example"))
+		assertEquals(listOf(null, "unit_log.example"), example.map { it.opens })
+		assertEquals(listOf("unit.restart", null), example.map { it.runs?.id })
+		// A link without one (no unit, or one this phone isn't shown): only the action.
+		assertEquals(listOf(restart), Tables.rowButtons(ui, links, Row("other")).map { it.rowAction })
+		// A row action with neither, or with an action this phone may not run, isn't offered at all.
+		val odd = links.copy(rowActions = listOf(RowAction(label = "New"), RowAction("power.nothing", "Gone")))
+		assertEquals(emptyList(), Tables.rowButtons(ui, odd, Row("example")))
+		// A service before 0.8 sends no `open`: its row actions are as they were.
+		val old = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), fixture("ui"))
+		val oldLinks = old.dashboard("home")!!.widgets.first { it.id == "home/links" }
+		assertTrue(oldLinks.rowActions!!.all { it.open == null && it.action != null })
+	}
+
+	@Test
 	fun theLogsStatesAsSent() {
 		val first = assertIs<DataLine>(decodeStreamLine(line("0.8/stream-sources")))
 		// A log before its first line: a reset with none.

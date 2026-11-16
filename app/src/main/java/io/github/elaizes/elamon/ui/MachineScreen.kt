@@ -343,7 +343,9 @@ fun MachineScreen(
 
 	// The sheets and the form over the screen: a table's row, what a command printed, an action's values.
 	if (ui != null && current != null && launcher != null) {
-		val scope = DashScope(machine.id, ui, current, state.data[current]?.widgets.orEmpty(), vm, state, name, {}, launcher, folds, tables, want.sorts, want.logs)
+		// A row's action may open a page (the row's journal).
+		val open = { target: String -> if (target != current && ui.dashboard(target) != null) pages = shownPages + target }
+		val scope = DashScope(machine.id, ui, current, state.data[current]?.widgets.orEmpty(), vm, state, name, open, launcher, folds, tables, want.sorts, want.logs)
 		TableSheet(scope)
 	}
 	ActionOutput(vm, ui, actionsState)
