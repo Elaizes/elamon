@@ -31,7 +31,8 @@ appId: io.github.elaizes.elamon.debug
 # The beeper is under Station, which starts closed.
 - scrollUntilVisible:
     element: "Station"
-    timeout: 20000
+    timeout: 60000
+    speed: 70
 - tapOn: "Station"
 - scrollUntilVisible:
     element: "Beeper"
