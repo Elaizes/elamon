@@ -469,7 +469,7 @@ impl Ctx<'_> {
 		// The least role its values, collection and action need, or its own.
 		let mut need = w.role.unwrap_or(Role::Glance);
 		for a in addresses(&w) {
-			need = need.max(values::address_role(a));
+			need = need.max(self.view.role_of(a));
 		}
 		// A timeline's source is a station, which its status shows to all.
 		if let Some(s) = w.source.as_ref().filter(|_| kind != "timeline") {
@@ -551,7 +551,7 @@ impl Ctx<'_> {
 				}
 				let shows = match (&i.value, &i.text) {
 					(Some(a), _) => {
-						self.view.role >= values::address_role(a) && (self.view.exists(a) || i.empty.as_deref().is_some_and(|e| !self.fill(e).is_empty()))
+						self.view.role >= self.view.role_of(a) && (self.view.exists(a) || i.empty.as_deref().is_some_and(|e| !self.fill(e).is_empty()))
 					}
 					(None, Some(t)) => !self.fill(t).is_empty(),
 					_ => false,
@@ -1006,7 +1006,7 @@ impl Ctx<'_> {
 					match &d.max {
 						Some(Bound::Num(n)) => o.put("max", Value::Number(n.clone())),
 						Some(Bound::Name(_)) => {}
-						None => o.opt("max", own.or_else(|| value.and_then(values::address_def).filter(|a| a.unit == "%").map(|_| Value::from(100u64)))),
+						None => o.opt("max", own.or_else(|| value.and_then(|a| self.view.def(a)).filter(|a| a.unit == "%").map(|_| Value::from(100u64)))),
 					}
 				} else {
 					o.opt("min", bound_num(&d.min));

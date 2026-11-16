@@ -1158,9 +1158,9 @@ pub(crate) fn data_of(hub: &Hub, ui: &Ui, dashboard: &ui::Dashboard, who: &Calle
 	let header = ui.header.as_deref().and_then(|h| ui.dashboard(h));
 	let history = history.then(|| {
 		let ring = hub.history.lock().unwrap_or_else(|p| p.into_inner());
-		let mut h = crate::history::json(dashboard, &ring, ui.units, frame.values.t);
+		let mut h = crate::history::json(dashboard, &ring, &frame.values, ui.units, frame.values.t);
 		if let Some(header) = header.filter(|h| h.id != dashboard.id) {
-			h.extend(crate::history::json(header, &ring, ui.units, frame.values.t));
+			h.extend(crate::history::json(header, &ring, &frame.values, ui.units, frame.values.t));
 		}
 		h
 	});

@@ -484,7 +484,7 @@ value = "system.uptime"
 		// The history in °F too.
 		let mut ring = crate::history::Ring::new(10);
 		ring.push_points(1000, [("cpu.temp".to_string(), Some(100.0))]);
-		let h = crate::history::json(d, &ring, ui.units, 2000);
+		let h = crate::history::json(d, &ring, &values, ui.units, 2000);
 		assert_eq!(h["t/graph"], serde_json::json!({ "t": [1000], "v": [[null], [212.0]] }));
 	}
 }

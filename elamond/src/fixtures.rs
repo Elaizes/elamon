@@ -439,7 +439,7 @@ fn stream_data() {
 	let header = ui.header.as_deref().and_then(|h| ui.dashboard(h));
 	let home = ui.dashboard("home").unwrap();
 	let t = sample().t;
-	let history = crate::history::json(home, &ring(), ui.units, t);
+	let history = crate::history::json(home, &ring(), &values, ui.units, t);
 	check_compact("stream-data", &Value::Object(crate::states::data(t, home, header, &s, Some(history))));
 	let detail = ui.dashboard("detail").unwrap();
 	check_compact("stream-data-detail", &Value::Object(crate::states::data(t + 1000, detail, header, &s, None)));
@@ -532,7 +532,7 @@ fn history() {
 	store.flush(sample().t / 1000, true);
 	let store = Store::new(dir.clone());
 	let addresses = series.map(String::from);
-	let answer = api::graph(&store, "ups.eco/watts", "all", &addresses, crate::values::Units::default(), sample().t).unwrap();
+	let answer = api::graph(&store, "ups.eco/watts", "all", &addresses, &ups_values(&ui_ups_source()), crate::values::Units::default(), sample().t).unwrap();
 	check_compact("0.7/history", &Value::Object(answer));
 	std::fs::remove_dir_all(&dir).unwrap();
 }

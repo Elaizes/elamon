@@ -657,9 +657,27 @@ pub struct Values {
 	pub kept: BTreeSet<String>,
 	/// Each source's power timeline, by its id.
 	pub timelines: BTreeMap<String, std::sync::Arc<Vec<crate::history::timeline::Change>>>,
+	/// The `command`, `http` and `file` sources by id, with the role that sees their values: their
+	/// addresses are told by `def`, never by a NUT variable's name.
+	pub feeds: BTreeMap<String, Role>,
 }
 
 impl Values {
+	/// What `address` is: a `command`, `http` or `file` source's (`<id>.age` a duration in seconds,
+	/// `<id>.exit` a number, `<id>.error` text that `monitor` sees at least, any other without a
+	/// unit, of the format it had last or text), else as `address_def` tells it.
+	pub fn def(&self, address: &str) -> Option<AddressDef> {
+		let Some((head, rest)) = address.split_once('.') else { return address_def(address) };
+		let Some(role) = self.feeds.get(head).copied() else { return address_def(address) };
+		let (unit, format, role) = match rest {
+			"age" => ("s", "duration", role),
+			"exit" => ("", "number", role),
+			"error" => ("", "text", role.max(Role::Monitor)),
+			_ => ("", self.known.get(address).copied().unwrap_or("text"), role),
+		};
+		Some(AddressDef { pattern: "", unit, format, role })
+	}
+
 	fn put(&mut self, address: String, v: Option<V>) {
 		let Some(v) = v else { return };
 		let def = address_def(&address).unwrap_or(AddressDef { pattern: "", unit: "", format: "text", role: Role::Glance });
@@ -1211,9 +1229,9 @@ fn convert(v: &V, unit: &str, network: bool, units: Units) -> (V, Option<&'stati
 	}
 }
 
-/// A number `address` had, in a profile's units.
-pub fn in_units(address: &str, x: f64, units: Units) -> f64 {
-	let unit = address_def(address).map_or("", |d| d.unit);
+/// A number `address` had, in a profile's units, as `values` tell what it is.
+pub fn in_units(values: &Values, address: &str, x: f64, units: Units) -> f64 {
+	let unit = values.def(address).map_or("", |d| d.unit);
 	convert(&V::Float(x), unit, address.starts_with("net."), units).0.num().unwrap_or(x)
 }
 
@@ -1238,9 +1256,19 @@ impl<'a> View<'a> {
 		View { values, role, units }
 	}
 
+	/// What `address` is (`Values::def`).
+	pub fn def(&self, address: &str) -> Option<AddressDef> {
+		self.values.def(address)
+	}
+
+	/// The least role that sees `address`: as `def` tells it, glance for an address it doesn't know.
+	pub fn role_of(&self, address: &str) -> Role {
+		self.def(address).map_or(Role::Glance, |d| d.role)
+	}
+
 	/// A value, if there is one this client may see.
 	pub fn get(&self, address: &str) -> Option<Scalar> {
-		if self.role < address_role(address) {
+		if self.role < self.role_of(address) {
 			return None;
 		}
 		let s = self.values.scalars.get(address)?;
@@ -1253,17 +1281,17 @@ impl<'a> View<'a> {
 	/// Whether `address` is there for this client: it has a value now, or it is a source's that
 	/// has had one since the source started (`known`) and the client's role sees it.
 	pub fn exists(&self, address: &str) -> bool {
-		self.get(address).is_some() || (self.values.known.contains_key(address) && self.role >= address_role(address))
+		self.get(address).is_some() || (self.values.known.contains_key(address) && self.role >= self.role_of(address))
 	}
 
 	/// The format `address` has: the one its value had last, for a source's, else its own.
 	pub fn format_of(&self, address: &str) -> Option<&'static str> {
-		self.values.known.get(address).copied().or_else(|| address_def(address).map(|d| d.format))
+		self.values.known.get(address).copied().or_else(|| self.def(address).map(|d| d.format))
 	}
 
 	/// The unit `address` has for this client, whether or not it is there now.
 	pub fn unit_of(&self, address: &str) -> &'static str {
-		let unit = address_def(address).map_or("", |d| d.unit);
+		let unit = self.def(address).map_or("", |d| d.unit);
 		self.convert_unit(unit, address.starts_with("net."))
 	}
 
@@ -1433,5 +1461,40 @@ mod tests {
 		let monitor = View::new(&v, Role::Monitor, Units::default());
 		assert_eq!(monitor.get("volume.muted").map(|s| s.v), Some(V::Bool(false)));
 		assert!(monitor.collection("actions").is_none() && monitor.collection("processes").is_some());
+	}
+
+	#[test]
+	fn a_source_s_values_are_told_by_the_source_not_by_their_names() {
+		let mut v = Values::default();
+		v.feeds.insert("app".into(), Role::Glance);
+		v.feeds.insert("ops".into(), Role::Operate);
+		let s = |x: V, format: &'static str| Scalar { v: x, unit: "", format, limits: None, max: None, level: None };
+		v.scalars.insert("app.temperature".into(), s(V::Int(45), "number"));
+		v.scalars.insert("app.error".into(), s(V::Text("HTTP 404".into()), "text"));
+		v.scalars.insert("ops.state".into(), s(V::Text("ok".into()), "text"));
+		v.known.insert("app.temperature".into(), "number");
+		let glance = View::new(&v, Role::Glance, Units { fahrenheit: true, bits: true });
+		// A key named as a NUT variable is no temperature: no °C, no °F, no limits.
+		let def = glance.def("app.temperature").unwrap();
+		assert_eq!((def.unit, def.format, def.role), ("", "number", Role::Glance));
+		assert_eq!(glance.get("app.temperature").unwrap().v, V::Int(45));
+		assert_eq!((glance.unit_of("app.temperature"), in_units(&v, "app.temperature", 45.0, glance.units)), ("", 45.0));
+		// While a UPS's is.
+		assert_eq!((glance.unit_of("eco.ambient.temperature"), in_units(&v, "eco.ambient.temperature", 20.0, glance.units)), ("°F", 68.0));
+		// Its own: the age in seconds, the exit code a number, the error for monitor at least.
+		assert_eq!(glance.def("app.age").map(|d| (d.unit, d.format)), Some(("s", "duration")));
+		assert_eq!(glance.def("app.exit").map(|d| (d.unit, d.format)), Some(("", "number")));
+		assert_eq!(glance.def("app.error").map(|d| (d.format, d.role)), Some(("text", Role::Monitor)));
+		assert_eq!(glance.def("ops.error").map(|d| d.role), Some(Role::Operate));
+		assert!(glance.get("app.error").is_none() && View::new(&v, Role::Monitor, Units::default()).get("app.error").is_some());
+		// One it hasn't had yet is text; one it has had keeps its format while it is gone.
+		assert_eq!(glance.format_of("app.queue.length"), Some("text"));
+		v.scalars.remove("app.temperature");
+		let glance = View::new(&v, Role::Glance, Units::default());
+		assert_eq!(glance.format_of("app.temperature"), Some("number"));
+		assert!(glance.exists("app.temperature") && !glance.exists("app.queue.length"));
+		// The source's role.
+		assert!(glance.get("ops.state").is_none() && !glance.exists("ops.state"));
+		assert_eq!(View::new(&v, Role::Operate, Units::default()).get("ops.state").map(|s| s.v), Some(V::Text("ok".into())));
 	}
 }

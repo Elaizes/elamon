@@ -15,7 +15,7 @@ use crate::errors::ErrorCode;
 use crate::format;
 use crate::server::{error, error_with, json_response, ClientApp, Hub};
 use crate::ui::{Obj, Put, Ui, UiWidget};
-use crate::values::{self, Units};
+use crate::values::{self, Units, Values};
 
 /// The ranges `/history` answers, as `ranges` offers them in `ui`.
 pub const RANGES: [&str; 6] = ["1h", "24h", "7d", "30d", "1y", "all"];
@@ -58,9 +58,9 @@ pub async fn history(State(hub): State<Arc<Hub>>, Extension(who): Extension<Call
 		return json_response(serde_json::to_string(&o).unwrap_or_default());
 	}
 	let addresses: Vec<String> = w.def.values.iter().flatten().cloned().collect();
-	let (store, units) = (hub.long.clone(), ui.units);
+	let (store, units, values) = (hub.long.clone(), ui.units, frame.values.clone());
 	let answer = tokio::task::spawn_blocking(move || {
-		store.readable().map(|()| graph(&store, &widget, &range, &addresses, units, crate::activity::now_ms()).unwrap_or_default())
+		store.readable().map(|()| graph(&store, &widget, &range, &addresses, &values, units, crate::activity::now_ms()).unwrap_or_default())
 	});
 	match answer.await {
 		Ok(Ok(o)) => json_response(serde_json::to_string(&o).unwrap_or_default()),
@@ -107,7 +107,7 @@ pub fn timeline(changes: &[Change], widget: &str, range: &str, now_ms: u64) -> O
 /// `addresses`, the mean of its points in each bucket, in `units`, to one decimal; `null` for a
 /// bucket without any. The buckets end at `now_ms` rounded down to a whole step. None for a range
 /// there isn't.
-pub fn graph(store: &Store, widget: &str, range: &str, addresses: &[String], units: Units, now_ms: u64) -> Option<Obj> {
+pub fn graph(store: &Store, widget: &str, range: &str, addresses: &[String], values: &Values, units: Units, now_ms: u64) -> Option<Obj> {
 	let (tier, step, count) = plan(range)?;
 	let now = now_ms / 1000;
 	let (from, to, step, points) = match count {
@@ -142,7 +142,7 @@ pub fn graph(store: &Store, widget: &str, range: &str, addresses: &[String], uni
 			}
 			let v = sums.into_iter().map(|(sum, count)| match count {
 				0 => Value::Null,
-				_ => Value::from(format::round(values::in_units(a, sum / f64::from(count), units), 1)),
+				_ => Value::from(format::round(values::in_units(values, a, sum / f64::from(count), units), 1)),
 			});
 			Value::Array(v.collect())
 		})
@@ -183,7 +183,7 @@ mod tests {
 
 	fn answer(store: &Store, range: &str, addresses: &[&str], units: Units) -> serde_json::Value {
 		let addresses: Vec<String> = addresses.iter().map(|a| a.to_string()).collect();
-		Value::Object(graph(store, "cpu/load", range, &addresses, units, NOW_MS).unwrap())
+		Value::Object(graph(store, "cpu/load", range, &addresses, &Values::default(), units, NOW_MS).unwrap())
 	}
 
 	#[test]

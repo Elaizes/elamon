@@ -6,7 +6,7 @@ use upst_core::demo;
 use super::*;
 use crate::access::Role;
 use crate::settings::{self, Source};
-use crate::values::{Units, View};
+use crate::values::{Units, Values, View};
 
 /// A history of a test's own, taken away when it ends.
 pub struct Scratch(Arc<Store>);
@@ -67,7 +67,7 @@ fn values_are_told_by_their_names() {
 	// A number without a unit is a number; a temperature in °F for a profile that wants it.
 	assert_eq!(values::source_scalar("outlet.count", V::Float(9.0), None).format, "number");
 	assert_eq!(values::source_scalar("device.model", V::Text("x".into()), None).format, "text");
-	assert_eq!(values::in_units("eco.ambient.temperature", 20.0, Units { fahrenheit: true, bits: false }), 68.0);
+	assert_eq!(values::in_units(&Values::default(), "eco.ambient.temperature", 20.0, Units { fahrenheit: true, bits: false }), 68.0);
 	// Patterns as nutflow's allow has them.
 	let p = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
 	assert!(allows(&p(&["outlet.*.load.*"]), "outlet.12.load.off"));

@@ -79,7 +79,7 @@ impl Ring {
 /// `history` for a dashboard at `now` (Unix ms): for each graph its points over its `range`
 /// (`range_s`, all the ring holds when none), and for each value with `spark` all of them; in the
 /// client's units, rounded to one decimal.
-pub fn json(d: &Dashboard, ring: &Ring, units: Units, now: u64) -> Obj {
+pub fn json(d: &Dashboard, ring: &Ring, values: &Values, units: Units, now: u64) -> Obj {
 	let mut out = Obj::new();
 	for w in d.all_widgets() {
 		let (addresses, range): (Vec<&str>, Option<u64>) = match w.kind.as_str() {
@@ -93,7 +93,7 @@ pub fn json(d: &Dashboard, ring: &Ring, units: Units, now: u64) -> Obj {
 		for a in &addresses {
 			let (t, v) = ring.window(a, since);
 			times = t;
-			let v: Vec<Value> = v.into_iter().map(|x| x.map_or(Value::Null, |x| Value::from(format::round(values::in_units(a, x, units), 1)))).collect();
+			let v: Vec<Value> = v.into_iter().map(|x| x.map_or(Value::Null, |x| Value::from(format::round(values::in_units(values, a, x, units), 1)))).collect();
 			series.push(Value::Array(v));
 		}
 		if addresses.is_empty() {
