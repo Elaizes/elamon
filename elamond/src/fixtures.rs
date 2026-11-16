@@ -857,3 +857,115 @@ fn the_starter_ups_dashboard_shows_what_a_station_has() {
 	let ui = ui_for(&config, &bare, Role::Admin, "default");
 	assert_eq!(ui.tabs, ["overview", "processes", "sensors", "control"]);
 }
+
+// ---- 0.8: a command, a web service and a file ------------------------------------------------
+
+/// The settings 0.8/ui-sources.json, 0.8/stream-sources.json and 0.8/stream-log-next.json describe.
+const UI_SOURCES: &str = include_str!("../fixtures/0.8/ui-sources.toml");
+
+/// Those settings without what needs the journal: the `log` widgets, the row action and the button
+/// that open one, and the journal's dashboards.
+fn ui_sources_without_journal() -> crate::settings::Config {
+	let mut t: toml::Table = UI_SOURCES.parse().unwrap();
+	let dashboards = t.get_mut("dashboards").and_then(toml::Value::as_table_mut).unwrap();
+	dashboards.remove("journal");
+	dashboards.remove("unit_log");
+	for (_, d) in dashboards.iter_mut() {
+		let widgets = d.get_mut("widgets").and_then(toml::Value::as_array_mut).unwrap();
+		widgets.retain(|w| w.get("type").and_then(toml::Value::as_str) != Some("log") && w.get("open").is_none());
+		for actions in widgets.iter_mut().filter_map(|w| w.get_mut("row_actions").and_then(toml::Value::as_array_mut)) {
+			actions.retain(|a| a.get("action").is_some());
+		}
+	}
+	crate::settings::read_sources(&[crate::settings::Source::new("ui-sources.toml", toml::to_string(&t).unwrap())]).unwrap()
+}
+
+/// The fixture readings for `config`, with its sources' last reads as 0.8/ui-sources.toml's
+/// comments have them.
+pub fn sources_values(config: &crate::settings::Config) -> crate::values::Values {
+	use crate::settings::FeedFormat;
+	let at = |secs: u64| std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs);
+	let backup = "state: ok\nlast run = 1699996400\nfiles: 1204\nverified=true\nChecked 3 repositories.\n";
+	let app = r#"{"state": "ok", "version": "2.4.1", "queue": {"length": 3},
+		"workers": [{"name": "main", "busy": true}, {"name": "spare", "busy": false}],
+		"build info": {"commit": "0123abc"}, "note": null}"#;
+	let snapshots = [
+		("backup", crate::feeds::read_as("backup", FeedFormat::Lines, backup, Some(0), at(1_699_999_940))),
+		("app", crate::feeds::read_as("app", FeedFormat::Json, app, None, at(1_699_999_990))),
+		("zone", crate::feeds::read_as("zone", FeedFormat::Text, "45000\n", None, at(1_699_999_998))),
+	];
+	let mut v = values(config);
+	crate::feeds::put(&mut v, config, &snapshots.into_iter().map(|(id, s)| (id.to_string(), std::sync::Arc::new(s))).collect());
+	v
+}
+
+/// A fixture of 0.8, as JSON.
+fn fixture_08(name: &str) -> Value {
+	serde_json::from_str(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/0.8").join(name)).unwrap()).unwrap()
+}
+
+/// The widget `id` of a `ui` document.
+fn widget_of(doc: &Value, id: &str) -> Option<Value> {
+	doc["dashboards"].as_array()?.iter().flat_map(|d| d["widgets"].as_array().into_iter().flatten()).find(|w| w["id"] == id).cloned()
+}
+
+/// What the service builds of the fixture's sources is what 0.8/ui-sources.json and
+/// 0.8/stream-sources.json say of their widgets; the journal's are checked with it whole.
+#[test]
+fn the_sources_widgets_ui_and_states() {
+	let config = ui_sources_without_journal();
+	let values = sources_values(&config);
+	let ui = ui_for(&config, &values, Role::Admin, "owner");
+	let want = fixture_08("ui-sources.json");
+	assert_eq!(ui.tabs, ["sources", "control"]);
+	let ids = ["sources/app", "sources/zone", "sources/files", "sources/reads"];
+	for id in ids.into_iter().chain(["control/links"]) {
+		let mut got = widget_of(&ui.doc, id);
+		if id == "control/links" {
+			// Its row action that opens the journal is the journal's.
+			let mut w = widget_of(&want, id).unwrap();
+			w["row_actions"].as_array_mut().unwrap().retain(|a| a.get("action").is_some());
+			assert_eq!(got.take(), Some(w));
+			continue;
+		}
+		assert_eq!(got, widget_of(&want, id), "{id}");
+	}
+	// A source that never failed has never had an error.
+	assert!(widget_of(&ui.doc, "sources/app_error").is_none());
+	let sorts = std::collections::HashMap::new();
+	let s = crate::states::States { view: crate::values::View::new(&values, Role::Admin, ui.units), control: true, sorts: &sorts, read: crate::ui::Sources::ALL };
+	let sources = ui.dashboard("sources").unwrap();
+	let line = Value::Object(crate::states::data(sample().t, sources, None, &s, None));
+	let want = fixture_08("stream-sources.json");
+	assert_eq!((&line["t"], &line["dashboard"]), (&want["t"], &want["dashboard"]));
+	for id in ids {
+		assert_eq!(line["widgets"][id], want["widgets"][id], "{id}");
+	}
+	// The dashboard on screen needs its three sources read; no graph does, and `zone`'s history is kept.
+	assert_eq!(sources.source_heads().iter().collect::<Vec<_>>(), ["app", "backup", "zone"]);
+	assert!(crate::ui::tracked(&config, &values).iter().all(|a| !a.contains('.') || crate::values::known_prefix(a)));
+	assert_eq!(values.kept.iter().collect::<Vec<_>>(), ["zone.text"]);
+}
+
+/// What the service builds of the fixture's settings is 0.8/ui-sources.json.
+#[test]
+#[ignore = "the journal comes in S2"]
+fn ui_sources_whole() {
+	let config = crate::settings::read_sources(&[crate::settings::Source::new("ui-sources.toml", UI_SOURCES)]).unwrap();
+	let values = sources_values(&config);
+	check_compact("0.8/ui-sources", &ui_for(&config, &values, Role::Admin, "owner").doc);
+}
+
+/// The data line of the fixture's `sources` dashboard: the reading's states, then its logs' first
+/// ones (S2 adds those after `states::data`, as `stream.rs` does).
+#[test]
+#[ignore = "the journal comes in S2"]
+fn stream_sources_whole() {
+	let config = crate::settings::read_sources(&[crate::settings::Source::new("ui-sources.toml", UI_SOURCES)]).unwrap();
+	let values = sources_values(&config);
+	let ui = ui_for(&config, &values, Role::Admin, "owner");
+	let sorts = std::collections::HashMap::new();
+	let s = crate::states::States { view: crate::values::View::new(&values, Role::Admin, ui.units), control: true, sorts: &sorts, read: crate::ui::Sources::ALL };
+	let line = crate::states::data(sample().t, ui.dashboard("sources").unwrap(), None, &s, None);
+	check_compact("0.8/stream-sources", &Value::Object(line));
+}

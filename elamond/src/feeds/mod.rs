@@ -167,6 +167,16 @@ pub fn put(values: &mut Values, config: &Config, snapshots: &BTreeMap<String, Ar
 	}
 }
 
+/// The snapshot of source `id` after one good read, ended at `at`, of `output` as `format` takes
+/// it, its command exiting with `exit`: the fixtures' sources.
+#[cfg(test)]
+pub fn read_as(id: &str, format: crate::settings::FeedFormat, output: &str, exit: Option<i32>, at: SystemTime) -> FeedSnapshot {
+	let p = parse::parse(format, output.as_bytes()).unwrap_or_else(|f| panic!("{}", f.text()));
+	let mut keeper = Keeper::new(id);
+	keeper.took(Outcome { result: Ok(p.values), exit, cut: p.cut }, at);
+	keeper.snap
+}
+
 // ---- the sources, running -------------------------------------------------------------------
 
 /// One source, running: its settings, its last snapshot and whether it is needed. Dropped, its
