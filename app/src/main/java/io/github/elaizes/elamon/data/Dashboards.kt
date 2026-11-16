@@ -172,6 +172,15 @@ object Params {
 		}
 	}
 
+	/** The text to type before [action] runs with [params]: that of the choice the value of a `choice` parameter is, if it carries one. */
+	fun typedText(action: Action, params: JsonObject): String? = action.params.firstNotNullOfOrNull { p ->
+		val v = (params[p.id] as? JsonPrimitive)?.takeIf { it.isString }?.content
+		p.choices?.firstOrNull { it.value == v }?.confirmText
+	}
+
+	/** Whether what was typed is the text asked for: exactly, nothing trimmed. */
+	fun typedMatches(typed: String, text: String): Boolean = typed == text
+
 	/** The parameters of [action] the form asks for: those [fixed] leaves open that must be given (a default prefills them). */
 	fun asked(action: Action, fixed: JsonObject): List<Param> = action.params.filter { it.id !in fixed && !it.optional }
 

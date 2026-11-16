@@ -292,6 +292,9 @@
 	<string name="done_ran">%1$s: done</string>
 	<string name="action_prompt">%1$s on %2$s</string>
 	<string name="action_question">%1$s?</string>
+	<string name="typed_title">Type the command to run it</string>
+	<string name="typed_body">Type “%1$s” to run it.</string>
+	<string name="typed_field">Command</string>
 	<string name="control_held_off_body">Someone at the computer held control off for every phone. To let phones act again, run there:</string>
 	<string name="control_unreadable_body">The service\'s settings files stopped parsing, so it keeps control off until they read again. To see what is wrong, run on the computer:</string>
 	<string name="widget_unknown">This app can\'t show a “%1$s” yet. Update Elamon to see it.</string>

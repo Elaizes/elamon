@@ -3,6 +3,7 @@ package io.github.elaizes.elamon.data
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
@@ -487,6 +488,30 @@ class ProtocolContractTest {
 	fun theHistoryOfAWidgetIsAskedForByIdAndRange() {
 		assertEquals("/api/v1/history?widget=ups.eco%2Fwatts&range=24h", historyPath("ups.eco/watts", "24h"))
 		assertEquals("/api/v1/history?widget=a%20b%26c&range=all", historyPath("a b&c", "all"))
+	}
+
+	@Test
+	fun onlyTheCommandThatCutsPowerIsTypedAndOnlyExactly() {
+		val ui = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), fixture("0.7/ui-ups"))
+		val eco = ui.action("nut.command.eco")!!
+		fun cmd(v: String) = JsonObject(mapOf("cmd" to JsonPrimitive(v)))
+		assertEquals("outlet.1.load.off", Params.typedText(eco, cmd("outlet.1.load.off")))
+		assertNull(Params.typedText(eco, cmd("outlet.2.load.off")))
+		// A value the action doesn't have, or none, asks for nothing; neither does an action without a typed choice.
+		assertNull(Params.typedText(eco, cmd("nothing")))
+		assertNull(Params.typedText(eco, JsonObject(emptyMap())))
+		assertNull(Params.typedText(ui.action("nut.set.eco.experimental.battery.charge.max")!!, JsonObject(mapOf("value" to JsonPrimitive(80)))))
+		// Exactly: no trimming, no other case.
+		val text = "outlet.1.load.off"
+		assertTrue(Params.typedMatches(text, text))
+		assertFalse(Params.typedMatches("", text))
+		assertFalse(Params.typedMatches(" $text", text))
+		assertFalse(Params.typedMatches("$text ", text))
+		assertFalse(Params.typedMatches(text.uppercase(), text))
+		assertFalse(Params.typedMatches(text.dropLast(1), text))
+		// What is sent is what the fixture shows.
+		val typed = ActionRequest(cmd(text), Params.typedText(eco, cmd(text)))
+		assertEquals(fixture("0.7/action-request-typed"), ProtocolJson.encodeToJsonElement(ActionRequest.serializer(), typed))
 	}
 
 	@Test

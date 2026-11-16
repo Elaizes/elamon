@@ -287,8 +287,8 @@ class ElamondClient(
 	 * Runs the action [id] with [params]. The service kills an action whose request goes away, so
 	 * leaving the screen lets it finish.
 	 */
-	suspend fun action(id: String, params: kotlinx.serialization.json.JsonObject): ActionResult =
-		post<ActionRequest, ActionResult>("$ACTIONS_PATH/" + query(id), ActionRequest(params), timeoutMs = Limits.ACTION_TIMEOUT_MS, finishOnCancel = true)
+	suspend fun action(id: String, params: kotlinx.serialization.json.JsonObject, confirmText: String? = null): ActionResult =
+		post<ActionRequest, ActionResult>("$ACTIONS_PATH/" + query(id), ActionRequest(params, confirmText), timeoutMs = Limits.ACTION_TIMEOUT_MS, finishOnCancel = true)
 
 	/**
 	 * The stream of [dashboard] (null: the first tab), a line every [intervalMs]: open first, then

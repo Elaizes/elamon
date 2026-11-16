@@ -673,13 +673,13 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	 * Runs [action] with [params], once the screen has asked what it needs to. [key] tells this run
 	 * apart from others of the same action (a row's), for what shows it running.
 	 */
-	fun run(action: Action, params: JsonObject, key: String = action.id) {
+	fun run(action: Action, params: JsonObject, key: String = action.id, confirmText: String? = null) {
 		if (key in _actions.value.running) return
 		_actions.update { it.copy(running = it.running + key) }
 		viewModelScope.launch {
 			try {
 				val c = client() ?: throw ElamondException(ElamondException.Kind.Unreachable)
-				val r = c.action(action.id, params)
+				val r = c.action(action.id, params, confirmText)
 				// A command of the settings' own: how it ended, and its output, open once it's done. A
 				// station's says only that the station did it ("done").
 				if (action.kind != "nut" && (r.exitCode != null || r.output != null || r.timedOut)) {

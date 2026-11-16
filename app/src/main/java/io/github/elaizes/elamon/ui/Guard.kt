@@ -8,6 +8,7 @@ import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,6 +31,7 @@ import io.github.elaizes.elamon.UnlockGrace
 import io.github.elaizes.elamon.UnlockMemory
 import io.github.elaizes.elamon.authenticators
 import io.github.elaizes.elamon.data.Limits
+import io.github.elaizes.elamon.data.Params
 import io.github.elaizes.elamon.data.withoutControls
 import io.github.elaizes.elamon.gate
 
@@ -51,6 +53,8 @@ data class Ask(
 	val unlock: Boolean = false,
 	/** How long an unlock covers later actions: the profile's `unlock.grace`. */
 	val grace: UnlockGrace = UnlockGrace.EveryTime,
+	/** The text to type, exactly, before it runs (a station's command that cuts power): it takes the confirmation's place and the request carries it. */
+	val typed: String? = null,
 )
 
 /** An action waiting for the unlock prompt or the confirmation. */
@@ -64,6 +68,8 @@ data class Pending(val ask: Ask, val action: () -> Unit, val afterAsking: () -> 
 /** The guard's state, kept through a rotation like the prompt itself: the confirmation on screen, the action the prompt is for. */
 class GuardState : ViewModel() {
 	var confirming by mutableStateOf<Pending?>(null)
+	/** What is typed into the confirmation that asks for a text. */
+	var typed by mutableStateOf("")
 	var unlocking: Pending? = null
 	val messages = Channel<String>(capacity = Limits.MESSAGES_KEPT, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 }
@@ -97,7 +103,8 @@ class Guard(private val activity: FragmentActivity, val state: GuardState) {
 				val p = take() ?: return
 				// The grace that follows covers this kind and those below it.
 				Unlocked.memory = Unlocked.memory.unlocked(p.ask.kind, SystemClock.elapsedRealtime())
-				p.run()
+				// A command that is typed in is still typed after the unlock.
+				if (p.ask.typed != null) confirm(p) else p.run()
 			}
 
 			// A finger or face not recognised: the prompt stays, for another try.
@@ -127,7 +134,7 @@ class Guard(private val activity: FragmentActivity, val state: GuardState) {
 		// The names in it (a process's, a computer's) come from afar, and the unlock prompt is the system's:
 		// nothing in them may turn the words around.
 		val ask = asked.copy(prompt = asked.prompt.withoutControls(), question = asked.question.withoutControls(), body = asked.body?.withoutControls(keepLineBreaks = true))
-		val g = gate(ask.kind, ask.confirm, ask.unlock, ask.grace, hasScreenLock(activity), SystemClock.elapsedRealtime(), Unlocked.memory)
+		val g = gate(ask.kind, ask.confirm || ask.typed != null, ask.unlock, ask.grace, hasScreenLock(activity), SystemClock.elapsedRealtime(), Unlocked.memory)
 		val p = Pending(ask, action, afterAsking, g.noLockScreen)
 		when (g.before) {
 			Before.Nothing -> action()
@@ -138,6 +145,7 @@ class Guard(private val activity: FragmentActivity, val state: GuardState) {
 
 	fun confirmed() {
 		val p = state.confirming ?: return
+		if (p.ask.typed != null && !Params.typedMatches(state.typed, p.ask.typed)) return
 		state.confirming = null
 		p.run()
 	}
@@ -148,6 +156,7 @@ class Guard(private val activity: FragmentActivity, val state: GuardState) {
 
 	private fun confirm(p: Pending) {
 		if (p.noLockScreen) Unlocked.memory = Unlocked.memory.copy(explained = true)
+		state.typed = ""
 		state.confirming = p
 	}
 
@@ -180,19 +189,29 @@ fun GuardDialog(guard: Guard) {
 	val ask = p.ask
 	GlassDialog(
 		onDismiss = guard::dismissed,
-		title = ask.question,
+		title = if (ask.typed != null) stringResource(R.string.typed_title) else ask.question,
 		icon = ask.icon?.let { icon(it) },
-		text = if (ask.body == null && !p.noLockScreen) null else {
+		text = if (ask.body == null && !p.noLockScreen && ask.typed == null) null else {
 			{
 				Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
+					if (ask.typed != null) Text(ask.question)
 					ask.body?.let { Text(it) }
+					if (ask.typed != null) {
+						Text(stringResource(R.string.typed_body, ask.typed))
+						OutlinedTextField(
+							value = guard.state.typed,
+							onValueChange = { guard.state.typed = it },
+							label = { Text(stringResource(R.string.typed_field)) },
+							singleLine = true,
+						)
+					}
 					if (p.noLockScreen) {
 						Text(stringResource(R.string.unlock_no_lock_screen), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 					}
 				}
 			}
 		},
-		confirm = { TextButton(onClick = guard::confirmed) { Text(ask.button) } },
+		confirm = { TextButton(onClick = guard::confirmed, enabled = ask.typed == null || Params.typedMatches(guard.state.typed, ask.typed)) { Text(ask.button) } },
 		dismiss = { TextButton(onClick = guard::dismissed) { Text(stringResource(R.string.cancel)) } },
 	)
 }

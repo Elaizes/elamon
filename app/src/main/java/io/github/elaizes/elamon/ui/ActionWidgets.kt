@@ -123,7 +123,8 @@ class ActionLauncher(
 	}
 
 	private fun go(action: Action, params: JsonObject, phrase: String, button: String?, key: String, afterAsking: () -> Unit) {
-		guard.run(ask(action, params, phrase, button), afterAsking) { vm.run(action, params, key) }
+		val typed = Params.typedText(action, params)
+		guard.run(ask(action, params, phrase, button), afterAsking) { vm.run(action, params, key, typed) }
 	}
 
 	/** What the confirmation and the unlock prompt say: 0.5's words for power and processes, the phrase's for the rest. */
@@ -144,6 +145,7 @@ class ActionLauncher(
 			confirm = action.confirm,
 			unlock = action.unlock,
 			grace = grace,
+			typed = Params.typedText(action, params),
 		)
 	}
 
