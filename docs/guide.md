@@ -37,10 +37,11 @@ The phone talks to the computer directly: on the same network, or over a VPN bot
 - [4. The app](#4-the-app)
 - [5. The control panel](#5-the-control-panel)
 - [6. Roles: who may do what](#6-roles-who-may-do-what)
-- [7. Settings reference](#7-settings-reference)
-- [8. Updating, moving and removing](#8-updating-moving-and-removing)
-- [9. Troubleshooting](#9-troubleshooting)
-- [10. Security](#10-security)
+- [7. UPSes and power stations](#7-upses-and-power-stations)
+- [8. Settings reference](#8-settings-reference)
+- [9. Updating, moving and removing](#9-updating-moving-and-removing)
+- [10. Troubleshooting](#10-troubleshooting)
+- [11. Security](#11-security)
 
 ## 1. Install the service
 
@@ -74,7 +75,7 @@ users.users.YOUR_USER.linger = true;  # keeps it running while you're logged out
 
 The polkit rule comes from `services.elamond.control`
 ([section 5](#power-the-profile-and-system-units-polkit)). All options:
-[section 7](#nixos-module).
+[section 8](#nixos-module).
 
 **Home Manager**, for one user: `imports = [ inputs.elamon.homeModules.default ];` and
 `services.elamond.enable = true;`. The firewall stays the system's job. On NixOS,
@@ -124,7 +125,7 @@ Manager's unit alone and prints what needs root.
 2. **`elamond setup`**, which the install ran, installs a systemd user unit
    (`~/.config/systemd/user/elamond.service`) that runs the binary. Where there are no settings, it
    writes those to start from: `~/.config/elamon/elamond.toml` and `elamond.d/dashboards.toml`
-   ([section 7](#where-the-settings-live)). Then it starts the service.
+   ([section 8](#where-the-settings-live)). Then it starts the service.
 
    You can run it again at any time. It changes only what changed, and restarts the service when
    the binary was moved or updated. `--print` shows what it would do without doing it;
@@ -234,7 +235,7 @@ By hand:
 
 **Only on some interfaces.** The commands open the ports for the whole computer. To open them on
 some interfaces only, adapt them by hand, and name those interfaces in `listen`
-([section 7](#where-the-service-listens)). On NixOS,
+([section 8](#where-the-service-listens)). On NixOS,
 `services.elamond.firewallInterfaces = [ "eno1" "tailscale0" ];` does it.
 
 ## 3. Pair the phone
@@ -271,7 +272,7 @@ it's `admin`, which allows everything. For someone else's phone, give less, for 
 
 **Its own profile.** Pairing adds a profile for the phone to `~/.config/elamon/elamond.d/phones.toml`,
 which starts from `default` (`elamond pair --profile NAME` names another): change that phone's tabs
-and looks there ([section 7](#each-phones-own-profile)). Pairing the same phone again keeps it.
+and looks there ([section 8](#each-phones-own-profile)). Pairing the same phone again keeps it.
 
 **Managing phones.** `elamond clients` lists the paired phones with their IDs, roles and profiles.
 `elamond revoke ID` unpairs one. Up to 64 phones can be paired with one computer.
@@ -285,7 +286,7 @@ and looks there ([section 7](#each-phones-own-profile)). Pairing the same phone 
   ask on, `elamond pair` says so and stops.
 - *What the QR code carries.* The computer's addresses (those the service listens on, the local
   network first), then names that stay when addresses change (those in `names` and its Tailscale
-  name, [section 7](#names-in-the-pairing-link)), and its certificate. The app keeps them all, and
+  name, [section 8](#names-in-the-pairing-link)), and its certificate. The app keeps them all, and
   later tries the one that worked last first.
 - *Addresses after pairing.* The computer tells a paired phone where it is now, whenever it connects:
   its addresses on the local network and on VPNs, and its names. So a phone paired by code over
@@ -319,7 +320,8 @@ its system, uptime, power source and power profile, and the phone's role. Scroll
 into the bar.
 
 The tabs along the bottom are the computer's **dashboards**: those the phone's profile lists, as far
-as its role may see them ([section 7](#dashboards-and-widgets)). The standard four are below.
+as its role may see them ([section 8](#dashboards-and-widgets)). The standard four are below, and a
+tab for each UPS or power station the computer has, second after Overview.
 
 **Overview** has tiles for the CPU, memory, each graphics card, temperature, network, storage and
 battery. Tap a tile for its page:
@@ -347,19 +349,24 @@ and its *High* and *Critical* limits. A *Fans* table follows.
 
 **Control** acts on the computer; see [section 5](#5-the-control-panel).
 
+**A UPS or a power station**, once the computer's settings have one, has a tab of its own, named by
+its model: its status and charge, a timeline of when it was on battery, the power in and out, each
+outlet, and its switches and settings ([section 7](#7-upses-and-power-stations)).
+
 **Charts.** Drag a finger across a chart to read the values at that moment and how long ago it was.
 Charts are full the moment you open a computer, because the service keeps the last ten minutes
 (`history_minutes`), and they reach back past a restart of the service. Where the phone was away
 or its screen was off, the line has a gap. A medium or large chart also offers longer ranges,
 from 1 hour to all of it: the service keeps what charts show every 10 seconds for a day, every
-5 minutes for 30 days and every hour from then on ([the long history](config.md#the-long-history)).
+5 minutes for 30 days and every hour from then on
+([section 7](#graphs-that-reach-back-the-long-history)).
 
 **The ⋮ menu** has *Settings*, *Help* and *Forget computer*. Back closes a page first, then the
 computer.
 
 **Forget computer** removes it from the phone and asks the computer to unpair the phone too. To
 see it again, pair again: `elamond pair` offers the phone its profile back. When the computer can't
-be told, the app says so: remove the phone there with `elamond revoke` ([section 9](#9-troubleshooting)).
+be told, the app says so: remove the phone there with `elamond revoke` ([section 10](#10-troubleshooting)).
 
 **Good to know:**
 
@@ -372,7 +379,7 @@ be told, the app says so: remove the phone there with `elamond revoke` ([section
 ### Settings
 
 How the app looks and behaves with a computer comes from that computer: from the phone's
-**profile** there ([section 7](#profiles)). The Settings screen names the profile each computer
+**profile** there ([section 8](#profiles)). The Settings screen names the profile each computer
 gives this phone and where it is changed: the file and line, for an admin phone, or "Set in Nix".
 To change something, change the profile on the computer. The rest of the screen is the app's own:
 help, the source and licences.
@@ -395,9 +402,15 @@ help, the source and licences.
 - **…run my own script from the phone?** Add it as an `[actions.<id>]` table on the computer
   ([section 5](#actions)). It shows up as a button under Control → Actions.
 - **…see something the standard tabs don't show?** Make a dashboard of your own on the computer and
-  add its id to the phone's profile ([section 7](#dashboards-and-widgets)).
+  add its id to the phone's profile ([section 8](#dashboards-and-widgets)).
 - **…turn it off?** Control → Power → *Shut down*. Only someone at the computer can turn it on
   again, unless it wakes on LAN.
+- **…see whether the power went out while I was away?** On the station's tab, the *Power*
+  timeline shows when it was on battery; *7 days* or *All* over it reach back
+  ([section 7](#7-upses-and-power-stations)).
+- **…switch an outlet of the station, or change its charge limit?** At the bottom of its tab,
+  *Outlets* and *Station*, once the computer allows it
+  ([section 7](#switching-outlets-and-changing-settings)).
 - **…watch several computers?** Pair each one. The home screen shows them all.
 - **…keep the phone on as a dashboard?** Set `keep_screen_on = true` under
   `[profiles.<id>.android]` on the computer.
@@ -411,9 +424,9 @@ help, the source and licences.
 - **…stop a phone from seeing a computer?** On the phone, ⋮ → *Forget computer*, which unpairs it
   on the computer too. On the computer, `elamond revoke ID`.
 - **…move to a new phone?** Pair it with `elamond pair` on each computer
-  ([section 8](#a-new-phone)).
+  ([section 9](#a-new-phone)).
 - **…reinstall the computer without pairing the phones again?** Run `elamond backup` before and
-  `elamond restore` after ([section 8](#a-new-computer-or-reinstalling)).
+  `elamond restore` after ([section 9](#a-new-computer-or-reinstalling)).
 
 ## 5. The control panel
 
@@ -434,7 +447,7 @@ The service notices the change within a few seconds by itself, or at once with
 On NixOS, set it through the module instead: `services.elamond.settings.control = true;`. The
 service then reads its settings from a read-only file the module builds, and a rebuild that changes
 them restarts every user's service. Settings you add by hand go in a drop-in beside it,
-`~/.config/elamon/elamond.d/*.toml` ([section 7](#7-settings-reference)).
+`~/.config/elamon/elamond.d/*.toml` ([section 8](#8-settings-reference)).
 
 With control on, each phone does as much as its role allows: `admin` (the default) everything below,
 other roles less ([section 6](#6-roles-who-may-do-what)). `elamond control off` stops them all at
@@ -512,7 +525,7 @@ role = "admin"      # who may run it: "operate" (the default) or "admin"
 
 Each action becomes a button under Control → Actions. A dashboard can also put it anywhere: as a
 button, or as a `select`, `toggle` or `slider` that sets one of its parameters
-([section 7](#dashboards-and-widgets)). What the command prints comes back to the phone: its first
+([section 8](#dashboards-and-widgets)). What the command prints comes back to the phone: its first
 4 KiB and last 12 KiB.
 
 **Parameters.** A phone can only choose among the values a parameter allows:
@@ -598,10 +611,10 @@ Every paired phone has a role. Each role allows what the one before it does, and
 
 | Role | Sees | Does (with control on) |
 |---|---|---|
-| `glance` | the basics: system, uptime, CPU, memory, graphics cards, temperatures, fans, storage, network, battery, power and the power profile, with their history | nothing |
-| `monitor` | everything: also processes with their commands and users, monitors, links, media and the activity log | nothing |
-| `operate` | everything | links' units, media and the volume, the power profile, the actions from the settings |
-| `admin` | everything | all of that, plus shutting down, restarting, sleeping, locking, ending processes, and actions with `role = "admin"` |
+| `glance` | the basics: system, uptime, CPU, memory, graphics cards, temperatures, fans, storage, network, battery, power and the power profile, UPSes and power stations, with their history | nothing |
+| `monitor` | everything: also processes with their commands and users, monitors, links, media and the activity log, a UPS's driver and serial numbers | nothing |
+| `operate` | everything | links' units, media and the volume, the power profile, the actions from the settings, and a station's commands and settings when its source says `role = "operate"` |
+| `admin` | everything | all of that, plus shutting down, restarting, sleeping, locking, ending processes, actions with `role = "admin"`, and a station's commands and settings |
 
 The role filters on the computer. A widget, a table or a whole dashboard that a role may not see
 isn't sent to that phone at all, and neither are actions it may not run. A dashboard's or widget's
@@ -634,7 +647,7 @@ may see now. A phone turned into `glance`, for example, stops getting processes,
 links.
 
 How a phone looks, within its role, is its profile: `elamond pair --profile` and
-`elamond clients profile` set it ([section 7](#each-phones-own-profile)).
+`elamond clients profile` set it ([section 8](#each-phones-own-profile)).
 
 ### Stopping every phone at once
 
@@ -649,7 +662,7 @@ survives restarts of the service and of the computer, and a restore, until `elam
 The settings' `control = true` stays as it was.
 
 A lost or stolen phone still sees everything while control is off. Unpair it, with the keys its
-token gave: `elamond revoke ID --with-added` ([section 8](#a-new-phone)).
+token gave: `elamond revoke ID --with-added` ([section 9](#a-new-phone)).
 
 ### The activity log
 
@@ -663,7 +676,319 @@ phone, what (*power reboot*, *unit restart nginx.service*, *action Fan quiet*…
   so a phone that keeps asking pushes out only its own.
 - What was carried out is also in the journal: `journalctl --user -u elamond`.
 
-## 7. Settings reference
+## 7. UPSes and power stations
+
+The service can watch a UPS or a power station beside the computer and, once you allow it, switch
+its outlets and change its settings from the phone. It reads it from a NUT server, over NUT's own
+network protocol, through upst-core (the core of the upst project), so it needs no NUT client:
+
+- **a UPS** that Network UPS Tools has a driver for, served by NUT's `upsd`;
+- **an EcoFlow power station**, served by nutflow, a NUT server of its own that talks to the
+  station over Bluetooth.
+
+Each one is a **source** in the settings, `[sources.<id>]`. Its id (`eco` below) names its values
+(`eco.battery.charge`) and its tab. A source needs nothing more: the standard settings have a
+dashboard for each one, the `default` profile's second tab, after Overview. It shows what the
+station has and leaves out what it hasn't, the same for a UPS and an EcoFlow:
+
+- the status and how long it has been so, the charge and the time left;
+- a timeline of the power: on line, on battery, or *No data* where nothing is known;
+- the power in and out and the solar inputs, the battery (its limits, health and the estimates to
+  empty and to full), each outlet with its watts, the voltages, frequencies and temperatures;
+- graphs of the charge and the power, reaching back as far as the service has kept
+  ([below](#graphs-that-reach-back-the-long-history)), and the model and firmware;
+- folded at the bottom, once you allow it, a switch for each outlet and the beeper, and the
+  station's settings: the charge and discharge limits, the charging power, X-Boost, timeouts, the
+  screen ([below](#switching-outlets-and-changing-settings)).
+
+The service asks the station every second while a phone shows one of its values, and every
+10 seconds otherwise, for the history (`interval_ms`, `background_ms`). Every key of a source is in
+[docs/config.md](config.md#sources).
+
+### On NixOS, with nutflow
+
+Everything on one computer: nutflow serves the station, `upst record` keeps its journal
+([below](#history-from-before-elamond-upst-record)), and elamond shows it. With nutflow's and
+upst's flakes among your inputs, beside Elamon's (their documentation gives them), and Elamon's
+module on ([section 1](#nixos-and-home-manager)):
+
+```nix
+{ inputs, ... }:
+let
+  # What phones may run on the station: elamond offers these, and nutflow lets its user do them.
+  stationCommands = [ "outlet.*.load.*" "beeper.*" ];
+  stationSettings = [
+    "experimental.battery.charge.max" "experimental.battery.charge.minimum"
+    "experimental.charger.realpower.max" "experimental.output.xboost"
+  ];
+in
+{
+  imports = [ inputs.nutflow.nixosModules.default inputs.upst.nixosModules.default ];
+
+  services.nutflow = {
+    enable = true;
+    stations = [ { name = "ups"; kind = "mock"; } ];   # a simulated station, to try it out
+    # A real one, over Bluetooth (nutflow's documentation has the rest):
+    # stations = [ { name = "ups"; address = "00:00:5E:00:53:01"; } ];
+    # userIdFile = "/run/secrets/ecoflow-user-id";
+    users.elamon = {
+      passwordFile = "/run/secrets/nut-elamon";
+      allow = stationCommands ++ stationSettings;
+    };
+  };
+  # hardware.bluetooth.enable = true;                 # for a real station
+
+  services.upst.enable = true;                         # upst record: /run/upst/upst.sock
+
+  services.elamond.settings = {
+    control = true;                                    # for the switches (section 5)
+    sources.eco = {
+      kind = "nut";
+      ups = "ups";                                     # its name on nutflow: upsc ups@localhost
+      capacity_wh = 2048;                              # the battery's energy, for the estimated draw
+      recorder = "/run/upst/upst.sock";                # leave it out without upst record
+      user = "elamon";
+      password_file = "/run/secrets/elamon-nut";
+      commands = stationCommands;
+      settings = stationSettings;
+      outlets."1".critical = true;                     # the outlet this computer runs from
+    };
+  };
+}
+```
+
+The NUT user's password is in two files, outside the Nix store (sops-nix, agenix, or written by
+hand), the same password on the first line of each:
+
+| File | Read by | Owner and mode |
+|---|---|---|
+| `/run/secrets/nut-elamon` | nutflow, which systemd hands it to as it starts | root's alone will do (`0400`) |
+| `/run/secrets/elamon-nut` | elamond, as you, each time a phone runs something | yours (`YOUR_USER`), `0600` |
+
+After `sudo nixos-rebuild switch`, the phone has the station's tab. `elamond values eco` lists what
+the station has ([below](#what-a-station-has-elamond-values)).
+
+**With upsd instead,** NixOS's `power.ups` runs it. The source's `ups` is the UPS's name there, and
+the user is `power.ups.users.elamon`, with `passwordFile`, `instcmds` naming the commands
+`commands` allows (or `[ "ALL" ]`), and `actions = [ "SET" ]` for the settings.
+
+### Without Nix
+
+nutflow reads `/etc/nutflow/nutflow.toml`. The station, and a NUT user for elamond:
+
+```toml
+[[station]]
+name = "ups"
+kind = "mock"            # or, for a real one, address = "00:00:5E:00:53:01" and [ble] user_id_file
+
+[nut.users.elamon]
+password_file = "/etc/nutflow/elamon.password"   # readable by nutflow's user alone
+allow = ["outlet.*.load.*", "beeper.*", "experimental.battery.charge.max", "experimental.output.xboost"]
+```
+
+With upsd, the user goes in `upsd.users`, with `instcmds` for the commands (or `ALL`) and
+`actions = SET` for the settings.
+
+Then the source, in a drop-in of your own such as `~/.config/elamon/elamond.d/ups.toml`, with
+`control = true` in `elamond.toml` for the switches:
+
+```toml
+[sources.eco]
+kind = "nut"
+ups = "ups"                         # its name on the NUT server: upsc ups@localhost
+# host = "nas.example.net"          # a NUT server on another computer (port 3493 unless given)
+capacity_wh = 2048
+recorder = "/run/upst/upst.sock"
+user = "elamon"
+password_file = "/home/YOUR_USER/.config/elamon/nut.password"
+commands = ["outlet.*.load.*", "beeper.*"]
+settings = ["experimental.battery.charge.max", "experimental.output.xboost"]
+outlets."1".critical = true
+```
+
+and the password, the same as nutflow's, in a file only you can read:
+
+```sh
+(umask 077; cat > ~/.config/elamon/nut.password)   # type the password, Enter, then Ctrl-D
+elamond check                                       # warns of a password file missing or open to others
+```
+
+The service takes the source up within seconds. Keep the password file out of `elamond.d/`.
+
+### What a station has: `elamond values`
+
+`elamond values eco` asks the NUT server there and then (5 seconds at most) and prints each of the
+source's values as the service names it, with its unit, format and the least role that sees it;
+then the station's commands and writable settings, with their values or ranges and whether
+`commands` and `settings` allow them:
+
+```
+$ elamond values eco
+address                                    value    unit  format   role
+eco.battery.charge                         99%      %     percent  glance
+eco.battery.charger.status                 resting        text     glance
+eco.driver.name                            nutflow        text     monitor
+eco.experimental.battery.cell.voltage.max  3.3 V    V     number   glance
+eco.input.realpower                        206 W    W     watts    glance
+eco.outlet.1.realpower                     200 W    W     watts    glance
+eco.status                                 On line        text     glance
+…
+
+Commands on this station:
+  beeper.disable     Turn the beeper off           allowed
+  outlet.1.load.off  Turn off AC outlets, group 1  allowed
+  …
+Writable settings:
+  experimental.battery.charge.max  RANGE 50–100            allowed
+  experimental.output.memory       ENUM enabled, disabled  not in settings
+  …
+
+How long it has been so, the estimates and the timeline come from the running service.
+```
+
+`elamond values` alone ends with the sources: `UPS sources: eco (elamond values eco)`.
+
+**A widget of your own.** The station's tab shows what most stations have. Anything else it lists,
+a widget can show: on a page of your own, in a drop-in such as `elamond.d/station.toml`,
+
+```toml
+[dashboards.station]
+title = "Station"
+icon = "battery"
+
+[[dashboards.station.widgets]]
+type = "status"
+value = "eco.battery.charger.status"
+label = "Charger"
+map = { charging = "Charging", discharging = "Discharging", resting = "Resting" }
+
+[[dashboards.station.widgets]]
+type = "graph"
+values = ["eco.experimental.battery.cell.voltage.max", "eco.experimental.battery.cell.voltage.min"]
+labels = ["Highest cell", "Lowest cell"]
+label = "Cells"
+icon = "battery"
+```
+
+with `"station"` in your profile's `dashboards`. On the station's tab itself, it goes under
+`[dashboards.ups]` in `elamond.d/dashboards.toml`, with `{item}` for the source's id and a `when`,
+so a station without it leaves it out (`value = "{item}.battery.charger.status"`,
+`when = "{item}.battery.charger.status"`); under Nix, after the standard widgets with `++`
+([section 8](#dashboards-and-widgets)).
+
+### Graphs that reach back: the long history
+
+This is for every graph, the computer's as much as a station's. Beside the last ten minutes it keeps
+in memory (`history_minutes`), the service keeps on disk every value a graph or a spark of the
+settings shows, and every number of each source (256 a source at most; `history = false` on a source
+keeps only those its graphs show), each point the mean of the readings in it:
+
+| Every | Kept | For the ranges |
+|---|---|---|
+| 10 seconds | a day | 1 h, 24 h |
+| 5 minutes | 30 days | 7 days, 30 days |
+| hour | for good, or `keep` days | Year, All |
+
+A medium or large graph, and a timeline, offers them as chips over it, beside its own range
+(*10 min* on most graphs): tap one to see that far back, and drag a finger across it to read a
+moment. A small graph never does, and `ranges = false` in a widget's settings leaves them out.
+
+- **It survives restarts.** The service writes it every 5 minutes and as it stops, so a crash loses
+  those minutes at most; after a restart, the graphs start from it.
+- **Its size.** About 0.3 MB a value the first year and 70 KB a year after: a computer's graphs
+  some 4 MB, a power station's ninety-odd numbers some 25 MB the first year and 6 MB a year after.
+  `elamond check` says how much there is:
+
+  ```
+  history: 12.3 MiB in 274 files (oldest 2026-11-16), not in backups
+  ```
+- **It isn't in backups.** It's in `~/.local/share/elamon/history/`, which `elamond backup` leaves
+  out: copy the folder to keep it. Deleting it loses the long ranges and nothing else.
+- **How long the hourly points stay** is the settings' `[history]`:
+
+  ```toml
+  [history]
+  keep = 365      # days, 30 or more; "all", the default, keeps them for good
+  ```
+
+### History from before elamond: `upst record`
+
+On its own, the service knows a station from when it first read it, and the timeline shows
+*No data* for the time the service didn't run. `upst record`, of the upst project, runs as a
+service of its own and keeps a journal of every change of each UPS it polls, whether elamond runs
+or not. With `recorder` naming it, each time the source starts it fills in its history and its
+timeline from where it left off (the whole journal the first time), and starts its estimates from
+the last hour of it. An outage while the computer was off, or elamond stopped, is then on the
+timeline too.
+
+- On NixOS, upst's module runs it, as in the example [above](#on-nixos-with-nutflow):
+  `services.upst.enable = true;`. It records every UPS on `localhost`, serves
+  `/run/upst/upst.sock`, and keeps a week of journal unless its `settings.record.keep` says more
+  (`"365d"`).
+- A recorder on another computer is `recorder = "nas.example.net"`, on port 3494 unless given
+  (`"nas.example.net:4000"`); one run as a user service serves `/run/user/<your uid>/upst/upst.sock`.
+- The journal (`journalctl --user -u elamond`) says what came of it, or, in one line, why not. A
+  recorder that can't be reached, or doesn't know the UPS, leaves the source working without it:
+
+  ```
+  nut eco: history filled in from the recorder's ups@localhost: all it had before this start
+  nut eco: recorder /run/upst/upst.sock: …; no history from before elamond
+  ```
+
+### Switching outlets and changing settings
+
+Phones only watch a station until the settings allow more. A phone may switch an outlet or change
+a setting when:
+
+1. control is on: `control = true`, and no `elamond control off` ([section 5](#turning-it-on));
+2. the source has a NUT user: `user` and `password_file`;
+3. its `commands` (the station's commands) or `settings` (its writable variables) list it, as
+   patterns where `*` stands for any run of characters (`"outlet.*.load.*"`), and the NUT user may
+   do it: nutflow's `allow`, upsd's `instcmds` and `actions = SET`;
+4. the station offers it;
+5. the phone's role allows it: `admin`, or `operate` too when the source says `role = "operate"`.
+
+What the phone gets is what the station offers, as far as the lists allow (`elamond values eco`
+shows both): a switch for each outlet and the beeper; a slider for a setting with a range (the
+charge limits, the charging power), on a step of 1 in its unit; a choice for one with a list of
+values (X-Boost, the timeouts). A setting of any other kind isn't offered, and the journal says so
+once. They come once the NUT server has said what the station has, and stay while it can't be
+reached. The limits are the station's: the service checks every value against them and against
+the lists before the NUT server hears of it, and a phone sends only the command's name or the
+value, never anything else.
+
+**Asking first.** Each asks before it runs, and unlocks the phone first (`nut` in the profile's
+`unlock.for`, as the standard profile has it). One that cuts this computer's power has to be
+**typed in** on the phone, whatever `confirm_actions` says: on an outlet with `critical = true`,
+every command but the one that turns it on (`outlet.1.load.off`); and those upst-core counts as
+dangerous that aren't about one outlet (`load.off`, `shutdown.*`, `calibrate.start`…). The phone
+asks *Type “outlet.1.load.off” to run it.* The service checks the text, so an app older than 0.7,
+which can't ask, can't run them. Turning off another outlet is asked as any action is.
+
+**The station answers.** A source's actions run one at a time. The phone says *done* once the
+station says it did it, and otherwise what it said (`invalid value`, `access denied`…), within
+25 seconds: a NUT server that can't tell whether the station did it counts as a failure. nutflow
+tells, and so does upsd from NUT 2.8 on. The activity log has each (`nut eco outlet.2.load.off`,
+`nut eco experimental.battery.charge.max 90`), and `elamond control off` stops them with the rest.
+
+**The password** stays in its file. The service reads its first line each time it runs something,
+and gives it only to the NUT server: never to phones, the journal, errors, `elamond values` or
+backups. NUT sends it unencrypted, so keep a NUT server on another computer on a network you trust.
+
+### Settings from before 0.7
+
+Settings started before 0.7 have no `ups` dashboard, and a profile that sets its `unlock.for` lacks
+`nut` there. Under Nix, the module's defaults have both, unless you set a profile's `dashboards` or
+`unlock` yourself. Otherwise, copy the dashboard in:
+
+```sh
+elamond defaults dashboards.ups      # into elamond.d/dashboards.toml (or a 0.6.1 elamond.toml)
+```
+
+then add `"ups"` to the profile's `dashboards` (second, after `"overview"`, as the standard one
+has it), and `"nut"` to its `unlock.for`. `elamond defaults --diff` shows what else changed.
+
+## 8. Settings reference
 
 Everything a phone shows comes from the computer it is paired with. The app has no editor and
 keeps no display settings of its own: it draws what the service describes. Three things decide
@@ -735,8 +1060,8 @@ drop-in instead.
 A dashboard is a page of widgets in a grid of four columns (two on a narrow screen), filled in the
 order they are listed. It is a tab when a profile lists it, a page a widget opens (`open`), or the
 chips under the computer's name (a profile's `header`). The standard ones are in
-`elamond.d/dashboards.toml`: `overview`, `processes`, `sensors`, `control`, the `header`, and the
-pages their tiles open.
+`elamond.d/dashboards.toml`: `overview`, `ups` (one for each UPS source), `processes`, `sensors`,
+`control`, the `header`, and the pages their tiles open.
 
 A dashboard of your own, in a drop-in such as `elamond.d/power.toml`:
 
@@ -911,8 +1236,8 @@ follow the version by themselves; only what you set in `settings` stays as it wa
 
 ### When changes apply
 
-- Dashboards, profiles (phone tables too), links, actions, `control`, `default_role`,
-  `default_profile` and `names`: as soon as the service rereads the files. It does when one of them
+- Dashboards, profiles (phone tables too), links, actions, sources, `[history]`, `control`,
+  `default_role`, `default_profile` and `names`: as soon as the service rereads the files. It does when one of them
   changes, or at once on `systemctl --user reload elamond`. An open phone fetches its new tabs by
   itself.
 - Roles (`elamond clients role`) and `elamond clients profile`: at once.
@@ -974,9 +1299,9 @@ listen = ["192.0.2.10", "fd7a:115c::1"]    # these addresses
 
 **Where the service keeps its state:** `~/.local/share/elamon`. That's its id and certificate, the
 paired phones (only hashes of their keys, their roles and profiles, and the app each last
-reported), a pending pairing code, the activity log and `elamond control off`'s mark. Deleting that
-folder unpairs every phone and gives the service a new certificate, unless a backup of it is
-restored ([section 8](#backing-up-the-service)).
+reported), a pending pairing code, the activity log, `elamond control off`'s mark, and the graphs'
+long history (`history/`). Deleting that folder unpairs every phone and gives the service a new
+certificate, unless a backup of it is restored ([section 9](#backing-up-the-service)).
 
 **Environment variables.** The folders follow `XDG_CONFIG_HOME` and `XDG_DATA_HOME`.
 
@@ -1071,7 +1396,7 @@ The firewall stays the system's. If you set your own `port` here, give the syste
 (`services.elamond.settings.port` beside `openFirewall`; without `enable`, that only opens the
 port), or open it yourself.
 
-## 8. Updating, moving and removing
+## 9. Updating, moving and removing
 
 ### Updating
 
@@ -1118,11 +1443,11 @@ from 0.6.1: from an older version, update to 0.6.1 first, as its guide says, sin
 moves the settings of 0.6.0 and before. What changed:
 
 - A 0.6.1 `elamond.toml` stays as it is. Only a new start gets the short `elamond.toml` and
-  `elamond.d/dashboards.toml` ([section 7](#where-the-settings-live)). Under Nix, nothing changes.
+  `elamond.d/dashboards.toml` ([section 8](#where-the-settings-live)). Under Nix, nothing changes.
 - Backups are no longer encrypted. Make a new one after the update: 0.6.2 doesn't read those 0.6.1
   encrypted ([below](#backing-up-the-service)).
 - After `elamond rotate-cert`, phones no longer follow the new certificate: each pairs again
-  ([section 10](#a-new-certificate)). `--no-statement` is still accepted and changes nothing.
+  ([section 11](#a-new-certificate)). `--no-statement` is still accepted and changes nothing.
 - The app no longer exports and imports pairings: a new phone pairs with `elamond pair`
   ([below](#a-new-phone)).
 - *Forget computer* unpairs the phone on the computer too. With a service older than 0.6.2, or one
@@ -1150,7 +1475,7 @@ elamond backup ~/elamond.backup
   made without `--plain`). Restore one of those with elamond 0.6.1, or make a new backup.
 
 A backup holds the certificate's key as it was then. After `elamond rotate-cert`, older backups
-still hold the old key: delete them ([section 10](#a-new-certificate)).
+still hold the old key: delete them ([section 11](#a-new-certificate)).
 
 ### A new computer, or reinstalling
 
@@ -1166,7 +1491,7 @@ systemctl --user start elamond
 The phones connect as before, without pairing again: the service has its old id and certificate and
 knows their keys. They look for it at the addresses and names they already know, so give the new
 computer the old one's address (a DHCP reservation does it) or keep a name they know: its Tailscale
-name, or one in `names` ([section 7](#names-in-the-pairing-link)). A phone that can't reach it any
+name, or one in `names` ([section 8](#names-in-the-pairing-link)). A phone that can't reach it any
 other way has to pair again.
 
 What `elamond restore` does:
@@ -1226,7 +1551,7 @@ such a phone with `elamond pair` before forgetting the computer on the old one.
 In the app, ⋮ → *Forget computer*. With the service gone it can't tell the computer, and there is
 nothing left to revoke.
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 First, run `elamond setup --check`. It prints a line for each thing the service needs, with what to
 do about those marked `!`. To see what the service reads without the app, run `elamond snapshot`.
@@ -1236,7 +1561,7 @@ do about those marked `!`. To see what the service reads without the app, run `e
 | The computer isn't under *Found on this network* | Same network, and UDP 5353 open on the computer. VPNs and many guest Wi-Fi networks block discovery, and the service announces itself only on wired and wireless interfaces it listens on (`mdns: announced on …` in the journal). Add it by address or name instead: `elamond pair` prints them. |
 | The app can't connect | Check `elamond setup --check`, `systemctl --user status elamond` and `journalctl --user -u elamond -e`. TCP 47823 must be open, and the phone must reach an address the service listens on (`listen: on …` in the journal). |
 | It works only while you're logged in | `sudo loginctl enable-linger YOUR_USER`, as `elamond setup` prints it. |
-| *The computer's certificate changed* | The service's data was deleted or the system reinstalled. Restore a backup ([section 8](#a-new-computer-or-reinstalling)), or forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` every phone says this: pair it again ([section 10](#a-new-certificate)). |
+| *The computer's certificate changed* | The service's data was deleted or the system reinstalled. Restore a backup ([section 9](#a-new-computer-or-reinstalling)), or forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` every phone says this: pair it again ([section 11](#a-new-certificate)). |
 | *Control is off* | Set `control = true` in `elamond.toml` or a drop-in; the service takes it up within a few seconds. If it's set, `elamond control status` tells whether `elamond control off` holds it off, or whether the settings stopped parsing. |
 | Pairing ends with the phone turned away | Answer `y` at `elamond pair` within 90 seconds, and keep it running until the phone is paired ([section 3](#3-pair-the-phone)). |
 | *… was forgotten here* after *Forget computer* | The computer couldn't be reached, or its service is older than 0.6.2, so the phone is still paired there. On the computer, `elamond clients` lists the phones, `elamond revoke ID` removes this one. |
@@ -1252,8 +1577,15 @@ do about those marked `!`. To see what the service reads without the app, run `e
 | A graphics card shows no load | NVIDIA needs its own driver (the service reads its management library; `ELAMON_NVML_LIB` names it if it isn't found). Intel doesn't report load without extra privileges; the app shows the clock. |
 | A monitor shows no resolution | It's off or blanked, or the service can't open the graphics device: be logged in at the computer, or in the `video` group. |
 | *Lock* does nothing | Your desktop's locker doesn't react to logind's lock signal ([section 5](#power-the-profile-and-system-units-polkit)). |
+| No tab for the UPS or power station | Settings started before 0.7 have no `ups` dashboard, or the profile's `dashboards` lacks `"ups"` ([section 7](#settings-from-before-07)). `elamond values` ends with the sources the settings have. |
+| The station says *Unreachable* | The service can't reach the NUT server at the source's `host` and `port`. Is nutflow (or upsd) running: `systemctl status nutflow`? `upsc ups@localhost` reads the station as the service would. The journal says why, in lines that start `nut eco:`: `journalctl --user -u elamond -e`. |
+| The station says *No data* | The NUT server answers, but has nothing from the station: nutflow lost it (out of Bluetooth range, or the EcoFlow app on a phone holds the one connection the station takes), or upsd's driver stopped. `journalctl -u nutflow -e`. Meanwhile the tab keeps its shape, with `—` for each value. |
+| The station's switches or sliders aren't there | They need `control = true`, the source's `user` and `password_file`, the command or setting in its `commands` or `settings`, a station that offers it, and a phone paired as `admin` (or `operate`, with the source's `role = "operate"`). `elamond values eco` shows what the station offers and which the lists allow (`allowed`, `not in commands`) ([section 7](#switching-outlets-and-changing-settings)). |
+| `elamond check` warns of a `password_file` | *can't be read*: the file isn't there, or isn't yours; *may be read by others*: `chmod 600` it; *read as settings*: it's a `.toml` in `elamond.d/`, move it. Until then the station's actions fail. |
+| A station's action fails with *access denied* | The NUT user may not do it: its `allow` in nutflow, or `instcmds` and `actions = SET` in upsd's users, has to cover what `commands` and `settings` list. Or the password in the service's file isn't the NUT server's. |
+| *The computer asks for this command to be typed in* (`confirm_required`) | The command cuts this computer's power, or the station's whole load, and has to be typed in ([section 7](#switching-outlets-and-changing-settings)). An app older than 0.7 can't ask for it: update the app. |
 
-## 10. Security
+## 11. Security
 
 **Connection and keys**
 
@@ -1280,6 +1612,10 @@ do about those marked `!`. To see what the service reads without the app, run `e
   phones only read.
 - With control on, it acts as your user. Commands come only from the settings files, never from a
   phone, and so do the units a phone may start and stop. Links open only web pages.
+- A UPS or power station runs only the commands and settings its source lists and the station
+  offers, with values within the station's limits, checked by the service. One that cuts this
+  computer's power is typed in on the phone, and the service checks the text. The NUT password
+  stays in its file: it never reaches a phone, the journal or a backup.
 - It never signals itself, its parents or PID 1. With the start time the app sends, it never signals
   a process that took the PID of the one meant.
 - Settings that stop parsing hold control off until they parse again.
@@ -1303,7 +1639,7 @@ do about those marked `!`. To see what the service reads without the app, run `e
   eyes only (`0600`), and is only as safe as the folder you keep it in. Never put it in a shared or
   cloud folder.
 - A phone paired with a code may ask the computer once for a second key, for another phone, with
-  its own role and no more: app 0.6.1 did so after Import pairings ([section 8](#a-new-phone)).
+  its own role and no more: app 0.6.1 did so after Import pairings ([section 9](#a-new-phone)).
   `elamond clients` and `elamond revoke` say whose key added one, the activity log has it, and
   `elamond revoke ID --with-added` cuts off both. At most 64 phones are paired at once.
 - An old key lives on in backups. `elamond restore` never lets go of control held off, and brings

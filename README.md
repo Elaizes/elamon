@@ -20,19 +20,22 @@ Watch and control a Linux computer from your Android phone, live.
 ## What it does
 
 Every screen is a dashboard of widgets that the service describes, set in its settings on the
-computer (`~/.config/elamon`, or Nix on NixOS): the standard Overview, Processes, Sensors and Control
-come in the settings it starts with, and you can change them or add your own — any reading,
-table, graph, button or choice — without updating the app ([settings reference](docs/config.md)).
+computer (`~/.config/elamon`, or Nix on NixOS): the standard Overview, Processes, Sensors and
+Control, and a tab for each UPS, come in the settings it starts with, and you can change them or
+add your own — any reading, table, graph, button or choice — without updating the app
+([settings reference](docs/config.md)).
 How the app looks and behaves on each phone is that phone's profile, set on the computer too.
 
 Watching, always:
 
 - a dashboard of the CPU, memory, each graphics card, temperatures, network, storage and battery,
-  each with a page of its own: ten minutes of history on charts you can read with a finger, and
-  the processes using the most;
+  each with a page of its own: charts you can read with a finger, from the last ten minutes back to
+  all the service has kept, and the processes using the most;
 - processes, sortable and searchable;
 - every temperature sensor and fan;
-- connected monitors with their modes and arrangement, read from the kernel, so under any desktop.
+- connected monitors with their modes and arrangement, read from the kernel, so under any desktop;
+- a UPS, or an EcoFlow power station, through NUT: its status, charge and time left, the power in
+  and out and each outlet's, the battery, and a timeline of when it was on battery, kept for good.
 
 Controlling, once the computer allows it:
 
@@ -41,7 +44,10 @@ Controlling, once the computer allows it:
 - media players and the volume;
 - the power profile, locking, restarting and shutting down;
 - commands you define on the computer, with a parameter to choose from the values you allow;
-- quitting and killing processes.
+- quitting and killing processes;
+- a station's outlets and settings (charge limits, charging power, X-Boost…), those the computer's
+  settings list and within the station's limits; one that cuts the computer's own power is typed in
+  first.
 
 Each phone has a role, set on the computer: glancing at the basics, watching everything, everyday
 control, or all of it. Every request to act is kept in an activity log, and `elamond control off`
@@ -84,6 +90,9 @@ The app: Material You with frosted glass on Android 12 and newer, light, dark or
 3. For the control panel, add `control = true` to the service's settings
    ([details](docs/guide.md#5-the-control-panel)).
 
+4. For a UPS or a power station, add it to the settings as a source, `[sources.<id>]`, with what
+   phones may switch on it ([details](docs/guide.md#7-upses-and-power-stations)).
+
 The phone and the computer talk directly, over the local network or a VPN they share: TCP 47823,
 and UDP 5353 for finding the computer by itself. The service can listen on chosen interfaces only
 (`listen = ["tailscale0"]`), and announces itself only on the local network. Its pairing QR code
@@ -91,7 +100,7 @@ carries the computer's Tailscale name and names you give (`names = [...]`) after
 the phone still finds it when they change. Everything is encrypted, a phone is paired only when
 you let it in at the computer, each phone has its own key that the computer can revoke, and the
 service only acts on the computer when told it may, starting and stopping only the units its
-settings name ([security](docs/guide.md#10-security)).
+settings name ([security](docs/guide.md#11-security)).
 
 ## Technical notes
 
@@ -103,6 +112,11 @@ settings name ([security](docs/guide.md#10-security)).
   running, whoever opens it first briefly becomes its DRM master; the service closes it right away.
 - Power actions, power profiles and units go through D-Bus (logind, power-profiles-daemon,
   systemd), media through MPRIS, the volume through `wpctl` or `pactl`.
+- A UPS is read over NUT's network protocol, from upsd or, for an EcoFlow station, nutflow; the
+  computer needs no NUT client. With `upst record` running, the history and the timeline also
+  cover the time the service didn't run.
+- Charts reach back further than the ten minutes in memory: the service keeps what they show on
+  disk, every 10 seconds for a day, every 5 minutes for 30 days and every hour from then on.
 - The service uses about 0.3 % of one CPU core while no phone watches, 1–2.5 % while one does
   (most of it the process list), and 8–11 MB of memory (resident; systemd also counts page
   cache).
@@ -136,9 +150,8 @@ dashboards and profiles: [docs/config.md](docs/config.md).
 
 ## Where it's going
 
-Next, as they're needed: a UPS's state, history and controls (through NUT), custom readings
-and the system journal, notifications through ntfy, and controlling monitors under
-Hyprland. Not planned: the
+UPSes and power stations came with 0.7. Next, as they're needed: custom readings and the system
+journal, notifications through ntfy, and controlling monitors under Hyprland. Not planned: the
 service for Windows or macOS, app stores (the app is the APK in each release), a web version.
 
 ## License
@@ -146,3 +159,6 @@ service for Windows or macOS, app stores (the app is the APK in each release), a
 GPL-3.0-or-later. See [LICENSE](LICENSE).
 
 Icons: Material Symbols by Google, Apache License 2.0.
+
+UPS support uses upst-core, the core of upst (Apache-2.0), and works with nutflow for EcoFlow
+stations.

@@ -71,21 +71,24 @@ Usage:
   elamond rotate-cert                  a new certificate and key, after a leaked key; every phone
                                        pairs again
   elamond backup FILE                  save the identity, the paired phones and the rest to FILE,
-                                       unencrypted, for only you to read
+                                       unencrypted, for only you to read (not the graphs' history)
   elamond restore FILE                 put a backup back, the service stopped (--force: running);
                                        --with-settings puts elamond.toml and elamond.d back too
   elamond snapshot                     print one reading as JSON
   elamond check [FILE]                 read the settings as the service would (with FILE in its
-                                       place) and name the file and line of each mistake
+                                       place) and name the file and line of each mistake; say how
+                                       much history the graphs have on disk
   elamond edit [FILE]                  edit elamond.toml (or FILE) in $VISUAL or $EDITOR; a broken
                                        one isn't kept, and the service takes up a sound one
   elamond schema                       print the JSON Schema of the settings, for editors
   elamond defaults                     print the settings elamond starts with (defaults.toml)
   elamond defaults --diff              where your settings differ from those, and what changed in
                                        them since the version before (defaults.toml.old)
-  elamond defaults TABLE               one table of them to copy: dashboards.sensors, profiles.default
+  elamond defaults TABLE               one table of them to copy: dashboards.ups, profiles.default
   elamond values [SOURCE]              list the values this computer has now, and the collections;
-                                       with SOURCE, those of a UPS source, asked of its upsd
+                                       with SOURCE, a UPS source's values, and the station's
+                                       commands and settings with whether the source allows them,
+                                       asked of its NUT server
   elamond setup                        install the service for this user (systemd user unit, starter
                                        settings) and print what needs root: lingering, the firewall,
                                        the polkit rule (--print: only show it; --no-start)
@@ -96,11 +99,13 @@ Usage:
   elamond --version
 
 Roles, each allowing what the one before does and more:
-  glance   the basics: CPU, memory, GPUs, temperatures, fans, disks, network, battery and power;
-           no processes, monitors, links or media
+  glance   the basics: CPU, memory, GPUs, temperatures, fans, disks, network, battery, power and
+           UPSes; no processes, monitors, links or media
   monitor  everything there is to see: processes, monitors, links, media, the activity log
-  operate  also the units of links, media and the volume, the power profile and actions
-  admin    also powering off, restarting, sleeping, locking, and ending processes
+  operate  also the units of links, media and the volume, the power profile and actions, and a
+           station's commands and settings where its source says role = \"operate\"
+  admin    also powering off, restarting, sleeping, locking, ending processes, and a station's
+           commands and settings
 
 Settings: ~/.config/elamon/elamond.toml and elamond.d/   State: ~/.local/share/elamon/
 ";
