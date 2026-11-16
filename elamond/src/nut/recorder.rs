@@ -98,6 +98,7 @@ pub fn backfill(addr: &str, label: &str, id: &str, history: bool, since: u64, un
 		return Err(format!("unexpected reply {head:?}"));
 	}
 	let mut walk = Walk::new(id, history, since, until);
+	let mut read: u64 = 0;
 	loop {
 		if cancel.load(Ordering::Relaxed) {
 			return Err("stopped".into());
@@ -113,7 +114,9 @@ pub fn backfill(addr: &str, label: &str, id: &str, history: bool, since: u64, un
 			break;
 		}
 		walk.take(&rec);
-		if walk.made.len() >= limit::BACKFILL_POINTS {
+		read += 1;
+		// Counted now and then: that takes a while too.
+		if read.is_multiple_of(4096) && walk.made.len() >= limit::BACKFILL_POINTS {
 			store.write(walk.points(false), crate::store::now());
 		}
 	}
@@ -191,17 +194,22 @@ impl Walk {
 		}
 	}
 
-	/// A reading every 10 seconds after `from` and before `to`, as the last poll had it: the journal
-	/// writes only what changes.
+	/// Readings after `from` and before `to`, as the last poll had it, the journal writing only what
+	/// changes: as often as the finest tier that keeps that time has points (every 10 seconds the
+	/// last day before `until`, every 5 minutes the 30 days before, every hour before that).
 	fn between(&mut self, from: f64, to: f64) {
 		if !self.history || self.state.feed != Feed::Up {
 			return;
 		}
-		let step = Tier::S10.step();
-		let mut at = (from as u64 / step + 1) * step;
-		while (at as f64) < to {
+		let mut at = from as u64;
+		loop {
+			let kept = |t: &Tier| t.window().is_none_or(|w| at + w * t.step() >= self.until);
+			let step = Tier::ALL.into_iter().find(kept).map_or(3600, Tier::step);
+			at = (at / step + 1) * step;
+			if at as f64 >= to {
+				return;
+			}
 			self.reading(at as f64);
-			at += step;
 		}
 	}
 
@@ -418,5 +426,25 @@ pub mod tests {
 		// From the slot that starts at `since`: a reading at each poll, and every 10 s between.
 		assert_eq!(s10.iter().map(|(s, x)| (s * 10, *x)).collect::<Vec<_>>(), [(1000, 100.0), (1010, 110.0), (1020, 110.0), (1030, 110.0), (1040, 120.0), (1050, 120.0), (1100, 120.0), (1500, 120.0), (1510, 120.0)]);
 		assert!(!points.iter().any(|(_, a, _)| a.contains("serial")), "not recordable");
+	}
+
+	#[test]
+	fn between_polls_a_walk_reads_as_often_as_the_history_keeps_points_of_that_time() {
+		let until = 40 * 86_400;
+		// A minute of a station that doesn't change, two days and an hour before `until`, then a
+		// minute in its last day.
+		let journal = |t: u64| [rec(t, Kind::Start), rec(t, Kind::Up), set(t, "ups.realpower", "100"), rec(t + 60, Kind::Tick)];
+		let mut w = Walk::new("eco", true, 0, until);
+		for r in journal(until - 2 * 86_400 - 3600).iter().chain(&journal(until - 600)) {
+			w.take(r);
+		}
+		w.end();
+		let points = w.points(true);
+		let s10: Vec<u32> = points.iter().find(|(t, a, _)| *t == Tier::S10 && a == "eco.ups.realpower").unwrap().2.iter().map(|p| p.0).collect();
+		// Two days back: at the polls alone, the minute being in no 5-minute slot's start. In the
+		// last day: every 10 seconds.
+		let old = Tier::S10.slot(until - 2 * 86_400 - 3600);
+		let new = Tier::S10.slot(until - 600);
+		assert_eq!(s10, [old, old + 6, new, new + 1, new + 2, new + 3, new + 4, new + 5, new + 6]);
 	}
 }
