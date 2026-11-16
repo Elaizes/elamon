@@ -328,12 +328,12 @@ keep = "all"   # or a number of days, 30 or more: hourly points older than that 
 | `keep` | `"all"`, or an integer of days, 30 or more | `"all"` | how long the hourly points are kept; the others keep their windows |
 
 It is in `~/.local/share/elamon/history/` (the service's data folder), a file for each value and
-step, 8 bytes a point, and a file of power changes for each source. The service writes it every
-5 minutes and as it stops, never more often and without waiting for the disk, so a crash loses
-those minutes at most; it trims each file to its window as it goes, and after a restart the
-graphs start from it. A value takes about 0.3 MB its first year and 70 KB a year after: a
-computer's graphs some 4 MB, a power station's ninety-odd numbers some 25 MB the first year and
-6 MB a year after. `elamond check` says how much there is:
+step, 8 bytes a point, and a file of power changes for each source (its last 10 000). The service
+writes it every 5 minutes and as it stops, never more often and without waiting for the disk, so a
+crash loses those minutes at most; it trims each file to its window as it goes, and after a
+restart the graphs start from it. A value takes about 0.3 MB its first year and 70 KB a year
+after: a computer's graphs some 4 MB, a power station's ninety-odd numbers some 25 MB the first
+year and 6 MB a year after. `elamond check` says how much there is:
 `history: 12.3 MiB in 274 files (oldest 2026-11-16), not in backups`.
 
 It isn't in backups: `elamond backup` leaves it out, as it is large and nothing the service needs

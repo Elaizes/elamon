@@ -464,6 +464,8 @@ struct Running {
 	src: NutSource,
 	snapshot: Arc<Mutex<Arc<Snapshot>>>,
 	demand: watch::Sender<Demand>,
+	/// Its settings, as they change without it starting again.
+	retune: watch::Sender<NutSource>,
 	/// Its actions go to its task, one at a time.
 	acts: mpsc::Sender<Act>,
 	one: Arc<tokio::sync::Mutex<()>>,
@@ -496,17 +498,22 @@ impl Runtime {
 		self.inner.lock().unwrap_or_else(|p| p.into_inner())
 	}
 
-	/// Takes newly read settings: a source taken out of them, or changed, is stopped; one new or
-	/// changed starts. Before `start`, nothing runs.
+	/// Takes newly read settings: a source taken out of them, or changed as `restarts` says, is
+	/// stopped; one new or so changed starts. Another change is taken as the source runs. Before
+	/// `start`, nothing runs.
 	pub fn apply(&self, config: &Config) {
 		let mut inner = self.lock();
 		let Some((handle, store)) = inner.handle.clone() else { return };
 		inner.sources.retain(|id, r| {
-			let keep = config.sources.get(id) == Some(&r.src);
-			if !keep {
+			let Some(src) = config.sources.get(id).filter(|s| !restarts(&r.src, s)) else {
 				eprintln!("nut {id}: stopped");
+				return false;
+			};
+			if *src != r.src {
+				r.src = src.clone();
+				r.retune.send_replace(src.clone());
 			}
-			keep
+			true
 		});
 		for (id, src) in &config.sources {
 			if !inner.sources.contains_key(id) {
@@ -590,6 +597,22 @@ fn offers_wanted(src: &NutSource) -> bool {
 	!src.commands.is_empty() || !src.settings.is_empty()
 }
 
+/// Whether a source whose settings go from `old` to `new` starts again: when what it reads, how
+/// often, its recorder, its history or its battery change, or upsd is to be asked what the station
+/// offers or no longer. Its commands, settings, role, outlets and NUT user are taken as it runs.
+fn restarts(old: &NutSource, new: &NutSource) -> bool {
+	let kept = NutSource {
+		commands: old.commands.clone(),
+		settings: old.settings.clone(),
+		role: old.role,
+		outlets: old.outlets.clone(),
+		user: old.user.clone(),
+		password_file: old.password_file.clone(),
+		..new.clone()
+	};
+	kept != *old || offers_wanted(old) != offers_wanted(new)
+}
+
 /// A poller for `src`, and the task that takes in what it reports.
 fn spawn(handle: &tokio::runtime::Handle, store: &Arc<Store>, id: &str, src: &NutSource) -> std::io::Result<Running> {
 	let (poller, updates) = poller(src)?;
@@ -597,6 +620,7 @@ fn spawn(handle: &tokio::runtime::Handle, store: &Arc<Store>, id: &str, src: &Nu
 	let mut station = Station::keeping(id, src, timeline);
 	let snapshot = Arc::new(Mutex::new(Arc::new(station.snapshot(SystemTime::now()))));
 	let (demand, wanted) = watch::channel(Demand::Background);
+	let (retune, retuned) = watch::channel(src.clone());
 	let (stop, stopped) = oneshot::channel();
 	let (filler, filled) = mpsc::channel(1);
 	let (acts, asked) = mpsc::channel(1);
@@ -606,6 +630,7 @@ fn spawn(handle: &tokio::runtime::Handle, store: &Arc<Store>, id: &str, src: &Nu
 		poller,
 		updates,
 		wanted,
+		retuned,
 		stopped,
 		out: snapshot.clone(),
 		store: store.clone(),
@@ -616,7 +641,7 @@ fn spawn(handle: &tokio::runtime::Handle, store: &Arc<Store>, id: &str, src: &Nu
 		pending: Vec::new(),
 	};
 	let task = handle.spawn(task.run(station));
-	Ok(Running { src: src.clone(), snapshot, demand, acts, one: Arc::new(tokio::sync::Mutex::new(())), _stop: stop, task })
+	Ok(Running { src: src.clone(), snapshot, demand, retune, acts, one: Arc::new(tokio::sync::Mutex::new(())), _stop: stop, task })
 }
 
 /// What a source's task works with, besides its station.
@@ -626,6 +651,8 @@ struct Task {
 	poller: Poller,
 	updates: mpsc::UnboundedReceiver<Update>,
 	wanted: watch::Receiver<Demand>,
+	/// Its settings, as they change without it starting again: what it may run and who may.
+	retuned: watch::Receiver<NutSource>,
 	stopped: oneshot::Receiver<()>,
 	/// Where its snapshot is left.
 	out: Arc<Mutex<Arc<Snapshot>>>,
@@ -699,6 +726,19 @@ impl Task {
 						break;
 					}
 					asking.set(&self.poller, &self.src, *self.wanted.borrow_and_update());
+				}
+				changed = self.retuned.changed() => {
+					if changed.is_err() {
+						break;
+					}
+					self.src = self.retuned.borrow_and_update().clone();
+					station.src = self.src.clone();
+					// What its settings allow now that upsd wasn't asked about.
+					for var in station.undescribed() {
+						self.poller.describe(&self.src.ups, &var);
+					}
+					let s = Arc::new(station.snapshot(at));
+					*self.out.lock().unwrap_or_else(|p| p.into_inner()) = s;
 				}
 				Some(f) = self.filled.recv() => {
 					whole = self.filled_in(&mut station, f);

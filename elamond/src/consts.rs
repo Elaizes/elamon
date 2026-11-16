@@ -227,6 +227,9 @@ pub mod limit {
 	/// Changes of a UPS source's power kept at most, in memory and in its timeline's file (which may hold
 	/// twice as many before it is written anew with these): the oldest go.
 	pub const TIMELINE_CHANGES: usize = 10_000;
+	/// Segments of a timeline's state past which a short `none` alone is taken as the segment
+	/// before it: a link that flaps all day would make hundreds of them, in every line of a stream.
+	pub const TIMELINE_SEGMENTS: usize = 100;
 	/// Points made of a recorder's journal kept in memory before they are written.
 	pub const BACKFILL_POINTS: usize = 500_000;
 }

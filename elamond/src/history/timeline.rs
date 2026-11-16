@@ -314,7 +314,9 @@ pub struct Segment {
 /// The segments of `changes` from `from_ms` to `to_ms`, oldest first, each from where the one
 /// before ends, `none` where nothing is known. Segments shorter than a 400th of that time that come
 /// one after another are made one, `battery` if any was, else `none` if any was, else `line`; a
-/// short one alone stays. Neighbours of one state are one. None when `to_ms` isn't after `from_ms`.
+/// short one alone stays, but for a short `none` when there are more than `TIMELINE_SEGMENTS`:
+/// that is taken as the one before it. Neighbours of one state are one. None when `to_ms` isn't
+/// after `from_ms`.
 pub fn segments(changes: &[Change], from_ms: u64, to_ms: u64) -> Vec<Segment> {
 	if to_ms <= from_ms {
 		return Vec::new();
@@ -348,7 +350,18 @@ pub fn segments(changes: &[Change], from_ms: u64, to_ms: u64) -> Vec<Segment> {
 			_ => merged.push(seg),
 		}
 	}
-	merged
+	if merged.len() <= limit::TIMELINE_SEGMENTS {
+		return merged;
+	}
+	let mut out: Vec<Segment> = Vec::with_capacity(merged.len());
+	for seg in merged {
+		let blip = seg.state == Supply::None && short(&seg);
+		match out.last_mut() {
+			Some(last) if blip || last.state == seg.state => last.to = seg.to,
+			_ => out.push(seg),
+		}
+	}
+	out
 }
 
 /// `segments` as the protocol has them.
@@ -423,6 +436,17 @@ mod tests {
 			json(&segs[..1]),
 			serde_json::json!([{ "from": 0, "to": 1_000_000, "state": "none" }])
 		);
+		// upsd out of reach for 5 s every few minutes, all morning, would be some 600 segments: past
+		// `TIMELINE_SEGMENTS`, each is taken as the line before it. The battery stays.
+		let mut flaps = vec![(0, L)];
+		for k in 0..300 {
+			flaps.push((1000 + k * 225, N));
+			flaps.push((1005 + k * 225, L));
+		}
+		flaps.extend([(75_000, B), (75_060, L)]);
+		assert_eq!(spans(&segments(&changes(&flaps), 0, day * 1000)), [(0, 75_000_000, "line"), (75_000_000, 75_060_000, "battery"), (75_060_000, 86_400_000, "line")]);
+		// Fewer, they stay.
+		assert_eq!(segments(&changes(&flaps[..2 * 49 + 1]), 0, day * 1000).len(), 2 * 49 + 1);
 	}
 
 	#[test]

@@ -35,7 +35,8 @@ Watching, always:
 - every temperature sensor and fan;
 - connected monitors with their modes and arrangement, read from the kernel, so under any desktop;
 - a UPS, or an EcoFlow power station, through NUT: its status, charge and time left, the power in
-  and out and each outlet's, the battery, and a timeline of when it was on battery, kept for good.
+  and out and each outlet's, the battery, and a timeline of when it was on battery, kept for good
+  (its last 10 000 changes).
 
 Controlling, once the computer allows it:
 

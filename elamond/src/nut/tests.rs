@@ -617,6 +617,52 @@ async fn a_source_taken_out_of_the_settings_stops_its_thread() {
 	server.stop();
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn what_a_source_may_run_changes_as_it_runs() {
+	use crate::actions::ParamKind;
+	let _one = POLLERS.lock().await;
+	let server = demo::Server::spawn().unwrap();
+	let port = server.addr().port();
+	let with = |extra: &str| source(&demo_source("tune", "rack", "127.0.0.1", port, &format!("user = \"admin\"\npassword_file = \"/nonexistent/password\"\n{extra}")));
+	let history = Scratch::new();
+	let rt = Runtime::default();
+	rt.start(tokio::runtime::Handle::current(), &with("commands = [\"beeper.*\"]\n"), history.store());
+	rt.set_demand(true, &BTreeSet::new(), &BTreeSet::new());
+	let commands = |s: &Snapshot| -> Vec<String> {
+		match s.actions.iter().find(|a| a.id == "nut.command.tune").map(|a| &a.params[0].kind) {
+			Some(ParamKind::Choice(c)) => c.iter().map(|(v, _)| v.clone()).collect(),
+			_ => Vec::new(),
+		}
+	};
+	let before = wait_for(&rt, "tune", Duration::from_secs(5), |s| !s.actions.is_empty() && s.polls > 0).await;
+	assert!(commands(&before).iter().all(|c| c.starts_with("beeper.")), "{:?}", commands(&before));
+	// More commands, a setting, another role: taken as it runs, without starting again.
+	rt.apply(&with("commands = [\"beeper.*\", \"load.*\"]\nsettings = [\"battery.charge.low\"]\nrole = \"operate\"\n"));
+	assert!(rt.snapshots()["tune"].polls >= before.polls, "started again");
+	let s = wait_for(&rt, "tune", Duration::from_secs(5), |s| s.actions.len() == 2 && commands(s).contains(&"load.off".to_string())).await;
+	assert_eq!(s.actions[1].id, "nut.set.tune.battery.charge.low");
+	assert!(s.actions.iter().all(|a| a.role == Role::Operate));
+	assert_eq!(s.timeline.iter().map(|c| c.state).collect::<Vec<_>>(), [Supply::Line]);
+	rt.stop().await;
+	server.stop();
+}
+
+#[test]
+fn restarting_is_for_how_a_source_is_read() {
+	let base = "[sources.eco]\nkind = \"nut\"\nups = \"ups\"\nuser = \"elamon\"\npassword_file = \"/etc/elamon/nut.password\"\ncommands = [\"beeper.*\"]\n";
+	let src = |extra: &str| source(&format!("{base}{extra}")).sources["eco"].clone();
+	let old = src("");
+	for extra in ["settings = [\"battery.*\"]\n", "role = \"operate\"\n", "outlets.\"1\".critical = true\n"] {
+		assert!(!restarts(&old, &src(extra)), "{extra}");
+	}
+	for extra in ["host = \"192.0.2.7\"\n", "port = 3494\n", "interval_ms = 2000\n", "background_ms = 30000\n", "history = false\n", "recorder = \"/run/upst/upst.sock\"\n", "capacity_wh = 500\n"] {
+		assert!(restarts(&old, &src(extra)), "{extra}");
+	}
+	assert!(!restarts(&old, &source(&base.replace("elamon\"", "nut\"")).sources["eco"]));
+	// Asking what the station offers, or no longer.
+	assert!(restarts(&old, &source(&base.replace("commands = [\"beeper.*\"]\n", "")).sources["eco"]));
+}
+
 #[test]
 fn elamond_values_asks_upsd_itself() {
 	let server = demo::Server::spawn().unwrap();

@@ -469,8 +469,9 @@ from where the one before ends: `line` (on line, or on bypass), `battery`, or `n
 is known (before the source was first read, while elamond didn't run, while upsd couldn't be
 reached). Segments shorter than a 400th of the range that come one after another are made one,
 `battery` if any of them was, else `none` if any was, else `line`; one short segment alone stays
-as it is, and a client draws every segment a pixel or two wide at least. Neighbours of one state
-are one segment.
+as it is (but past 100 segments, a short `none` alone, upsd out of reach for a moment again and
+again, is part of the segment before it), and a client draws every segment a pixel or two wide at
+least. Neighbours of one state are one segment.
 
 Numbers in states come rounded to one decimal (`blend` to three); a client formats them by the
 widget's `format` and `unit` ([config.md](config.md#formats)).
@@ -519,7 +520,7 @@ widget whose source still isn't read then has no state, as in a stream); 404
 
 ## `GET /api/v1/history`
 
-The long history of one graph or timeline, for a range its `ranges` offer. The service keeps every
+The long history of one graph or timeline, over one of the long ranges. The service keeps every
 value graphs and sparks show, and every number of a UPS source, at three steps
 ([config.md](config.md#the-long-history)): every 10 seconds for a day, every 5 minutes for 30 days,
 every hour from then on. Query:
