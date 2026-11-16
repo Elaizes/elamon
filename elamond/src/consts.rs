@@ -83,6 +83,9 @@ pub mod cadence {
 	/// A UPS source is asked this often, in milliseconds, while nobody looks at its values, unless
 	/// its `background_ms` says otherwise (or its `interval_ms` is longer).
 	pub const NUT_BACKGROUND_MS: u64 = 10_000;
+	/// A `command`, `http` or `file` source is read this often, in seconds, while it is needed,
+	/// unless its `interval` says otherwise.
+	pub const FEED_INTERVAL_SECS: u64 = 10;
 	/// How far back a timeline reaches unless its `range` says, in seconds: a day.
 	pub const TIMELINE_RANGE: u64 = 86_400;
 	/// What of a recorder's journal a source starts from, as if it had read it, in seconds: its
@@ -177,6 +180,11 @@ pub mod timeout {
 	pub const RECORDER: Duration = Duration::from_secs(5);
 	pub const RECORDER_START: Duration = Duration::from_secs(10);
 	pub const RECORDER_LINE: Duration = Duration::from_secs(60);
+	/// A read of a `command`, `http` or `file` source, in seconds, unless its `timeout` says
+	/// otherwise.
+	pub const FEED_SECS: u64 = 5;
+	/// A source stopped as the service stops gets this long for its read to end.
+	pub const FEED_STOP: Duration = Duration::from_secs(1);
 }
 
 /// Sizes and counts that keep one phone, process or file from costing too much.
@@ -232,6 +240,20 @@ pub mod limit {
 	pub const TIMELINE_SEGMENTS: usize = 100;
 	/// Points made of a recorder's journal kept in memory before they are written.
 	pub const BACKFILL_POINTS: usize = 500_000;
+	/// What a `command`, `http` or `file` source reads at most, in bytes: more fails the read.
+	pub const FEED_OUTPUT_MAX: usize = 64 * 1024;
+	/// What of a command's stderr is kept, its first line saying why it failed.
+	pub const FEED_STDERR_MAX: usize = 4 * 1024;
+	/// Characters in a source's text value, `…` included.
+	pub const FEED_TEXT_MAX: usize = 1000;
+	/// Values a read of a source gives at most, and levels deep in its JSON; the rest are left out.
+	pub const FEED_VALUES_MAX: usize = 256;
+	pub const FEED_DEPTH_MAX: usize = 8;
+	/// Addresses a source has had since it started that are kept (`values.known`), besides its own
+	/// `.age`, `.exit` and `.error`.
+	pub const FEED_KNOWN_MAX: usize = 256;
+	/// Bytes of a token file read, for its first line.
+	pub const TOKEN_FILE_MAX: u64 = 64 * 1024;
 }
 
 /// `elamond backup` and `elamond restore`.

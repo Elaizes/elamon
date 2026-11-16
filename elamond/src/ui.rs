@@ -99,9 +99,18 @@ pub struct Dashboard {
 	pub title: String,
 	pub icon: String,
 	pub widgets: Vec<UiWidget>,
+	/// The first parts of the addresses its widgets name that aren't the computer's (`app` of
+	/// `app.state`): of the widgets as the settings write them, those a client doesn't see now (a
+	/// `when` not yet met, a list's rows without values) included, and as `for_each` spread them.
+	pub heads: BTreeSet<String>,
 }
 
 impl Dashboard {
+	/// The sources a client with it on screen needs read: those whose ids `heads` has.
+	pub fn source_heads(&self) -> &BTreeSet<String> {
+		&self.heads
+	}
+
 	/// Every widget, those in groups included, in order.
 	pub fn all_widgets(&self) -> Vec<&UiWidget> {
 		fn walk<'a>(ws: &'a [UiWidget], out: &mut Vec<&'a UiWidget>) {
@@ -123,37 +132,41 @@ impl Dashboard {
 
 impl UiWidget {
 	/// The costlier sources this widget's own state needs read (not those of the widgets in it):
-	/// the collection of a table or bars, and the addresses it shows, is judged by or holds in its
-	/// strings.
+	/// the collection of a table or bars, and its addresses (`each_address`).
 	pub fn needs(&self) -> Sources {
 		let mut n = Sources::default();
-		let d = &self.def;
-		if let Some(s) = &d.source {
+		if let Some(s) = &self.def.source {
 			n.collection(s);
 		}
 		if self.kind == "media" {
 			n.media = true;
 			n.volume = true;
 		}
+		self.each_address(|a| n.address(a));
+		n
+	}
+
+	/// Each address this widget's own state shows, is judged by or holds in its strings.
+	pub fn each_address<'a>(&'a self, mut f: impl FnMut(&'a str)) {
+		let d = &self.def;
 		for a in addresses(d) {
-			n.address(a);
+			f(a);
 		}
 		let mut texts: Vec<&str> = [&d.label, &d.caption, &d.text, &d.empty].into_iter().flatten().map(String::as_str).collect();
 		for i in d.items.iter().flatten() {
 			texts.extend([&i.label, &i.text, &i.empty].into_iter().flatten().map(String::as_str));
 			for a in [&i.value, &i.when].into_iter().flatten() {
-				n.address(a);
+				f(a);
 			}
 		}
 		for t in texts {
 			for p in format::placeholders(t) {
-				n.address(format::split_placeholder(p.inner).0);
+				f(format::split_placeholder(p.inner).0);
 			}
 		}
 		if let Some(a) = &d.when {
-			n.address(a);
+			f(a);
 		}
-		n
 	}
 }
 
@@ -388,12 +401,49 @@ impl Ctx<'_> {
 		if !d.widgets.is_empty() && widgets.is_empty() {
 			return None;
 		}
-		Some(Dashboard {
+		let mut named = Value::Array(d.widgets.iter().cloned().map(Value::Object).collect());
+		if let Some(it) = &item {
+			self.fill_item(&mut named, it, false);
+		}
+		let mut heads = BTreeSet::new();
+		self.heads_in(&named, false, &mut heads);
+		let mut out = Dashboard {
 			id: id.to_string(),
 			title: self.fill(title.as_str().unwrap_or("")),
 			icon: d.icon.clone().unwrap_or_else(|| "overview".into()),
 			widgets,
-		})
+			heads: BTreeSet::new(),
+		};
+		for w in out.all_widgets() {
+			w.each_address(|a| heads.extend(head_of(a).map(str::to_string)));
+		}
+		out.heads = heads;
+		Some(out)
+	}
+
+	/// The heads of the addresses in `v`, widgets as the settings write them, templates applied:
+	/// of each placeholder, and of `v` itself when `address` (a key that holds an address).
+	fn heads_in(&self, v: &Value, address: bool, out: &mut BTreeSet<String>) {
+		let mut add = |a: &str| out.extend(head_of(a).map(str::to_string));
+		match v {
+			Value::String(s) => {
+				for p in format::placeholders(s) {
+					add(format::split_placeholder(p.inner).0);
+				}
+				if address {
+					add(s);
+				}
+			}
+			Value::Array(a) => a.iter().for_each(|e| self.heads_in(e, address, out)),
+			Value::Object(o) => {
+				let merged = if o.contains_key("use") { settings::apply_template(o, &self.config.templates).unwrap_or_else(|_| o.clone()) } else { o.clone() };
+				// A table's row actions fill in the row's fields, not values.
+				for (k, e) in merged.iter().filter(|(k, _)| *k != "row_actions") {
+					self.heads_in(e, ADDRESS_KEYS.contains(&k.as_str()), out);
+				}
+			}
+			_ => {}
+		}
 	}
 
 	/// The dashboards a profile's tab names: itself, or one for each item of its `for_each`.
@@ -469,7 +519,7 @@ impl Ctx<'_> {
 		// The least role its values, collection and action need, or its own.
 		let mut need = w.role.unwrap_or(Role::Glance);
 		for a in addresses(&w) {
-			need = need.max(values::address_role(a));
+			need = need.max(self.view.role_of(a));
 		}
 		// A timeline's source is a station, which its status shows to all.
 		if let Some(s) = w.source.as_ref().filter(|_| kind != "timeline") {
@@ -551,7 +601,7 @@ impl Ctx<'_> {
 				}
 				let shows = match (&i.value, &i.text) {
 					(Some(a), _) => {
-						self.view.role >= values::address_role(a) && (self.view.exists(a) || i.empty.as_deref().is_some_and(|e| !self.fill(e).is_empty()))
+						self.view.role >= self.view.role_of(a) && (self.view.exists(a) || i.empty.as_deref().is_some_and(|e| !self.fill(e).is_empty()))
 					}
 					(None, Some(t)) => !self.fill(t).is_empty(),
 					_ => false,
@@ -677,6 +727,15 @@ impl Serialize for ListItemOut<'_> {
 		m.end()
 	}
 }
+
+/// The first part of `address` when it isn't one of the computer's: what may be a source's id.
+fn head_of(address: &str) -> Option<&str> {
+	let (head, _) = address.split_once('.')?;
+	(settings::is_id(head) && head != "item" && !values::known_prefix(address)).then_some(head)
+}
+
+/// The keys of a widget, or of a list's row, that hold an address.
+const ADDRESS_KEYS: [&str; 9] = ["value", "values", "when", "warning_above", "critical_above", "warning_below", "critical_below", "min", "max"];
 
 /// The addresses a widget shows or is judged by.
 pub fn addresses(w: &Widget) -> Vec<&str> {
@@ -1006,7 +1065,7 @@ impl Ctx<'_> {
 					match &d.max {
 						Some(Bound::Num(n)) => o.put("max", Value::Number(n.clone())),
 						Some(Bound::Name(_)) => {}
-						None => o.opt("max", own.or_else(|| value.and_then(values::address_def).filter(|a| a.unit == "%").map(|_| Value::from(100u64)))),
+						None => o.opt("max", own.or_else(|| value.and_then(|a| self.view.def(a)).filter(|a| a.unit == "%").map(|_| Value::from(100u64)))),
 					}
 				} else {
 					o.opt("min", bound_num(&d.min));
@@ -1448,5 +1507,83 @@ label = "{item.label} at {item.rpm}"
 		let all = serde_json::json!(["1h", "24h", "7d", "30d", "1y", "all"]);
 		assert_eq!(ranges, [("g/medium", Some(&all)), ("g/large", Some(&all)), ("g/small", None), ("g/off", None)]);
 		assert!(settings::read_sources(&[settings::Source::new("b.toml", "[[dashboards.g.widgets]]\ntype = \"value\"\nvalue = \"cpu.usage\"\nranges = true\n")]).is_err());
+	}
+
+	/// The sources a dashboard on screen needs read: of what its widgets name, those a client
+	/// doesn't see yet included, and of what `for_each` spreads; the header's beside it.
+	#[test]
+	fn a_dashboard_names_the_sources_it_needs_read() {
+		let config = settings::read_sources(&[settings::Source::new(
+			"a.toml",
+			r#"
+default_profile = "p"
+[sources.app]
+kind = "http"
+url = "http://localhost:8080/status"
+[sources.web]
+kind = "http"
+url = "http://localhost:8081/status"
+[sources.job]
+kind = "command"
+command = ["x"]
+[sources.zone]
+kind = "file"
+path = "/sys/class/thermal/thermal_zone0/temp"
+[sources.up]
+kind = "command"
+command = ["uptime"]
+[sources.tpl]
+kind = "command"
+command = ["x"]
+
+[templates.t]
+type = "value"
+value = "{src}.value"
+
+[profiles.p]
+dashboards = ["d"]
+header = "h"
+
+[dashboards.h]
+title = "H"
+[[dashboards.h.widgets]]
+type = "text"
+text = "{up.text}"
+
+[dashboards.d]
+title = "D"
+[[dashboards.d.widgets]]
+type = "value"
+value = "job.files"
+when = "job.files"
+[[dashboards.d.widgets]]
+type = "list"
+items = [{ label = "Zone", value = "zone.text" }, { label = "CPU", value = "cpu.usage" }]
+[[dashboards.d.widgets]]
+type = "value"
+for_each = ["app", "web"]
+value = "{item}.state"
+[[dashboards.d.widgets]]
+use = "t"
+with = { src = "tpl" }
+[[dashboards.d.widgets]]
+type = "table"
+source = "links"
+columns = [{ field = "name" }]
+row_actions = [{ action = "unit.restart", params = { link = "{id}" } }]
+"#,
+		)])
+		.unwrap();
+		let mut values = crate::fixtures::values(&config);
+		crate::feeds::put(&mut values, &config, &BTreeMap::new());
+		let caps = Caps::all(&[]);
+		let ui = build(&input(&config, &values, &caps, Role::Admin, "p", None));
+		let d = ui.dashboard("d").unwrap();
+		// None has been read: the value `when` holds to isn't shown, nor the list's row of the source.
+		let shown: Vec<&str> = d.all_widgets().iter().map(|w| w.id.as_str()).collect();
+		assert_eq!(shown, ["d/1", "d/2.app", "d/2.web", "d/3", "d/4"]);
+		assert_eq!(d.widgets[0].def.items.as_ref().map(Vec::len), Some(1));
+		assert_eq!(d.source_heads().iter().collect::<Vec<_>>(), ["app", "job", "tpl", "web", "zone"]);
+		assert_eq!(crate::server::heads_of(&ui, d).iter().collect::<Vec<_>>(), ["app", "job", "tpl", "up", "web", "zone"]);
 	}
 }

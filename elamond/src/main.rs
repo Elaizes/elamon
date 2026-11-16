@@ -10,6 +10,7 @@ mod commands;
 mod consts;
 mod control;
 mod errors;
+mod feeds;
 #[cfg(test)]
 mod fixtures;
 mod format;
@@ -86,9 +87,9 @@ Usage:
                                        them since the version before (defaults.toml.old)
   elamond defaults TABLE               one table of them to copy: dashboards.ups, profiles.default
   elamond values [SOURCE]              list the values this computer has now, and the collections;
-                                       with SOURCE, a UPS source's values, and the station's
-                                       commands and settings with whether the source allows them,
-                                       asked of its NUT server
+                                       with SOURCE, that source's values, read there and then: a
+                                       UPS source's asked of its NUT server, with the station's
+                                       commands and settings and whether the source allows them
   elamond setup                        install the service for this user (systemd user unit, starter
                                        settings) and print what needs root: lingering, the firewall,
                                        the polkit rule (--print: only show it; --no-start)
@@ -258,6 +259,8 @@ fn serve() -> Result<(), String> {
 	history::disk::spawn_writer(hub.long.clone()).map_err(|e| e.to_string())?;
 	// Each UPS source's poller, its updates taken in by a task.
 	hub.nut.start(runtime.handle().clone(), &hub.config(), hub.long.clone());
+	// Each command, web service and file a source reads, by a task of its own.
+	hub.feeds.start(runtime.handle().clone(), &hub.config());
 	let stopping = hub.clone();
 	{
 		let hub = hub.clone();
@@ -301,6 +304,7 @@ fn serve() -> Result<(), String> {
 	// The sources' timelines end now; the slots still being summed are written too: a restart loses
 	// none of what was read.
 	runtime.block_on(stopping.nut.stop());
+	runtime.block_on(stopping.feeds.stop());
 	stopping.long.flush(store::now(), true);
 	served
 }
@@ -538,6 +542,8 @@ fn collect_loop(
 		let snapshots = hub.nut.snapshots();
 		nut::put(&mut values, &config, &snapshots);
 		got.caps.nut = nut::actions::of_sources(&config, &snapshots);
+		// The commands, web services and files as their tasks last read them.
+		feeds::put(&mut values, &config, &hub.feeds.snapshots());
 		let shape = server::shape_of(&values, &got.caps);
 		let stamp = Some((hub.config_gen(), shape));
 		if tracked.0 != stamp {
@@ -552,6 +558,9 @@ fn collect_loop(
 		}
 		// Upsd is asked often while a client shows a source's values, less while its history is kept.
 		hub.nut.set_demand(need.sources, &tracked.1, &timelines);
+		// A command, web service or file is read only while a client shows it, a graph tracks it or
+		// its history is kept.
+		hub.feeds.set_demand(&hub.wanted_heads(), &tracked.1);
 		if let Ok(mut h) = hub.history.lock() {
 			h.push(&values, &tracked.1);
 		}

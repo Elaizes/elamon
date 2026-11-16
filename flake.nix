@@ -33,10 +33,12 @@
 				nativeBuildInputs = [ pkgs.makeWrapper ];
 				# `elamond update`'s tests download, with curl, from a server of their own on 127.0.0.1.
 				nativeCheckInputs = [ pkgs.curl ];
-				# GPU names come from the PCI database, which NixOS keeps in the store.
+				# GPU names come from the PCI database, which NixOS keeps in the store; a web service a
+				# source reads is asked through curl, which a system without it in its PATH gets from here.
 				postFixup = ''
 					wrapProgram $out/bin/elamond \
-						--set-default ELAMON_PCI_IDS ${pkgs.hwdata}/share/hwdata/pci.ids
+						--set-default ELAMON_PCI_IDS ${pkgs.hwdata}/share/hwdata/pci.ids \
+						--suffix PATH : ${pkgs.curl}/bin
 				'';
 				postInstall = ''
 					install -Dm644 dist/elamond.service $out/lib/systemd/user/elamond.service
