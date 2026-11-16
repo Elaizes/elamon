@@ -37,16 +37,38 @@ impl Outcome {
 	}
 }
 
-/// A file read in the background that hasn't ended, which the source's next read waits for.
-pub type Stuck = Option<JoinHandle<io::Result<Option<Vec<u8>>>>>;
+/// A file read in the background that hasn't ended (a file source's, or a token's), which the
+/// source's next read waits for.
+pub type Stuck = Option<JoinHandle<()>>;
 
 /// Reads `feed` once.
 pub async fn read(feed: &Feed, stuck: &mut Stuck) -> Outcome {
 	let limit = Duration::from_secs(feed.timeout);
 	match feed.kind {
 		FeedKind::Command => command(feed, limit).await,
-		FeedKind::Http => http(feed, limit).await,
-		FeedKind::File => file(feed, limit, stuck).await,
+		FeedKind::Http => http(feed, limit, stuck).await,
+		FeedKind::File => file(feed, stuck).await,
+	}
+}
+
+/// What `job` gives, run on a thread of the blocking pool within the source's timeout: a file on a
+/// mount that doesn't answer holds up no worker of the runtime. A job that doesn't end in time is
+/// left there, and the source's next read waits for it.
+pub(super) async fn blocking<T: Send + 'static>(feed: &Feed, stuck: &mut Stuck, job: impl FnOnce() -> T + Send + 'static) -> Result<T, Failure> {
+	if let Some(before) = stuck.take() {
+		let _ = before.await;
+	}
+	let (tx, rx) = tokio::sync::oneshot::channel();
+	let running = tokio::task::spawn_blocking(move || {
+		let _ = tx.send(job());
+	});
+	match tokio::time::timeout(Duration::from_secs(feed.timeout), rx).await {
+		Ok(Ok(got)) => Ok(got),
+		Ok(Err(_)) => Err(Failure::new("can't read")),
+		Err(_) => {
+			*stuck = Some(running);
+			Err(timed_out(feed))
+		}
 	}
 }
 
@@ -214,10 +236,13 @@ pub(super) fn curl_args(feed: &Feed, header: bool) -> Vec<String> {
 }
 
 /// A web service's read: good when it answers 2xx with a body of its format.
-async fn http(feed: &Feed, limit: Duration) -> Outcome {
-	let token = match feed.token_file.as_deref().map(Token::read).transpose() {
-		Ok(t) => t,
-		Err(f) => return Outcome::failed(f),
+async fn http(feed: &Feed, limit: Duration, stuck: &mut Stuck) -> Outcome {
+	let token = match feed.token_file.clone() {
+		Some(path) => match blocking(feed, stuck, move || Token::read(&path)).await {
+			Ok(Ok(t)) => Some(t),
+			Ok(Err(f)) | Err(f) => return Outcome::failed(f),
+		},
+		None => None,
 	};
 	let line = token.as_ref().map(|t| t.header_line(feed.header.as_deref()));
 	// The body, a line break and the code.
@@ -281,23 +306,14 @@ fn read_regular(path: &Path, max: usize) -> io::Result<Option<Vec<u8>>> {
 	Ok(Some(buf))
 }
 
-/// A file's read, on a thread of the blocking pool: one that doesn't end in time is left there,
-/// and the source's next read waits for it.
-async fn file(feed: &Feed, limit: Duration, stuck: &mut Stuck) -> Outcome {
-	if let Some(job) = stuck.take() {
-		let _ = job.await;
-	}
+/// A file's read, on a thread of the blocking pool.
+async fn file(feed: &Feed, stuck: &mut Stuck) -> Outcome {
 	let path = feed.path.clone().unwrap_or_default();
-	let mut job = tokio::task::spawn_blocking(move || read_regular(&path, limit::FEED_OUTPUT_MAX));
-	let bytes = match tokio::time::timeout(limit, &mut job).await {
-		Ok(Ok(Ok(Some(b)))) => b,
-		Ok(Ok(Ok(None))) => return Outcome::failed(Failure::new("not a regular file")),
-		Ok(Ok(Err(e))) => return Outcome::failed(Failure::with("can't read", said(&e))),
-		Ok(Err(e)) => return Outcome::failed(Failure::with("can't read", e.to_string())),
-		Err(_) => {
-			*stuck = Some(job);
-			return Outcome::failed(timed_out(feed));
-		}
+	let bytes = match blocking(feed, stuck, move || read_regular(&path, limit::FEED_OUTPUT_MAX)).await {
+		Ok(Ok(Some(b))) => b,
+		Ok(Ok(None)) => return Outcome::failed(Failure::new("not a regular file")),
+		Ok(Err(e)) => return Outcome::failed(Failure::with("can't read", said(&e))),
+		Err(f) => return Outcome::failed(f),
 	};
 	if bytes.len() > limit::FEED_OUTPUT_MAX {
 		return Outcome::failed(over());

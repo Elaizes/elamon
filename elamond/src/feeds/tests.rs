@@ -471,6 +471,21 @@ fn a_read_left_behind_holds_up_no_listing() {
 	assert_eq!(got, Ok(Ok(true)));
 }
 
+/// A file's read, a token's too, is off the runtime's workers: one that hangs times out with the
+/// one worker free, is left behind, and the source's next read waits for it.
+#[tokio::test]
+async fn a_file_read_that_hangs_holds_up_no_worker() {
+	let f = feed("kind = \"file\"\npath = \"/proc/self/status\"\ntimeout = 1");
+	let mut stuck = None;
+	let (release, held) = std::sync::mpsc::channel::<()>();
+	let hangs = read::blocking(&f, &mut stuck, move || held.recv().is_ok()).await;
+	assert_eq!(hangs.map_err(|f| f.text()), Err("timed out after 1 s".to_string()));
+	assert!(stuck.is_some());
+	release.send(()).unwrap();
+	assert_eq!(read::blocking(&f, &mut stuck, || 7).await, Ok(7));
+	assert!(stuck.is_none());
+}
+
 // ---- what is kept of the reads ----------------------------------------------------------------
 
 #[test]
