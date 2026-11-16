@@ -535,3 +535,180 @@ fn history() {
 	check_compact("0.7/history", &Value::Object(answer));
 	std::fs::remove_dir_all(&dir).unwrap();
 }
+
+// ---- 0.7: a UPS source -----------------------------------------------------------------------
+
+/// The settings 0.7/ui-ups.json and 0.7/stream-ups.json describe.
+fn ui_ups_source() -> crate::settings::Config {
+	crate::settings::read_sources(&[crate::settings::Source::new("ui-ups-source.toml", include_str!("../fixtures/0.7/ui-ups-source.toml"))]).unwrap()
+}
+
+/// The fixture station's variables, as 0.7/ui-ups-source.toml's comments list them, with `status`
+/// for `ups.status`.
+fn ups_vars(status: &str) -> Vec<(String, String)> {
+	let list = [
+		("battery.charge", "87"),
+		("battery.charge.low", "20"),
+		("battery.charger.status", "discharging"),
+		("battery.current", "-4.2"),
+		("battery.runtime", "5400"),
+		("battery.runtime.low", "300"),
+		("battery.temperature", "31"),
+		("battery.voltage", "52.4"),
+		("device.mfr", "EcoFlow"),
+		("device.model", "DELTA 3 Max Plus"),
+		("device.type", "ups"),
+		("driver.name", "nutflow"),
+		("driver.version", "0.4.0"),
+		("experimental.battery.charge.max", "100"),
+		("experimental.output.xboost", "enabled"),
+		("input.realpower", "0"),
+		("outlet.count", "9"),
+		("outlet.1.desc", "AC outlets, group 1"),
+		("outlet.1.id", "1"),
+		("outlet.1.realpower", "190"),
+		("outlet.1.status", "on"),
+		("outlet.1.switchable", "yes"),
+		("outlet.1.voltage", "230.1"),
+		("outlet.2.desc", "AC outlets, group 2"),
+		("outlet.2.id", "2"),
+		("outlet.2.realpower", "0"),
+		("outlet.2.status", "off"),
+		("outlet.2.switchable", "yes"),
+		("outlet.9.current", "0.57"),
+		("outlet.9.desc", "12 V port 2"),
+		("outlet.9.id", "9"),
+		("outlet.9.realpower", "8"),
+		("outlet.9.status", "on"),
+		("outlet.9.switchable", "yes"),
+		("outlet.9.voltage", "12.6"),
+		("output.realpower", "190"),
+		("output.voltage", "230.1"),
+		("ups.beeper.status", "enabled"),
+		("ups.firmware", "2.1.1.104"),
+		("ups.load", "6.3"),
+		("ups.mfr", "EcoFlow"),
+		("ups.model", "DELTA 3 Max Plus"),
+		("ups.realpower", "210"),
+		("ups.realpower.nominal", "3000"),
+		("ups.status", status),
+		("ups.temperature", "48.6"),
+	];
+	list.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+}
+
+/// The fixture station as its source's task leaves it at the fixture sample's `t`, its power as its
+/// timeline has it: on line from 1699977600, nothing known from 1699988400, on line again from
+/// 1699992000, on battery since 1699999280.
+pub fn ups(config: &crate::settings::Config) -> std::collections::BTreeMap<String, std::sync::Arc<crate::nut::Snapshot>> {
+	let at = |secs: u64| std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs);
+	let mut st = crate::nut::Station::new("eco", &config.sources["eco"]);
+	st.polled(ups_vars("OL"), at(1_699_977_600));
+	st.lost(upst_core::Link::Down("connection refused".into()), at(1_699_988_400));
+	st.polled(ups_vars("OL"), at(1_699_992_000));
+	st.polled(ups_vars("OB DISCHRG"), at(1_699_999_280));
+	let now = std::time::UNIX_EPOCH + std::time::Duration::from_millis(sample().t);
+	st.polled(ups_vars("OB DISCHRG"), now);
+	[("eco".to_string(), std::sync::Arc::new(st.snapshot(now)))].into()
+}
+
+/// The fixture readings for `config`, with its UPS sources as the fixture station.
+pub fn ups_values(config: &crate::settings::Config) -> crate::values::Values {
+	let mut v = values(config);
+	crate::nut::put(&mut v, config, &ups(config));
+	v
+}
+
+/// `ui` for the fixture station's settings, as an admin `android` client of profile `owner` that
+/// draws every widget type gets it.
+fn ui_ups() -> crate::ui::Ui {
+	let config = ui_ups_source();
+	let values = ups_values(&config);
+	let mut features = FEATURES.to_vec();
+	features.push("ups");
+	let info = info();
+	let caps = crate::actions::Caps::all(&values.power_profiles);
+	crate::ui::build(&crate::ui::Input {
+		config: &config,
+		values: &values,
+		caps: &caps,
+		service: crate::ui::Service {
+			id: info.id,
+			name: info.name,
+			version: info.service_version.into(),
+			interval_ms: info.interval_ms,
+			history_seconds: info.history_seconds,
+			features: features_of(&features, config.control),
+			endpoints: endpoints(),
+		},
+		control: crate::ui::Control { enabled: true, off_reason: None },
+		role: Role::Admin,
+		profile: "owner",
+		kind: "android",
+		draws: None,
+	})
+}
+
+/// The `data` line of the fixture station's dashboard.
+fn stream_ups() -> Value {
+	let config = ui_ups_source();
+	let values = ups_values(&config);
+	let ui = ui_ups();
+	let sorts = std::collections::HashMap::new();
+	let s = crate::states::States { view: crate::values::View::new(&values, Role::Admin, ui.units), control: true, sorts: &sorts, read: crate::ui::Sources::ALL };
+	Value::Object(crate::states::data(sample().t, ui.dashboard("ups.eco").unwrap(), None, &s, None))
+}
+
+/// What of 0.7/ui-ups.json and 0.7/stream-ups.json the service has yet: not the timeline's segments,
+/// nor the station's actions (`nut.command.*`, `nut.set.*`) and the widgets that run them, which
+/// they leave out, nor the `version` of a document without them.
+fn without_what_comes_later(mut v: Value) -> Value {
+	let later = |id: &str| id == "ups.eco/power" || id.starts_with("ups.eco/switches") || id == "ups.eco/charge_limit";
+	if let Some(o) = v.as_object_mut() {
+		o.remove("version");
+		if let Some(Value::Array(actions)) = o.get_mut("actions") {
+			actions.retain(|a| !a["id"].as_str().is_some_and(|id| id.starts_with("nut.")));
+		}
+		if let Some(Value::Array(dashboards)) = o.get_mut("dashboards") {
+			for d in dashboards {
+				if let Some(Value::Array(widgets)) = d.get_mut("widgets") {
+					widgets.retain(|w| !w["id"].as_str().is_some_and(|id| id.starts_with("ups.eco/switches") || id == "ups.eco/charge_limit"));
+				}
+			}
+		}
+		if let Some(Value::Object(widgets)) = o.get_mut("widgets") {
+			widgets.retain(|id, _| !later(id));
+		}
+	}
+	v
+}
+
+fn fixture_0_7(name: &str) -> Value {
+	serde_json::from_str(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/0.7").join(name)).unwrap()).unwrap()
+}
+
+fn compact_text(v: &Value) -> String {
+	let mut text = String::new();
+	compact(v, 0, 0, &mut text);
+	text
+}
+
+/// What the service builds of the fixture station is 0.7/ui-ups.json and 0.7/stream-ups.json, but
+/// for what comes with the timeline's state and the station's actions.
+#[test]
+fn ups_so_far() {
+	assert_eq!(compact_text(&without_what_comes_later(ui_ups().doc)), compact_text(&without_what_comes_later(fixture_0_7("ui-ups.json"))));
+	assert_eq!(compact_text(&without_what_comes_later(stream_ups())), compact_text(&without_what_comes_later(fixture_0_7("stream-ups.json"))));
+}
+
+#[test]
+#[ignore = "the service has no timeline segments nor station actions yet; ups_so_far checks the rest"]
+fn ui_ups_whole() {
+	check_compact("0.7/ui-ups", &ui_ups().doc);
+}
+
+#[test]
+#[ignore = "the service has no timeline segments nor station actions yet; ups_so_far checks the rest"]
+fn stream_ups_whole() {
+	check_compact("0.7/stream-ups", &stream_ups());
+}
