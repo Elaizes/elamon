@@ -220,6 +220,7 @@ pub async fn open(
 		history: true,
 		partial: false,
 		logs: Logs::default(),
+		logs_of: 0,
 		log: Log { hub: hub.clone(), id, who, opened: Instant::now(), why: "connection closed" },
 	};
 	run.show_logs();
@@ -279,6 +280,8 @@ struct Run {
 	partial: bool,
 	/// The `log`s on screen, with their journals' tails, and the filters the client asked for.
 	logs: Logs,
+	/// The settings (`Hub::config_gen`) whose links said which journals they read.
+	logs_of: u64,
 	log: Log,
 }
 
@@ -327,6 +330,11 @@ impl Run {
 					break;
 				}
 				self.set_ui(ui);
+			}
+			// A link's scope says whether its unit's journal is the system's or the user's, and no `ui`
+			// has it: new settings may move a log to another journal.
+			if self.hub.config_gen() != self.logs_of {
+				self.show_logs();
 			}
 			// The first line of a dashboard doesn't wait for a reading made with all it needs: a widget
 			// whose sources the reading hasn't has no state in it (the client shows it loading), and
@@ -391,6 +399,7 @@ impl Run {
 	/// Holds the tails of the journals of the `log`s on screen, the dashboard's and the header's, and
 	/// lets go of the rest.
 	fn show_logs(&mut self) {
+		self.logs_of = self.hub.config_gen();
 		let config = self.hub.config();
 		let on = self.dashboard.as_deref().and_then(|d| self.ui.dashboard(d));
 		let hub = &self.hub;

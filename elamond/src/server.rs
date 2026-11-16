@@ -2467,18 +2467,23 @@ dashboards = ["overview", "control"]
 	fn log_hub() -> (Arc<Hub>, watch::Sender<Arc<Frame>>) {
 		crate::journal::tests::fake();
 		let (hub, tx) = hub_with(true, |h| h.journal.readable = || true);
+		hub.set_config(log_settings("system"));
+		tick(&hub, &tx);
+		(hub, tx)
+	}
+
+	/// `log_hub`'s settings, the units of their links of `scope`.
+	fn log_settings(scope: &str) -> store::Config {
 		let mut text = format!("control = true\n{SETTINGS}\n[profiles.default]\ndashboards = [\"overview\", \"logs\", \"stuck\", \"pages\"]\n");
 		for (dashboard, logs) in [("logs", &[("unit", "example"), ("args", "args")][..]), ("stuck", &[("hang", "hang")]), ("pages", &[("broken", "broken"), ("slow", "slow")])] {
 			text += &format!("[dashboards.{dashboard}]\ntitle = \"{dashboard}\"\n");
 			for (id, unit) in logs {
-				text += &format!("[links.{id}]\nname = \"{unit}\"\nurl = \"http://{{host}}:8080\"\nunit = \"{unit}.service\"\nscope = \"system\"\n");
+				text += &format!("[links.{id}]\nname = \"{unit}\"\nurl = \"http://{{host}}:8080\"\nunit = \"{unit}.service\"\nscope = \"{scope}\"\n");
 				text += &format!("[[dashboards.{dashboard}.widgets]]\nid = \"{id}\"\ntype = \"log\"\nscope = \"unit\"\nunit = \"{unit}.service\"\n");
 			}
 		}
 		text += "[[dashboards.stuck.widgets]]\nid = \"cpu\"\ntype = \"value\"\nvalue = \"cpu.usage\"\n";
-		hub.set_config(crate::settings::read_over_defaults(&[crate::settings::Source::new("test.toml", text)]).unwrap());
-		tick(&hub, &tx);
-		(hub, tx)
+		crate::settings::read_over_defaults(&[crate::settings::Source::new("test.toml", text)]).unwrap()
 	}
 
 	/// What a client has of each log of a stream, as its data lines leave it: a reset replaces it.
@@ -2592,6 +2597,25 @@ dashboards = ["overview", "control"]
 			tokio::time::sleep(Duration::from_millis(100)).await;
 		}
 		assert_eq!(hub.journal.followed(), 0);
+		remove_test_dir(&hub.dir);
+	}
+
+	/// A link's scope changed, its unit's log on an open stream reads the other journal, though the
+	/// `ui` is the same.
+	#[tokio::test]
+	async fn a_log_reads_the_journal_its_links_scope_says() {
+		let (hub, tx) = log_hub();
+		let mut lines = Lines::open(&hub, "/api/v1/stream?dashboard=logs&interval=250", "t-monitor").await;
+		lines.next().await.unwrap();
+		let _ticks = ticking(&hub, tx);
+		let mut have = Have::default();
+		have.until(&mut lines, |h| h.texts("logs/args").len() == 2).await;
+		assert!(have.texts("logs/args")[0].starts_with("-u args.service "), "{:?}", have.texts("logs/args"));
+		let pid: i32 = have.texts("logs/args")[1].strip_prefix("pid ").unwrap().parse().unwrap();
+		hub.set_config(log_settings("user"));
+		have.until(&mut lines, |h| h.texts("logs/args").len() == 2 && h.texts("logs/args")[0].starts_with("--user -u args.service ")).await;
+		assert!(crate::journal::tests::ended(pid).await, "journalctl {pid} left running");
+		drop(lines);
 		remove_test_dir(&hub.dir);
 	}
 
