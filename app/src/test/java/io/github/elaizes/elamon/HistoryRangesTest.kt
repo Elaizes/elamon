@@ -7,6 +7,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import io.github.elaizes.elamon.data.ProtocolJson
 import io.github.elaizes.elamon.data.UiDoc
+import io.github.elaizes.elamon.data.withoutRanges
 
 /** The chips over a graph or a timeline: its own range, live, and the long ones its `ranges` offer. */
 class HistoryRangesTest {
@@ -58,8 +59,8 @@ class HistoryRangesTest {
 		assertEquals(7, rangeChips(watts.range!! * 1000L, watts.ranges).size)
 		val power = widgets.first { it.id == "ups.eco/power" }
 		assertEquals(6, rangeChips(power.range!! * 1000L, power.ranges).size)
-		// A 0.6.2 service's graphs have none.
-		val old = ProtocolJson.decodeFromString(UiDoc.serializer(), File(dir, "ui.json").readText())
+		// A 0.6.2 service's graphs, which have no `ranges`, have none.
+		val old = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), withoutRanges(ProtocolJson.parseToJsonElement(File(dir, "ui.json").readText())))
 		assertTrue(old.dashboards.flatMap { allWidgets(it.widgets) }.filter { it.type == "graph" }.all { rangeChips((it.range ?: 600) * 1000L, it.ranges).isEmpty() })
 	}
 

@@ -426,8 +426,8 @@ class ProtocolContractTest {
 		val watts = widgets.first { it.id == "ups.eco/watts" }
 		assertEquals(all, watts.ranges)
 		assertEquals(listOf("Grid in", "Output"), watts.series!!.map { it.label })
-		// A graph of a 0.6.2 service offers no long ranges.
-		val ui062 = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), fixture("ui"))
+		// A graph of a 0.6.2 service, which sends no `ranges`, offers no long ranges.
+		val ui062 = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), withoutRanges(fixture("ui")))
 		assertTrue(ui062.dashboards.flatMap { it.widgets }.all { it.ranges == null })
 		// A station's actions: kind nut, a command that is typed in carries its text.
 		val command = ui.action("nut.command.eco")!!
@@ -496,4 +496,11 @@ class ProtocolContractTest {
 		// Without one, the request is as before 0.7.
 		assertEquals(fixture("action-request"), ProtocolJson.encodeToJsonElement(ActionRequest.serializer(), ActionRequest(JsonObject(mapOf("mode" to JsonPrimitive("server"))))))
 	}
+}
+
+/** [e] as a service before 0.7 sends it: without the `ranges` it added to graphs. */
+internal fun withoutRanges(e: JsonElement): JsonElement = when (e) {
+	is JsonObject -> JsonObject(e.filterKeys { it != "ranges" }.mapValues { withoutRanges(it.value) })
+	is JsonArray -> JsonArray(e.map { withoutRanges(it) })
+	else -> e
 }
