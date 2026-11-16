@@ -38,10 +38,12 @@ The phone talks to the computer directly: on the same network, or over a VPN bot
 - [5. The control panel](#5-the-control-panel)
 - [6. Roles: who may do what](#6-roles-who-may-do-what)
 - [7. UPSes and power stations](#7-upses-and-power-stations)
-- [8. Settings reference](#8-settings-reference)
-- [9. Updating, moving and removing](#9-updating-moving-and-removing)
-- [10. Troubleshooting](#10-troubleshooting)
-- [11. Security](#11-security)
+- [8. Your own readings](#8-your-own-readings)
+- [9. The journal](#9-the-journal)
+- [10. Settings reference](#10-settings-reference)
+- [11. Updating, moving and removing](#11-updating-moving-and-removing)
+- [12. Troubleshooting](#12-troubleshooting)
+- [13. Security](#13-security)
 
 ## 1. Install the service
 
@@ -75,7 +77,7 @@ users.users.YOUR_USER.linger = true;  # keeps it running while you're logged out
 
 The polkit rule comes from `services.elamond.control`
 ([section 5](#power-the-profile-and-system-units-polkit)). All options:
-[section 8](#nixos-module).
+[section 10](#nixos-module).
 
 **Home Manager**, for one user: `imports = [ inputs.elamon.homeModules.default ];` and
 `services.elamond.enable = true;`. The firewall stays the system's job. On NixOS,
@@ -125,7 +127,7 @@ Manager's unit alone and prints what needs root.
 2. **`elamond setup`**, which the install ran, installs a systemd user unit
    (`~/.config/systemd/user/elamond.service`) that runs the binary. Where there are no settings, it
    writes those to start from: `~/.config/elamon/elamond.toml` and `elamond.d/dashboards.toml`
-   ([section 8](#where-the-settings-live)). Then it starts the service.
+   ([section 10](#where-the-settings-live)). Then it starts the service.
 
    You can run it again at any time. It changes only what changed, and restarts the service when
    the binary was moved or updated. `--print` shows what it would do without doing it;
@@ -235,7 +237,7 @@ By hand:
 
 **Only on some interfaces.** The commands open the ports for the whole computer. To open them on
 some interfaces only, adapt them by hand, and name those interfaces in `listen`
-([section 8](#where-the-service-listens)). On NixOS,
+([section 10](#where-the-service-listens)). On NixOS,
 `services.elamond.firewallInterfaces = [ "eno1" "tailscale0" ];` does it.
 
 ## 3. Pair the phone
@@ -272,7 +274,7 @@ it's `admin`, which allows everything. For someone else's phone, give less, for 
 
 **Its own profile.** Pairing adds a profile for the phone to `~/.config/elamon/elamond.d/phones.toml`,
 which starts from `default` (`elamond pair --profile NAME` names another): change that phone's tabs
-and looks there ([section 8](#each-phones-own-profile)). Pairing the same phone again keeps it.
+and looks there ([section 10](#each-phones-own-profile)). Pairing the same phone again keeps it.
 
 **Managing phones.** `elamond clients` lists the paired phones with their IDs, roles and profiles.
 `elamond revoke ID` unpairs one. Up to 64 phones can be paired with one computer.
@@ -286,7 +288,7 @@ and looks there ([section 8](#each-phones-own-profile)). Pairing the same phone 
   ask on, `elamond pair` says so and stops.
 - *What the QR code carries.* The computer's addresses (those the service listens on, the local
   network first), then names that stay when addresses change (those in `names` and its Tailscale
-  name, [section 8](#names-in-the-pairing-link)), and its certificate. The app keeps them all, and
+  name, [section 10](#names-in-the-pairing-link)), and its certificate. The app keeps them all, and
   later tries the one that worked last first.
 - *Addresses after pairing.* The computer tells a paired phone where it is now, whenever it connects:
   its addresses on the local network and on VPNs, and its names. So a phone paired by code over
@@ -320,7 +322,7 @@ its system, uptime, power source and power profile, and the phone's role. Scroll
 into the bar.
 
 The tabs along the bottom are the computer's **dashboards**: those the phone's profile lists, as far
-as its role may see them ([section 8](#dashboards-and-widgets)). The standard four are below, and a
+as its role may see them ([section 10](#dashboards-and-widgets)). The standard four are below, and a
 tab for each UPS or power station the computer has, second after Overview.
 
 **Overview** has tiles for the CPU, memory, each graphics card, temperature, network, storage and
@@ -366,7 +368,7 @@ computer.
 
 **Forget computer** removes it from the phone and asks the computer to unpair the phone too. To
 see it again, pair again: `elamond pair` offers the phone its profile back. When the computer can't
-be told, the app says so: remove the phone there with `elamond revoke` ([section 10](#10-troubleshooting)).
+be told, the app says so: remove the phone there with `elamond revoke` ([section 12](#12-troubleshooting)).
 
 **Good to know:**
 
@@ -379,7 +381,7 @@ be told, the app says so: remove the phone there with `elamond revoke` ([section
 ### Settings
 
 How the app looks and behaves with a computer comes from that computer: from the phone's
-**profile** there ([section 8](#profiles)). The Settings screen names the profile each computer
+**profile** there ([section 10](#profiles)). The Settings screen names the profile each computer
 gives this phone and where it is changed: the file and line, for an admin phone, or "Set in Nix".
 To change something, change the profile on the computer. The rest of the screen is the app's own:
 help, the source and licences.
@@ -402,7 +404,7 @@ help, the source and licences.
 - **…run my own script from the phone?** Add it as an `[actions.<id>]` table on the computer
   ([section 5](#actions)). It shows up as a button under Control → Actions.
 - **…see something the standard tabs don't show?** Make a dashboard of your own on the computer and
-  add its id to the phone's profile ([section 8](#dashboards-and-widgets)).
+  add its id to the phone's profile ([section 10](#dashboards-and-widgets)).
 - **…turn it off?** Control → Power → *Shut down*. Only someone at the computer can turn it on
   again, unless it wakes on LAN.
 - **…see whether the power went out while I was away?** On the station's tab, the *Power*
@@ -424,9 +426,9 @@ help, the source and licences.
 - **…stop a phone from seeing a computer?** On the phone, ⋮ → *Forget computer*, which unpairs it
   on the computer too. On the computer, `elamond revoke ID`.
 - **…move to a new phone?** Pair it with `elamond pair` on each computer
-  ([section 9](#a-new-phone)).
+  ([section 11](#a-new-phone)).
 - **…reinstall the computer without pairing the phones again?** Run `elamond backup` before and
-  `elamond restore` after ([section 9](#a-new-computer-or-reinstalling)).
+  `elamond restore` after ([section 11](#a-new-computer-or-reinstalling)).
 
 ## 5. The control panel
 
@@ -447,7 +449,7 @@ The service notices the change within a few seconds by itself, or at once with
 On NixOS, set it through the module instead: `services.elamond.settings.control = true;`. The
 service then reads its settings from a read-only file the module builds, and a rebuild that changes
 them restarts every user's service. Settings you add by hand go in a drop-in beside it,
-`~/.config/elamon/elamond.d/*.toml` ([section 8](#8-settings-reference)).
+`~/.config/elamon/elamond.d/*.toml` ([section 10](#10-settings-reference)).
 
 With control on, each phone does as much as its role allows: `admin` (the default) everything below,
 other roles less ([section 6](#6-roles-who-may-do-what)). `elamond control off` stops them all at
@@ -465,6 +467,7 @@ From top to bottom:
 | **Actions** | a button for each action in the settings | actions in the settings ([below](#actions)) |
 | **Power** | *Lock*, *Sleep*, *Restart*, *Shut down* | what logind allows; the polkit rule for all but *Lock* |
 | **Displays** | the connected monitors, folded to one line; tap one for its port, graphics card, size, best mode, fastest refresh rate, position and year made | shown even with control off |
+| **Journal** | the computer's system journal, warnings first, with search ([section 9](#9-the-journal)) | the `monitor` role or above; for all of it, your user in `systemd-journal` |
 | **Activity log** | what phones asked the computer to do ([section 6](#the-activity-log)) | the `monitor` role or above |
 
 The service leaves out what the computer can't do, and what the phone's role may not run. Ending
@@ -491,7 +494,8 @@ icon = "music"                # optional; "globe" by default
 Each link is a row with its name, its unit's state (*Unit*: `active`, `inactive`, `failed`, or
 `missing` when there is no such unit) and *Up* or *Down*: whether something answers on its port.
 Tap a row to open the page in the browser. Hold it for *Start*, *Stop* and *Restart*, and for its
-address, unit and port.
+address, unit and port. A link with a unit also has a *Journal* row action: that unit's journal
+([section 9](#9-the-journal)); it needs the `monitor` role or above.
 
 - `{host}` makes the link work on the local network and over a VPN alike. `localhost` and
   `127.0.0.1` in a URL are replaced the same way.
@@ -525,7 +529,7 @@ role = "admin"      # who may run it: "operate" (the default) or "admin"
 
 Each action becomes a button under Control → Actions. A dashboard can also put it anywhere: as a
 button, or as a `select`, `toggle` or `slider` that sets one of its parameters
-([section 8](#dashboards-and-widgets)). What the command prints comes back to the phone: its first
+([section 10](#dashboards-and-widgets)). What the command prints comes back to the phone: its first
 4 KiB and last 12 KiB.
 
 **Parameters.** A phone can only choose among the values a parameter allows:
@@ -647,7 +651,7 @@ may see now. A phone turned into `glance`, for example, stops getting processes,
 links.
 
 How a phone looks, within its role, is its profile: `elamond pair --profile` and
-`elamond clients profile` set it ([section 8](#each-phones-own-profile)).
+`elamond clients profile` set it ([section 10](#each-phones-own-profile)).
 
 ### Stopping every phone at once
 
@@ -662,7 +666,7 @@ survives restarts of the service and of the computer, and a restore, until `elam
 The settings' `control = true` stays as it was.
 
 A lost or stolen phone still sees everything while control is off. Unpair it, with the keys its
-token gave: `elamond revoke ID --with-added` ([section 9](#a-new-phone)).
+token gave: `elamond revoke ID --with-added` ([section 11](#a-new-phone)).
 
 ### The activity log
 
@@ -846,7 +850,7 @@ Writable settings:
 How long it has been so, the estimates and the timeline come from the running service.
 ```
 
-`elamond values` alone ends with the sources: `UPS sources: eco (elamond values eco)`.
+`elamond values` alone ends with the sources: `Sources: eco (elamond values <id>)`, of every kind.
 
 **A widget of your own.** The station's tab shows what most stations have. Anything else it lists,
 a widget can show: on a page of your own, in a drop-in such as `elamond.d/station.toml`,
@@ -874,7 +878,7 @@ with `"station"` in your profile's `dashboards`. On the station's tab itself, it
 `[dashboards.ups]` in `elamond.d/dashboards.toml`, with `{item}` for the source's id and a `when`,
 so a station without it leaves it out (`value = "{item}.battery.charger.status"`,
 `when = "{item}.battery.charger.status"`); under Nix, after the standard widgets with `++`
-([section 8](#dashboards-and-widgets)).
+([section 10](#dashboards-and-widgets)).
 
 ### Graphs that reach back: the long history
 
@@ -988,7 +992,200 @@ elamond defaults dashboards.ups      # into elamond.d/dashboards.toml (or a 0.6.
 then add `"ups"` to the profile's `dashboards` (second, after `"overview"`, as the standard one
 has it), and `"nut"` to its `unlock.for`. `elamond defaults --diff` shows what else changed.
 
-## 8. Settings reference
+## 8. Your own readings
+
+Besides the computer's own counters, the service can show what a program prints, what a web
+service answers or what a file holds, each as a *source*. A source has an id, and its values are
+named after it (`up.text`, `app.queue.length`). You write it in the settings, then a widget in a
+dashboard of your own shows the value. All of it is in the settings only: a phone never names a
+command, a URL or a path.
+
+### Three kinds
+
+```toml
+[sources.up]                   # what a program prints
+kind = "command"
+command = ["uptime", "--pretty"]
+format = "text"
+
+[sources.app]                  # what a web service answers
+kind = "http"
+url = "http://localhost:8080/status"
+format = "json"                # the default
+
+[sources.charge]               # what a file holds
+kind = "file"
+path = "/sys/class/power_supply/BAT0/capacity"
+format = "text"
+interval = 5                   # seconds between reads (10 by default)
+```
+
+- **`command`** runs the program as your user, with nothing on its input. There is no shell: the
+  first item is the program and the rest are its arguments, so `|`, `>` and `$VARIABLE` mean
+  nothing in it. For a pipe, put it in a script of your own and name the script.
+- **`http`** asks the URL with `GET`. A redirect isn't followed.
+- **`file`** reads a regular file (`/proc` and `/sys` files are).
+
+`format` says how what it read is taken: `json` (each value in it gets a name, such as
+`app.queue.length` for `{"queue": {"length": 3}}`), `text` (all of it, as `charge.text`; a number
+when it is one) or `lines` (each `key = value` or `key: value` line).
+
+### See what a source gives
+
+Before writing a widget, ask the service what the source has:
+
+```
+$ elamond values charge
+```
+
+It reads the source there and then and prints each value with the name a widget uses, or says why
+it couldn't. `elamond values` alone ends with `Sources: app, charge, up (elamond values <id>)`.
+`elamond check` finds mistakes in the settings (a missing `command`, a bad `url`) without running
+anything.
+
+### Show it
+
+A value has no unit and no look of its own: the widget says the rest.
+
+```toml
+[dashboards.mine]
+title = "Mine"
+icon = "gauge"
+
+[[dashboards.mine.widgets]]
+type = "value"
+value = "charge.text"
+unit = "%"
+format = "number"
+label = "Laptop battery"
+
+[[dashboards.mine.widgets]]
+type = "value"
+value = "app.queue.length"
+label = "Queue"
+when = "app.queue.length"
+```
+
+Add `"mine"` to your profile's `dashboards` for a tab ([section 10](#dashboards-and-widgets)).
+The formats and the other widget types are in [docs/config.md](config.md#widgets).
+
+### When a source is read
+
+A source is read only while it is needed: while a phone shows a widget with one of its values, a
+graph or a spark shows it, or `history = true` keeps its numbers for the
+[long graphs](#graphs-that-reach-back-the-long-history). With nobody looking and no history, it
+isn't read at all, so a slow script costs nothing. At the start it is read once, then every
+`interval` seconds. A read that takes more than `timeout` (5 seconds) fails, and a command is
+ended then, whatever it started with it.
+
+### Keys and secrets
+
+A web service that wants a token reads it from a file of yours:
+
+```toml
+[sources.app]
+kind = "http"
+url = "http://localhost:8080/status"
+token_file = "/home/YOUR_USER/.config/elamon/app.token"   # first line: the token
+```
+
+- Make it readable by you alone: `chmod 600`. A token file others can read fails the read, and
+  `elamond check` warns of it.
+- Never put a user or a password in the URL (`http://user:pass@…`): it is a mistake, and the
+  token has to come from `token_file`. It goes only in the request's header, to no phone, and not
+  into the journal, `elamond values`, `elamond check` or a backup. Another header than
+  `Authorization` is `header = "X-Api-Key"`.
+- Keep the token file out of `elamond.d/`, where `.toml` files are read as settings.
+
+### When it fails
+
+A source that can't be read has two more values:
+
+- **`<id>.error`** says why (`timed out after 5 s`, `exited with 7: …`, `HTTP 404`, `not JSON: …`).
+  Show it in a `text` widget with a `when`, and it appears only while something is wrong.
+- **`<id>.age`** is how many seconds ago the last good read was. It keeps growing while the source
+  fails, so a widget with `unit = "s"`, `format = "duration"` shows how stale the numbers are.
+
+The values of the last good read go while a read fails. The widgets that show them say `—` once
+the source has had the value, or are left out when it never had it. The journal
+(`journalctl --user -u elamond`) says when a source starts to fail and when it reads again, once
+each.
+
+A dashboard whose widgets all have a `when` on values of one source stays hidden until that
+source has read well once: with nothing to show, the phone gets no tab for it. Keep one widget
+without a `when` in it, such as a `text` of fixed words, and the tab is always there.
+
+## 9. The journal
+
+The Control tab has a **Journal** button. It opens the computer's system journal: the lines
+systemd collects from the kernel and every service, the newest at the bottom.
+
+- It starts with warnings and above. The chips along the top (*Debug*, *Info*, *Notice*,
+  *Warning*, *Error*, *Critical*) pick the least level shown.
+- The search field filters by text, unit and program name. The service searches the whole journal
+  you can reach, not only the lines on the screen.
+- **Load older** at the top goes further back. New lines arrive while the page is open, and
+  *Newest* takes you back down to them after you have scrolled up.
+- Tap a line to show all of it; hold it to copy it.
+
+**One service's journal.** A link with a unit (see [Links](#links)) has a *Journal* row
+action: hold its row in Links and pick *Journal* to see that unit's lines alone.
+
+**Who sees it.** The `monitor` role and above. A phone with `glance` has no journal button, and
+an app older than 0.8 shows a page that asks to update.
+
+### Reading the system journal
+
+The service reads the journal with `journalctl` as your user, and your user may read only its own
+journal unless it is in a group the system's allows. `elamond setup --check` says which it is:
+
+```
+  OK  journal: the system journal is readable
+  !   journal: only this user's own journal: add the user to systemd-journal …
+```
+
+In the second case the page says so under a note, and shows only your user's lines. Add the user
+to the `systemd-journal` group and log in again (then restart the service):
+
+```sh
+sudo usermod -aG systemd-journal YOUR_USER
+```
+
+On NixOS:
+
+```nix
+users.users.YOUR_USER.extraGroups = [ "systemd-journal" ];
+```
+
+Members of `wheel` and `adm` can usually read it too, on systems whose journal grants them access.
+
+### A log in your own dashboards
+
+The `log` widget draws the same page's lines anywhere:
+
+```toml
+[[dashboards.mine.widgets]]
+type = "log"
+scope = "unit"
+unit = "example.service"   # the unit of one of your links
+level = "notice"
+lines = 100
+label = "Example"
+```
+
+| key | |
+|---|---|
+| `scope` | `system` (the default), `user` (your user's own journal) or `unit` |
+| `unit` | with `scope = "unit"`: the `unit` of one of your [links](#links); no other is allowed |
+| `level` | the least level shown at first: `debug`, `info` (the default), `notice`, `warning`, `error`, `critical`; the phone may pick another |
+| `lines` | how many lines the phone keeps on screen, 10 to 1000 (200) |
+| `search` | `false` leaves out the search field |
+
+The journal is read only while a phone shows a log. Settings made before 0.8 have no *Journal*
+button or row action: `elamond defaults dashboards.journal` and `dashboards.unit_log` give the
+tables to copy ([docs/config.md](config.md#the-journal-log)).
+
+## 10. Settings reference
 
 Everything a phone shows comes from the computer it is paired with. The app has no editor and
 keeps no display settings of its own: it draws what the service describes. Three things decide
@@ -1100,7 +1297,7 @@ Then put `"power"` in a profile's `dashboards`.
   ```
 
 Widget types, tables, values in text, repeats (`for_each`), templates, formats, icons and colours
-are in [docs/config.md](config.md#dashboards).
+are in [docs/config.md](config.md#the-journal-log).
 
 #### One dashboard per file
 
@@ -1301,7 +1498,7 @@ listen = ["192.0.2.10", "fd7a:115c::1"]    # these addresses
 paired phones (only hashes of their keys, their roles and profiles, and the app each last
 reported), a pending pairing code, the activity log, `elamond control off`'s mark, and the graphs'
 long history (`history/`). Deleting that folder unpairs every phone and gives the service a new
-certificate, unless a backup of it is restored ([section 9](#backing-up-the-service)).
+certificate, unless a backup of it is restored ([section 11](#backing-up-the-service)).
 
 **Environment variables.** The folders follow `XDG_CONFIG_HOME` and `XDG_DATA_HOME`.
 
@@ -1396,7 +1593,7 @@ The firewall stays the system's. If you set your own `port` here, give the syste
 (`services.elamond.settings.port` beside `openFirewall`; without `enable`, that only opens the
 port), or open it yourself.
 
-## 9. Updating, moving and removing
+## 11. Updating, moving and removing
 
 ### Updating
 
@@ -1443,11 +1640,11 @@ from 0.6.1: from an older version, update to 0.6.1 first, as its guide says, sin
 moves the settings of 0.6.0 and before. What changed:
 
 - A 0.6.1 `elamond.toml` stays as it is. Only a new start gets the short `elamond.toml` and
-  `elamond.d/dashboards.toml` ([section 8](#where-the-settings-live)). Under Nix, nothing changes.
+  `elamond.d/dashboards.toml` ([section 10](#where-the-settings-live)). Under Nix, nothing changes.
 - Backups are no longer encrypted. Make a new one after the update: 0.6.2 doesn't read those 0.6.1
   encrypted ([below](#backing-up-the-service)).
 - After `elamond rotate-cert`, phones no longer follow the new certificate: each pairs again
-  ([section 11](#a-new-certificate)). `--no-statement` is still accepted and changes nothing.
+  ([section 13](#a-new-certificate)). `--no-statement` is still accepted and changes nothing.
 - The app no longer exports and imports pairings: a new phone pairs with `elamond pair`
   ([below](#a-new-phone)).
 - *Forget computer* unpairs the phone on the computer too. With a service older than 0.6.2, or one
@@ -1475,7 +1672,7 @@ elamond backup ~/elamond.backup
   made without `--plain`). Restore one of those with elamond 0.6.1, or make a new backup.
 
 A backup holds the certificate's key as it was then. After `elamond rotate-cert`, older backups
-still hold the old key: delete them ([section 11](#a-new-certificate)).
+still hold the old key: delete them ([section 13](#a-new-certificate)).
 
 ### A new computer, or reinstalling
 
@@ -1491,7 +1688,7 @@ systemctl --user start elamond
 The phones connect as before, without pairing again: the service has its old id and certificate and
 knows their keys. They look for it at the addresses and names they already know, so give the new
 computer the old one's address (a DHCP reservation does it) or keep a name they know: its Tailscale
-name, or one in `names` ([section 8](#names-in-the-pairing-link)). A phone that can't reach it any
+name, or one in `names` ([section 10](#names-in-the-pairing-link)). A phone that can't reach it any
 other way has to pair again.
 
 What `elamond restore` does:
@@ -1551,7 +1748,7 @@ such a phone with `elamond pair` before forgetting the computer on the old one.
 In the app, ⋮ → *Forget computer*. With the service gone it can't tell the computer, and there is
 nothing left to revoke.
 
-## 10. Troubleshooting
+## 12. Troubleshooting
 
 First, run `elamond setup --check`. It prints a line for each thing the service needs, with what to
 do about those marked `!`. To see what the service reads without the app, run `elamond snapshot`.
@@ -1561,7 +1758,7 @@ do about those marked `!`. To see what the service reads without the app, run `e
 | The computer isn't under *Found on this network* | Same network, and UDP 5353 open on the computer. VPNs and many guest Wi-Fi networks block discovery, and the service announces itself only on wired and wireless interfaces it listens on (`mdns: announced on …` in the journal). Add it by address or name instead: `elamond pair` prints them. |
 | The app can't connect | Check `elamond setup --check`, `systemctl --user status elamond` and `journalctl --user -u elamond -e`. TCP 47823 must be open, and the phone must reach an address the service listens on (`listen: on …` in the journal). |
 | It works only while you're logged in | `sudo loginctl enable-linger YOUR_USER`, as `elamond setup` prints it. |
-| *The computer's certificate changed* | The service's data was deleted or the system reinstalled. Restore a backup ([section 9](#a-new-computer-or-reinstalling)), or forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` every phone says this: pair it again ([section 11](#a-new-certificate)). |
+| *The computer's certificate changed* | The service's data was deleted or the system reinstalled. Restore a backup ([section 11](#a-new-computer-or-reinstalling)), or forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` every phone says this: pair it again ([section 13](#a-new-certificate)). |
 | *Control is off* | Set `control = true` in `elamond.toml` or a drop-in; the service takes it up within a few seconds. If it's set, `elamond control status` tells whether `elamond control off` holds it off, or whether the settings stopped parsing. |
 | Pairing ends with the phone turned away | Answer `y` at `elamond pair` within 90 seconds, and keep it running until the phone is paired ([section 3](#3-pair-the-phone)). |
 | *… was forgotten here* after *Forget computer* | The computer couldn't be reached, or its service is older than 0.6.2, so the phone is still paired there. On the computer, `elamond clients` lists the phones, `elamond revoke ID` removes this one. |
@@ -1578,6 +1775,8 @@ do about those marked `!`. To see what the service reads without the app, run `e
 | A monitor shows no resolution | It's off or blanked, or the service can't open the graphics device: be logged in at the computer, or in the `video` group. |
 | *Lock* does nothing | Your desktop's locker doesn't react to logind's lock signal ([section 5](#power-the-profile-and-system-units-polkit)). |
 | No tab for the UPS or power station | Settings started before 0.7 have no `ups` dashboard, or the profile's `dashboards` lacks `"ups"` ([section 7](#settings-from-before-07)). `elamond values` ends with the sources the settings have. |
+| A source of your own shows nothing, or `—` | `elamond values ID` says what it reads, or why it can't. A widget shows `ID.error` (with a `when`) while it fails: `HTTP 404`, `timed out after 5 s`, `exited with 7: …`, `token_file may be read by others: chmod 600 it`. A command has no shell, so a pipe belongs in a script of your own; a dashboard of only `when` widgets is hidden until the source has read well once ([section 8](#8-your-own-readings)). |
+| The journal shows *only this user's own journal* | Your user isn't in the `systemd-journal` group (`elamond setup --check` says so): add it and log in again ([section 9](#reading-the-system-journal)). A phone with `glance` has no journal. |
 | The station says *Unreachable* | The service can't reach the NUT server at the source's `host` and `port`. Is nutflow (or upsd) running: `systemctl status nutflow`? `upsc ups@localhost` reads the station as the service would. The journal says why, in lines that start `nut eco:`: `journalctl --user -u elamond -e`. |
 | The station says *No data* | The NUT server answers, but has nothing from the station: nutflow lost it (out of Bluetooth range, or the EcoFlow app on a phone holds the one connection the station takes), or upsd's driver stopped. `journalctl -u nutflow -e`. Meanwhile the tab keeps its shape, with `—` for each value. |
 | The station's switches or sliders aren't there | They need `control = true`, the source's `user` and `password_file`, the command or setting in its `commands` or `settings`, a station that offers it, and a phone paired as `admin` (or `operate`, with the source's `role = "operate"`). `elamond values eco` shows what the station offers and which the lists allow (`allowed`, `not in commands`) ([section 7](#switching-outlets-and-changing-settings)). |
@@ -1585,7 +1784,7 @@ do about those marked `!`. To see what the service reads without the app, run `e
 | A station's action fails with *access denied* | The NUT user may not do it: its `allow` in nutflow, or `instcmds` and `actions = SET` in upsd's users, has to cover what `commands` and `settings` list. Or the password in the service's file isn't the NUT server's. |
 | *The computer asks for this command to be typed in* (`confirm_required`) | The command cuts this computer's power, or the station's whole load, and has to be typed in ([section 7](#switching-outlets-and-changing-settings)). An app older than 0.7 can't ask for it: update the app. |
 
-## 11. Security
+## 13. Security
 
 **Connection and keys**
 
@@ -1616,6 +1815,10 @@ do about those marked `!`. To see what the service reads without the app, run `e
   offers, with values within the station's limits, checked by the service. One that cuts this
   computer's power is typed in on the phone, and the service checks the text. The NUT password
   stays in its file: it never reaches a phone, the journal or a backup.
+- A source runs only the command, asks only the URL and reads only the file its settings name, as your
+  user; a phone never writes one. A token for a web service stays in its file (`chmod 600`) and goes
+  only in the request to that service: to no phone, the journal or a backup. The journal on the
+  phone is for `monitor` and above, and a phone never names a unit in it: only a link's.
 - It never signals itself, its parents or PID 1. With the start time the app sends, it never signals
   a process that took the PID of the one meant.
 - Settings that stop parsing hold control off until they parse again.
@@ -1639,7 +1842,7 @@ do about those marked `!`. To see what the service reads without the app, run `e
   eyes only (`0600`), and is only as safe as the folder you keep it in. Never put it in a shared or
   cloud folder.
 - A phone paired with a code may ask the computer once for a second key, for another phone, with
-  its own role and no more: app 0.6.1 did so after Import pairings ([section 9](#a-new-phone)).
+  its own role and no more: app 0.6.1 did so after Import pairings ([section 11](#a-new-phone)).
   `elamond clients` and `elamond revoke` say whose key added one, the activity log has it, and
   `elamond revoke ID --with-added` cuts off both. At most 64 phones are paired at once.
 - An old key lives on in backups. `elamond restore` never lets go of control held off, and brings

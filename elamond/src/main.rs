@@ -88,13 +88,15 @@ Usage:
                                        them since the version before (defaults.toml.old)
   elamond defaults TABLE               one table of them to copy: dashboards.ups, profiles.default
   elamond values [SOURCE]              list the values this computer has now, and the collections;
-                                       with SOURCE, that source's values, read there and then: a
-                                       UPS source's asked of its NUT server, with the station's
-                                       commands and settings and whether the source allows them
+                                       with SOURCE, that source's values (a UPS's, a command's, a web
+                                       service's or a file's), read there and then, or why it
+                                       couldn't; a UPS's with its commands and settings, and whether
+                                       the source allows them
   elamond setup                        install the service for this user (systemd user unit, starter
                                        settings) and print what needs root: lingering, the firewall,
                                        the polkit rule (--print: only show it; --no-start)
-  elamond setup --check                tell whether the service, and what it uses, works here
+  elamond setup --check                tell whether the service, and what it uses, works here (the
+                                       journal too: whether the system's can be read)
   elamond update [--check] [--yes]     install the newest release over this binary, after asking,
                                        and restart the service (--check: only tell whether there is
                                        one; --yes: without asking)

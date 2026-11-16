@@ -284,7 +284,7 @@ main() {
 		have=$("$there" --version 2> /dev/null) || have=
 		case $(readlink -f "$there" 2> /dev/null || printf '%s' "$there") in
 			/nix/store/*)
-				say "${have:-elamond} is installed with Nix ($there): update it with Nix (guide, section 8)."
+				say "${have:-elamond} is installed with Nix ($there): update it with Nix (guide, section 10)."
 				say "--force installs another one in $(show "$bin_dir") beside it."
 				;;
 			*)

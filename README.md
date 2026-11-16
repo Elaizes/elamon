@@ -36,7 +36,11 @@ Watching, always:
 - connected monitors with their modes and arrangement, read from the kernel, so under any desktop;
 - a UPS, or an EcoFlow power station, through NUT: its status, charge and time left, the power in
   and out and each outlet's, the battery, and a timeline of when it was on battery, kept for good
-  (its last 10 000 changes).
+  (its last 10 000 changes);
+- your own readings: a program's output, a web service's answer or a file's contents, each
+  shown with its own unit and format in a dashboard of yours;
+- the system journal, warnings first, with search and older lines on request, and the journal of
+  a link's unit from its row.
 
 Controlling, once the computer allows it:
 
@@ -94,6 +98,10 @@ The app: Material You with frosted glass on Android 12 and newer, light, dark or
 4. For a UPS or a power station, add it to the settings as a source, `[sources.<id>]`, with what
    phones may switch on it ([details](docs/guide.md#7-upses-and-power-stations)).
 
+5. For readings of your own, add sources of the kind `command`, `http` or `file`
+   ([details](docs/guide.md#8-your-own-readings)); the system journal is on the Control tab
+   ([details](docs/guide.md#9-the-journal)).
+
 The phone and the computer talk directly, over the local network or a VPN they share: TCP 47823,
 and UDP 5353 for finding the computer by itself. The service can listen on chosen interfaces only
 (`listen = ["tailscale0"]`), and announces itself only on the local network. Its pairing QR code
@@ -101,7 +109,7 @@ carries the computer's Tailscale name and names you give (`names = [...]`) after
 the phone still finds it when they change. Everything is encrypted, a phone is paired only when
 you let it in at the computer, each phone has its own key that the computer can revoke, and the
 service only acts on the computer when told it may, starting and stopping only the units its
-settings name ([security](docs/guide.md#11-security)).
+settings name ([security](docs/guide.md#13-security)).
 
 ## Technical notes
 
@@ -151,8 +159,8 @@ dashboards and profiles: [docs/config.md](docs/config.md).
 
 ## Where it's going
 
-UPSes and power stations came with 0.7. Next, as they're needed: custom readings and the system
-journal, notifications through ntfy, and controlling monitors under Hyprland. Not planned: the
+Your own readings and the system journal came with 0.8, UPSes and power stations with 0.7. Next, as
+they're needed: notifications through ntfy, and controlling monitors under Hyprland. Not planned: the
 service for Windows or macOS, app stores (the app is the APK in each release), a web version.
 
 ## License
