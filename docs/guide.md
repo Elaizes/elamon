@@ -349,7 +349,10 @@ and its *High* and *Critical* limits. A *Fans* table follows.
 
 **Charts.** Drag a finger across a chart to read the values at that moment and how long ago it was.
 Charts are full the moment you open a computer, because the service keeps the last ten minutes
-(`history_minutes`). Where the phone was away or its screen was off, the line has a gap.
+(`history_minutes`), and they reach back past a restart of the service. Where the phone was away
+or its screen was off, the line has a gap. A medium or large chart also offers longer ranges,
+from 1 hour to all of it: the service keeps what charts show every 10 seconds for a day, every
+5 minutes for 30 days and every hour from then on ([the long history](config.md#the-long-history)).
 
 **The ⋮ menu** has *Settings*, *Help* and *Forget computer*. Back closes a page first, then the
 computer.
@@ -1139,6 +1142,8 @@ elamond backup ~/elamond.backup
   as this computer to its phones. Keep it out of shared and cloud folders.
 - The backup also carries the settings, `elamond.toml` and the drop-ins in `elamond.d`. A restore
   puts them back only when asked.
+- It leaves out the charts' long history (`history/` in the same folder): it is large, and only
+  the long ranges of the charts need it. Copy the folder to keep it.
 - It asks nothing, so a script or a timer runs it as it is. `--plain`, which elamond 0.6.1 wanted
   for that, is still accepted and changes nothing.
 - elamond 0.6.2 doesn't read the backups that 0.6.1 and older encrypted with a passphrase (those

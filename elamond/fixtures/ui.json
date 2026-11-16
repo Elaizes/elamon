@@ -1,5 +1,5 @@
 {
-  "version": "5b8dad916467c09e",
+  "version": "b822fda4c6e273d8",
   "service": {
     "id": "0123456789abcdef0123456789abcdef",
     "name": "fixture",
@@ -220,7 +220,8 @@
           "range": 600,
           "height": "medium",
           "min": 0,
-          "max": 100
+          "max": 100,
+          "ranges": ["1h", "24h", "7d", "30d", "1y", "all"]
         },
         {
           "id": "detail/procs",

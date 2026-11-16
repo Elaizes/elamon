@@ -345,6 +345,20 @@ impl Store {
 		tidy(all, slots)
 	}
 
+	/// Whether the history can be read at all: its folder is there and open to the service, or not
+	/// made yet.
+	pub fn readable(&self) -> io::Result<()> {
+		match fs::read_dir(&self.dir) {
+			Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+			_ => Ok(()),
+		}
+	}
+
+	/// Where it is.
+	pub fn dir(&self) -> &Path {
+		&self.dir
+	}
+
 	fn path(&self, tier: Tier, address: &str) -> PathBuf {
 		self.dir.join(tier.name()).join(file_name(address))
 	}
@@ -488,7 +502,11 @@ pub fn summary(dir: &Path) -> String {
 			.min()
 	});
 	let oldest = oldest.map_or_else(|| "none".to_string(), crate::store::format_date);
-	format!("history: {:.1} MiB in {files} files (oldest {oldest}), not in backups", bytes as f64 / 1_048_576.0)
+	let size = match bytes {
+		0..1_048_576 => format!("{} KiB", bytes.div_ceil(1024)),
+		_ => format!("{:.1} MiB", bytes as f64 / 1_048_576.0),
+	};
+	format!("history: {size} in {files} files (oldest {oldest}), not in backups")
 }
 
 #[cfg(test)]
@@ -747,7 +765,12 @@ pub mod tests {
 			store.push(t * 1000, [("cpu.usage", 1.0), ("mem.used", 2.0)]);
 		}
 		store.flush(NOW, true);
-		assert_eq!(summary(&dir.join("history")), "history: 0.3 MiB in 6 files (oldest 2023-11-12), not in backups");
+		assert_eq!(summary(&dir.join("history")), "history: 280 KiB in 6 files (oldest 2023-11-12), not in backups");
+		for t in (NOW..NOW + 10 * 86_400).step_by(10) {
+			store.push(t * 1000, ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"].map(|a| (a, 1.0)));
+		}
+		store.flush(NOW + 10 * 86_400, true);
+		assert!(summary(&dir.join("history")).starts_with("history: 1.2 MiB in 36 files (oldest 2023-11-12)"), "{}", summary(&dir.join("history")));
 		fs::remove_dir_all(&dir).unwrap();
 	}
 }

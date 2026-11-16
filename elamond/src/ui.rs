@@ -996,6 +996,10 @@ impl Ctx<'_> {
 				o.opt("min", bound_num(&d.min));
 				o.opt("max", bound_num(&d.max));
 				o.opt("floor", d.floor.clone());
+				// The long history behind it, but for a small graph's.
+				if d.ranges != Some(false) && d.height.as_deref() != Some("small") {
+					o.put("ranges", Value::Array(crate::history::api::RANGES.iter().map(|r| Value::from(*r)).collect()));
+				}
 			}
 			"list" => {
 				let items: Vec<Value> = d
@@ -1372,5 +1376,26 @@ label = "{item.label} at {item.rpm}"
 			assert!(tracked.contains(a), "{a}");
 		}
 		assert!(!tracked.contains("mem.total"));
+	}
+
+	#[test]
+	fn graphs_but_small_ones_offer_the_long_ranges_unless_told_not_to() {
+		let config = settings::read_sources(&[settings::Source::new(
+			"a.toml",
+			"[profiles.default]\ndashboards = [\"g\"]\n[dashboards.g]\ntitle = \"G\"\n\
+			 [[dashboards.g.widgets]]\nid = \"medium\"\ntype = \"graph\"\nvalues = [\"cpu.usage\"]\n\
+			 [[dashboards.g.widgets]]\nid = \"large\"\ntype = \"graph\"\nvalues = [\"cpu.usage\"]\nheight = \"large\"\nranges = true\n\
+			 [[dashboards.g.widgets]]\nid = \"small\"\ntype = \"graph\"\nvalues = [\"cpu.usage\"]\nheight = \"small\"\nranges = true\n\
+			 [[dashboards.g.widgets]]\nid = \"off\"\ntype = \"graph\"\nvalues = [\"cpu.usage\"]\nranges = false\n",
+		)])
+		.unwrap();
+		let values = crate::fixtures::values(&config);
+		let caps = Caps::all(&values.power_profiles);
+		let ui = build(&input(&config, &values, &caps, Role::Glance, "default", None));
+		let widgets = ui.doc["dashboards"][0]["widgets"].as_array().unwrap().clone();
+		let ranges: Vec<(&str, Option<&Value>)> = widgets.iter().map(|w| (w["id"].as_str().unwrap(), w.get("ranges"))).collect();
+		let all = serde_json::json!(["1h", "24h", "7d", "30d", "1y", "all"]);
+		assert_eq!(ranges, [("g/medium", Some(&all)), ("g/large", Some(&all)), ("g/small", None), ("g/off", None)]);
+		assert!(settings::read_sources(&[settings::Source::new("b.toml", "[[dashboards.g.widgets]]\ntype = \"value\"\nvalue = \"cpu.usage\"\nranges = true\n")]).is_err());
 	}
 }

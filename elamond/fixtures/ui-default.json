@@ -1,5 +1,5 @@
 {
-  "version": "d98ebf0bb060face",
+  "version": "133eccd786741945",
   "service": {
     "id": "0123456789abcdef0123456789abcdef",
     "name": "fixture",
@@ -465,7 +465,8 @@
           "range": 600,
           "height": "medium",
           "min": 0,
-          "max": 100
+          "max": 100,
+          "ranges": ["1h", "24h", "7d", "30d", "1y", "all"]
         },
         {
           "id": "cpu/cores",
@@ -531,7 +532,8 @@
           ],
           "range": 600,
           "height": "medium",
-          "min": 0
+          "min": 0,
+          "ranges": ["1h", "24h", "7d", "30d", "1y", "all"]
         },
         {
           "id": "memory/details",
@@ -581,7 +583,8 @@
           "range": 600,
           "height": "medium",
           "min": 0,
-          "max": 100
+          "max": 100,
+          "ranges": ["1h", "24h", "7d", "30d", "1y", "all"]
         },
         {
           "id": "gpu.nvidia/temp",
@@ -593,7 +596,8 @@
           "series": [{ "label": "Temperature", "color": "hot", "unit": "°C", "format": "temp" }],
           "range": 600,
           "height": "medium",
-          "floor": 60
+          "floor": 60,
+          "ranges": ["1h", "24h", "7d", "30d", "1y", "all"]
         },
         {
           "id": "gpu.nvidia/details",
@@ -650,7 +654,8 @@
           ],
           "range": 600,
           "height": "medium",
-          "floor": 65536
+          "floor": 65536,
+          "ranges": ["1h", "24h", "7d", "30d", "1y", "all"]
         },
         {
           "id": "network/interfaces",
@@ -695,7 +700,8 @@
           ],
           "range": 600,
           "height": "medium",
-          "floor": 1048576
+          "floor": 1048576,
+          "ranges": ["1h", "24h", "7d", "30d", "1y", "all"]
         },
         {
           "id": "storage/devices",
@@ -770,7 +776,8 @@
           "series": [{ "label": "Power", "color": "battery", "unit": "W", "format": "watts" }],
           "range": 600,
           "height": "medium",
-          "floor": 5
+          "floor": 5,
+          "ranges": ["1h", "24h", "7d", "30d", "1y", "all"]
         },
         {
           "id": "battery/details",

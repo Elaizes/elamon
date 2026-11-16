@@ -64,6 +64,10 @@
     "status": 404
   },
   {
+    "error": "no_such_widget",
+    "status": 404
+  },
+  {
     "error": "no_such_stream",
     "status": 404
   },

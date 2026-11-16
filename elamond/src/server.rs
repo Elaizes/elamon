@@ -656,6 +656,7 @@ pub fn router(hub: Arc<Hub>) -> Router {
 		.route("/api/v1/stream", get(stream::open))
 		.route("/api/v1/stream/{id}", post(stream::change).layer(body()))
 		.route("/api/v1/snapshot", get(snapshot))
+		.route("/api/v1/history", get(crate::history::api::history))
 		.route("/api/v1/actions/{id}", post(crate::control::action).layer(body()))
 		.route("/api/v1/media/art", get(crate::control::art))
 		.route("/api/v1/rekey", post(rekey).layer(body()))
@@ -1417,6 +1418,7 @@ dashboards = ["overview", "control"]
 		("GET", "/api/v1/ui", "", None, false),
 		("GET", "/api/v1/ui?widgets=value,text", "", None, false),
 		("GET", "/api/v1/snapshot", "", None, false),
+		("GET", "/api/v1/history?widget=overview/network&range=24h", "", None, false),
 		("GET", "/api/v1/stream", "", None, false),
 		("POST", "/api/v1/stream/nothing", "{}", None, false),
 		("GET", "/api/v1/media/art?player=nothing", "", Some(Role::Monitor), false),
@@ -1953,6 +1955,56 @@ dashboards = ["overview", "control"]
 				assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("no_such_dashboard")), "{phone}");
 			}
 		}
+		remove_test_dir(&hub.dir);
+	}
+
+	#[tokio::test]
+	async fn history_answers_for_a_graph_in_the_clients_ui_alone() {
+		let (hub, _tx) = hub(true);
+		// A graph only monitor and up see, on a tab of the default profile.
+		let secret = "[dashboards.secret]\ntitle = \"Secret\"\nrole = \"monitor\"\n\
+			[[dashboards.secret.widgets]]\nid = \"load\"\ntype = \"graph\"\nvalues = [\"cpu.usage\", \"cpu.temp\"]\n\
+			[profiles.default]\ndashboards = [\"overview\", \"secret\"]\n";
+		let text = format!("control = true\n{SETTINGS}{secret}");
+		hub.set_config(crate::settings::read_over_defaults(&[crate::settings::Source::new("test.toml", text)]).unwrap());
+		let now = crate::activity::now_ms() / 1000;
+		for t in now - 100..now {
+			hub.long.push(t * 1000, [("cpu.usage", 25.0), ("net.rx", 1000.0)]);
+		}
+		let path = |w: &str, r: &str| format!("/api/v1/history?widget={w}&range={r}");
+		for phone in PHONES {
+			let (status, v) = call(&hub, "GET", &path("secret/load", "1h"), phone, "").await;
+			if role_of(phone) < Role::Monitor {
+				assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("no_such_widget")), "{phone}: {v}");
+				continue;
+			}
+			assert_eq!(status, StatusCode::OK, "{phone}: {v}");
+			assert_eq!((v["widget"].as_str(), v["range"].as_str(), v["step_ms"].as_u64()), (Some("secret/load"), Some("1h"), Some(10_000)));
+			let (t, usage, temp) = (v["t"].as_array().unwrap(), v["v"][0].as_array().unwrap(), v["v"][1].as_array().unwrap());
+			assert_eq!((t.len(), usage.len(), temp.len()), (360, 360, 360));
+			assert!(usage[351..358].iter().all(|x| *x == 25.0) && usage[..348].iter().all(serde_json::Value::is_null), "{usage:?}");
+			assert!(temp.iter().all(serde_json::Value::is_null));
+		}
+		// Any range for a graph, a small one too; not for what isn't a graph.
+		let (status, v) = call(&hub, "GET", &path("overview/network", "all"), "glance", "").await;
+		assert_eq!((status, v["range"].as_str(), v["v"].as_array().map(Vec::len)), (StatusCode::OK, Some("all"), Some(2)), "{v}");
+		for widget in ["header/os", "nothing", "secret"] {
+			let (status, v) = call(&hub, "GET", &path(widget, "24h"), "admin", "").await;
+			assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("no_such_widget")), "{widget}: {v}");
+		}
+		// A range or a widget missing, or not one of those, is a bad parameter.
+		for (query, which) in [("widget=secret/load&range=2h", "range"), ("widget=secret/load", "range"), ("range=1h", "widget"), ("widget=&range=1h", "widget"), ("", "widget")] {
+			let (status, v) = call(&hub, "GET", &format!("/api/v1/history?{query}"), "admin", "").await;
+			assert_eq!((status, v["error"].as_str(), v["message"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_param"), Some(which)), "{query}");
+		}
+		// A client that said it draws no graphs has none, so none of their history.
+		assert_eq!(call(&hub, "GET", "/api/v1/ui?widgets=value,text", "admin", "").await.0, StatusCode::OK);
+		let (status, v) = call(&hub, "GET", &path("secret/load", "1h"), "admin", "").await;
+		assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("no_such_widget")), "{v}");
+		// History that can't be read at all.
+		std::fs::write(hub.dir.join(crate::history::disk::DIR), b"not a folder").unwrap();
+		let (status, v) = call(&hub, "GET", &path("overview/network", "1h"), "operate", "").await;
+		assert_eq!((status, v["error"].as_str()), (StatusCode::INTERNAL_SERVER_ERROR, Some("storage")), "{v}");
 		remove_test_dir(&hub.dir);
 	}
 

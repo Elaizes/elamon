@@ -512,3 +512,26 @@ fn ui_default() {
 		assert_eq!(ui.header.as_deref(), Some("header"));
 	}
 }
+
+// ---- 0.7: the long history -------------------------------------------------------------------
+
+/// `GET /api/v1/history` of the fixture station's graph over `all` (0.7/history.json), from the
+/// hourly points 0.7/ui-ups-source.toml lists, written and read again, at the fixture sample's `t`.
+#[test]
+fn history() {
+	use crate::history::{api, disk, Store};
+	let dir = disk::tests::scratch("fixture");
+	let series = ["eco.input.realpower", "eco.ups.realpower"];
+	let hours: [(u64, [f64; 2]); 5] =
+		[(472_216, [228.4, 205.1]), (472_217, [214.0, 207.6]), (472_218, [209.5, 203.9]), (472_220, [231.2, 210.4]), (472_221, [212.8, 208.0])];
+	let store = Store::new(dir.clone());
+	for (slot, x) in hours {
+		store.push((slot * 3600 + 1800) * 1000, series.into_iter().zip(x));
+	}
+	store.flush(sample().t / 1000, true);
+	let store = Store::new(dir.clone());
+	let addresses = series.map(String::from);
+	let answer = api::graph(&store, "ups.eco/watts", "all", &addresses, crate::values::Units::default(), sample().t).unwrap();
+	check_compact("0.7/history", &Value::Object(answer));
+	std::fs::remove_dir_all(&dir).unwrap();
+}

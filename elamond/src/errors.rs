@@ -35,6 +35,8 @@ pub enum ErrorCode {
 	NoSuchAction,
 	/// No such dashboard in the client's `ui`.
 	NoSuchDashboard,
+	/// No such graph or timeline in the client's `ui`, for its history.
+	NoSuchWidget,
 	/// No open stream of this client with that id.
 	NoSuchStream,
 	/// The player has no cover in a local file, or no such player.
@@ -50,7 +52,7 @@ pub enum ErrorCode {
 impl ErrorCode {
 	/// Every code, in the order of docs/protocol.md, for elamond/fixtures/errors.json.
 	#[cfg(test)]
-	pub const ALL: [ErrorCode; 21] = [
+	pub const ALL: [ErrorCode; 22] = [
 		ErrorCode::BadParam,
 		ErrorCode::BadSort,
 		ErrorCode::UnknownSignal,
@@ -67,6 +69,7 @@ impl ErrorCode {
 		ErrorCode::NoSuchProcess,
 		ErrorCode::NoSuchAction,
 		ErrorCode::NoSuchDashboard,
+		ErrorCode::NoSuchWidget,
 		ErrorCode::NoSuchStream,
 		ErrorCode::NoArt,
 		ErrorCode::ProcessChanged,
@@ -92,6 +95,7 @@ impl ErrorCode {
 			ErrorCode::NoSuchProcess => ("no_such_process", StatusCode::NOT_FOUND),
 			ErrorCode::NoSuchAction => ("no_such_action", StatusCode::NOT_FOUND),
 			ErrorCode::NoSuchDashboard => ("no_such_dashboard", StatusCode::NOT_FOUND),
+			ErrorCode::NoSuchWidget => ("no_such_widget", StatusCode::NOT_FOUND),
 			ErrorCode::NoSuchStream => ("no_such_stream", StatusCode::NOT_FOUND),
 			ErrorCode::NoArt => ("no_art", StatusCode::NOT_FOUND),
 			ErrorCode::ProcessChanged => ("process_changed", StatusCode::CONFLICT),

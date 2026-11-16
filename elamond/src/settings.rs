@@ -292,6 +292,8 @@ pub struct Widget {
 	pub range: Option<u64>,
 	pub height: Option<String>,
 	pub floor: Option<serde_json::Number>,
+	/// A graph offers the long history (`/api/v1/history`) unless this is false or it is small.
+	pub ranges: Option<bool>,
 	pub items: Option<Vec<ListItem>>,
 	pub source: Option<String>,
 	pub field: Option<String>,
@@ -1003,6 +1005,7 @@ pub fn type_keys(kind: &str) -> Vec<Key> {
 			k("empty", Ty::Text),
 			k("unit", Ty::Str),
 			k("format", Ty::Format),
+			k("ranges", Ty::Bool),
 		],
 		"list" => vec![k("items", list(Ty::Rec("item")))],
 		"bars" => vec![
