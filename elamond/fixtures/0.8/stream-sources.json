@@ -1,0 +1,43 @@
+{
+  "type": "data",
+  "t": 1700000000123,
+  "dashboard": "sources",
+  "widgets": {
+    "sources/app": { "v": "ok", "text": "Running", "level": "normal", "caption": "2.4.1 · 3 queued" },
+    "sources/zone": { "v": 45000, "level": "normal" },
+    "sources/files": { "v": 1204, "level": "normal" },
+    "sources/reads": {
+      "items": [{ "v": 1699996400 }, { "v": true }, { "v": 0, "level": "normal" }, { "v": 10 }, { "text": "main · spare" }]
+    },
+    "sources/journal": { "lines": [], "reset": true },
+    "sources/app_log": {
+      "lines": [
+        {
+          "c": 1699999990123456,
+          "t": 1699999990123,
+          "level": "info",
+          "unit": "example.service",
+          "id": "example",
+          "text": "Listening on port 8080"
+        },
+        {
+          "c": 1699999995234567,
+          "t": 1699999995234,
+          "level": "warning",
+          "unit": "example.service",
+          "id": "example",
+          "text": "Slow request: GET /status took 2.1 s"
+        },
+        {
+          "c": 1699999999345678,
+          "t": 1699999999345,
+          "level": "info",
+          "unit": "example.service",
+          "id": "example",
+          "text": "Request served in 12 ms"
+        }
+      ],
+      "reset": true
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "type": "data",
+  "t": 1700000005123,
+  "dashboard": "journal",
+  "widgets": {
+    "journal/system": {
+      "lines": [
+        {
+          "c": 1700000003123456,
+          "t": 1700000003123,
+          "level": "warning",
+          "unit": "sshd.service",
+          "id": "sshd",
+          "text": "Disconnecting invalid user admin 192.0.2.30 port 41022: Too many authentication failures [preauth]"
+        },
+        {
+          "c": 1700000004234567,
+          "t": 1700000004234,
+          "level": "error",
+          "unit": "example.service",
+          "id": "example",
+          "text": "Lost the connection to the database, retrying in 5 s"
+        }
+      ],
+      "more": 12
+    }
+  }
+}

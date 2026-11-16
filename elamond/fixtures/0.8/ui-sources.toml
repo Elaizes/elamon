@@ -1,0 +1,234 @@
+# The settings that ui-sources.json, stream-sources.json and stream-log-next.json describe
+# (elamond 0.8): a source of each kind 0.8 adds, a dashboard of their values and of two journals,
+# a link with a unit, whose journal its row in the Links table opens, and the `journal` and
+# `unit_log` dashboards. elamond's tests read this file with the fixture readings (fixtures.rs),
+# the sources' reads and the journal below, for an admin `android` client of profile "owner" that
+# draws every widget type, and check that what they build is those files; subscribe-log.json asks
+# the two journals of `sources` for other lines, and log.json answers `GET /api/v1/log` for the
+# journal's. Every key of the kinds `command`, `http` and `file` is in here. A whole file of
+# settings schema 3: nothing is read under it.
+#
+# The sources, each read last (and well) before the fixture sample's `t`, 1700000000123 ms:
+#   backup, at 1699999940 (Unix seconds): exited with 0, having printed
+#       state: ok
+#       last run = 1699996400
+#       files: 1204
+#       verified=true
+#       Checked 3 repositories.
+#     so backup.state ok, backup.last_run 1699996400, backup.files 1204, backup.verified true,
+#     backup.exit 0, backup.age 60 (the last line has neither `=` nor `:`: no value)
+#   app, at 1699999990: HTTP 200, the body
+#       {"state": "ok", "version": "2.4.1", "queue": {"length": 3},
+#        "workers": [{"name": "main", "busy": true}, {"name": "spare", "busy": false}],
+#        "build info": {"commit": "0123abc"}, "note": null}
+#     so app.state ok, app.version 2.4.1, app.queue.length 3, app.workers.0.name main,
+#     app.workers.0.busy true, app.workers.1.name spare, app.workers.1.busy false,
+#     app.build_info.commit 0123abc, app.age 10 (`note`, null, no value)
+#   zone, at 1699999998: the file holds "45000\n", so zone.text 45000 (a number), zone.age 2
+# None has failed since elamond started: none has an `<id>.error`, nor has had one.
+#
+# The journal (c: __REALTIME_TIMESTAMP in µs; PRIORITY; _SYSTEMD_UNIT or _SYSTEMD_USER_UNIT;
+# SYSLOG_IDENTIFIER; MESSAGE). The system journal is readable: no note. example.service is a
+# system unit, as its link says.
+#   example.service's (journalctl -u example.service), all the tail has:
+#     1699999990123456 6 example.service example "Listening on port 8080"
+#     1699999992000000 7 example.service example "Cache warmed with 120 entries"   (debug: below info)
+#     1699999995234567 4 example.service example "Slow request: GET /status took 2.1 s"
+#     1699999999345678 6 example.service example "Request served in 12 ms"
+#   this user's (journalctl --user), all the tail has, both below notice:
+#     1699999970000000 6 example-sync.service example-sync "Synced 14 files"
+#     1699999985000000 6 example-sync.service example-sync "Nothing to sync"
+#   the system's (journalctl), for stream-log-next.json: the journal dashboard's stream sent its
+#   lines up to 1700000000000000; then 1012 new lines reached the tail, 12 more than its buffer of
+#   1000 keeps, and of the 1000 kept only these two are at warning or above:
+#     1700000003123456 4 sshd.service sshd "Disconnecting invalid user admin 192.0.2.30 port 41022: Too many authentication failures [preauth]"
+#     1700000004234567 3 example.service example "Lost the connection to the database, retrying in 5 s"
+#   and for log.json (`/log?widget=journal/system&before=1699999995234567`, the oldest line the
+#   client had), the three at warning or above among the 2000 lines before it, the oldest of
+#   those 2000 at 1699999612345678:
+#     1699999801000000 4 sshd.service sshd "Connection closed by 192.0.2.20 port 52100 [preauth]"
+#     1699999870500000 3 example.service example "Can't write the cache: no space left on device"
+#     1699999935250000 2 kernel kernel "Out of memory: Killed process 4242 (example)"   (no unit: none)
+schema = 3
+name = "fixture"
+control = true
+default_profile = "owner"
+
+[links.example]
+name = "Example"
+url = "http://{host}:8080"
+unit = "example.service"
+scope = "system"
+
+# What a program prints, as `key = value` lines.
+[sources.backup]
+kind = "command"
+command = ["backup-status", "--short"]
+format = "lines"
+interval = 300
+timeout = 30
+history = false
+role = "monitor"
+
+# What a web service answers, as JSON; its token goes in a header of its own.
+[sources.app]
+kind = "http"
+url = "http://localhost:8080/status"
+token_file = "/etc/elamon/app.token"
+header = "X-Api-Key"
+format = "json"
+interval = 30
+timeout = 5
+history = false
+role = "monitor"
+
+# What a file holds, as text: millidegrees, a number.
+[sources.zone]
+kind = "file"
+path = "/sys/class/thermal/thermal_zone0/temp"
+format = "text"
+interval = 5
+timeout = 1
+history = true
+role = "glance"
+
+[profiles.owner]
+name = "Owner"
+unlock = { for = ["power", "nut", "signal", "actions", "units"], grace = "every_time" }
+dashboards = ["sources", "control"]
+header = ""
+
+[dashboards.sources]
+title = "Sources"
+icon = "terminal"
+
+# A leaf of the web service's JSON, in words.
+[[dashboards.sources.widgets]]
+id = "app"
+type = "status"
+value = "app.state"
+label = "App"
+icon = "globe"
+map = { ok = "Running", degraded = "Degraded" }
+levels = { degraded = "warning" }
+caption = "{app.version} · {app.queue.length} queued"
+
+# The file's number: its unit and format are the widget's, the service guesses neither.
+[[dashboards.sources.widgets]]
+id = "zone"
+type = "value"
+value = "zone.text"
+unit = "m°C"
+format = "integer"
+label = "Thermal zone"
+icon = "thermometer"
+
+# Shown once the source has had the value.
+[[dashboards.sources.widgets]]
+id = "files"
+type = "value"
+value = "backup.files"
+when = "backup.files"
+label = "Files backed up"
+icon = "storage"
+
+# A source that never failed has never had an error: left out.
+[[dashboards.sources.widgets]]
+id = "app_error"
+type = "text"
+text = "{app.error}"
+when = "app.error"
+level = "warning"
+label = "Never failed: left out"
+
+[[dashboards.sources.widgets]]
+id = "reads"
+type = "list"
+label = "Backup and app"
+icon = "clock"
+items = [
+  { label = "Last backup", value = "backup.last_run", unit = "s", format = "time" },
+  { label = "Verified", value = "backup.verified" },
+  { label = "Exit code", value = "backup.exit" },
+  { label = "App read", value = "app.age" },
+  { label = "Workers", text = "{app.workers.0.name} · {app.workers.1.name}" },
+]
+
+# This user's own journal, from notices up, without a search field.
+[[dashboards.sources.widgets]]
+id = "journal"
+type = "log"
+scope = "user"
+level = "notice"
+lines = 100
+search = false
+label = "My journal"
+role = "monitor"
+
+# One link's unit, named as the link names it.
+[[dashboards.sources.widgets]]
+id = "app_log"
+type = "log"
+scope = "unit"
+unit = "example.service"
+label = "Example's journal"
+
+[dashboards.control]
+title = "Control"
+icon = "control"
+
+[[dashboards.control.widgets]]
+id = "links"
+type = "table"
+source = "links"
+label = "Links"
+icon = "globe"
+hide_empty = true
+row_open = "url"
+columns = [
+  { field = "name", grow = true },
+  { field = "unit_state", label = "Unit" },
+]
+row_actions = [
+  { action = "unit.restart", label = "Restart", params = { link = "{id}" } },
+  { open = "unit_log", label = "Journal" },
+]
+
+[[dashboards.control.widgets]]
+id = "journal"
+type = "button"
+label = "Journal"
+icon = "terminal"
+open = "journal"
+span = 4
+role = "monitor"
+
+# As the starter's: the system journal, opened from Control.
+[dashboards.journal]
+title = "Journal"
+icon = "terminal"
+role = "monitor"
+
+[[dashboards.journal.widgets]]
+id = "system"
+type = "log"
+scope = "system"
+level = "warning"
+label = "System journal"
+span = 4
+
+# As the starter's: one for each link, opened from its row (`unit_log.<link>`); a link without a
+# unit would have none.
+[dashboards.unit_log]
+title = "{item.name}"
+icon = "terminal"
+role = "monitor"
+for_each = "links"
+
+[[dashboards.unit_log.widgets]]
+id = "log"
+type = "log"
+scope = "unit"
+unit = "{item.unit}"
+label = "Journal"
+span = 4

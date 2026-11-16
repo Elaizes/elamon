@@ -1,0 +1,3 @@
+{
+  "log": { "sources/app_log": { "level": "error", "search": "timeout" }, "sources/journal": null }
+}

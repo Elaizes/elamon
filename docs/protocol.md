@@ -20,7 +20,8 @@ Every shape below, with each optional field filled in, is in
 [`elamond/fixtures`](../elamond/fixtures): the service's tests write those files and the app's
 tests read them, so the two can't drift apart. Those elamond 0.7 adds are in
 [`elamond/fixtures/0.7`](../elamond/fixtures/0.7) until the service writes them and the app reads
-them ([below](#what-came-with-elamond-07)).
+them ([below](#what-came-with-elamond-07)), and those 0.8 adds in
+[`elamond/fixtures/0.8`](../elamond/fixtures/0.8) ([below](#what-came-with-elamond-08)).
 
 ## Versions and what each side can do
 
@@ -30,9 +31,11 @@ them ([below](#what-came-with-elamond-07)).
 - `widgets` (in `hello`) is the version of the dictionary of widget types and their keys. It grows:
   a type or a key is added, never changed. 1 came with elamond 0.6; 2 with 0.7, which added the
   type `timeline` and the key `ranges` of `graph` and `timeline` (with
-  [`/history`](#get-apiv1history) behind it). A client needs it for nothing it draws, as the
-  service describes only the types the client lists and a client ignores keys it doesn't know; it
-  says which dictionary the service speaks, so a client can tell why it never sees a type.
+  [`/history`](#get-apiv1history) behind it); 3 with 0.8, which added the type `log` (with
+  [`/log`](#get-apiv1log) behind it) and row actions that open a dashboard (`open`). A client
+  needs it for nothing it draws, as the service describes only the types the client lists and a
+  client ignores keys it doesn't know; it says which dictionary the service speaks, so a client
+  can tell why it never sees a type.
 - `min_app` is the oldest app version that understands this service.
 - `version` is the service's own.
 
@@ -44,6 +47,7 @@ them ([below](#what-came-with-elamond-07)).
 
 Anyone on the network may ask, so it says which service this is and which versions it speaks, and
 nothing of what the computer can do: that a paired client reads in `ui` (`service.features`).
+elamond 0.8 says `"widgets": 3`.
 
 ### The client says what it is
 
@@ -95,6 +99,44 @@ service at 0.7.0, these change as well: `hello.json` (`version` 0.7.0, `widgets`
 (`no_such_widget` and `confirm_required` added), `ui.json` (its medium graph gains `ranges`, and so
 its `version`, which `stream-open.json` and `stream-ui.json` carry), and `ui-default.json` (each
 graph but the small ones gains `ranges`; the default profile's `unlock.for` gains `nut`).
+
+### What came with elamond 0.8
+
+Values from commands, web services and files ([sources](config.md#sources)), the systemd journal
+in a widget, and row actions that open a dashboard. The API stays 2: all of it is a widget type a
+client that doesn't list it never gets, fields a client may ignore, and a request it needn't make.
+
+| new | where |
+|---|---|
+| `widgets` 3 | [`hello`](#get-apiv1hello-no-token) |
+| the widget type `log` (`scope`, `unit`, `level`, `lines`, `search`) and its state | [`ui`](#widgets-in-ui), [the stream](#a-logs-state) |
+| `log` in a stream's change | [`POST /api/v1/stream/{id}`](#post-apiv1streamid) |
+| [`GET /api/v1/log`](#get-apiv1log) | new |
+| row actions with `open` | [`ui`](#row-actions-that-open-a-dashboard) (`table`) |
+| sources of kind `command`, `http` and `file` | [config.md](config.md#sources) only: their values reach a client as any others do |
+
+No error code is new: `/log` answers `bad_param`, `no_such_widget` and `failed` as `/history` and
+the actions do.
+
+What an app of 0.7 sees of a 0.8 service: what it saw before, and the sources' values in the
+widgets it knows. A `log` reaches it as a `text` of level `warning`, `Update the app to read the
+journal.` (it doesn't list the type), so Control's *Journal* button opens a page that says so; it
+gets no row action with `open`, nor the dashboards only those open (`unit_log.<link>`); `widgets` 3
+it ignores.
+
+An app of 0.8 with an older service: there is no `log` to draw nor row action with `open`, and
+`/log` answers 404 `not_found`.
+
+The fixtures 0.8 adds are in `elamond/fixtures/0.8/`: `ui-sources.toml` (the settings), with the
+sources' reads and the journal they are read with in its comments; `ui-sources.json` (its `ui` for
+an admin `android` client); `stream-sources.json` (a `data` line of its `sources` dashboard,
+without `history`: the sources' values, and its two logs' first states on the stream);
+`stream-log-next.json` (a later line of its `journal` dashboard: new lines and `more`);
+`subscribe-log.json` (a stream's change of two logs' filters); `log.json` (`/log` of the
+journal's widget); `hello.json` (`widgets` 3). They move up beside the others once the service
+writes them and the app reads them. Then, with the service at 0.8.0, these change as well:
+`hello.json` (`version` 0.8.0, `widgets` 3) and `ui-default.json` (Control's *Journal* button,
+the Links table's row action `{ open, label }`, and the `journal` dashboard).
 
 ## Discovery
 
@@ -281,11 +323,13 @@ Each paired client has a role. They are ordered, each allowing what the one befo
 | role | sees | may run |
 |---|---|---|
 | `glance` | the basics: CPU, memory, GPUs, temperatures, fans, disks, disk I/O, network, battery, power, the system, UPSes | nothing |
-| `monitor` | everything there is to read: also processes with their commands and users, monitors, links, media with their covers, the activity log, a UPS's driver, serial numbers and versions | nothing |
+| `monitor` | everything there is to read: also processes with their commands and users, monitors, links, media with their covers, the activity log, the journal, a UPS's driver, serial numbers and versions | nothing |
 | `operate` | | actions of kind `profile`, `units`, `media` and `actions`, and `nut` of a source whose `role` is `operate` |
 | `admin` | | `power`, `signal` and `nut` too |
 
 Any role may ask for a key of its own ([`rekey`](#post-apiv1rekey)), which keeps that role.
+The values of a source of kind `command`, `http` or `file` are seen from that source's `role` up,
+`monitor` unless its settings say ([config.md](config.md#sources)).
 
 The role filters the values themselves, on the service: a widget, a table or a dashboard whose
 values the role doesn't see isn't described to the client at all, nor are its values sent. A
@@ -313,7 +357,7 @@ client whose profile the settings no longer have gets `default_profile`.
 
 What the client shows: its profile, its tabs, the dashboards and the actions, all as far as its role
 goes. Query: `widgets`, the widget types the client draws, comma-separated
-(`widgets=value,gauge,meter,status,graph,list,table,button,toggle,select,slider,text,group,media,timeline`).
+(`widgets=value,gauge,meter,status,graph,list,table,button,toggle,select,slider,text,group,media,timeline,log`).
 
 ```json
 {
@@ -345,7 +389,7 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
   sorted: `control` (`control = true` in the settings), `power` (logind can power off, restart,
   sleep or lock), `power_profiles` (power-profiles-daemon or tuned-ppd), `units` (systemd), `media`
   (a session bus for MPRIS), `processes`, `displays` (a GPU whose monitors DRM tells of), `nvml` (an
-  NVIDIA GPU NVML can read), `ups` (the settings have a [source](config.md#sources), whether
+  NVIDIA GPU NVML can read), `ups` (the settings have a `nut` [source](config.md#sources), whether
   upsd answers or not). A client ignores those it doesn't know.
 - `service.endpoints`: where the computer is now ([pairing](#where-the-computer-is-endpoints)).
 - `profile` holds the part every client reads, and the part for this client's kind (`android`)
@@ -355,8 +399,10 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
   other roles it is left out.
 - `tabs` are the profile's dashboards the role sees, in order (one for each item of a dashboard
   with `for_each`); `dashboards` the tabs, then the header, then the dashboards their widgets
-  open, and those theirs open, each once and as far as the role sees. A dashboard the role sees
-  none of the widgets of isn't there, nor an `open` to a dashboard that isn't.
+  open, and those theirs open, then those the tables' row actions open
+  ([below](#row-actions-that-open-a-dashboard)), each once and as far as the role sees. A
+  dashboard the role sees none of the widgets of isn't there, nor an `open` to a dashboard that
+  isn't.
 - `header` is the profile's `header` dashboard, whose widgets a client draws as small chips under
   the computer's name on every tab; `null` when the profile has none or the role sees none of it.
 - `actions` are those the role may run and the computer can do. `confirm` and `unlock` are final:
@@ -388,7 +434,7 @@ reads, beside `id`, `type`, `span`, `label`, `icon`, `color` and `open`:
 | `graph` | `series: [{ label, color, unit, format }]`, `range` (s), `height`, `min`, `max`, `floor`, `ranges` |
 | `timeline` | `range` (s), `ranges` |
 | `list` | `items: [{ label, unit, format }]` |
-| `table` | `source`, `columns: [{ field, label, format, unit, bar: { max }, grow }]` (`max` a number, a field or `"top"`), `sort: { field, desc }`, `sorts`, `sort_labels` (field → the label of its chip; a field without one, its column's label or the field), `search` (bool), `search_fields` (the fields a client searches, when `search`: rows carry them), `hide_empty`, `row_open`, `row_actions: [{ action, label, params }]`, `expand: [{ field, label, format, unit }]` |
+| `table` | `source`, `columns: [{ field, label, format, unit, bar: { max }, grow }]` (`max` a number, a field or `"top"`), `sort: { field, desc }`, `sorts`, `sort_labels` (field → the label of its chip; a field without one, its column's label or the field), `search` (bool), `search_fields` (the fields a client searches, when `search`: rows carry them), `hide_empty`, `row_open`, `row_actions: [{ action, label, params } or { open, label }]`, `expand: [{ field, label, format, unit }]` |
 | `button` | `action`, `params`, `open` |
 | `toggle` | `action`, `param`, `on`, `off` |
 | `select`, `slider` | `action`, `param` |
@@ -396,6 +442,7 @@ reads, beside `id`, `type`, `span`, `label`, `icon`, `color` and `open`:
 | `group` | `widgets`, `collapsed` |
 | every type | `caption` (`true` when it holds values: its text comes in the state), `collapsed` (`table`) |
 | `media` | |
+| `log` | `scope` (`system`, `user` or `unit`), `unit` (with `scope` `unit`), `level`, `lines`, `search` (bool) |
 
 `ranges` is `["1h", "24h", "7d", "30d", "1y", "all"]`, on a `graph` (not a `small` one) and on a
 `timeline`, unless the widget's settings say `ranges = false`: the long ranges
@@ -409,6 +456,23 @@ client's to keep, not the service's.
 A `toggle`'s `on` and `off` are values its action's `param` takes: one the action doesn't take (a
 station's command it doesn't offer, or `commands` doesn't allow) leaves the toggle out.
 
+A `log` shows lines of the systemd journal ([config.md](config.md#the-journal-log)): `scope` is
+`system` (as far as the service's user may read it), `user` (that user's own) or `unit` (the
+journal of `unit`, a link's unit); `level` the least level it shows at first, of `debug`, `info`,
+`notice`, `warning`, `error` and `critical`; `lines` how many a client keeps on screen (10–1000);
+`search` whether it offers a search field. Its lines come in the stream ([its
+state](#a-logs-state)), as the client filters them ([`log`](#post-apiv1streamid)), and older ones
+from [`/log`](#get-apiv1log). Its role is `monitor` at least.
+
+### Row actions that open a dashboard
+
+A table's row action is `{ action, label, params }` or, from widgets 3, `{ open, label }`: `open`
+names a dashboard made `for_each` over the table's `source`, and the action on a row opens
+`<open>.<the row's key>` (`unit_log` on the row of the link `example`: `unit_log.example`). A
+client shows it only on the rows whose dashboard is in its `ui`, where each of those dashboards
+is. A client that doesn't list `log` gets no row action with `open` (an app before 0.8 reads
+`action` as required), nor the dashboards only those open.
+
 ### What a client can't draw
 
 A widget type the client didn't list in `widgets` is replaced by the nearest it did: `gauge` and
@@ -417,7 +481,8 @@ A widget type the client didn't list in `widgets` is replaced by the nearest it 
 the widgets in it, a `timeline` by a `text` that holds its source's status and how long it has
 been so (`"{eco.status} · {eco.status.since:duration}"`, `On battery · 12 min`), its state's
 `level` the status's… and where there's none, by a `text` with `level` `warning` saying the app
-needs updating to show it. An unknown key on a known type, a client ignores.
+needs updating to show it (a `log`: `Update the app to read the journal.`). An unknown key on a
+known type, a client ignores.
 
 ## `GET /api/v1/stream`
 
@@ -441,8 +506,8 @@ Lines:
    from the reading there is (with the next reading for a client that opened another stream within
    half the interval): a widget whose source isn't read yet (the processes, monitors, media
    players, the volume, NVIDIA GPUs or the links, read only while a client shows them) has no state
-   in a line until it is; a client shows it loading. The first reading that has them sends a line
-   at once.
+   in a line until it is, nor a `log` until the service reads its journal; a client shows it
+   loading. The first reading that has them sends a line at once.
 3. `ui`, whenever the client's `ui` changes: `{ "type": "ui", "ui": "<version>", "endpoints": [ … ] }`,
    `endpoints` as they are now ([pairing](#where-the-computer-is-endpoints)). The stream goes
    on, with the dashboard it had (or the first tab, when that one is gone for this client).
@@ -463,6 +528,7 @@ A widget's state:
 | `group` | none |
 | `media` | `{ "players": [ … ], "volume": { "level": 40.0, "muted": false } }` (%) |
 | `timeline` | `{ "segments": [{ "from": 1699992000000, "to": 1699999280000, "state": "line" }, …] }` (below) |
+| `log` | `{ "lines": [{ "c": 1699999995234567, "t": 1699999995234, "level": "warning", "unit": "example.service", "id": "example", "text": "…" }], "reset": true, "more": 12, "note": "…" }` ([below](#a-logs-state)) |
 
 A timeline's `segments` cover its `range` back from the line's `t` (Unix ms), oldest first, each
 from where the one before ends: `line` (on line, or on bypass), `battery`, or `none` where nothing
@@ -492,6 +558,43 @@ The service reads costlier sources (NVML, DRM, the process list, MPRIS) only whi
 dashboard on screen needs them, and lets a powered-down GPU sleep. A table of processes fills a tick
 after it is first asked for: their CPU and disk use are rates, which need two readings.
 
+### A log's state
+
+A `log`'s state is the stream's own, not the reading's: what this stream sent of it, and how its
+client filters it.
+
+```json
+{ "lines": [{ "c": 1699999995234567, "t": 1699999995234, "level": "warning", "unit": "example.service", "id": "example",
+              "text": "Slow request: GET /status took 2.1 s" }],
+  "reset": true, "more": 12, "note": "Only this user's journal: add the user to systemd-journal to read the system's." }
+```
+
+- `lines`, oldest first. Each has `c`, its time in the journal (Unix µs), which a client keeps only
+  to send as [`/log`](#get-apiv1log)'s `before`; `t`, the same in Unix ms; `level`; `unit`, the
+  systemd unit it came from, and `id`, the program's name (`SYSLOG_IDENTIFIER`, else the command),
+  each left out where the journal hasn't one; `text`, the message, 2000 characters at most (cut
+  with `…`), terminal colours and control characters taken out but line breaks, a tab a space.
+- `reset`, only when `true`: the client replaces what it has with these lines, the newest that
+  match, as many as the widget's `lines` and 64 KiB at most. It comes in the widget's first state
+  on a stream, after its filter changed, and after the service started reading the journal anew.
+- Otherwise, `lines` are those that came since the last this stream sent, maybe none (`[]`): 50
+  and 16 KiB a `data` line at most.
+- `more`, only when above 0: lines the stream left out before these, those that matched past 50
+  or 16 KiB (the oldest are left out), and those that left the service's buffer, the journal's last
+  1000 lines, before the stream sent them, matching or not. A client shows `… 12 more` above these.
+- `note`, only when there is one: why there may be more than these lines, or none. A `system` log,
+  or one of a system unit, while the service's user may not read the system journal (`Only this
+  user's journal: add the user to systemd-journal to read the system's.`); no `journalctl` on the
+  computer; a `journalctl` that ended, with the first line of its error (the service starts it
+  again every 10 seconds at most while a client shows the widget). A client shows it above the
+  lines.
+
+A line matches when its level is the filter's or worse, and, with a search, when its `text`,
+`unit` or `id` holds the search, whatever the case. Until the client asks for another
+([below](#post-apiv1streamid)), the filter is the widget's `level` and no search. The service reads
+the journal only while some client's stream shows a `log` of it, and until it does, the `log` has
+no state: a client shows it loading.
+
 ### `POST /api/v1/stream/{id}`
 
 Changes what an open stream of this client sends, from its next line, without reconnecting:
@@ -502,21 +605,37 @@ Changes what an open stream of this client sends, from its next line, without re
 
 Each key is optional. `sort` asks a table, by its widget id, for another of its `sorts`
 (descending); `null` in place of a field (`{ "processes/table": null }`) returns the table to its own
-`sort`, field and direction. A new dashboard or order comes at once, from the reading there is, not
-after an interval; a new dashboard's first line has `history`. At once no more than every half
-interval: a change soon after another comes with the next reading. Changes the stream hasn't taken
-up yet (its client doesn't read it) become one, each key the last asked. 200 `{ "ok": true }`;
-404 `no_such_stream` when the stream has ended or isn't this client's; 404 `no_such_dashboard` for
-one not in the client's `ui`; 400 `bad_sort` with the table's id in `message`. A refused request
-(400 `bad_sort`, 404 `no_such_dashboard`) applies none of its keys: the stream goes on as it was. A
-body over 4 KiB is a plain-text 413.
+`sort`, field and direction.
+
+`log` (from elamond 0.8) asks a `log`, by its widget id, for another filter:
+
+```json
+{ "log": { "sources/app_log": { "level": "error", "search": "timeout" }, "sources/journal": null } }
+```
+
+A filter is the whole of it: `level` one of the six, the widget's own when left out; `search` 100
+characters at most, none when left out or empty. `null` in place of a filter returns the widget to
+its own `level` and no search; a widget left out keeps the filter it has. Filters are kept by
+widget id, as orders are, and a new one makes the widget's next state a `reset`.
+
+A new dashboard, order or filter comes at once, from the reading there is, not after an interval;
+a new dashboard's first line has `history`. At once no more than every half interval: a change
+soon after another comes with the next reading. Changes the stream hasn't taken up yet (its client
+doesn't read it) become one, each key the last asked. 200 `{ "ok": true }`; 404 `no_such_stream`
+when the stream has ended or isn't this client's; 404 `no_such_dashboard` for one not in the
+client's `ui`; 400 `bad_sort` with the table's id in `message`; 400 `bad_param`, with `log` in
+`message`, for a `log` key that names no `log` of the stream's dashboard (as this request leaves
+it) or header, a level not of the six, or a search over 100 characters. A refused request (400
+`bad_sort` or `bad_param`, 404 `no_such_dashboard`) applies none of its keys: the stream goes on as
+it was. A body over 4 KiB is a plain-text 413.
 
 ## `GET /api/v1/snapshot`
 
 One `data` object (without `type`, with `history` unless `history=0`) for `dashboard=<id>` (the
 first tab without it), after waiting a few ticks for a reading that has everything it needs (a
-widget whose source still isn't read then has no state, as in a stream); 404
-`no_such_dashboard` for one not in the client's `ui`. `widgets` as for the stream.
+widget whose source still isn't read then has no state, as in a stream; a `log` has none there
+at all: its lines come from [`/log`](#get-apiv1log)); 404 `no_such_dashboard` for one not in the
+client's `ui`. `widgets` as for the stream.
 
 ## `GET /api/v1/history`
 
@@ -569,6 +688,34 @@ isn't a `graph` or a `timeline` in the client's `ui`: as everywhere, a client ge
 of what its role sees. 400 `bad_param`, with `widget` or `range` in `message`, for one missing or
 not one of those; 500 `storage` when the history can't be read at all (a file that can't be read
 is taken as empty). A service before 0.7 answers 404 `not_found`; its `ui` has no `ranges` either.
+
+## `GET /api/v1/log`
+
+Older lines of a `log`, for a client scrolled back past those it has. Query:
+
+| name | |
+|---|---|
+| `widget` | the id of a `log` in the client's `ui` |
+| `before` | Unix µs, optional: lines older than it, the `c` of the oldest line the client has; without it, the newest |
+| `level` | optional: the least level, as in a [filter](#post-apiv1streamid); the widget's own without it |
+| `search` | optional, 100 characters at most |
+
+```json
+{ "widget": "journal/system", "lines": [{ "c": 1699999801000000, "t": 1699999801000, "level": "warning", … }, …],
+  "before": 1699999612345678 }
+```
+
+The service looks back through the journal from `before`, at the lines of the level or worse,
+until 100 of them match the search or it has looked at 2000, and answers those that match, oldest
+first, as a state's `lines` are. `before` is where to go on from: the `c` of the oldest line it
+looked at, for the client to send as `before` for the lines before those; `null` once it reached
+the start of the journal. A page may have fewer than 100 lines, or none, and still a `before`. It
+runs `journalctl`, for 5 seconds at most, two such requests at a time (others wait their turn).
+
+404 `no_such_widget` for an id that isn't a `log` in the client's `ui`; 400 `bad_param`, with
+`widget`, `before`, `level` or `search` in `message`, for one missing where it is needed or not as
+above; 502 `failed` when `journalctl` can't be run (its error in `message`) or takes longer
+(`timed_out`). A service before 0.8 answers 404 `not_found`.
 
 ## `POST /api/v1/actions/{id}`
 
@@ -683,7 +830,7 @@ Errors are `{ "error": "<code>" }`, some with a `message`, with these statuses (
 | 400 | `bad_param` (with `message`, the parameter), `bad_sort`, `unknown_signal` |
 | 401 | `unauthorized` |
 | 403 | `no_pairing`, `wrong_code`, `pair_declined`, `too_many_phones` (64 are paired), `rekey_refused`, `control_disabled`, `not_permitted` (polkit refused, or a protected process), `not_allowed` (the client's role doesn't allow it), `confirm_required` (a station's command that is typed in, without its text; the text in `message`) |
-| 404 | `not_found`, `no_such_process`, `no_such_action`, `no_such_dashboard`, `no_such_widget` (no such graph or timeline in the client's `ui`), `no_such_stream`, `no_art` |
+| 404 | `not_found`, `no_such_process`, `no_such_action`, `no_such_dashboard`, `no_such_widget` (no such graph, timeline or log in the client's `ui`), `no_such_stream`, `no_art` |
 | 409 | `process_changed` |
 | 500 | `storage` |
 | 502 | `failed`, with `message` |
@@ -691,8 +838,8 @@ Errors are `{ "error": "<code>" }`, some with a `message`, with these statuses (
 `failed` carries a `message`: either one of `unknown_player`, `no_value` (`volume.set` with
 neither `level` nor `muted`), `no_track`, `no_session`, `no_system_bus`, `no_session_bus`,
 `no_power_profiles`, `volume_failed`, `mute_failed`, `timed_out`, or the system's own error text
-(D-Bus, a command, upsd or the station; for a station's command upsd took without saying the
-station did it, `accepted by upsd but not confirmed by the station`). A request whose JSON
+(D-Bus, a command, `journalctl`, upsd or the station; for a station's command upsd took without
+saying the station did it, `accepted by upsd but not confirmed by the station`). A request whose JSON
 or query the service can't read at all gets a plain-text 400, 415 or 422, and a body over its limit
 (4 KiB for `pair`, `rekey`, `actions` and `stream`) a plain-text 413.
 

@@ -1,0 +1,29 @@
+{
+  "widget": "journal/system",
+  "lines": [
+    {
+      "c": 1699999801000000,
+      "t": 1699999801000,
+      "level": "warning",
+      "unit": "sshd.service",
+      "id": "sshd",
+      "text": "Connection closed by 192.0.2.20 port 52100 [preauth]"
+    },
+    {
+      "c": 1699999870500000,
+      "t": 1699999870500,
+      "level": "error",
+      "unit": "example.service",
+      "id": "example",
+      "text": "Can't write the cache: no space left on device"
+    },
+    {
+      "c": 1699999935250000,
+      "t": 1699999935250,
+      "level": "critical",
+      "id": "kernel",
+      "text": "Out of memory: Killed process 4242 (example)"
+    }
+  ],
+  "before": 1699999612345678
+}

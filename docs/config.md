@@ -21,7 +21,7 @@ with elamond itself, being what it can do rather than settings.
 A table with an id (`[dashboards.power]`, `[actions.mode]`, `[links.jellyfin]`,
 `[profiles.owner]`, `[templates.history]`, `[sources.eco]`) merges with the one of the same id
 before it, key by key, as `[history]` does; a list (`widgets`, `listen`, `dashboards` in a profile,
-`commands` of a source) replaces the one before it whole.
+`commands` or `command` of a source) replaces the one before it whole.
 So a drop-in can add a dashboard, change one key of one in elamond.toml, or replace its widgets.
 
 `elamond check [FILE]` reads the settings as the service would and names the file and line of each
@@ -30,8 +30,8 @@ one; `elamond schema` prints the JSON Schema of these settings, for editors that
 one (taplo, Even Better TOML: `#:schema` at the top of the file, as the starter files have it);
 `elamond defaults` prints the
 settings elamond starts with ([below](#the-defaults-beside-defaultstoml)); `elamond values` lists
-the values this computer has now, and `elamond values <source>` those of a
-[UPS source](#sources).
+the values this computer has now, and `elamond values <source>` those of a [source](#sources),
+read there and then.
 
 ## The starter file
 
@@ -199,7 +199,7 @@ The default is what a key left out is; the starter file writes most of them out.
 | `profiles` | table of [profiles](#profiles) | | |
 | `dashboards` | table of [dashboards](#dashboards) | | |
 | `templates` | table of [templates](#templates) | | |
-| `sources` | table of [sources](#sources) | | UPSes and power stations |
+| `sources` | table of [sources](#sources) | | UPSes and power stations; what commands print, web services answer and files hold |
 | `history` | [table](#the-long-history) | | how long the hourly history is kept |
 
 Settings schema 1 (elamond 0.5 and before) had `[[links]]`, `[[actions]]` and `units`; they are
@@ -229,12 +229,35 @@ scope = "system"
 
 ## Sources
 
-A UPS or a power station, as a NUT server (upsd) serves it: elamond reads it through the
-upst-core library (of the upst project), shows its values beside the computer's
-([values](#a-sources-values)), keeps their [history](#the-long-history), and runs the station's
-commands and settings the source allows ([station actions](#station-actions)). Any UPS NUT has a
-driver for is served by upsd; an EcoFlow station by nutflow, a NUT server of its own. Settings
+Where values come from beside the computer's own readings: each `[sources.<id>]` is of a `kind`.
+
+| kind | reads |
+|---|---|
+| `nut` | a UPS or a power station, as a NUT server (upsd) serves it ([below](#upses-and-power-stations-nut)) |
+| `command` | what a program prints ([below](#commands-web-services-and-files-command-http-file)) |
+| `http` | what a web service answers |
+| `file` | what a file holds |
+
+The id names the source's values (`eco.battery.charge`, `app.state`: [a source's
+values](#a-sources-values)), and a `nut` source's dashboard (`ups.eco`). It is an id as others are,
+but it may not be the first part of one of the computer's addresses (`cpu`, `mem`, `swap`, `gpu`,
+`temp`, `fan`, `fans`, `disk`, `disk_io`, `net`, `battery`, `power`, `volume`, `link`, `system`,
+`displays`), nor `item`. Each kind takes its own keys: `elamond check` names a key of another
+(`no key "url" here`) and a kind that isn't one of the four (`no source kind "x"; …`). Settings
 without sources are as they were before elamond 0.7.
+
+`elamond values <id>` reads the source there and then (within 5 seconds for a `nut` one, its
+`timeout` for the others) and prints its values as the service would name them, each with its unit,
+format and role, or why it couldn't read it. `elamond values` alone ends with a line naming the
+sources (`Sources: app, eco, zone (elamond values <id>)`).
+
+### UPSes and power stations: `nut`
+
+elamond reads a UPS or a power station as upsd serves it, through the upst-core library (of the
+upst project), shows its values beside the computer's ([values](#a-sources-values)), keeps their
+[history](#the-long-history), and runs the station's commands and settings the source allows
+([station actions](#station-actions)). Any UPS NUT has a driver for is served by upsd; an EcoFlow
+station by nutflow, a NUT server of its own.
 
 ```toml
 [sources.eco]
@@ -250,7 +273,7 @@ outlets."1".critical = true
 
 | key | type | default | |
 |---|---|---|---|
-| `kind` | `"nut"` | required | the only kind there is |
+| `kind` | `"nut"` | required | |
 | `ups` | string, 1–64 characters, no spaces | required | the UPS's name on upsd, as in `upsc ups@localhost` |
 | `host` | string | `"localhost"` | where upsd is |
 | `port` | integer, 1–65 535 | 3493 | |
@@ -265,14 +288,10 @@ outlets."1".critical = true
 | `role` | `operate` \| `admin` | `admin` | the least role that may run the source's commands and settings |
 | `outlets."<N>".critical` | bool | `false` | an outlet that powers this computer: its commands but the one that turns it on are typed in |
 
-The id names the source's values (`eco.battery.charge`) and its dashboard (`ups.eco`). It is an
-id as others are, but it may not be the first part of one of the computer's addresses (`cpu`,
-`mem`, `swap`, `gpu`, `temp`, `fan`, `fans`, `disk`, `disk_io`, `net`, `battery`, `power`,
-`volume`, `link`, `system`, `displays`), nor `item`. `elamond check` also finds: another `kind`
-(`only kind = "nut" in this version`); `user` without `password_file` or the other way round, or a
-relative `password_file`; `commands` or `settings` without them; a pattern of anything but `a-z`,
-`0-9`, `.`, `_`, `-` and `*`; an outlet that isn't a whole number, or a key there but `critical`;
-a `recorder` that is empty. It never connects to upsd: what the station has, it doesn't check.
+`elamond check` also finds: `user` without `password_file` or the other way round, or a relative
+`password_file`; `commands` or `settings` without them; a pattern of anything but `a-z`, `0-9`,
+`.`, `_`, `-` and `*`; an outlet that isn't a whole number, or a key there but `critical`; a
+`recorder` that is empty. It never connects to upsd: what the station has, it doesn't check.
 
 The password file is yours to write, readable by you alone (`chmod 600`). elamond reads its first
 line each time it runs a command or a setting, and the password goes nowhere else: not to
@@ -300,11 +319,77 @@ services.elamond.settings.sources.eco = {
 };
 ```
 
-`elamond values eco` asks upsd itself (for 5 seconds at most) and prints the source's values as
-the service would name them, each with its unit, format and role, then the station's commands and
-writable settings, with their lists or ranges and whether `commands` and `settings` allow them;
-the estimates and the timeline come from the running service. `elamond values` alone ends with a
-line naming the sources (`UPS sources: eco (elamond values eco)`).
+`elamond values eco` also prints the station's commands and writable settings, with their lists
+or ranges and whether `commands` and `settings` allow them; the estimates and the timeline come
+from the running service.
+
+### Commands, web services and files: `command`, `http`, `file`
+
+What a program prints, what a web service answers or what a file holds, read every so often and
+shown as values ([a source's values](#a-sources-values)): a service's own status page, a figure a
+script works out, a number from /sys.
+
+```toml
+[sources.up]
+kind = "command"
+command = ["uptime", "--pretty"]
+format = "text"
+interval = 60
+
+[sources.app]
+kind = "http"
+url = "http://localhost:8080/status"
+token_file = "/home/me/.config/elamon/app.token"
+interval = 30
+
+[sources.zone]
+kind = "file"
+path = "/sys/class/thermal/thermal_zone0/temp"
+format = "text"
+interval = 5
+```
+
+| key | kinds | type | default | |
+|---|---|---|---|---|
+| `kind` | | `"command"` \| `"http"` \| `"file"` | required | |
+| `command` | `command` | list of strings, the first not empty | required | the program and its arguments, run without a shell |
+| `url` | `http` | `http://` or `https://`, a host, no spaces | required | asked with `GET` |
+| `token_file` | `http` | an absolute path | | a file whose first line is a token, sent as `Authorization: Bearer <token>` |
+| `header` | `http` | 1–64 of `A-Z`, `a-z`, `0-9` and `-` | | the header to send the token in instead (`X-Api-Key: <token>`); only with `token_file` |
+| `path` | `file` | an absolute path | required | |
+| `format` | all three | `json` \| `text` \| `lines` | `json` | how what it reads is taken ([values](#a-sources-values)) |
+| `interval` | all three | integer, seconds, 1–86 400 | 10 | how often it is read while it is needed |
+| `timeout` | all three | integer, seconds, 1–60 | 5 | a read that takes longer fails; it may be longer than `interval` |
+| `history` | all three | bool | `false` | keep the [long history](#the-long-history) of its numbers |
+| `role` | all three | `glance` \| `monitor` \| `operate` \| `admin` | `monitor` | the least role that sees its values |
+
+A source is read only while it is needed: while some client has a dashboard (or the header) on
+screen that shows one of its values, while a graph or a spark of the settings shows one, or with
+`history = true`; otherwise not at all. Needed again, it is read at once if its last read is older
+than `interval`. One read of a source runs at a time, the next waiting for it; a slow one never
+holds up the computer's readings or another source's.
+
+- A command runs as elamond's user, with nothing on its input, in a process group of its own:
+  at its `timeout` it is killed, and once it ends whatever it started is killed too. What it prints
+  is read up to 64 KiB, and the first line it writes to stderr says why when it fails.
+- A web service is asked through curl (on elamond's PATH; the Nix package brings its own), never
+  through a proxy, and no redirect is followed. Its answer is read up to 64 KiB.
+- A file is read up to 64 KiB, and only a regular file is: /proc and /sys files are, a FIFO, a
+  socket or a device isn't (`not a regular file`).
+
+The token file is yours to write, readable by you alone (`chmod 600`). elamond reads its first
+line, trimmed, at each request and sends it in the header alone: it goes to no client, the
+journal, errors, `elamond values` or `elamond check`, nor backups. A token file that is missing,
+unreadable or empty fails the read, and so does one that others may read
+(`token_file may be read by others: chmod 600 it`); `elamond check` warns of each but the empty one.
+A user or password in the URL (`http://user:pass@…`) is a mistake: `put the credentials in
+token_file, not in the URL`.
+
+`elamond check` also finds: an empty `command`, or one whose program is `""`; a `url` that isn't
+`http://` or `https://` with a host, or that has spaces in it; a `header` of other characters, or
+without `token_file`; a relative `token_file` or `path`. It runs, asks and reads nothing (but the
+token file's permissions). The journal says when a source starts failing and when it reads again
+(`source app: HTTP 404`), once each, and never a command's arguments or what it wrote to stderr.
 
 ## The long history
 
@@ -328,12 +413,12 @@ keep = "all"   # or a number of days, 30 or more: hourly points older than that 
 | `keep` | `"all"`, or an integer of days, 30 or more | `"all"` | how long the hourly points are kept; the others keep their windows |
 
 It is in `~/.local/share/elamon/history/` (the service's data folder), a file for each value and
-step, 8 bytes a point, and a file of power changes for each source (its last 10 000). The service
-writes it every 5 minutes and as it stops, never more often and without waiting for the disk, so a
-crash loses those minutes at most; it trims each file to its window as it goes, and after a
-restart the graphs start from it. A value takes about 0.3 MB its first year and 70 KB a year
-after: a computer's graphs some 4 MB, a power station's ninety-odd numbers some 25 MB the first
-year and 6 MB a year after. `elamond check` says how much there is:
+step, 8 bytes a point, and a file of power changes for each `nut` source (its last 10 000). The
+service writes it every 5 minutes and as it stops, never more often and without waiting for the
+disk, so a crash loses those minutes at most; it trims each file to its window as it goes, and
+after a restart the graphs start from it. A value takes about 0.3 MB its first year and 70 KB a
+year after: a computer's graphs some 4 MB, a power station's ninety-odd numbers some 25 MB the
+first year and 6 MB a year after. `elamond check` says how much there is:
 `history: 12.3 MiB in 274 files (oldest 2026-11-16), not in backups`.
 
 It isn't in backups: `elamond backup` leaves it out, as it is large and nothing the service needs
@@ -405,13 +490,13 @@ Every action also needs control: `control = true`, and no `elamond control off`.
 
 ### Station actions
 
-A [source](#sources) with `commands` adds `nut.command.<source>`, whose one parameter `cmd` is a
-choice of the commands the station offers that a pattern of `commands` matches, each labelled as
-upsd describes it (`Turn off AC outlets, group 2`). With `settings`, each writable variable a
-pattern matches that takes a list of values (`ENUM`) or one range (`RANGE`) is an action
-`nut.set.<source>.<variable>` with one parameter `value`, the list as a choice or the range on a
-step of 1 in the variable's unit; one of another kind, or of several ranges, isn't offered, and the
-journal says so once.
+A `nut` [source](#sources) with `commands` adds `nut.command.<source>`, whose one parameter `cmd`
+is a choice of the commands the station offers that a pattern of `commands` matches, each
+labelled as upsd describes it (`Turn off AC outlets, group 2`). With `settings`, each writable
+variable a pattern matches that takes a list of values (`ENUM`) or one range (`RANGE`) is an
+action `nut.set.<source>.<variable>` with one parameter `value`, the list as a choice or the range
+on a step of 1 in the variable's unit; one of another kind, or of several ranges, isn't offered,
+and the journal says so once.
 They come once upsd has said what the station offers, and stay while it can't be reached; until
 then the widgets that run them are left out, and so is a toggle whose `on` or `off` isn't among
 them.
@@ -484,22 +569,31 @@ A dashboard is a page of widgets: a tab when a profile lists it, otherwise a pag
 (`open`), or the chips under the computer's name (a profile's `header`). The standard ones, which
 [the starter file](#the-starter-file) has, are `overview`, `ups`, `processes`, `sensors` and
 `control`, the `header`, and the pages their tiles open: `cpu`, `memory`, `gpu.<key>`, `network`,
-`storage`, `battery`, `activity`.
+`storage`, `battery`, `activity`, `journal` and `unit_log.<link>`.
 
-`ups` is one dashboard for each [source](#sources) (`for_each = "ups"`: `ups.eco`, titled by the
-station's model), and none without one: the starter's `default` profile has it as its second tab
-(`["overview", "ups", "processes", "sensors", "control"]`), so a source needs nothing but its
-`[sources.<id>]`. It shows what the station has and leaves out what it hasn't, the same for a UPS
-and an EcoFlow: the status, with how long it has been so and its flags; the charge, with the time
-left; a timeline of the power; the power in and out, and the solar inputs when there are; the
-battery's charge and discharge limits, health, capacity, voltage and current, with the estimates
-to empty and to full; the outlets; the voltages, frequencies and temperatures; graphs of the
-charge and the power; the model and firmware. Below, once the source has `commands` or
+`ups` is one dashboard for each `nut` [source](#sources) (`for_each = "ups"`: `ups.eco`, titled
+by the station's model), and none without one: the starter's `default` profile has it as its
+second tab (`["overview", "ups", "processes", "sensors", "control"]`), so a source needs nothing
+but its `[sources.<id>]`. It shows what the station has and leaves out what it hasn't, the same
+for a UPS and an EcoFlow: the status, with how long it has been so and its flags; the charge, with
+the time left; a timeline of the power; the power in and out, and the solar inputs when there
+are; the battery's charge and discharge limits, health, capacity, voltage and current, with the
+estimates to empty and to full; the outlets; the voltages, frequencies and temperatures; graphs of
+the charge and the power; the model and firmware. Below, once the source has `commands` or
 `settings`, a switch for each outlet and the beeper, and sliders and choices for the station's
 settings (the charge limits, the charging power, X-Boost, timeouts, the display). To change it,
 `elamond defaults dashboards.ups` gives the table to copy. With two sources, each one's switches
 list the outlets of both. Settings started before 0.7 have no `ups` dashboard: copy it the same
 way into `elamond.d/dashboards.toml`, and add `"ups"` to the profile's `dashboards`.
+
+`journal` is the system journal from warnings up, which Control's *Journal* button opens.
+`unit_log` is one dashboard for each [link](#links) with a unit (`for_each = "links"`:
+`unit_log.jellyfin`, titled by the link's name), the journal of its unit, which a link's row in
+Control's Links table opens (its row action `{ open = "unit_log", label = "Journal" }`); a link
+without a unit has none. Both are for `monitor` and up, and neither is a tab of the starter's
+profiles. Settings started before 0.8 have neither, nor the button and the row action: copy
+`elamond defaults dashboards.journal` and `dashboards.unit_log` into `elamond.d/dashboards.toml`,
+and the two widgets from `dashboards.control`.
 
 ```toml
 [dashboards.power]
@@ -535,7 +629,7 @@ Every widget takes:
 |---|---|---|---|
 | `type` | one of the types below | required (or from `use`) | |
 | `id` | id | its place in the list, from 0 | unique within the dashboard (or group) |
-| `span` | 1–4 | 2, or 4 for `graph`, `table`, `list`, `group`, `media`, `text` and `timeline` | |
+| `span` | 1–4 | 2, or 4 for `graph`, `table`, `list`, `group`, `media`, `text`, `timeline` and `log` | |
 | `label` | string | | its title |
 | `icon` | [icon](#icons) | | |
 | `color` | [colour](#colours) | | its accent |
@@ -578,7 +672,7 @@ the clock on a computer without a CPU temperature); a string left empty isn't sh
 | `meter` | a bar | `min`, `max` |
 | `status` | a state as a coloured word | `map`, `levels` |
 | `graph` | lines over time, the newest values above them | `values` (list of addresses), `labels` (one per value), `colors` (one per value), `range` (seconds, at most `history_minutes`; all of it by default), `height` (`small`, `medium`, `large`), `min`, `max` (a fixed scale, a number or an address; it grows to fit otherwise), `floor` (the least the scale goes down to), `empty` (shown while the first value is missing), `ranges` (bool, `true` by default: a `medium` or `large` graph offers the [long history](#the-long-history), 1 hour to all of it, beside its own `range`; a `small` one never does) |
-| `timeline` | when a source was on line, on battery, or nothing was known, as a bar | `source` (required: a source's id, or `{item}` in a dashboard with `for_each = "ups"`), `range` (seconds, 600–2 592 000; 86 400, a day, by default), `ranges` (bool, `true` by default, as a graph's) |
+| `timeline` | when a source was on line, on battery, or nothing was known, as a bar | `source` (required: a `nut` source's id, or `{item}` in a dashboard with `for_each = "ups"`), `range` (seconds, 600–2 592 000; 86 400, a day, by default), `ranges` (bool, `true` by default, as a graph's) |
 | `list` | rows of a label and a value | `items`: list of `{ label, value, text, format, unit, map, empty, when }`: `value` an address, or `text` a string that holds values (each may `for_each`); a row with nothing to show is left out |
 | `bars` | one bar per item of a collection | `source`, `field`, `max` (number or address), `labels` (the field under each bar; none by default) |
 | `table` | rows from a [collection](#collections) | `source`, `columns`, `sort`, `sorts`, `search`, `limit`, `filter`, `hide_empty`, `row_open`, `row_actions`, `expand` (below) |
@@ -589,6 +683,7 @@ the clock on a computer without a CPU temperature); a string left empty isn't sh
 | `text` | words | `text` (may hold values), `level` |
 | `group` | a card around widgets | `widgets`, `collapsed` (whether it starts closed; the client remembers it after); with `for_each`, its widgets are repeated for each item inside the one card, their ids `<id>.<item key>` |
 | `media` | the players, with covers and seeking, and the volume | |
+| `log` | lines of the systemd journal, the newest at the bottom | `scope`, `unit`, `level`, `lines`, `search` ([below](#the-journal-log)) |
 
 A `table`:
 
@@ -604,15 +699,54 @@ A `table`:
 | `filter` | table, field → value | only rows whose fields have those values (a string, number or bool) |
 | `hide_empty` | bool | hidden while it has no rows |
 | `row_open` | field | a row opens that field's URL when tapped (`links`) |
-| `row_actions` | list of `{ action, label, params }` | `params` values may be `"{field}"`, filled from the row |
+| `row_actions` | list of `{ action, label, params }` or `{ open, label }` | `params` values may be `"{field}"`, filled from the row; `open` names a dashboard with `for_each` over the table's `source`, and a row opens its own of them (`unit_log` → `unit_log.<the row's key>`) |
 | `expand` | list of `{ field, label, format, unit, map }` | what a row shows when opened |
+
+A row action with `open` is on the rows whose dashboard the client has (as far as its role sees
+it); `elamond check` finds one whose dashboard isn't `for_each` over the table's `source`.
 
 A widget whose action the client's role may not run, or the computer can't do, is left out; with
 control off they stay, disabled. So is a toggle whose `on` or `off` its action doesn't take (a
 station's command it doesn't offer, or `commands` doesn't allow).
 
 A `timeline` reaches an app before 0.7 as a `text`: the source's status and how long it has been
-so (`On battery · 12 min`), coloured by the status.
+so (`On battery · 12 min`), coloured by the status. A `log` reaches an app before 0.8 as a `text`
+of level `warning`, `Update the app to read the journal.`, and a row action with `open` doesn't
+reach it.
+
+### The journal: `log`
+
+```toml
+[[dashboards.journal.widgets]]
+id = "system"
+type = "log"
+scope = "system"
+level = "warning"
+label = "System journal"
+```
+
+| key | type | default | |
+|---|---|---|---|
+| `scope` | `system` \| `user` \| `unit` | `system` | the system journal (as far as elamond's user may read it), that user's own, or one unit's |
+| `unit` | string | | with `scope = "unit"`: the `unit` of one of the [links](#links) (`"{item.unit}"` in a dashboard `for_each = "links"`); the link's `scope` says whether it is a system or a user unit |
+| `level` | `debug` \| `info` \| `notice` \| `warning` \| `error` \| `critical` | `info` | the least level shown at first; the client may pick another |
+| `lines` | integer, 10–1000 | 200 | the lines a client keeps on screen |
+| `search` | bool | `true` | a search field |
+
+Its role is `monitor` at least, whatever its `role` says: `glance` never sees the journal. A `unit`
+no link names leaves it out (`elamond check` finds one written out), and so does an empty one, of
+a link without a unit; a dashboard `for_each` left without widgets isn't there. The levels are the
+journal's priorities: 0–2 `critical`, 3 `error`, 4 `warning`, 5 `notice`, 6 `info`, 7 `debug`,
+`info` for a line without one. A client picks another level and searches (the text, unit and name
+of each line) through the service, and loads older lines as it is scrolled back
+([protocol](protocol.md#get-apiv1log)).
+
+The service reads the journal with systemd's `journalctl`, and only while a client shows a `log`.
+The system journal needs elamond's user in the `systemd-journal` group (or `adm`, or `wheel`, where
+the journal's ACL lets them read it): without, a `system` log, and one of a system unit, shows
+what that user may read, under a note saying how to read the rest. `elamond setup --check` says
+which it is (`journal: the system journal is readable`, or `journal: only this user's own journal:
+add the user to systemd-journal …`), and when there is no `journalctl`.
 
 ### Templates
 
@@ -708,7 +842,7 @@ anything else becoming `_`.
 
 ### A source's values
 
-A [source](#sources) has a value for each variable its station reports, named
+A `nut` [source](#sources) has a value for each variable its station reports, named
 `<id>.<variable>` as NUT names it (`eco.battery.charge`, `eco.outlet.2.realpower`,
 `eco.experimental.input.dc.1.realpower`): whatever the station has, `elamond values eco` lists. A
 number is a number, anything else text. The unit comes from the name, as upst-core reads it: `V`
@@ -735,12 +869,42 @@ Beside them, what the service makes of them:
 Its numbers carry limits as the computer's do: `<id>.battery.charge` the battery's, `<id>.ups.load`
 a load's, temperatures a temperature's ([levels](#levels)).
 
-A station's values come and go: nutflow leaves out a reading it hasn't had for a while, an outlet
-that is off has no voltage, and while upsd isn't read the source has only `<id>.status`,
-`<id>.status.power` and the `link`. So that its dashboard keeps its shape, a `when` or a list
-row that names a source's value holds once the source has had that value since elamond started,
-up to 256 values a source, for a role that sees it; the widget then shows `—`. One the source has
-never had leaves the widget out, as for the computer's.
+A `command`, `http` or `file` source has values by its `format`:
+
+| address | | when |
+|---|---|---|
+| `<id>.<path>` | `json`: each leaf of what it read, by the keys of objects and the places in arrays (from 0), joined by dots (`app.queue.length`, `app.workers.0.name`); a number is a number, a string text (1000 characters at most, cut with `…`), `true` and `false` a bool, `null` no value at all. JSON that is only a number, a string or a bool is `<id>.value`. 8 levels deep and 256 leaves at most: the rest is left out, and the journal says so once | after a good read |
+| `<id>.text` | `text`: all it read, trimmed, its control characters but line breaks taken out, 1000 characters at most (`…`); a number when the whole of it is one (`45000`) | after a good read |
+| `<id>.<key>` | `lines`: of each line `key = value` or `key: value` (split at its first `=` or `:`, both sides trimmed), the value: a number, `true` or `false` a bool, else text; other lines are left out, and of a key twice the last counts | after a good read |
+| `<id>.exit` | a command's exit code | after a run that ended of itself (not killed at its `timeout`) |
+| `<id>.age` | whole seconds since the last good read; unit `s`, format `duration` | from the first good read on |
+| `<id>.error` | why the last read failed; role `monitor` at least | while it fails |
+
+Keys and the parts of a path are written in `A-Z`, `a-z`, `0-9`, `_` and `-`, anything else
+becoming `_` (`build info` → `build_info`; an empty one is `_`); `exit`, `age` and `error` are the
+service's own, and a key or leaf of one of those names is left out. A value has no unit, and the
+format `number`, `text` or `bool` as it is (`<id>.age` aside): the widget says the rest with its
+own `unit` and `format` (`format = "time"` for a Unix time in seconds; `unit = "m°C"` and
+`format = "integer"` for the millidegrees of a /sys temperature). The service guesses nothing from
+a name: a key `temperature` gets no °C and no limits. Their role is the source's `role`.
+
+A command that exits with another code than 0 reads well only when what it printed gives at least
+one value (beside its `<id>.exit`); one that gives none fails, as `exited with 7: <the first line
+of stderr>` whatever it printed. A read also fails when the command can't start or runs past its
+`timeout`; when what it read is over 64 KiB, or, with `format = "json"`, isn't JSON; when the web
+service can't be reached, answers other than 2xx, or redirects (none is followed); when the file
+isn't a regular file or can't be read. Then the values of the last good read go (`<id>.age` stays,
+and grows), and `<id>.error` says why: `timed out after 5 s`, `exited with 7: …`, `not JSON: …`,
+`HTTP 404`, `redirect to elsewhere (301), not followed`, `couldn't connect: …`,
+`output over 64 KiB`, `not a regular file`.
+
+A source's values come and go: nutflow leaves out a reading it hasn't had for a while, an outlet
+that is off has no voltage, and while upsd isn't read a `nut` source has only `<id>.status`,
+`<id>.status.power` and the `link`; a web service leaves out a key, and a read that fails leaves
+none. So that its dashboard keeps its shape, a `when` or a list row that names a source's value
+holds once the source has had that value since elamond started, up to 256 values a source, for a
+role that sees it; the widget then shows `—`. One the source has never had leaves the widget out,
+as for the computer's.
 
 ### Collections
 
@@ -760,7 +924,7 @@ Lists of things, for `table` and `for_each`, each item with a `key` and fields:
 | `links` | monitor | `id`, `name`, `url`, `unit`, `scope`, `port`, `up`, `local_only`, `unit_state` |
 | `activity` | monitor | `t` (ms), `phone`, `what`, `result`, `message` |
 | `actions` | operate | the actions the settings add (not the built-in ones) that the role may run: `key` (the id), `name`, `icon` |
-| `ups` | glance | one for each [source](#sources), from the start, whether upsd answers or not: `key` (its id), `name` (`device.model`, else `ups.model`, else its id), `model`, `mfr`, `status`, `power`, `link` (as `<id>.status`, `.status.power`, `.link`), `ecoflow` (bool: an EcoFlow station) |
+| `ups` | glance | one for each `nut` [source](#sources), from the start, whether upsd answers or not: `key` (its id), `name` (`device.model`, else `ups.model`, else its id), `model`, `mfr`, `status`, `power`, `link` (as `<id>.status`, `.status.power`, `.link`), `ecoflow` (bool: an EcoFlow station) |
 | `outlets` | glance | one for each outlet a source has had since elamond started (`outlet.<N>.*`), by source and number, kept while upsd isn't read: `key` (`<id>.<N>`), `source` (the id), `id` (N), `desc`, `status` (`on`, `off`), `realpower` (W), `voltage` (V), `current` (A), `switchable` (bool), `critical` (bool, from the settings) |
 
 A row's `level`, where its collection has one (`temps` by value, `processes` by CPU, `disks` by
