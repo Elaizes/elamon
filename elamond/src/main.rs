@@ -514,7 +514,7 @@ fn collect_loop(
 		let wanted = hub.wanted();
 		let need = wanted.unwrap_or_default();
 		let mut reading = collector.read(wanted.is_some(), need);
-		let got = extras.apply(&hub, &rt, wanted.is_some(), need, &mut reading.sample);
+		let mut got = extras.apply(&hub, &rt, wanted.is_some(), need, &mut reading.sample);
 		// GPU names improve once NVML has been read, so the facts are read again now and then.
 		if reading.cards_changed || seq % u64::from(every.info) == 1 % u64::from(every.info) {
 			info = collector.info(&id, &name, hub.interval, history_len);
@@ -530,7 +530,9 @@ fn collect_loop(
 			actions: &config.actions,
 		});
 		// The UPS sources as their tasks last left them: a slow or gone upsd holds nothing up here.
-		nut::put(&mut values, &config, &hub.nut.snapshots());
+		let snapshots = hub.nut.snapshots();
+		nut::put(&mut values, &config, &snapshots);
+		got.caps.nut = nut::actions::of_sources(&config, &snapshots);
 		let shape = server::shape_of(&values, &got.caps);
 		let stamp = Some((hub.config_gen(), shape));
 		if tracked.0 != stamp {

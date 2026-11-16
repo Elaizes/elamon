@@ -28,6 +28,8 @@ pub enum ErrorCode {
 	NotPermitted,
 	/// The phone's role doesn't allow it; see `access::Role`.
 	NotAllowed,
+	/// A station's command that is typed in, sent without its text; `message` is the text.
+	ConfirmRequired,
 	/// No such path.
 	NotFound,
 	NoSuchProcess,
@@ -52,7 +54,7 @@ pub enum ErrorCode {
 impl ErrorCode {
 	/// Every code, in the order of docs/protocol.md, for elamond/fixtures/errors.json.
 	#[cfg(test)]
-	pub const ALL: [ErrorCode; 22] = [
+	pub const ALL: [ErrorCode; 23] = [
 		ErrorCode::BadParam,
 		ErrorCode::BadSort,
 		ErrorCode::UnknownSignal,
@@ -65,6 +67,7 @@ impl ErrorCode {
 		ErrorCode::ControlDisabled,
 		ErrorCode::NotPermitted,
 		ErrorCode::NotAllowed,
+		ErrorCode::ConfirmRequired,
 		ErrorCode::NotFound,
 		ErrorCode::NoSuchProcess,
 		ErrorCode::NoSuchAction,
@@ -91,6 +94,7 @@ impl ErrorCode {
 			ErrorCode::ControlDisabled => ("control_disabled", StatusCode::FORBIDDEN),
 			ErrorCode::NotPermitted => ("not_permitted", StatusCode::FORBIDDEN),
 			ErrorCode::NotAllowed => ("not_allowed", StatusCode::FORBIDDEN),
+			ErrorCode::ConfirmRequired => ("confirm_required", StatusCode::FORBIDDEN),
 			ErrorCode::NotFound => ("not_found", StatusCode::NOT_FOUND),
 			ErrorCode::NoSuchProcess => ("no_such_process", StatusCode::NOT_FOUND),
 			ErrorCode::NoSuchAction => ("no_such_action", StatusCode::NOT_FOUND),

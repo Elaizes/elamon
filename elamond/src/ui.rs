@@ -896,6 +896,10 @@ fn param_json(p: &actions::Param) -> Obj {
 					let mut ch = Obj::new();
 					ch.put("value", v.as_str());
 					ch.put("label", l.as_str());
+					// Typed in to run: the client asks for exactly this.
+					if p.typed.contains(v) {
+						ch.put("confirm_text", v.as_str());
+					}
 					Value::Object(ch)
 				})
 				.collect();

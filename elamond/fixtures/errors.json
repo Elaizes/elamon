@@ -48,6 +48,10 @@
     "status": 403
   },
   {
+    "error": "confirm_required",
+    "status": 403
+  },
+  {
     "error": "not_found",
     "status": 404
   },

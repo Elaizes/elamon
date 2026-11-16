@@ -4,6 +4,7 @@
 //! that the collector takes at its tick: an upsd that is slow or gone never holds up a reading, a
 //! stream or another source.
 
+pub mod actions;
 pub mod cli;
 pub mod recorder;
 
@@ -15,12 +16,14 @@ use std::time::{Duration, SystemTime};
 use tokio::sync::{mpsc, oneshot, watch};
 use upst_core::history::recordable;
 use upst_core::journal::Record;
+use upst_core::nut::VarInfo;
 use upst_core::poll::{self, Poller, Update};
 use upst_core::status::{flag_info, Severity};
 use upst_core::target::Server;
 use upst_core::{fmt as nut_fmt, Event, Link, Ups};
 
 use crate::access::Role;
+use crate::actions::Spec;
 use crate::consts::{limit, timeout};
 use crate::format;
 pub use crate::history::timeline::Supply;
@@ -125,6 +128,7 @@ const OUTLET_LIVE: [&str; 4] = ["status", "realpower", "voltage", "current"];
 /// beside it since the source started.
 pub struct Station {
 	id: String,
+	src: NutSource,
 	ups: Ups,
 	/// Where the power comes from now.
 	supply: Supply,
@@ -138,6 +142,12 @@ pub struct Station {
 	known: BTreeMap<String, &'static str>,
 	/// Every outlet it has had, by number, with its fields as last told.
 	outlets: BTreeMap<u32, BTreeMap<&'static str, V>>,
+	/// What upsd last said the station offers, kept while it can't be reached; and what it said of
+	/// each writable variable the source's `settings` allow.
+	meta: Option<actions::Meta>,
+	infos: BTreeMap<String, VarInfo>,
+	/// Those that take neither a list of values nor a range, which the journal said.
+	unoffered: BTreeSet<String>,
 }
 
 /// What a source has, at its last update: what the collector puts among the values.
@@ -158,6 +168,8 @@ pub struct Snapshot {
 	/// Its item of the `ups` collection, and of `outlets` (all but `source` and `critical`).
 	pub item: BTreeMap<&'static str, V>,
 	pub outlets: BTreeMap<u32, BTreeMap<&'static str, V>>,
+	/// Its actions, once upsd has said what the station offers.
+	pub actions: Vec<Spec>,
 	/// Polls taken in, which the tests count.
 	#[cfg_attr(not(test), allow(dead_code))]
 	pub polls: u64,
@@ -177,6 +189,7 @@ impl Station {
 		let known = [("status.since", "duration"), ("link.error", "text")].map(|(var, f)| (format!("{id}.{var}"), f)).into();
 		Station {
 			id: id.to_string(),
+			src: src.clone(),
 			ups: Ups::builder(&src.ups, &label).capacity_wh(src.capacity_wh).history(None).build(),
 			supply: Supply::None,
 			timeline,
@@ -184,6 +197,9 @@ impl Station {
 			too_many: false,
 			known,
 			outlets: BTreeMap::new(),
+			meta: None,
+			infos: BTreeMap::new(),
+			unoffered: BTreeSet::new(),
 		}
 	}
 
@@ -290,6 +306,11 @@ impl Station {
 		self.read_outlets(up);
 		s.outlets = self.outlets.clone();
 		s.item = self.item(status);
+		let name = match s.item.get("name") {
+			Some(V::Text(n)) => n.clone(),
+			_ => self.id.clone(),
+		};
+		s.actions = self.actions(&name);
 		s
 	}
 
@@ -625,6 +646,14 @@ impl Task {
 				}
 				u = self.updates.recv() => {
 					let Some(u) = u else { break };
+					let u = match self.offered(&mut station, u) {
+						Some(u) => u,
+						None => {
+							let s = Arc::new(station.snapshot(at));
+							*self.out.lock().unwrap_or_else(|p| p.into_inner()) = s;
+							continue;
+						}
+					};
 					let read = matches!(&u, Update::Vars { ups, .. } if *ups == self.src.ups);
 					if let Some(t) = station.update(&self.src, u) {
 						at = t;
@@ -641,6 +670,20 @@ impl Task {
 		station.close(SystemTime::now());
 		// Dropped, the poller tells its thread to end, which it does once a call in flight returns.
 		drop(self.poller);
+	}
+
+	/// Takes in what upsd says the station offers; any other update is given back.
+	fn offered(&mut self, station: &mut Station, u: Update) -> Option<Update> {
+		match u {
+			Update::Meta { ups, cmds, rw } if ups == self.src.ups => {
+				for var in station.offers(cmds, rw) {
+					self.poller.describe(&ups, &var);
+				}
+			}
+			Update::Info { ups, var, info } if ups == self.src.ups => station.described(var, info),
+			other => return Some(other),
+		}
+		None
 	}
 
 	/// The timeline the recorder's journal made takes the place of the station's then, and the

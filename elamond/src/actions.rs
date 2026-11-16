@@ -47,6 +47,9 @@ pub struct Param {
 	/// May be left out, with no default.
 	pub optional: bool,
 	pub default: Option<Value>,
+	/// The choices that are typed in to run: a station's commands that cut the computer's power or
+	/// a whole station's load, whose `confirm_text` is the value itself.
+	pub typed: Vec<String>,
 }
 
 /// An action as a client may be offered it.
@@ -80,6 +83,8 @@ pub struct Caps {
 	pub media: bool,
 	/// The volume can be read and set.
 	pub volume: bool,
+	/// The UPS sources' actions, as far as their stations have told what they offer.
+	pub nut: Vec<Spec>,
 }
 
 impl Caps {
@@ -91,7 +96,7 @@ impl Caps {
 
 	/// Everything, as the fixtures have it.
 	pub fn all(power_profiles: &[String]) -> Caps {
-		Caps { poweroff: true, reboot: true, suspend: true, lock: true, power_profiles: power_profiles.to_vec(), units: true, media: true, volume: true }
+		Caps { poweroff: true, reboot: true, suspend: true, lock: true, power_profiles: power_profiles.to_vec(), units: true, media: true, volume: true, nut: Vec::new() }
 	}
 }
 
@@ -126,7 +131,7 @@ pub fn label_of(value: &str) -> String {
 }
 
 fn param(id: &str, label: &str, kind: ParamKind, optional: bool) -> Param {
-	Param { id: id.into(), label: label.into(), kind, optional, default: None }
+	Param { id: id.into(), label: label.into(), kind, optional, default: None, typed: Vec::new() }
 }
 
 /// A built-in action's parameters, with the choices the computer and settings give.
@@ -202,7 +207,7 @@ pub fn settings_spec(id: &str, a: &settings::Action) -> Spec {
 			} else {
 				ParamKind::Bool
 			};
-			Param { id: pid.clone(), label: p.label.clone().unwrap_or_else(|| label_of(pid)), kind, optional: false, default: p.default.clone() }
+			Param { id: pid.clone(), label: p.label.clone().unwrap_or_else(|| label_of(pid)), kind, optional: false, default: p.default.clone(), typed: Vec::new() }
 		})
 		.collect();
 	Spec {
@@ -217,7 +222,8 @@ pub fn settings_spec(id: &str, a: &settings::Action) -> Spec {
 	}
 }
 
-/// Every action the computer can do: the built-in ones in their order, then the settings' by id.
+/// Every action the computer can do: the built-in ones in their order, then the stations' by
+/// source (each one's command before its settings, by variable), then the settings' by id.
 pub fn available(config: &Config, caps: &Caps) -> Vec<Spec> {
 	let built_in = BUILT_IN.iter().filter(|b| can(b.0, caps, config)).map(|&(id, name, kind, icon)| Spec {
 		id: id.into(),
@@ -229,7 +235,7 @@ pub fn available(config: &Config, caps: &Caps) -> Vec<Spec> {
 		unlock: false,
 		params: built_in_params(id, config, caps),
 	});
-	built_in.chain(config.actions.iter().map(|(id, a)| settings_spec(id, a))).collect()
+	built_in.chain(caps.nut.iter().cloned()).chain(config.actions.iter().map(|(id, a)| settings_spec(id, a))).collect()
 }
 
 /// Whether `x` is on a step of `step` from `min` (to a millionth of a step).
@@ -304,7 +310,7 @@ pub fn check_params(spec: &Spec, given: &serde_json::Map<String, Value>) -> Resu
 }
 
 /// A value as a command argument: `server`, `50`, `true`.
-fn argument(v: &Value) -> String {
+pub fn argument(v: &Value) -> String {
 	match v {
 		Value::String(s) => s.clone(),
 		Value::Number(n) if n.as_f64().is_some_and(|x| x.fract() == 0.0 && !n.is_f64()) => n.to_string(),

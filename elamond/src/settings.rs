@@ -586,7 +586,18 @@ impl Config {
 
 	/// Whether `id` is an action: a built-in one or one the settings add.
 	pub fn has_action(&self, id: &str) -> bool {
-		self.actions.contains_key(id) || actions::BUILT_IN.iter().any(|b| b.0 == id)
+		self.actions.contains_key(id) || actions::BUILT_IN.iter().any(|b| b.0 == id) || self.station_param(id).is_some()
+	}
+
+	/// The one parameter of a station's action of one of the sources (`nut.command.eco`: `cmd`,
+	/// `nut.set.eco.<variable>`: `value`). Which commands and variables the station has, and what
+	/// each takes, only upsd says, which the settings are never checked against.
+	pub fn station_param(&self, id: &str) -> Option<&'static str> {
+		use crate::nut::actions::Target;
+		match crate::nut::actions::target(id)? {
+			Target::Command { source } => self.sources.contains_key(source).then_some("cmd"),
+			Target::Set { source, .. } => self.sources.contains_key(source).then_some("value"),
+		}
 	}
 
 	/// The kinds of an action's parameters by id: `choice`, `range`, `bool`, `integer`, `number`
@@ -594,6 +605,10 @@ impl Config {
 	pub fn param_kinds(&self, action: &str) -> Option<Vec<(String, &'static str)>> {
 		if let Some(a) = self.actions.get(action) {
 			return Some(actions::settings_spec(action, a).params.iter().map(|p| (p.id.clone(), p.kind.name())).collect());
+		}
+		// A station's: its kind is the station's to say.
+		if let Some(p) = self.station_param(action) {
+			return Some(vec![(p.to_string(), "station")]);
 		}
 		Some(actions::built_in_param_kinds(action)?.into_iter().map(|(p, k)| (p.to_string(), k)).collect())
 	}
@@ -1951,11 +1966,14 @@ fn check_action_use(c: &Config, action: &str, w: &Widget, kind: &str, path: &str
 	}
 	let kinds = c.param_kinds(action).unwrap_or_default();
 	let spec = c.actions.get(action).map(|a| actions::settings_spec(action, a));
+	// A station's parameter takes what the station has, which isn't known here.
+	let station = c.station_param(action).is_some();
 	if let Some(param) = &w.param {
 		match kinds.iter().find(|(p, _)| p == param) {
 			None => push(join(path, "param"), format!("no parameter \"{param}\" in {action}{}", did_you_mean(param, kinds.iter().map(|(p, _)| p.as_str())))),
 			Some((_, k)) => {
 				let fits = match kind {
+					_ if station => true,
 					"select" => *k == "choice",
 					"slider" => *k == "range",
 					"toggle" => *k == "bool" || *k == "choice",
@@ -2290,6 +2308,26 @@ settings = ["battery.charge.low"]
 		assert!(no("source = \"ecco\"\n").contains("dashboards.d.widgets[0].source: no source \"ecco\" in [sources]; did you mean eco?"), "{}", no("source = \"ecco\"\n"));
 		assert!(no("").contains("a timeline widget needs source"));
 		assert!(no("source = \"eco\"\nrange = 300\n").contains("range: should be an integer from 600 to 2592000"));
+	}
+
+	#[test]
+	fn a_station_s_actions_are_named_but_what_the_station_has_isnt_checked() {
+		// As `elamond defaults dashboards.ups` gives them, `{item}` written out.
+		let with = |widgets: &str| {
+			read(&[("a.toml", format!("[sources.eco]\nkind = \"nut\"\nups = \"ups\"\n[dashboards.d]\ntitle = \"D\"\n[[dashboards.d.widgets]]\n{widgets}").as_str())])
+		};
+		for w in [
+			"type = \"toggle\"\nvalue = \"eco.ups.beeper.status\"\naction = \"nut.command.eco\"\nparam = \"cmd\"\non = \"beeper.enable\"\noff = \"beeper.disable\"\n",
+			"type = \"slider\"\nvalue = \"eco.experimental.battery.charge.max\"\naction = \"nut.set.eco.experimental.battery.charge.max\"\nparam = \"value\"\n",
+			"type = \"select\"\nvalue = \"eco.experimental.output.xboost\"\naction = \"nut.set.eco.experimental.output.xboost\"\nparam = \"value\"\n",
+			"type = \"button\"\naction = \"nut.command.eco\"\nparams = { cmd = \"beeper.enable\" }\n",
+		] {
+			assert!(with(w).is_ok(), "{w}: {}", join_mistakes(&with(w).unwrap_err()));
+		}
+		let no = |w: &str| join_mistakes(&with(w).unwrap_err());
+		assert!(no("type = \"button\"\naction = \"nut.command.ecco\"\n").contains("no action \"nut.command.ecco\""));
+		assert!(no("type = \"slider\"\nvalue = \"eco.x\"\naction = \"nut.set.eco.x\"\nparam = \"cmd\"\n").contains("no parameter \"cmd\" in nut.set.eco.x"));
+		assert!(no("type = \"button\"\naction = \"nut.command.eco\"\nparams = { value = 1 }\n").contains("no parameter \"value\" in nut.command.eco"));
 	}
 
 	#[test]

@@ -135,6 +135,8 @@ impl Hub {
 #[serde(default)]
 pub struct ActionRequest {
 	pub params: Map<String, Value>,
+	/// A station's command that is typed in, as the person typed it.
+	pub confirm_text: Option<String>,
 }
 
 /// What an action the settings add answered: how its command ended, and what it wrote.
@@ -148,7 +150,9 @@ pub(crate) struct ActionResult {
 
 /// Runs an action of the client's `ui`: 404 `no_such_action` for one the computer doesn't have
 /// (or can't do), 403 `not_allowed` for one the client's role may not run, 403 `control_disabled`
-/// while control is off, 400 `bad_param` naming the first parameter that is wrong.
+/// while control is off, 400 `bad_param` naming the first parameter that is wrong. A station's
+/// besides: 403 `not_allowed` for a command it doesn't offer (before the parameters), and 403
+/// `confirm_required` for one that is typed in without its text (after them).
 pub async fn action(
 	State(hub): State<Arc<Hub>>,
 	Extension(who): Extension<Caller>,
@@ -174,7 +178,15 @@ pub async fn action(
 		let Some(spec) = spec else {
 			return Err(ErrorCode::NoSuchAction.into());
 		};
+		let station = spec.kind == "nut";
+		let refused = |(code, message): (ErrorCode, String)| Refusal { code, message: Some(message) };
+		if station {
+			crate::nut::actions::offered(&spec, &req.params).map_err(refused)?;
+		}
 		let params = actions::check_params(&spec, &req.params).map_err(|p| Refusal { code: ErrorCode::BadParam, message: Some(p) })?;
+		if station {
+			crate::nut::actions::typed_in(&spec, &params, req.confirm_text.as_deref()).map_err(refused)?;
+		}
 		let result = run_spec(&hub, &who, &spec, &params, &config).await;
 		hub.refresh_soon();
 		result
@@ -192,11 +204,16 @@ fn word(v: &Value) -> String {
 
 /// What the activity log says was asked: `power reboot`, `profile balanced`,
 /// `signal term 1234 firefox`, `unit restart nginx.service`, `media play_pause`, `volume 40 %`,
-/// `action Mode server`.
+/// `action Mode server`, `nut eco outlet.2.load.off`, `nut eco experimental.battery.charge.max 90`.
 fn what_of(id: &str, spec: Option<&Spec>, params: &Map<String, Value>, config: &crate::settings::Config) -> String {
 	let p = |k: &str| params.get(k).map(word).unwrap_or_default();
 	if let Some(name) = id.strip_prefix("power.") {
 		return format!("power {name}");
+	}
+	match crate::nut::actions::target(id) {
+		Some(crate::nut::actions::Target::Command { source }) => return format!("nut {source} {}", p("cmd")).trim_end().to_string(),
+		Some(crate::nut::actions::Target::Set { source, var }) => return format!("nut {source} {var} {}", p("value")).trim_end().to_string(),
+		None => {}
 	}
 	if let Some(op) = id.strip_prefix("unit.") {
 		let link = p("link");

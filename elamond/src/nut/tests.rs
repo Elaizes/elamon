@@ -157,6 +157,69 @@ fn a_station_s_values_collections_and_what_is_kept() {
 }
 
 #[test]
+fn a_station_s_actions_are_what_it_offers_as_far_as_its_source_allows() {
+	use upst_core::nut::{CmdInfo, VarInfo};
+	let config = source(
+		"[sources.offers]\nkind = \"nut\"\nups = \"ups\"\nuser = \"elamon\"\npassword_file = \"/etc/elamon/nut.password\"\n\
+		 commands = [\"outlet.*.load.*\", \"load.off\"]\nsettings = [\"experimental.*\"]\nrole = \"operate\"\noutlets.\"1\".critical = true\n",
+	);
+	let mut st = Station::new("offers", &config.sources["offers"]);
+	st.polled(station_vars("OL"), at(1000));
+	// Nothing until upsd has said what the station offers.
+	assert!(st.snapshot(at(1000)).actions.is_empty());
+	let cmd = |name: &str, desc: Option<&str>| CmdInfo { name: name.into(), desc: desc.map(String::from) };
+	let cmds = vec![
+		cmd("outlet.1.load.off", None),
+		cmd("outlet.1.load.on", None),
+		cmd("outlet.10.load.off", Some(" ")),
+		cmd("beeper.enable", Some("Turn the beeper on")),
+		cmd("load.off", Some("Turn off the load")),
+		cmd("outlet.2.load.cycle", None),
+	];
+	let rw = ["experimental.output.xboost", "experimental.id", "ups.delay.start", "experimental.battery.charge.max"].map(String::from).to_vec();
+	// Of its writable variables, upsd is asked about those the settings allow.
+	assert_eq!(st.offers(cmds, rw), ["experimental.output.xboost", "experimental.id", "experimental.battery.charge.max"]);
+	let snap = st.snapshot(at(1000));
+	assert_eq!(snap.actions.len(), 1);
+	let command = &snap.actions[0];
+	assert_eq!((command.id.as_str(), command.name.as_str(), command.kind, command.role, command.confirm), ("nut.command.offers", "DELTA 3 Max Plus", "nut", Role::Operate, true));
+	let crate::actions::ParamKind::Choice(choices) = &command.params[0].kind else { panic!("{:?}", command.params[0]) };
+	let labels: Vec<(&str, &str)> = choices.iter().map(|(v, l)| (v.as_str(), l.as_str())).collect();
+	assert_eq!(
+		labels,
+		[
+			("outlet.1.load.off", "AC outlets, group 1: off"),
+			("outlet.1.load.on", "AC outlets, group 1: on"),
+			("outlet.10.load.off", "USB-C 1: off"),
+			("load.off", "Turn off the load"),
+			("outlet.2.load.cycle", "outlet.2.load.cycle"),
+		]
+	);
+	assert_eq!(command.params[0].typed, ["outlet.1.load.off", "load.off"]);
+	// A setting once upsd has described it: a list of values, or a range; neither isn't offered,
+	// which the journal says once.
+	let info = |kind: &[&str], values: &[&str], ranges: &[(&str, &str)]| VarInfo {
+		desc: None,
+		kind: kind.iter().map(|s| s.to_string()).collect(),
+		enum_values: values.iter().map(|s| s.to_string()).collect(),
+		ranges: ranges.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect(),
+	};
+	st.described("experimental.battery.charge.max".into(), info(&["RW", "RANGE", "NUMBER"], &[], &[("50", "100")]));
+	st.described("experimental.id".into(), info(&["RW", "STRING:32"], &[], &[]));
+	let ids = |s: &Snapshot| s.actions.iter().map(|a| a.id.clone()).collect::<Vec<_>>();
+	assert_eq!(ids(&st.snapshot(at(1000))), ["nut.command.offers", "nut.set.offers.experimental.battery.charge.max"]);
+	st.described("experimental.output.xboost".into(), info(&["RW", "ENUM"], &["enabled", "disabled"], &[]));
+	let snap = st.snapshot(at(1000));
+	assert_eq!(ids(&snap), ["nut.command.offers", "nut.set.offers.experimental.battery.charge.max", "nut.set.offers.experimental.output.xboost"]);
+	assert_eq!(snap.actions[1].name, "experimental.battery.charge.max");
+	let said = recorder::tests::said("offers");
+	assert_eq!(said.iter().filter(|l| l.contains("experimental.id takes neither a list of values nor a range")).count(), 1, "{said:?}");
+	// They stay while upsd can't be reached.
+	st.lost(Link::Down("connection refused".into()), at(1010));
+	assert_eq!(ids(&st.snapshot(at(1010))).len(), 3);
+}
+
+#[test]
 fn a_dashboard_keeps_its_shape_while_upsd_is_lost() {
 	let config = source(
 		r#"
