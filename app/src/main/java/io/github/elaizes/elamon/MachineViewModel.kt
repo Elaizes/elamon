@@ -743,6 +743,13 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 				refused = null,
 			)
 		}
+		// A reset that fills less than the log keeps (the system journal at warning, among the
+		// computer's last thousand lines of every level) is filled from /log once: the computer
+		// filters the level there, over more of the journal.
+		for (w in logs) {
+			if (line.widgets[w.id]?.reset != true) continue
+			if ((_state.value.logs[w.id]?.lineCount ?: 0) < (w.lines ?: Limits.LOG_LINES_DEFAULT)) loadOlder(w)
+		}
 	}
 
 	/** This phone's id in the computer's list of paired phones, for the commands that change its role or profile; null while it isn't known. */
