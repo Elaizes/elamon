@@ -18,7 +18,11 @@
 					path = ./elamond;
 					name = "elamond-source";
 				};
-				cargoLock.lockFile = ./elamond/Cargo.lock;
+				cargoLock = {
+					lockFile = ./elamond/Cargo.lock;
+					# upst-core comes from its repository, at a tag; this pins what it holds.
+					outputHashes."upst-core-0.1.0" = "sha256-mI33ILxyCXIL3UsCJ92Cw7GEKbUPgaJhrWTxKrFfTwQ=";
+				};
 				nativeBuildInputs = [ pkgs.makeWrapper ];
 				# `elamond update`'s tests download, with curl, from a server of their own on 127.0.0.1.
 				nativeCheckInputs = [ pkgs.curl ];

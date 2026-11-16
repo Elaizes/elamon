@@ -32,8 +32,12 @@ tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "
 toml = "1.2.1"
 # Already among the build's (proc-macro-crate); writes settings files keeping their comments.
 toml_edit = "0.25.19"
+# UPSes and power stations through upsd (NUT): the client, events and estimates of the upst project.
+upst-core = { git = "https://github.com/Dolfost/upst", tag = "upst-core-v0.1.0", features = ["serde"] }
 zbus ={ version = "5.19.0", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
 # Already among axum's; calls the router in tests as a phone would.
 tower = { version = "0.5.3", default-features = false, features = ["util"] }
+# A simulated upsd on a loopback port, for the sources' tests.
+upst-core = { git = "https://github.com/Dolfost/upst", tag = "upst-core-v0.1.0", features = ["serde", "demo"] }
