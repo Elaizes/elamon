@@ -1,5 +1,5 @@
 {
-  "version": "b229e25332e8dc6f",
+  "version": "2690b678f7a61f84",
   "service": {
     "id": "0123456789abcdef0123456789abcdef",
     "name": "fixture",
@@ -376,6 +376,7 @@
           "search": false,
           "hide_empty": true,
           "row_open": "url",
+          "row_actions": [{ "open": "unit_log", "label": "Journal" }],
           "expand": [
             { "field": "url", "label": "Address", "format": "text" },
             { "field": "unit", "label": "Unit", "format": "text" },
@@ -435,6 +436,7 @@
             { "field": "year", "label": "Made", "format": "integer" }
           ]
         },
+        { "id": "control/journal", "type": "button", "span": 4, "label": "Journal", "icon": "terminal", "open": "journal" },
         { "id": "control/activity", "type": "button", "span": 4, "label": "Activity log", "icon": "clock", "open": "activity" }
       ]
     },
@@ -797,6 +799,23 @@
             { "label": "Charge cycles", "format": "integer" },
             { "label": "Model", "format": "text" }
           ]
+        }
+      ]
+    },
+    {
+      "id": "journal",
+      "title": "Journal",
+      "icon": "terminal",
+      "widgets": [
+        {
+          "id": "journal/system",
+          "type": "log",
+          "span": 4,
+          "label": "System journal",
+          "scope": "system",
+          "level": "warning",
+          "lines": 200,
+          "search": true
         }
       ]
     },

@@ -6,7 +6,7 @@ pub mod protocol {
 	pub const API_VERSION: u32 = 2;
 	/// The dictionary of widget types and their keys (`hello`'s `widgets`): it grows, a type or a
 	/// key added, never changed.
-	pub const WIDGETS_VERSION: u32 = 2;
+	pub const WIDGETS_VERSION: u32 = 3;
 	/// The oldest app that understands this service; an older one asks to be updated.
 	pub const MIN_APP: &str = "0.6.0";
 	/// The header a client says what it is in: `Elamon-Client: android/0.6.0`.
@@ -86,6 +86,9 @@ pub mod cadence {
 	/// A `command`, `http` or `file` source is read this often, in seconds, while it is needed,
 	/// unless its `interval` says otherwise.
 	pub const FEED_INTERVAL_SECS: u64 = 10;
+	/// A `journalctl` that follows the journal for a `log` and ends is started again no sooner than
+	/// this after it last started, while a client shows the log.
+	pub const JOURNAL_RESTART: Duration = Duration::from_secs(10);
 	/// How far back a timeline reaches unless its `range` says, in seconds: a day.
 	pub const TIMELINE_RANGE: u64 = 86_400;
 	/// What of a recorder's journal a source starts from, as if it had read it, in seconds: its
@@ -185,6 +188,13 @@ pub mod timeout {
 	pub const FEED_SECS: u64 = 5;
 	/// A source stopped as the service stops gets this long for its read to end.
 	pub const FEED_STOP: Duration = Duration::from_secs(1);
+	/// A `journalctl` that follows the journal has printed the journal's last lines once it has
+	/// said nothing for `JOURNAL_QUIET`, or printed them all, or run for `JOURNAL_START`: from then
+	/// on its `log`s have a state.
+	pub const JOURNAL_QUIET: Duration = Duration::from_millis(250);
+	pub const JOURNAL_START: Duration = Duration::from_secs(3);
+	/// A `journalctl` run for older lines (`GET /api/v1/log`) is killed after this.
+	pub const JOURNAL_PAGE: Duration = Duration::from_secs(5);
 }
 
 /// Sizes and counts that keep one phone, process or file from costing too much.
@@ -254,6 +264,27 @@ pub mod limit {
 	pub const FEED_KNOWN_MAX: usize = 256;
 	/// Bytes of a token file read, for its first line.
 	pub const TOKEN_FILE_MAX: u64 = 64 * 1024;
+	/// The journal's last lines a tail keeps, however fast it grows: what it prints as it starts,
+	/// and what a `log`'s state is made of.
+	pub const JOURNAL_KEPT: usize = 1000;
+	/// Bytes in a line `journalctl` prints; a longer one is skipped.
+	pub const JOURNAL_LINE_MAX: usize = 64 * 1024;
+	/// Characters in a journal line's text, `…` included.
+	pub const LOG_TEXT_MAX: usize = 2000;
+	/// The lines a client keeps of a `log` unless its `lines` says.
+	pub const LOG_LINES: u64 = 200;
+	/// Bytes of lines in a `log`'s state that replaces what the client has (`reset`).
+	pub const LOG_RESET_BYTES: usize = 64 * 1024;
+	/// New lines in a `log`'s state of one `data` line at most, and their bytes; the rest are `more`.
+	pub const LOG_NEW_LINES: usize = 50;
+	pub const LOG_NEW_BYTES: usize = 16 * 1024;
+	/// Characters in a `log`'s search.
+	pub const LOG_SEARCH_MAX: usize = 100;
+	/// `GET /api/v1/log` answers this many lines at most, of this many it looks at, and runs this
+	/// many `journalctl`s at once (the rest wait their turn).
+	pub const LOG_PAGE: usize = 100;
+	pub const LOG_PAGE_SCAN: usize = 2000;
+	pub const LOG_PAGES_AT_ONCE: usize = 2;
 }
 
 /// `elamond backup` and `elamond restore`.

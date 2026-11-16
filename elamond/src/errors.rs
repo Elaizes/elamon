@@ -37,7 +37,7 @@ pub enum ErrorCode {
 	NoSuchAction,
 	/// No such dashboard in the client's `ui`.
 	NoSuchDashboard,
-	/// No such graph or timeline in the client's `ui`, for its history.
+	/// No such graph or timeline in the client's `ui`, for its history; no such `log`, for its older lines.
 	NoSuchWidget,
 	/// No open stream of this client with that id.
 	NoSuchStream,

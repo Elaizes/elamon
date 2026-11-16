@@ -21,6 +21,7 @@ use tokio::sync::{mpsc, watch, Notify};
 use crate::access::Caller;
 use crate::consts::{cadence, limit};
 use crate::errors::ErrorCode;
+use crate::journal::{self, Logs};
 use crate::server::{self, body_of, data_of, dashboard_in, draws_from, error, heads_of, needs_of, ClientApp, Hub, TokenHash, Want};
 use crate::ui::{Obj, Put, Sources, Ui};
 
@@ -30,8 +31,14 @@ pub struct Open {
 	pub client: String,
 	opened: Instant,
 	ctl: Arc<Ctl>,
-	/// The `ui` it sends for now, to check changes against.
-	ui: Arc<Mutex<Arc<Ui>>>,
+	/// What it sends for now, to check changes against.
+	shown: Arc<Mutex<Shown>>,
+}
+
+/// The `ui` a stream sends for now, and the dashboard on screen.
+struct Shown {
+	ui: Arc<Ui>,
+	dashboard: Option<String>,
 }
 
 impl Open {
@@ -88,6 +95,32 @@ pub struct Change {
 	pub interval: Option<u64>,
 	/// Another of a table's `sorts`, by the table's id; `null` for the table's own order back.
 	pub sort: BTreeMap<String, Option<String>>,
+	/// Another filter of a `log`, by its id; `null` for its own level and no search back.
+	pub log: BTreeMap<String, Option<LogFilter>>,
+}
+
+/// A `log`'s filter, whole: a level of the six (the widget's own when left out), and a search
+/// (none when left out or empty).
+#[derive(Deserialize, Default, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct LogFilter {
+	pub level: Option<String>,
+	pub search: Option<String>,
+}
+
+impl LogFilter {
+	/// The filter as the stream keeps it; none for a level not of the six or a search too long.
+	fn asked(&self) -> Option<journal::Asked> {
+		let priority = match self.level.as_deref() {
+			Some(l) => Some(journal::priority_of(l)?),
+			None => None,
+		};
+		let search = self.search.clone().filter(|s| !s.is_empty());
+		if search.as_ref().is_some_and(|s| s.chars().count() > limit::LOG_SEARCH_MAX) {
+			return None;
+		}
+		Some(journal::Asked { priority, search })
+	}
 }
 
 impl Change {
@@ -100,6 +133,7 @@ impl Change {
 			self.interval = later.interval;
 		}
 		self.sort.extend(later.sort);
+		self.log.extend(later.log);
 		self
 	}
 }
@@ -159,15 +193,15 @@ pub async fn open(
 	let interval = interval_of(&hub, q.interval, ui.profile.interval_ms);
 	let id = data_encoding::HEXLOWER.encode(&crate::store::random_bytes::<8>());
 	let ctl = Arc::new(Ctl::new());
-	let shared = Arc::new(Mutex::new(ui.clone()));
-	register(&hub, &id, Open { client: who.id.clone(), opened: Instant::now(), ctl: ctl.clone(), ui: shared.clone() });
+	let shared = Arc::new(Mutex::new(Shown { ui: ui.clone(), dashboard: dashboard.clone() }));
+	register(&hub, &id, Open { client: who.id.clone(), opened: Instant::now(), ctl: ctl.clone(), shown: shared.clone() });
 
 	let mut words = vec![format!("dashboard {}", dashboard.as_deref().unwrap_or("none")), format!("every {} ms", interval.as_millis())];
 	let need = dashboard.as_deref().and_then(|d| ui.dashboard(d)).map(|d| needs_of(&ui, d)).unwrap_or_default();
 	let heads = dashboard.as_deref().and_then(|d| ui.dashboard(d)).map(|d| heads_of(&ui, d)).unwrap_or_default();
 	words.extend(need.words().into_iter().map(String::from));
 	hub.stream_opened(&who, peer.ip(), &words.join(", "));
-	let run = Run {
+	let mut run = Run {
 		want: hub.want(need, heads.clone()),
 		hub: hub.clone(),
 		id: id.clone(),
@@ -185,8 +219,10 @@ pub async fn open(
 		quick: None,
 		history: true,
 		partial: false,
+		logs: Logs::default(),
 		log: Log { hub: hub.clone(), id, who, opened: Instant::now(), why: "connection closed" },
 	};
+	run.show_logs();
 	let (tx, rx) = mpsc::channel::<Bytes>(4);
 	// Sent before the task starts, so it is the first line whatever happens after.
 	let _ = tx.try_send(line(open_line(&run.id, &ui.version)));
@@ -224,7 +260,7 @@ struct Run {
 	/// The widget types the stream was opened with, if it was.
 	fixed: Option<BTreeSet<String>>,
 	ui: Arc<Ui>,
-	shared: Arc<Mutex<Arc<Ui>>>,
+	shared: Arc<Mutex<Shown>>,
 	dashboard: Option<String>,
 	need: Sources,
 	/// The heads of the addresses its dashboard and the header name (`heads_of`).
@@ -241,6 +277,8 @@ struct Run {
 	/// The last `data` line went from a reading without all the dashboard needs, so some widgets
 	/// had no state: the first reading with all of it sends one at once.
 	partial: bool,
+	/// The `log`s on screen, with their journals' tails, and the filters the client asked for.
+	logs: Logs,
 	log: Log,
 }
 
@@ -300,7 +338,8 @@ impl Run {
 			if !due {
 				continue;
 			}
-			let data = data_of(&self.hub, &self.ui, dashboard, &who, &frame, &self.sorts, self.history);
+			let mut data = data_of(&self.hub, &self.ui, dashboard, &who, &frame, &self.sorts, self.history);
+			self.logs.put(&mut data);
 			if !send(&tx, &mut end, line(data)).await {
 				break;
 			}
@@ -320,7 +359,7 @@ impl Run {
 
 	/// Takes a new `ui`: the dashboard on screen stays, or becomes the first tab when it is gone.
 	fn set_ui(&mut self, ui: Arc<Ui>) {
-		*self.shared.lock().unwrap_or_else(|p| p.into_inner()) = ui.clone();
+		self.shared.lock().unwrap_or_else(|p| p.into_inner()).ui = ui.clone();
 		self.ui = ui;
 		let kept = self.dashboard.as_deref().is_some_and(|d| self.ui.dashboard(d).is_some());
 		if !kept {
@@ -345,6 +384,17 @@ impl Run {
 			self.heads = heads.clone();
 			self.want.set(need, heads);
 		}
+		self.shared.lock().unwrap_or_else(|p| p.into_inner()).dashboard = self.dashboard.clone();
+		self.show_logs();
+	}
+
+	/// Holds the tails of the journals of the `log`s on screen, the dashboard's and the header's, and
+	/// lets go of the rest.
+	fn show_logs(&mut self) {
+		let config = self.hub.config();
+		let on = self.dashboard.as_deref().and_then(|d| self.ui.dashboard(d));
+		let hub = &self.hub;
+		self.logs.show(on.map(|d| journal::on_screen(&self.ui, d, &config)).unwrap_or_default(), |key| hub.journal.tail(key));
 	}
 
 	/// What `POST /api/v1/stream/{id}` asked for, checked there, from the next line on.
@@ -368,6 +418,13 @@ impl Run {
 				};
 			}
 			// The new order at once, as the dashboard would come.
+			self.last = None;
+		}
+		if !c.log.is_empty() {
+			for (id, filter) in c.log {
+				self.logs.ask(&id, filter.as_ref().and_then(LogFilter::asked));
+			}
+			// Its lines anew at once, as an order would come.
 			self.last = None;
 		}
 		self.update_need();
@@ -407,15 +464,30 @@ pub async fn change(State(hub): State<Arc<Hub>>, Extension(who): Extension<Calle
 	};
 	let found = {
 		let streams = hub.streams.lock().unwrap_or_else(|p| p.into_inner());
-		streams.get(&id).filter(|o| o.client == who.id).map(|o| (o.ctl.clone(), o.ui.lock().unwrap_or_else(|p| p.into_inner()).clone()))
+		streams.get(&id).filter(|o| o.client == who.id).map(|o| {
+			let shown = o.shown.lock().unwrap_or_else(|p| p.into_inner());
+			(o.ctl.clone(), shown.ui.clone(), shown.dashboard.clone())
+		})
 	};
-	let Some((ctl, ui)) = found else { return error(ErrorCode::NoSuchStream) };
+	let Some((ctl, ui, on)) = found else { return error(ErrorCode::NoSuchStream) };
 	if c.dashboard.as_deref().is_some_and(|d| ui.dashboard(d).is_none()) {
 		return error(ErrorCode::NoSuchDashboard);
 	}
 	for (table, field) in &c.sort {
 		if !sorts_by(&ui, table, field.as_deref()) {
 			return server::error_with(ErrorCode::BadSort, table.clone());
+		}
+	}
+	if !c.log.is_empty() {
+		// The dashboard the request leaves the stream on: the one it asks for, or one asked for before
+		// that the stream hasn't taken up yet, or the one it shows.
+		let waiting = ctl.change.lock().unwrap_or_else(|p| p.into_inner()).as_ref().and_then(|w| w.dashboard.clone());
+		let on = c.dashboard.clone().or(waiting).or(on);
+		let config = hub.config();
+		let logs = on.as_deref().and_then(|d| ui.dashboard(d)).map(|d| journal::on_screen(&ui, d, &config)).unwrap_or_default();
+		let shown = |id: &str| logs.iter().any(|(w, _)| w.id == id);
+		if c.log.iter().any(|(id, f)| !shown(id) || f.as_ref().is_some_and(|f| f.asked().is_none())) {
+			return server::error_with(ErrorCode::BadParam, "log");
 		}
 	}
 	if ctl.end.borrow().is_some() {

@@ -262,7 +262,7 @@ pub struct Ui {
 	pub units: Units,
 	pub tabs: Vec<String>,
 	pub header: Option<String>,
-	/// The tabs, the header, then the dashboards reached through `open`.
+	/// The tabs, the header, then the dashboards reached through `open`, a widget's then a row's.
 	pub dashboards: Vec<Dashboard>,
 	/// The actions this client may run.
 	pub actions: Vec<Spec>,
@@ -292,6 +292,8 @@ struct Ctx<'a> {
 	actions: BTreeMap<String, Spec>,
 	draws: Option<&'a BTreeSet<String>>,
 	history_seconds: u64,
+	/// The profile's header, whose chips a `log` makes no sense among.
+	header: Option<&'a str>,
 }
 
 /// What `{item}` stands for in a widget made by `for_each`: an item of a collection, or a string.
@@ -525,10 +527,14 @@ impl Ctx<'_> {
 		if let Some(s) = w.source.as_ref().filter(|_| kind != "timeline") {
 			need = need.max(values::collection_role(s));
 		}
-		if kind == "media" {
+		if kind == "media" || kind == "log" {
 			need = need.max(Role::Monitor);
 		}
 		if self.view.role < need {
+			return None;
+		}
+		// A journal shows in a dashboard, not among the header's chips; a unit's, only of a link's unit.
+		if kind == "log" && (prefix.split('/').next() == self.header || crate::journal::Key::of(&w, self.config).is_none()) {
 			return None;
 		}
 		if w.action.as_deref().is_some_and(|a| !self.actions.contains_key(a)) {
@@ -566,8 +572,13 @@ impl Ctx<'_> {
 				w.items = Some(items);
 			}
 			"table" => {
+				// One that opens a dashboard goes to a client that reads the journal (an app before
+				// 0.8 needs `action`).
 				if let Some(ra) = &mut w.row_actions {
-					ra.retain(|a| self.actions.contains_key(&a.action));
+					ra.retain(|a| match &a.action {
+						Some(action) => self.actions.contains_key(action),
+						None => a.open.is_some() && self.draws("log"),
+					});
 				}
 			}
 			_ => {}
@@ -652,7 +663,10 @@ impl Ctx<'_> {
 			_ => {}
 		}
 		let label = w.def.label.clone();
-		let text = format!("Update the app to see this {} widget.", w.kind);
+		let text = match w.kind.as_str() {
+			"log" => "Update the app to read the journal.".to_string(),
+			kind => format!("Update the app to see this {kind} widget."),
+		};
 		let def = Widget { kind: Some("text".into()), label, text: Some(text), level: Some("warning".into()), ..Default::default() };
 		UiWidget { id: w.id, kind: "text".into(), span: w.span, def, widgets: Vec::new() }
 	}
@@ -788,11 +802,12 @@ fn prune(widgets: &mut Vec<UiWidget>, visible: &HashSet<String>) {
 	widgets.retain(|w| !(w.kind == "button" && w.def.action.is_none() && w.def.open.is_none()) && !(w.kind == "group" && w.widgets.is_empty()));
 }
 
-/// Every `open` of these widgets, in order.
-fn opens(widgets: &[UiWidget], out: &mut Vec<String>) {
+/// Every `open` of these widgets, in order; and of their tables' rows.
+fn opens(widgets: &[UiWidget], out: &mut Vec<String>, rows: &mut Vec<String>) {
 	for w in widgets {
 		out.extend(w.def.open.clone());
-		opens(&w.widgets, out);
+		rows.extend(w.def.row_actions.iter().flatten().filter_map(|a| a.open.clone()));
+		opens(&w.widgets, out, rows);
 	}
 }
 
@@ -802,28 +817,32 @@ pub fn build(input: &Input) -> Ui {
 	let units = units_of(&profile);
 	let view = View::new(input.values, input.role, units);
 	let available: Vec<Spec> = actions::available(input.config, input.caps).into_iter().filter(|s| input.role >= s.role).collect();
+	let header_id = Some(profile.header.clone()).filter(|h| !h.is_empty());
 	let ctx = Ctx {
 		config: input.config,
 		view,
 		actions: available.iter().map(|s| (s.id.clone(), s.clone())).collect(),
 		draws: input.draws,
 		history_seconds: input.service.history_seconds,
+		header: header_id.as_deref(),
 	};
 
-	// The tabs, the header, then what their widgets open, each once.
+	// The tabs, the header, then what their widgets open, each once; then the dashboards of the
+	// rows of their tables, and what those open.
 	let tab_ids: Vec<String> = profile.dashboards.iter().flat_map(|d| ctx.expand(d)).collect();
-	let header_id = Some(profile.header.clone()).filter(|h| !h.is_empty());
 	let mut queue: VecDeque<String> = tab_ids.iter().cloned().chain(header_id.clone()).collect();
+	let mut later: VecDeque<String> = VecDeque::new();
 	let mut seen = HashSet::new();
 	let mut dashboards: Vec<Dashboard> = Vec::new();
-	while let Some(id) = queue.pop_front() {
+	while let Some(id) = queue.pop_front().or_else(|| later.pop_front()) {
 		if !seen.insert(id.clone()) {
 			continue;
 		}
 		if let Some(d) = ctx.dashboard(&id) {
-			let mut more = Vec::new();
-			opens(&d.widgets, &mut more);
+			let (mut more, mut rows) = (Vec::new(), Vec::new());
+			opens(&d.widgets, &mut more, &mut rows);
 			queue.extend(more);
+			later.extend(rows.iter().flat_map(|r| ctx.expand(r)));
 			dashboards.push(d);
 		}
 	}
@@ -832,7 +851,7 @@ pub fn build(input: &Input) -> Ui {
 		prune(&mut d.widgets, &visible);
 	}
 	let tabs: Vec<String> = tab_ids.into_iter().filter(|t| visible.contains(t)).collect();
-	let header = header_id.filter(|h| visible.contains(h));
+	let header = header_id.clone().filter(|h| visible.contains(h));
 
 	let mut doc = Obj::new();
 	doc.put("service", service_json(&input.service));
@@ -879,6 +898,7 @@ pub fn all_dashboards(config: &Config, values: &Values) -> Vec<Dashboard> {
 		actions: actions::available(config, &caps).into_iter().map(|s| (s.id.clone(), s)).collect(),
 		draws: None,
 		history_seconds: u64::MAX,
+		header: None,
 	};
 	config.dashboards.keys().flat_map(|id| ctx.expand(id)).filter_map(|id| ctx.dashboard(&id)).collect()
 }
@@ -1164,6 +1184,16 @@ impl Ctx<'_> {
 			"group" => {
 				o.put("widgets", Value::Array(w.widgets.iter().map(|c| Value::Object(self.widget_json(c))).collect()));
 			}
+			"log" => {
+				let scope = d.scope.as_deref().unwrap_or("system");
+				o.put("scope", scope);
+				if scope == "unit" {
+					o.opt("unit", d.unit.as_deref());
+				}
+				o.put("level", d.level.as_deref().unwrap_or("info"));
+				o.put("lines", d.lines.unwrap_or(crate::consts::limit::LOG_LINES));
+				o.put("search", d.search != Some(settings::Search::On(false)));
+			}
 			_ => {}
 		}
 		o
@@ -1229,9 +1259,12 @@ impl Ctx<'_> {
 				.iter()
 				.map(|a| {
 					let mut r = Obj::new();
-					r.put("action", a.action.as_str());
+					match &a.action {
+						Some(action) => r.put("action", action.as_str()),
+						None => r.opt("open", a.open.as_deref()),
+					}
 					r.opt("label", a.label.as_deref());
-					r.opt("params", a.params.clone().map(Value::Object));
+					r.opt("params", a.params.clone().filter(|_| a.action.is_some()).map(Value::Object));
 					Value::Object(r)
 				})
 				.collect();
@@ -1507,6 +1540,75 @@ label = "{item.label} at {item.rpm}"
 		let all = serde_json::json!(["1h", "24h", "7d", "30d", "1y", "all"]);
 		assert_eq!(ranges, [("g/medium", Some(&all)), ("g/large", Some(&all)), ("g/small", None), ("g/off", None)]);
 		assert!(settings::read_sources(&[settings::Source::new("b.toml", "[[dashboards.g.widgets]]\ntype = \"value\"\nvalue = \"cpu.usage\"\nranges = true\n")]).is_err());
+	}
+
+	/// The journal: for monitor and up, as the client draws it or as a word that the app needs
+	/// updating; a unit's only of a link's unit; none among the header's chips; the dashboards the
+	/// rows of a table open last, for a client that reads the journal.
+	#[test]
+	fn the_journal_goes_to_a_client_that_reads_it() {
+		let config = settings::read_over_defaults(&[settings::Source::new(
+			"a.toml",
+			r#"
+[links.web]
+name = "Web"
+url = "http://{host}:8080"
+unit = "web.service"
+scope = "system"
+[links.plain]
+name = "Plain"
+url = "http://{host}:8081"
+[profiles.default]
+dashboards = ["overview", "control", "units"]
+header = "chips"
+[dashboards.chips]
+title = "Chips"
+[[dashboards.chips.widgets]]
+type = "log"
+[[dashboards.chips.widgets]]
+type = "value"
+value = "cpu.usage"
+[dashboards.units]
+title = "Units"
+[[dashboards.units.widgets]]
+id = "each"
+type = "log"
+scope = "unit"
+for_each = ["web.service", "nothing.service"]
+unit = "{item}"
+"#,
+		)])
+		.unwrap();
+		let values = crate::fixtures::values(&config);
+		let caps = Caps::all(&values.power_profiles);
+		let all = |role| build(&input(&config, &values, &caps, role, "default", None));
+		let ui = all(Role::Monitor);
+		let ids: Vec<&str> = ui.dashboards.iter().map(|d| d.id.as_str()).collect();
+		assert_eq!((&ids[..4], ids.last().copied()), (&["overview", "control", "units", "chips"][..], Some("unit_log.web")), "{ids:?}");
+		assert!(ids.contains(&"journal") && !ids.contains(&"unit_log.plain"), "{ids:?}");
+		let widgets = |d: &str| -> Vec<String> { ui.dashboard(d).unwrap().all_widgets().iter().map(|w| format!("{} {}", w.id, w.kind)).collect() };
+		assert_eq!(widgets("chips"), ["chips/1 value"]);
+		assert_eq!(widgets("units"), ["units/each.web_service log"]);
+		assert_eq!(widgets("unit_log.web"), ["unit_log.web/log log"]);
+		let log = |ui: &Ui, id: &str| crate::fixtures::widget_of(&ui.doc, id);
+		assert_eq!(
+			log(&ui, "unit_log.web/log"),
+			Some(serde_json::json!({ "id": "unit_log.web/log", "type": "log", "span": 4, "label": "Journal", "scope": "unit", "unit": "web.service", "level": "info", "lines": 200, "search": true }))
+		);
+		let links = log(&ui, "control/links").unwrap();
+		assert_eq!(links["row_actions"].as_array().unwrap().last(), Some(&serde_json::json!({ "open": "unit_log", "label": "Journal" })));
+		// Glance sees no journal at all.
+		let glance = all(Role::Glance);
+		assert!(glance.dashboards.iter().flat_map(|d| d.all_widgets()).all(|w| w.kind != "log"));
+		assert!(glance.dashboard("journal").is_none() && glance.dashboard("unit_log.web").is_none());
+		// An app before 0.8: the word, no row that opens a dashboard, nor the dashboards only those open.
+		let draws: BTreeSet<String> = settings::WIDGET_TYPES.iter().filter(|t| **t != "log").map(|t| t.to_string()).collect();
+		let old = build(&input(&config, &values, &caps, Role::Admin, "default", Some(&draws)));
+		assert!(old.dashboard("unit_log.web").is_none());
+		let system = log(&old, "journal/system").unwrap();
+		assert_eq!((&system["type"], &system["text"], &system["level"]), (&Value::from("text"), &Value::from("Update the app to read the journal."), &Value::from("warning")));
+		let links = log(&old, "control/links").unwrap();
+		assert!(links["row_actions"].as_array().unwrap().iter().all(|a| a.get("action").is_some()), "{links}");
 	}
 
 	/// The sources a dashboard on screen needs read: of what its widgets name, those a client

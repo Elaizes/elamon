@@ -149,6 +149,8 @@ pub struct Hub {
 	pub nut: crate::nut::Runtime,
 	/// The `command`, `http` and `file` sources, each read by a task of its own while it is needed.
 	pub feeds: crate::feeds::Runtime,
+	/// The journals the streams' `log`s follow, and the pages of older lines asked for.
+	pub journal: crate::journal::Journal,
 	pub interval: Duration,
 	/// Swapped whole when the settings files change; see `config()`.
 	config: RwLock<Arc<store::Config>>,
@@ -253,6 +255,7 @@ impl Hub {
 			long: Arc::new(long),
 			nut: crate::nut::Runtime::default(),
 			feeds: crate::feeds::Runtime::default(),
+			journal: crate::journal::Journal::default(),
 			interval,
 			config: RwLock::new(config),
 			config_gen: AtomicU64::new(0),
@@ -680,6 +683,7 @@ pub fn router(hub: Arc<Hub>) -> Router {
 		.route("/api/v1/stream/{id}", post(stream::change).layer(body()))
 		.route("/api/v1/snapshot", get(snapshot))
 		.route("/api/v1/history", get(crate::history::api::history))
+		.route("/api/v1/log", get(crate::journal::api::log))
 		.route("/api/v1/actions/{id}", post(crate::control::action).layer(body()))
 		.route("/api/v1/media/art", get(crate::control::art))
 		.route("/api/v1/rekey", post(rekey).layer(body()))
@@ -1449,6 +1453,7 @@ dashboards = ["overview", "control"]
 		("GET", "/api/v1/ui?widgets=value,text", "", None, false),
 		("GET", "/api/v1/snapshot", "", None, false),
 		("GET", "/api/v1/history?widget=overview/network&range=24h", "", None, false),
+		("GET", "/api/v1/log?widget=journal/system&level=nothing", "", None, false),
 		("GET", "/api/v1/stream", "", None, false),
 		("POST", "/api/v1/stream/nothing", "{}", None, false),
 		("GET", "/api/v1/media/art?player=nothing", "", Some(Role::Monitor), false),
@@ -2445,6 +2450,182 @@ dashboards = ["overview", "control"]
 		remove_test_dir(&hub.dir);
 	}
 
+	/// Logs of the tests' journalctl (`journal::tests::fake`), each unit a link's: example.service's
+	/// lines, one that prints how it was run, one that says nothing, one that fails, one that takes
+	/// too long.
+	fn log_hub() -> (Arc<Hub>, watch::Sender<Arc<Frame>>) {
+		crate::journal::tests::fake();
+		let (hub, tx) = hub_with(true, |h| h.journal.readable = || true);
+		let mut text = format!("control = true\n{SETTINGS}\n[profiles.default]\ndashboards = [\"overview\", \"logs\", \"stuck\", \"pages\"]\n");
+		for (dashboard, logs) in [("logs", &[("unit", "example"), ("args", "args")][..]), ("stuck", &[("hang", "hang")]), ("pages", &[("broken", "broken"), ("slow", "slow")])] {
+			text += &format!("[dashboards.{dashboard}]\ntitle = \"{dashboard}\"\n");
+			for (id, unit) in logs {
+				text += &format!("[links.{id}]\nname = \"{unit}\"\nurl = \"http://{{host}}:8080\"\nunit = \"{unit}.service\"\nscope = \"system\"\n");
+				text += &format!("[[dashboards.{dashboard}.widgets]]\nid = \"{id}\"\ntype = \"log\"\nscope = \"unit\"\nunit = \"{unit}.service\"\n");
+			}
+		}
+		text += "[[dashboards.stuck.widgets]]\nid = \"cpu\"\ntype = \"value\"\nvalue = \"cpu.usage\"\n";
+		hub.set_config(crate::settings::read_over_defaults(&[crate::settings::Source::new("test.toml", text)]).unwrap());
+		tick(&hub, &tx);
+		(hub, tx)
+	}
+
+	/// What a client has of each log of a stream, as its data lines leave it: a reset replaces it.
+	#[derive(Default)]
+	struct Have {
+		lines: HashMap<String, Vec<String>>,
+		resets: HashMap<String, usize>,
+		last: HashMap<String, serde_json::Value>,
+	}
+
+	impl Have {
+		/// Reads the stream until `done` says it has what it waits for.
+		async fn until(&mut self, stream: &mut Lines, done: impl Fn(&Have) -> bool) {
+			for _ in 0..80 {
+				if done(self) {
+					return;
+				}
+				let data = stream.next_of("data").await.unwrap();
+				for (id, s) in data["widgets"].as_object().unwrap().iter().filter(|(_, s)| s.get("lines").is_some()) {
+					let have = self.lines.entry(id.clone()).or_default();
+					if s.get("reset").is_some() {
+						have.clear();
+						*self.resets.entry(id.clone()).or_default() += 1;
+					}
+					have.extend(s["lines"].as_array().unwrap().iter().map(|l| l["text"].as_str().unwrap().to_string()));
+					self.last.insert(id.clone(), s.clone());
+				}
+			}
+			panic!("never came; the logs have {:?}", self.lines);
+		}
+
+		fn resets(&self, id: &str) -> usize {
+			self.resets.get(id).copied().unwrap_or(0)
+		}
+
+		fn texts(&self, id: &str) -> Vec<&str> {
+			self.lines.get(id).into_iter().flatten().map(String::as_str).collect()
+		}
+	}
+
+	#[tokio::test]
+	async fn a_log_streams_its_journal_as_its_client_filters_it() {
+		let (hub, tx) = log_hub();
+		let mut lines = Lines::open(&hub, "/api/v1/stream?dashboard=logs&interval=250", "t-monitor").await;
+		let id = lines.next().await.unwrap()["stream"].as_str().unwrap().to_string();
+		let _ticks = ticking(&hub, tx);
+		let change = |body: String| {
+			let (hub, path) = (hub.clone(), format!("/api/v1/stream/{id}"));
+			async move { call(&hub, "POST", &path, "monitor", &body).await }
+		};
+		// The lines of its journal that match, once journalctl has printed them; a journalctl each.
+		let mut have = Have::default();
+		have.until(&mut lines, |h| h.resets("logs/unit") == 1 && h.texts("logs/args").iter().any(|t| t.starts_with("pid "))).await;
+		assert_eq!(have.texts("logs/unit"), ["Listening on port 8080", "Slow request: GET /status took 2.1 s", "Request served in 12 ms"]);
+		assert!(have.last["logs/unit"].get("note").is_none());
+		assert_eq!(hub.journal.followed(), 2);
+		let pid: i32 = have.texts("logs/args")[1].strip_prefix("pid ").unwrap().parse().unwrap();
+		// Another level, a search, its own back: each anew, at once.
+		for (filter, want) in [
+			(r#"{"level":"debug"}"#, vec!["Listening on port 8080", "Cache warmed with 120 entries", "Slow request: GET /status took 2.1 s", "Request served in 12 ms"]),
+			(r#"{"search":"SLOW"}"#, vec!["Slow request: GET /status took 2.1 s"]),
+			(r#"{"level":"warning","search":""}"#, vec!["Slow request: GET /status took 2.1 s"]),
+			("null", vec!["Listening on port 8080", "Slow request: GET /status took 2.1 s", "Request served in 12 ms"]),
+		] {
+			let (status, v) = change(format!(r#"{{"log":{{"logs/unit":{filter}}}}}"#)).await;
+			assert_eq!((status, v), (StatusCode::OK, json!({ "ok": true })), "{filter}");
+			let resets = have.resets("logs/unit");
+			have.until(&mut lines, |h| h.resets("logs/unit") > resets).await;
+			assert_eq!(have.texts("logs/unit"), want, "{filter}");
+		}
+		// What names no log of the dashboard the request leaves the stream on, a level not of the six, a
+		// search too long: refused, and none of it applied.
+		let long = "x".repeat(limit::LOG_SEARCH_MAX + 1);
+		for body in [
+			r#"{"log":{"overview/cpu":null}}"#.to_string(),
+			r#"{"log":{"stuck/hang":{}}}"#.to_string(),
+			r#"{"log":{"logs/unit":{"level":"loud"}}}"#.to_string(),
+			format!(r#"{{"log":{{"logs/unit":{{"search":"{long}"}}}}}}"#),
+			r#"{"dashboard":"stuck","log":{"logs/unit":{"level":"error"}}}"#.to_string(),
+		] {
+			let (status, v) = change(body.clone()).await;
+			assert_eq!((status, v["error"].as_str(), v["message"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_param"), Some("log")), "{body}");
+		}
+		assert_eq!(lines.next_of("data").await.unwrap()["dashboard"], "logs");
+		// Another dashboard, a log of it asked for in the same request: the journals left behind let go
+		// of; the one that says nothing holds up neither the stream nor the readings.
+		let (status, _) = change(r#"{"dashboard":"stuck","log":{"stuck/hang":{"level":"error"}}}"#.into()).await;
+		assert_eq!(status, StatusCode::OK);
+		have.until(&mut lines, |h| h.resets("stuck/hang") == 1).await;
+		assert_eq!(have.last["stuck/hang"], json!({ "lines": [], "reset": true }));
+		assert!(crate::journal::tests::ended(pid).await, "journalctl {pid} left running");
+		assert_eq!(hub.journal.followed(), 1);
+		for _ in 0..3 {
+			assert!(lines.next_of("data").await.unwrap()["widgets"]["stuck/cpu"]["v"].is_number());
+		}
+		// Gone with the stream.
+		drop(lines);
+		for _ in 0..50 {
+			if hub.journal.followed() == 0 {
+				break;
+			}
+			tokio::time::sleep(Duration::from_millis(100)).await;
+		}
+		assert_eq!(hub.journal.followed(), 0);
+		remove_test_dir(&hub.dir);
+	}
+
+	#[tokio::test]
+	async fn older_lines_come_of_a_log_in_the_clients_ui_alone() {
+		let (hub, _tx) = log_hub();
+		let texts = |v: &serde_json::Value| -> Vec<String> { v["lines"].as_array().unwrap().iter().map(|l| l["text"].as_str().unwrap().to_string()).collect() };
+		for phone in PHONES {
+			let (status, v) = call(&hub, "GET", "/api/v1/log?widget=logs/unit", phone, "").await;
+			if role_of(phone) < Role::Monitor {
+				assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("no_such_widget")), "{phone}: {v}");
+				continue;
+			}
+			assert_eq!((status, &v["widget"], &v["before"]), (StatusCode::OK, &json!("logs/unit"), &json!(null)), "{phone}: {v}");
+			assert_eq!(texts(&v), ["Listening on port 8080", "Slow request: GET /status took 2.1 s", "Request served in 12 ms"]);
+		}
+		let (_, v) = call(&hub, "GET", "/api/v1/log?widget=logs/unit&level=debug&search=CACHE", "monitor", "").await;
+		assert_eq!(texts(&v), ["Cache warmed with 120 entries"]);
+		// journalctl is asked for the lines before `before`, of the level asked.
+		let (_, v) = call(&hub, "GET", "/api/v1/log?widget=logs/args&before=1699999995234567&level=error", "monitor", "").await;
+		assert!(texts(&v)[0].ends_with("-r -n 2000 -p 0..3 --until=@1699999995.234566"), "{v}");
+		// A parameter missing or not as it should be.
+		let long = "x".repeat(limit::LOG_SEARCH_MAX + 1);
+		for (query, which) in [
+			("".to_string(), "widget"),
+			("widget=logs/unit&before=soon".into(), "before"),
+			("widget=logs/unit&before=0".into(), "before"),
+			("widget=logs/unit&level=loud".into(), "level"),
+			(format!("widget=logs/unit&search={long}"), "search"),
+		] {
+			let (status, v) = call(&hub, "GET", &format!("/api/v1/log?{query}"), "admin", "").await;
+			assert_eq!((status, v["error"].as_str(), v["message"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_param"), Some(which)), "{query}");
+		}
+		// Not a log, or none.
+		for widget in ["overview/cpu", "nothing"] {
+			let (status, v) = call(&hub, "GET", &format!("/api/v1/log?widget={widget}"), "admin", "").await;
+			assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("no_such_widget")), "{widget}");
+		}
+		// journalctl that fails, or takes too long.
+		let (status, v) = call(&hub, "GET", "/api/v1/log?widget=pages/broken", "admin", "").await;
+		assert_eq!((status, v["error"].as_str(), v["message"].as_str()), (StatusCode::BAD_GATEWAY, Some("failed"), Some("Failed to open the journal.")));
+		let (status, v) = call(&hub, "GET", "/api/v1/log?widget=pages/slow", "admin", "").await;
+		assert_eq!((status, v["error"].as_str(), v["message"].as_str()), (StatusCode::BAD_GATEWAY, Some("failed"), Some("timed_out")));
+		// A snapshot has no lines of a log: they come from here, and from a stream.
+		let (status, v) = call(&hub, "GET", "/api/v1/snapshot?dashboard=logs&history=0", "admin", "").await;
+		assert_eq!((status, v["widgets"].as_object().map(|w| w.keys().any(|k| k.starts_with("logs/")))), (StatusCode::OK, Some(false)), "{v}");
+		assert_eq!(hub.journal.followed(), 0);
+		// A client that said it draws no logs has none.
+		assert_eq!(call(&hub, "GET", "/api/v1/ui?widgets=value,text", "admin", "").await.0, StatusCode::OK);
+		let (status, v) = call(&hub, "GET", "/api/v1/log?widget=logs/unit", "admin", "").await;
+		assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("no_such_widget")), "{v}");
+		remove_test_dir(&hub.dir);
+	}
+
 	#[tokio::test]
 	async fn a_client_holds_four_streams_and_a_fifth_ends_the_oldest() {
 		let (hub, tx) = hub(true);
@@ -2607,7 +2788,7 @@ dashboards = ["overview", "control"]
 		}
 		// However many, one change waits: the last of each key.
 		let waiting = hub.streams.lock().unwrap()[&id].waiting();
-		let last = stream::Change { dashboard: Some("overview".into()), interval: Some(2000), sort: [("processes/table".to_string(), Some("mem".to_string()))].into() };
+		let last = stream::Change { dashboard: Some("overview".into()), interval: Some(2000), sort: [("processes/table".to_string(), Some("mem".to_string()))].into(), log: Default::default() };
 		assert_eq!(waiting, Some(last));
 		// A fifth stream of the phone's ends it, held up as it is: what it needed read no longer is.
 		let mut others = Vec::new();

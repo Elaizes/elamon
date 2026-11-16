@@ -27,8 +27,9 @@ pub const DEFAULTS_NAME: &str = "built-in defaults";
 /// The settings schema this elamond reads: `schema = 3`, a whole file.
 pub const SCHEMA: i64 = 3;
 
-pub const WIDGET_TYPES: [&str; 16] = [
+pub const WIDGET_TYPES: [&str; 17] = [
 	"value", "gauge", "meter", "status", "graph", "list", "bars", "table", "button", "toggle", "select", "slider", "text", "group", "media", "timeline",
+	"log",
 ];
 pub const ICONS: [&str; 32] = [
 	"battery", "bolt", "chip", "clock", "control", "eye", "fan", "gauge", "globe", "gpu", "help", "laptop", "leaf", "lock", "memory", "monitor",
@@ -43,10 +44,13 @@ pub const THEMES: [&str; 3] = ["system", "light", "dark"];
 pub const GRACES: [&str; 3] = ["every_time", "1m", "5m"];
 pub const HEIGHTS: [&str; 3] = ["small", "medium", "large"];
 pub const SCOPES: [&str; 2] = ["user", "system"];
+/// Which journal a `log` shows, and the levels it may show from, the least first.
+pub const LOG_SCOPES: [&str; 3] = ["system", "user", "unit"];
+pub const LOG_LEVELS: [&str; 6] = ["debug", "info", "notice", "warning", "error", "critical"];
 /// The roles an action may ask for.
 pub const ACTION_ROLES: [&str; 2] = ["operate", "admin"];
 /// The widgets that are 4 columns wide unless they say otherwise.
-pub const WIDE: [&str; 7] = ["graph", "table", "list", "group", "media", "text", "timeline"];
+pub const WIDE: [&str; 8] = ["graph", "table", "list", "group", "media", "text", "timeline", "log"];
 
 // ---- the settings, typed ------------------------------------------------------------------
 
@@ -473,6 +477,10 @@ pub struct Widget {
 	pub text: Option<String>,
 	pub level: Option<String>,
 	pub widgets: Option<Vec<WidgetDef>>,
+	/// A `log`'s journal: `system`, `user` or `unit` (of `unit`).
+	pub scope: Option<String>,
+	/// The lines a client keeps of a `log`.
+	pub lines: Option<u64>,
 }
 
 /// A table's search: on or off, or the fields it searches.
@@ -544,10 +552,13 @@ pub struct Sort {
 	pub desc: bool,
 }
 
+/// What a table's row does: runs an action with its fields, or opens its own dashboard of those
+/// `open` names (`unit_log` → `unit_log.<the row's key>`).
 #[derive(Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(default)]
 pub struct RowAction {
-	pub action: String,
+	pub action: Option<String>,
+	pub open: Option<String>,
 	pub label: Option<String>,
 	pub params: Option<Map<String, Value>>,
 }
@@ -1226,7 +1237,7 @@ pub fn record(name: &str) -> Vec<Key> {
 		"expand" => vec![req("field", Ty::Str), k("label", Ty::Str), k("format", Ty::Format), k("unit", Ty::Str), k("map", map(Ty::Str))],
 		"bar" => vec![req("max", Ty::Any(vec![Ty::Num, Ty::Str]))],
 		"sort" => vec![req("field", Ty::Str), k("desc", Ty::Bool)],
-		"row_action" => vec![req("action", Ty::Str), k("label", Ty::Str), k("params", map(Ty::Scalar))],
+		"row_action" => vec![k("action", Ty::Str), k("open", Ty::Str), k("label", Ty::Str), k("params", map(Ty::Scalar))],
 		_ => vec![],
 	}
 }
@@ -1319,6 +1330,13 @@ pub fn type_keys(kind: &str) -> Vec<Key> {
 		"text" => vec![k("text", Ty::Text), k("level", Ty::Enum("level", &LEVELS))],
 		"group" => vec![k("widgets", list(Ty::Widget)), k("collapsed", Ty::Bool)],
 		"timeline" => vec![k("source", Ty::Str), k("range", Ty::Int(600, 2_592_000)), k("ranges", Ty::Bool)],
+		"log" => vec![
+			k("scope", Ty::Enum("log scope", &LOG_SCOPES)),
+			k("unit", Ty::Str),
+			k("level", Ty::Enum("log level", &LOG_LEVELS)),
+			k("lines", Ty::Int(10, 1000)),
+			k("search", Ty::Bool),
+		],
 		_ => vec![],
 	}
 }
@@ -2116,6 +2134,15 @@ fn check_widget_semantics(c: &Config, raw: &WidgetDef, path: &str, scope: Scope,
 		"text" => need("text", w.text.is_some(), push),
 		"group" => need("widgets", w.widgets.is_some(), push),
 		"timeline" => need("source", w.source.is_some(), push),
+		// A unit's journal is a link's unit's: the link says whether it is the system's or the user's.
+		"log" if w.scope.as_deref() == Some("unit") => match w.unit.as_deref() {
+			None => push(path.into(), "a log of scope = \"unit\" needs unit".into()),
+			Some(unit) if !unit.contains('{') && !c.links.values().any(|l| l.unit.as_deref() == Some(unit)) => {
+				let units = c.links.values().filter_map(|l| l.unit.as_deref());
+				push(join(path, "unit"), format!("no link has the unit \"{unit}\": a log shows a link's unit{}", did_you_mean(unit, units)));
+			}
+			Some(_) => {}
+		},
 		_ => {}
 	}
 	if let Some(open) = &w.open {
@@ -2289,14 +2316,33 @@ fn check_source(c: &Config, source: &str, w: &Widget, kind: &str, path: &str, pu
 	}
 	for (i, ra) in w.row_actions.iter().flatten().enumerate() {
 		let rpath = format!("{}[{i}]", join(path, "row_actions"));
-		if !c.has_action(&ra.action) {
-			push(join(&rpath, "action"), format!("no action \"{}\"", ra.action));
+		let action = match (&ra.action, &ra.open) {
+			(Some(action), None) => action,
+			// A row opens its own of a dashboard made for each of the table's rows.
+			(None, Some(open)) => {
+				let each = c.dashboards.get(open).map(|d| d.for_each.as_deref().and_then(values::collection_def).map(|d| d.name));
+				match each {
+					None => push(join(&rpath, "open"), format!("no dashboard \"{open}\"{}", did_you_mean(open, c.dashboards.keys().map(String::as_str)))),
+					Some(each) if each != Some(def.name) => {
+						push(join(&rpath, "open"), format!("dashboard \"{open}\" isn't made for_each = \"{source}\", as the table's rows are"))
+					}
+					Some(_) => {}
+				}
+				continue;
+			}
+			_ => {
+				push(rpath, "give either action or open".into());
+				continue;
+			}
+		};
+		if !c.has_action(action) {
+			push(join(&rpath, "action"), format!("no action \"{action}\""));
 			continue;
 		}
-		let kinds = c.param_kinds(&ra.action).unwrap_or_default();
+		let kinds = c.param_kinds(action).unwrap_or_default();
 		for (p, v) in ra.params.iter().flatten() {
 			if !kinds.iter().any(|(k, _)| k == p) {
-				push(join(&join(&rpath, "params"), p), format!("no parameter \"{p}\" in {}", ra.action));
+				push(join(&join(&rpath, "params"), p), format!("no parameter \"{p}\" in {action}"));
 			}
 			if let Some(f) = v.as_str().and_then(|s| s.strip_prefix('{')).and_then(|s| s.strip_suffix('}')) {
 				named.push((f, join(&join(&rpath, "params"), p)));
@@ -2895,6 +2941,43 @@ label = "{item.nmae}"
 			"dashboards.mine.widgets[6].label: no field \"nmae\" in gpus; did you mean name?",
 		] {
 			assert!(e.contains(want), "missing: {want}\nin:\n{e}");
+		}
+	}
+
+	/// A `log`'s unit is a link's; a row action runs an action or opens a dashboard made for each of
+	/// the table's rows.
+	#[test]
+	fn a_log_and_a_row_that_opens_a_dashboard_are_checked() {
+		let links = "[links.web]\nname = \"Web\"\nurl = \"http://{host}:8080\"\nunit = \"web.service\"\n";
+		let log = |keys: &str| format!("{links}[dashboards.d]\ntitle = \"D\"\n[[dashboards.d.widgets]]\ntype = \"log\"\n{keys}\n");
+		read(&over(&[("a.toml", &log("scope = \"unit\"\nunit = \"web.service\"\nlevel = \"debug\"\nlines = 1000\nsearch = false"))])).unwrap();
+		read(&over(&[("a.toml", &log("scope = \"user\""))])).unwrap();
+		for (keys, want) in [
+			("scope = \"unit\"", "dashboards.d.widgets[0]: a log of scope = \"unit\" needs unit"),
+			("scope = \"unit\"\nunit = \"web.servce\"", "dashboards.d.widgets[0].unit: no link has the unit \"web.servce\": a log shows a link's unit; did you mean web.service?"),
+			("scope = \"units\"", "no log scope \"units\"; did you mean unit?"),
+			("level = \"loud\"", "no log level \"loud\""),
+			("lines = 5", "dashboards.d.widgets[0].lines: should be"),
+			("search = [\"text\"]", "dashboards.d.widgets[0].search: should be"),
+			("value = \"cpu.usage\"", "no key \"value\" in a log widget"),
+		] {
+			let e = mistakes(&over(&[("a.toml", &log(keys))]));
+			assert!(e.contains(want), "{keys}: missing {want}\nin:\n{e}");
+		}
+		// A unit's journal for each link, as the starter's.
+		let each = "[dashboards.e]\ntitle = \"{item.name}\"\nfor_each = \"links\"\n[[dashboards.e.widgets]]\ntype = \"log\"\nscope = \"unit\"\nunit = \"{item.unit}\"\n";
+		read(&over(&[("a.toml", each)])).unwrap();
+		let table = |actions: &str| format!("{each}[dashboards.t]\ntitle = \"T\"\n[[dashboards.t.widgets]]\ntype = \"table\"\nsource = \"links\"\ncolumns = [{{ field = \"name\" }}]\nrow_actions = [{actions}]\n");
+		read(&over(&[("a.toml", &table("{ open = \"e\", label = \"Journal\" }, { action = \"unit.restart\", params = { link = \"{id}\" } }"))])).unwrap();
+		for (actions, want) in [
+			("{ open = \"overview\" }", "dashboards.t.widgets[0].row_actions[0].open: dashboard \"overview\" isn't made for_each = \"links\", as the table's rows are"),
+			("{ open = \"gpu\" }", "dashboards.t.widgets[0].row_actions[0].open: dashboard \"gpu\" isn't made for_each = \"links\""),
+			("{ open = \"ee\" }", "dashboards.t.widgets[0].row_actions[0].open: no dashboard \"ee\"; did you mean e?"),
+			("{ open = \"e\", action = \"unit.restart\" }", "dashboards.t.widgets[0].row_actions[0]: give either action or open"),
+			("{ label = \"Nothing\" }", "dashboards.t.widgets[0].row_actions[0]: give either action or open"),
+		] {
+			let e = mistakes(&over(&[("a.toml", &table(actions))]));
+			assert!(e.contains(want), "{actions}: missing {want}\nin:\n{e}");
 		}
 	}
 

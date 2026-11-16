@@ -274,7 +274,10 @@ pub fn processes() -> Vec<Process> {
 
 #[test]
 fn hello() {
-	check_compact("hello", &hello_body("0123456789abcdef0123456789abcdef", "fixture"));
+	let body = hello_body("0123456789abcdef0123456789abcdef", "fixture");
+	check_compact("hello", &body);
+	// As 0.8 has it, until it moves up beside the others.
+	check_compact("0.8/hello", &body);
 }
 
 /// Where the fixtures' computer is: its addresses on the local network and Tailscale, then names.
@@ -905,7 +908,7 @@ fn fixture_08(name: &str) -> Value {
 }
 
 /// The widget `id` of a `ui` document.
-fn widget_of(doc: &Value, id: &str) -> Option<Value> {
+pub fn widget_of(doc: &Value, id: &str) -> Option<Value> {
 	doc["dashboards"].as_array()?.iter().flat_map(|d| d["widgets"].as_array().into_iter().flatten()).find(|w| w["id"] == id).cloned()
 }
 
@@ -949,23 +952,105 @@ fn the_sources_widgets_ui_and_states() {
 
 /// What the service builds of the fixture's settings is 0.8/ui-sources.json.
 #[test]
-#[ignore = "the journal comes in S2"]
 fn ui_sources_whole() {
 	let config = crate::settings::read_sources(&[crate::settings::Source::new("ui-sources.toml", UI_SOURCES)]).unwrap();
 	let values = sources_values(&config);
 	check_compact("0.8/ui-sources", &ui_for(&config, &values, Role::Admin, "owner").doc);
 }
 
+/// A tail that has read `lines`, as journalctl prints them, without a journalctl.
+fn tail_of(lines: &str) -> std::sync::Arc<crate::journal::Tail> {
+	let tail = crate::journal::Tail::idle();
+	{
+		let mut b = tail.buffer();
+		b.start(None);
+		for l in lines.lines() {
+			b.push(crate::journal::parse(l.as_bytes()).unwrap());
+		}
+		b.ready();
+	}
+	std::sync::Arc::new(tail)
+}
+
+/// The states of the fixture's settings' `ui`, as an admin sees them.
+fn sources_states<'a>(values: &'a crate::values::Values, ui: &crate::ui::Ui, sorts: &'a std::collections::HashMap<String, String>) -> crate::states::States<'a> {
+	crate::states::States { view: crate::values::View::new(values, Role::Admin, ui.units), control: true, sorts, read: crate::ui::Sources::ALL }
+}
+
 /// The data line of the fixture's `sources` dashboard: the reading's states, then its logs' first
-/// ones (S2 adds those after `states::data`, as `stream.rs` does).
+/// ones, as a stream adds them, of the journals the fixture's comments list.
 #[test]
-#[ignore = "the journal comes in S2"]
 fn stream_sources_whole() {
+	use crate::journal::{tests, Key, Logs};
 	let config = crate::settings::read_sources(&[crate::settings::Source::new("ui-sources.toml", UI_SOURCES)]).unwrap();
 	let values = sources_values(&config);
 	let ui = ui_for(&config, &values, Role::Admin, "owner");
 	let sorts = std::collections::HashMap::new();
-	let s = crate::states::States { view: crate::values::View::new(&values, Role::Admin, ui.units), control: true, sorts: &sorts, read: crate::ui::Sources::ALL };
-	let line = crate::states::data(sample().t, ui.dashboard("sources").unwrap(), None, &s, None);
+	let sources = ui.dashboard("sources").unwrap();
+	let mut line = crate::states::data(sample().t, sources, None, &sources_states(&values, &ui, &sorts), None);
+	let tails = [(Key::User, tail_of(&tests::user_lines())), (Key::Unit { name: "example.service".into(), user: false }, tail_of(&tests::example_lines()))];
+	let mut logs = Logs::default();
+	logs.show(crate::journal::on_screen(&ui, sources, &config), |key| tails.iter().find(|(k, _)| k == key).unwrap().1.clone());
+	logs.put(&mut line);
 	check_compact("0.8/stream-sources", &Value::Object(line));
+}
+
+/// A later data line of the fixture's `journal` dashboard (0.8/stream-log-next.json): its stream
+/// sent the system journal's lines up to 1700000000000000; then 1012 came, 12 more than the tail
+/// keeps, two of them at warning or above.
+#[test]
+fn stream_log_next() {
+	use crate::journal::tests::json_line;
+	let config = crate::settings::read_sources(&[crate::settings::Source::new("ui-sources.toml", UI_SOURCES)]).unwrap();
+	let values = sources_values(&config);
+	let ui = ui_for(&config, &values, Role::Admin, "owner");
+	let sorts = std::collections::HashMap::new();
+	let s = sources_states(&values, &ui, &sorts);
+	let journal = ui.dashboard("journal").unwrap();
+	let tail = tail_of(&json_line(1_700_000_000_000_000, 4, Some("example.service"), None, "example", "Started"));
+	let mut logs = crate::journal::Logs::default();
+	logs.show(crate::journal::on_screen(&ui, journal, &config), |_| tail.clone());
+	let mut first = crate::states::data(sample().t, journal, None, &s, None);
+	logs.put(&mut first);
+	assert_eq!(first["widgets"]["journal/system"]["lines"][0]["c"], 1_700_000_000_000_000_u64);
+	{
+		let mut b = tail.buffer();
+		for i in 1..=1010 {
+			b.push(crate::journal::parse(json_line(1_700_000_000_000_000 + i * 2000, 6, Some("example.service"), None, "example", "Request served").as_bytes()).unwrap());
+		}
+		let sshd = "Disconnecting invalid user admin 192.0.2.30 port 41022: Too many authentication failures [preauth]";
+		b.push(crate::journal::parse(json_line(1_700_000_003_123_456, 4, Some("sshd.service"), None, "sshd", sshd).as_bytes()).unwrap());
+		let lost = "Lost the connection to the database, retrying in 5 s";
+		b.push(crate::journal::parse(json_line(1_700_000_004_234_567, 3, Some("example.service"), None, "example", lost).as_bytes()).unwrap());
+	}
+	let mut next = crate::states::data(1_700_000_005_123, journal, None, &s, None);
+	logs.put(&mut next);
+	check_compact("0.8/stream-log-next", &Value::Object(next));
+}
+
+/// `GET /api/v1/log` of the fixture's journal widget (0.8/log.json), before the oldest line its
+/// client had: the system journal's 2000 lines before it, as the fixture's comments list them.
+#[tokio::test]
+async fn log_page() {
+	use crate::journal::{api, priority_of, tests, Filter, Key};
+	let config = crate::settings::read_sources(&[crate::settings::Source::new("ui-sources.toml", UI_SOURCES)]).unwrap();
+	let ui = ui_for(&config, &sources_values(&config), Role::Admin, "owner");
+	let w = ui.dashboard("journal").unwrap().widgets.iter().find(|w| w.id == "journal/system").unwrap();
+	assert_eq!(Key::of(&w.def, &config), Some(Key::System));
+	let filter = Filter::new(priority_of(w.def.level.as_deref().unwrap()).unwrap(), None);
+	let (lines, before) = api::page(&tests::fake(), &Key::System, Some(1_699_999_995_234_567), &filter).await.unwrap();
+	check_compact("0.8/log", &Value::Object(api::answer(&w.id, &lines, before)));
+}
+
+/// The change of two logs' filters the app sends (0.8/subscribe-log.json) reads as the service
+/// reads it, of two logs of the fixture's `sources`.
+#[test]
+fn subscribe_log() {
+	let change: crate::stream::Change = serde_json::from_value(fixture_08("subscribe-log.json")).unwrap();
+	let filter = crate::stream::LogFilter { level: Some("error".into()), search: Some("timeout".into()) };
+	assert_eq!(change.log.into_iter().collect::<Vec<_>>(), [("sources/app_log".to_string(), Some(filter)), ("sources/journal".to_string(), None)]);
+	let config = crate::settings::read_sources(&[crate::settings::Source::new("ui-sources.toml", UI_SOURCES)]).unwrap();
+	let ui = ui_for(&config, &sources_values(&config), Role::Admin, "owner");
+	let logs: Vec<&str> = crate::journal::on_screen(&ui, ui.dashboard("sources").unwrap(), &config).into_iter().map(|(w, _)| w.id.as_str()).collect();
+	assert_eq!(logs, ["sources/journal", "sources/app_log"]);
 }

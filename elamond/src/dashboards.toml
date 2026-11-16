@@ -457,6 +457,7 @@ row_actions = [
   { action = "unit.start", label = "Start", params = { link = "{id}" } },
   { action = "unit.stop", label = "Stop", params = { link = "{id}" } },
   { action = "unit.restart", label = "Restart", params = { link = "{id}" } },
+  { open = "unit_log", label = "Journal" },
 ]
 
 [[dashboards.control.widgets]]
@@ -522,6 +523,15 @@ expand = [
   { field = "position", label = "Position" },
   { field = "year", label = "Made", format = "integer" },
 ]
+
+[[dashboards.control.widgets]]
+id = "journal"
+type = "button"
+label = "Journal"
+icon = "terminal"
+open = "journal"
+span = 4
+role = "monitor"
 
 [[dashboards.control.widgets]]
 id = "activity"
@@ -826,3 +836,33 @@ expand = [
   { field = "phone", label = "Phone" },
   { field = "message", label = "Message" },
 ]
+
+# The system journal from warnings up, which Control's Journal button opens.
+[dashboards.journal]
+title = "Journal"
+icon = "terminal"
+role = "monitor"
+
+[[dashboards.journal.widgets]]
+id = "system"
+type = "log"
+scope = "system"
+level = "warning"
+label = "System journal"
+span = 4
+
+# A link's unit's journal, one for each link with a unit, which its row in Control's Links table
+# opens.
+[dashboards.unit_log]
+title = "{item.name}"
+icon = "terminal"
+role = "monitor"
+for_each = "links"
+
+[[dashboards.unit_log.widgets]]
+id = "log"
+type = "log"
+scope = "unit"
+unit = "{item.unit}"
+label = "Journal"
+span = 4

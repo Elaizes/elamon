@@ -16,6 +16,7 @@ mod fixtures;
 mod format;
 mod history;
 mod identity;
+mod journal;
 mod links;
 mod listen;
 mod mdns;

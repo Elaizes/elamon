@@ -119,6 +119,8 @@ pub fn state(w: &UiWidget, s: &States) -> Option<Obj> {
 			o.put("segments", timeline::json(&segments));
 		}
 		"media" => media_state(s, &mut o),
+		// Its lines are the stream's, not the reading's (`journal::Logs`).
+		"log" => return None,
 		_ => {}
 	}
 	if w.kind != "table" {
