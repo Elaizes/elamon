@@ -71,7 +71,7 @@ pub fn answer(widget: &str, lines: &[Line], before: Option<u64>) -> Obj {
 /// first, of a priority up to `priority`.
 fn page_args(key: &Key, before: Option<u64>, priority: u8) -> Vec<String> {
 	let mut args = key.args();
-	args.extend(["-o", "json", FIELDS, "--no-pager", "-r", "-n", &limit::LOG_PAGE_SCAN.to_string(), "-p", &format!("0..{priority}")].map(String::from));
+	args.extend(["-o", "json", FIELDS, "--all", "--no-pager", "-r", "-n", &limit::LOG_PAGE_SCAN.to_string(), "-p", &format!("0..{priority}")].map(String::from));
 	if let Some(us) = before.map(|b| b - 1) {
 		args.push(format!("--until=@{}.{:06}", us / 1_000_000, us % 1_000_000));
 	}

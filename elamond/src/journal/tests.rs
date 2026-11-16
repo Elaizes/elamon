@@ -345,7 +345,7 @@ async fn args_and_pid(tail: &Tail) -> (String, i32) {
 	(b.lines[0].text.clone(), pid)
 }
 
-const FIELDS_ARG: &str = "--output-fields=MESSAGE,PRIORITY,_SYSTEMD_UNIT,_SYSTEMD_USER_UNIT,SYSLOG_IDENTIFIER,_COMM";
+const FIELDS_ARG: &str = "--output-fields=MESSAGE,PRIORITY,_SYSTEMD_UNIT,_SYSTEMD_USER_UNIT,SYSLOG_IDENTIFIER,_COMM --all";
 
 #[tokio::test]
 async fn a_tail_follows_its_journal_while_held_and_kills_journalctl_as_it_is_let_go() {

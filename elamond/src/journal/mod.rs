@@ -20,7 +20,8 @@ use crate::control::{read_some, Group};
 use crate::settings::{Config, Widget};
 use crate::ui::{Dashboard, Obj, Put, Ui, UiWidget};
 
-/// What journalctl prints of each line: the rest the service has no use for.
+/// What journalctl prints of each line: the rest the service has no use for. With `--all`, as
+/// without it a message over 4096 bytes comes as `null`.
 const FIELDS: &str = "--output-fields=MESSAGE,PRIORITY,_SYSTEMD_UNIT,_SYSTEMD_USER_UNIT,SYSLOG_IDENTIFIER,_COMM";
 
 /// The note of a log of the system journal while the service's user may read only its own of it.
@@ -487,7 +488,7 @@ fn why_failed(err: &[u8], status: Option<io::Result<ExitStatus>>) -> String {
 /// Runs a journalctl following `key`'s journal, its lines into `buffer`, until it ends; why it did.
 async fn follow(key: &Key, program: &Path, readable: fn() -> bool, buffer: &Mutex<Buffer>) -> String {
 	let mut args = key.args();
-	args.extend(["-f", "-o", "json", "-n", &limit::JOURNAL_KEPT.to_string(), "--no-pager", FIELDS].map(String::from));
+	args.extend(["-f", "-o", "json", "-n", &limit::JOURNAL_KEPT.to_string(), "--no-pager", FIELDS, "--all"].map(String::from));
 	let mut child = match spawn(program, &args) {
 		Ok(c) => c,
 		Err(e) => return cant_start(&e),
