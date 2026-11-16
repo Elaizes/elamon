@@ -176,10 +176,10 @@ fun tell(sent: Want, want: Want, ui: UiDoc?, readTimeoutMs: Int): Tell {
 	return if (change == Subscribe()) Tell.Already else Tell.Change(change)
 }
 
-/** The ids of the logs a stream on [dashboard] sends: its own, and the header's. */
+/** The ids of the logs a stream on [dashboard] sends: its own (the header has none). */
 private fun logsOf(ui: UiDoc?, dashboard: String?): List<String> {
-	ui ?: return emptyList()
-	return listOfNotNull(dashboard, ui.header).distinct().flatMap { d -> allWidgets(ui.dashboard(d)?.widgets.orEmpty()) }.filter { it.type == "log" }.map { it.id }
+	val d = dashboard?.let { ui?.dashboard(it) } ?: return emptyList()
+	return allWidgets(d.widgets).filter { it.type == "log" }.map { it.id }
 }
 
 /** A line for the snackbar: one of the app's strings, or what the computer said, as it said it. */
