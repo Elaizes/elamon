@@ -147,24 +147,46 @@ private fun LogList(scope: DashScope, w: Widget, log: LogLines) {
 	val prefs = LocalPrefs.current
 	val list = rememberLazyListState()
 	var follow by remember { mutableStateOf(true) }
+	// A finger moved the list since it last followed: where it comes to rest says whether it follows again.
+	var moved by remember { mutableStateOf(false) }
+	val followAgain = {
+		follow = true
+		moved = false
+	}
 	val open = remember { mutableStateMapOf<Long, Boolean>() }
 	val older = log.canLoadOlder || log.loadingOlder
 	// The list's last item: the newest line, after the row that loads older ones.
 	val last = (if (older) 1 else 0) + log.items.size - 1
 	val newest = log.items.lastOrNull()?.key
-	// A finger on the list stops the following; once it rests, at the bottom follows again.
+	// A finger on the list stops the following; once the list rests at the bottom, it follows again.
+	// Its own scrolls to the newest don't count: a line that came meanwhile would stop it.
 	LaunchedEffect(list) {
-		list.interactionSource.interactions.collect { if (it is DragInteraction.Start) follow = false }
+		list.interactionSource.interactions.collect {
+			if (it is DragInteraction.Start) {
+				follow = false
+				moved = true
+			}
+		}
 	}
 	LaunchedEffect(list) {
-		snapshotFlow { list.isScrollInProgress }.collect { scrolling -> if (!scrolling) follow = !list.canScrollForward }
+		snapshotFlow { list.isScrollInProgress }.collect { scrolling -> if (!scrolling && moved && !list.canScrollForward) followAgain() }
 	}
+	// Lines that start anew (another filter, the stream back) are followed from their newest.
+	LaunchedEffect(log.generation) { followAgain() }
 	LaunchedEffect(newest, follow) {
 		if (follow && newest != null) list.scrollToItem(last)
 	}
 	Box {
 		LazyColumn(Modifier.fillMaxWidth().heightIn(max = Sizes.logMax), state = list, verticalArrangement = Arrangement.spacedBy(Space.xxs)) {
-			if (older) item(key = OLDER) { OlderRow(log) { scope.vm.loadOlder(w) } }
+			// Older lines are there to be read: the newest no longer pull the list down.
+			if (older) {
+				item(key = OLDER) {
+					OlderRow(log) {
+						follow = false
+						scope.vm.loadOlder(w)
+					}
+				}
+			}
 			if (log.items.isEmpty()) {
 				item(key = EMPTY) { Text(stringResource(R.string.log_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 			}
@@ -190,7 +212,7 @@ private fun LogList(scope: DashScope, w: Widget, log: LogLines) {
 		}
 		if (!follow && newest != null) {
 			FilledTonalButton(
-				onClick = { follow = true },
+				onClick = followAgain,
 				modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = Space.s),
 				contentPadding = PaddingValues(horizontal = Space.l),
 			) {
