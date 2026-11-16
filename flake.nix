@@ -512,6 +512,8 @@
 					};
 					services.nutflow = {
 						enable = true;
+						# nutflow's own tests run in its own checks; built here without them.
+						package = nutflow.packages.x86_64-linux.default.overrideAttrs { doCheck = false; };
 						stations = [ { name = "ups"; kind = "mock"; description = "Mock DELTA 3 Max Plus"; } ];
 						# What elamond's source may run, but the beeper: one the station refuses.
 						users.elamon = {
