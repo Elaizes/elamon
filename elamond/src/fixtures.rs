@@ -712,3 +712,64 @@ fn ui_ups_whole() {
 fn stream_ups_whole() {
 	check_compact("0.7/stream-ups", &stream_ups());
 }
+
+/// The starter `ups` dashboard, with a source of the fixture station added to the starter settings:
+/// a tab of the default profile, showing what the station has and leaving out what it hasn't.
+#[test]
+fn the_starter_ups_dashboard_shows_what_a_station_has() {
+	let config = crate::settings::read_sources(&[
+		crate::settings::Source::new("elamond.toml", crate::settings::DEFAULTS),
+		crate::settings::Source::new("elamond.d/ups.toml", "[sources.eco]\nkind = \"nut\"\nups = \"ups\"\n"),
+	])
+	.unwrap();
+	let values = ups_values(&config);
+	for role in Role::ALL {
+		let ui = ui_for(&config, &values, role, "default");
+		assert_eq!(ui.tabs[..2], ["overview", "ups.eco"], "{role:?}");
+		let ups = ui.dashboard("ups.eco").unwrap();
+		assert_eq!(ups.title, "DELTA 3 Max Plus");
+		let ids: Vec<&str> = ups.all_widgets().iter().map(|w| w.id.as_str()).collect();
+		assert_eq!(
+			ids,
+			[
+				"ups.eco/status",
+				"ups.eco/charge",
+				"ups.eco/now",
+				"ups.eco/now/grid",
+				"ups.eco/now/output",
+				"ups.eco/now/ac",
+				"ups.eco/now/load",
+				"ups.eco/battery",
+				"ups.eco/outlets",
+				"ups.eco/electrical",
+				"ups.eco/charge_graph",
+				"ups.eco/watts",
+				"ups.eco/details",
+			],
+			"{role:?}"
+		);
+		let rows = |id: &str| -> Vec<String> {
+			let w = ups.widgets.iter().find(|w| w.id == id).unwrap();
+			w.def.items.iter().flatten().filter_map(|i| i.label.clone()).collect()
+		};
+		assert_eq!(rows("ups.eco/battery"), ["Charge", "Runtime", "Charge limit", "Voltage", "Current"]);
+		assert_eq!(rows("ups.eco/electrical"), ["Output voltage", "Battery temperature", "Inverter"]);
+		assert_eq!(rows("ups.eco/details"), ["Model", "Firmware", "Rated power", "Low battery at", "Low runtime at"]);
+	}
+	// Its graphs keep their history.
+	let tracked = crate::ui::tracked(&config, &values);
+	for a in ["eco.battery.charge", "eco.input.realpower", "eco.ups.realpower", "cpu.usage"] {
+		assert!(tracked.contains(a), "{a}");
+	}
+	// The station's numbers are kept besides, once each.
+	let recorded: Vec<&str> = crate::history::recorded(&values, &tracked).map(|(a, _)| a).collect();
+	for a in ["eco.battery.charge", "eco.outlet.9.current", "eco.ups.temperature", "cpu.usage"] {
+		assert_eq!(recorded.iter().filter(|r| **r == a).count(), 1, "{a}");
+	}
+	assert!(!recorded.iter().any(|a| *a == "eco.driver.version" || *a == "eco.outlet.1.id" || *a == "eco.status"));
+	// Without a source the tab isn't there.
+	let config = crate::settings::read_sources(&[crate::settings::Source::new("elamond.toml", crate::settings::DEFAULTS)]).unwrap();
+	let bare = self::values(&config);
+	let ui = ui_for(&config, &bare, Role::Admin, "default");
+	assert_eq!(ui.tabs, ["overview", "processes", "sensors", "control"]);
+}

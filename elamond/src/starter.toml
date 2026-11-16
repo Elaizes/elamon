@@ -63,8 +63,8 @@ interval_ms = 1000
 fahrenheit = false
 network_bits = false
 confirm_actions = true
-unlock = { for = ["power", "signal", "actions", "units"], grace = "every_time" }
-dashboards = ["overview", "processes", "sensors", "control"]
+unlock = { for = ["power", "nut", "signal", "actions", "units"], grace = "every_time" }
+dashboards = ["overview", "ups", "processes", "sensors", "control"]
 header = "header"
 
 [profiles.default.android]

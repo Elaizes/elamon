@@ -2176,7 +2176,7 @@ mod tests {
 		let o = &c.dashboards["overview"];
 		assert_eq!((o.title.as_str(), o.icon.as_deref(), o.widgets.len()), ("Home", Some("overview"), 1));
 		let p = c.profile("mine");
-		assert_eq!((p.name.as_str(), p.theme.as_str(), p.dashboards.len()), ("Mine", "dark", 4));
+		assert_eq!((p.name.as_str(), p.theme.as_str(), p.dashboards.len()), ("Mine", "dark", 5));
 		assert_eq!(c.profile("default").name, "Default");
 		// A profile that isn't there is the default one.
 		assert_eq!(c.profile("gone").id, "default");

@@ -126,6 +126,175 @@ span = 4
 caption = "{battery.status_text} · {battery.power:watts} · {battery.time_text} · health {battery.health:percent}"
 open = "battery"
 
+# ---- UPS: one dashboard for each [sources.<id>], a UPS or a power station -------------------
+# `{item}` is the source's id. What a station doesn't have is left out (a widget's `when`, a list's
+# rows), and stays once it has had it, so the dashboard keeps its shape while upsd isn't read.
+
+[dashboards.ups]
+title = "{item.name}"
+icon = "battery"
+for_each = "ups"
+
+[[dashboards.ups.widgets]]
+id = "status"
+type = "status"
+value = "{item}.status"
+label = "Status"
+icon = "power"
+caption = "{{item}.status.since:duration} · {{item}.status.flags}"
+
+[[dashboards.ups.widgets]]
+id = "charge"
+type = "gauge"
+value = "{item}.battery.charge"
+when = "{item}.battery.charge"
+label = "Battery"
+icon = "battery"
+color = "battery"
+caption = "{{item}.battery.runtime:duration}"
+
+[[dashboards.ups.widgets]]
+id = "now"
+type = "group"
+label = "Power now"
+icon = "bolt"
+widgets = [
+  { id = "grid", type = "value", value = "{item}.input.realpower", when = "{item}.input.realpower", label = "Grid in", icon = "bolt", color = "rx", span = 1 },
+  { id = "output", type = "value", value = "{item}.ups.realpower", when = "{item}.ups.realpower", label = "Output", icon = "bolt", color = "tx", span = 1 },
+  { id = "ac", type = "value", value = "{item}.output.realpower", when = "{item}.output.realpower", label = "AC out", icon = "power", span = 1 },
+  { id = "solar1", type = "value", value = "{item}.experimental.input.dc.1.realpower", when = "{item}.experimental.input.dc.1.realpower", label = "Solar 1", icon = "leaf", color = "good", span = 1 },
+  { id = "solar2", type = "value", value = "{item}.experimental.input.dc.2.realpower", when = "{item}.experimental.input.dc.2.realpower", label = "Solar 2", icon = "leaf", color = "good", span = 1 },
+  { id = "load", type = "value", value = "{item}.ups.load", when = "{item}.ups.load", label = "Load", icon = "gauge", span = 1 },
+]
+
+[[dashboards.ups.widgets]]
+id = "battery"
+type = "list"
+label = "Battery"
+icon = "battery"
+items = [
+  { label = "Charge", value = "{item}.battery.charge" },
+  { label = "Runtime", value = "{item}.battery.runtime" },
+  { label = "To empty", value = "{item}.estimate.to_empty" },
+  { label = "To full", value = "{item}.estimate.to_full" },
+  { label = "Charge limit", value = "{item}.experimental.battery.charge.max" },
+  { label = "Discharge limit", value = "{item}.experimental.battery.charge.minimum" },
+  { label = "Health", value = "{item}.experimental.battery.health", format = "percent", unit = "%" },
+  { label = "Capacity", value = "{item}.battery.capacity" },
+  { label = "Voltage", value = "{item}.battery.voltage" },
+  { label = "Current", value = "{item}.battery.current" },
+]
+
+[[dashboards.ups.widgets]]
+id = "outlets"
+type = "table"
+source = "outlets"
+filter = { source = "{item}" }
+label = "Outlets"
+icon = "power"
+hide_empty = true
+columns = [
+  { field = "desc", grow = true },
+  { field = "status", label = "State", map = { on = "On", off = "Off" } },
+  { field = "realpower", label = "Power" },
+]
+
+[[dashboards.ups.widgets]]
+id = "electrical"
+type = "list"
+label = "Electrical"
+icon = "bolt"
+items = [
+  { label = "Input voltage", value = "{item}.input.voltage" },
+  { label = "Output voltage", value = "{item}.output.voltage" },
+  { label = "Input frequency", value = "{item}.input.frequency" },
+  { label = "Output frequency", value = "{item}.output.frequency" },
+  { label = "Battery temperature", value = "{item}.battery.temperature" },
+  { label = "Inverter", value = "{item}.ups.temperature" },
+  { label = "DC stage", value = "{item}.experimental.ups.temperature.dc" },
+]
+
+[[dashboards.ups.widgets]]
+id = "charge_graph"
+type = "graph"
+values = ["{item}.battery.charge"]
+when = "{item}.battery.charge"
+labels = ["Charge"]
+colors = ["battery"]
+label = "Charge"
+icon = "battery"
+color = "battery"
+min = 0
+max = 100
+
+[[dashboards.ups.widgets]]
+id = "watts"
+type = "graph"
+values = ["{item}.input.realpower", "{item}.ups.realpower"]
+when = "{item}.ups.realpower"
+labels = ["Grid in", "Output"]
+colors = ["rx", "tx"]
+label = "Power"
+icon = "bolt"
+color = "tx"
+min = 0
+
+[[dashboards.ups.widgets]]
+id = "solar"
+type = "graph"
+values = ["{item}.experimental.input.dc.1.realpower", "{item}.experimental.input.dc.2.realpower"]
+when = "{item}.experimental.input.dc.1.realpower"
+labels = ["Solar 1", "Solar 2"]
+colors = ["good", "primary"]
+label = "Solar"
+icon = "leaf"
+color = "good"
+min = 0
+
+[[dashboards.ups.widgets]]
+id = "details"
+type = "list"
+label = "Details"
+icon = "chip"
+items = [
+  { label = "Model", value = "{item}.device.model" },
+  { label = "Firmware", value = "{item}.ups.firmware" },
+  { label = "Rated power", value = "{item}.ups.realpower.nominal" },
+  { label = "Low battery at", value = "{item}.battery.charge.low" },
+  { label = "Low runtime at", value = "{item}.battery.runtime.low" },
+]
+
+# Run as the source's `commands` and `settings` allow: a widget whose action the station doesn't
+# offer is left out, and a group left with none is too. With two sources, each one's switches list
+# the outlets of both.
+[[dashboards.ups.widgets]]
+id = "switches"
+type = "group"
+label = "Outlets"
+icon = "power"
+collapsed = true
+for_each = "outlets"
+widgets = [
+  { id = "outlet", type = "toggle", label = "{item.desc}", value = "{item.source}.outlet.{item.id}.status", action = "nut.command.{item.source}", param = "cmd", on = "outlet.{item.id}.load.on", off = "outlet.{item.id}.load.off", map = { on = "outlet.{item.id}.load.on", off = "outlet.{item.id}.load.off" } },
+]
+
+[[dashboards.ups.widgets]]
+id = "station"
+type = "group"
+label = "Station"
+icon = "control"
+collapsed = true
+widgets = [
+  { id = "charge_max", type = "slider", label = "Charge limit", value = "{item}.experimental.battery.charge.max", action = "nut.set.{item}.experimental.battery.charge.max", param = "value" },
+  { id = "charge_min", type = "slider", label = "Discharge limit", value = "{item}.experimental.battery.charge.minimum", action = "nut.set.{item}.experimental.battery.charge.minimum", param = "value" },
+  { id = "charging", type = "slider", label = "AC charging power", value = "{item}.experimental.charger.realpower.max", action = "nut.set.{item}.experimental.charger.realpower.max", param = "value" },
+  { id = "brightness", type = "slider", label = "Screen brightness", value = "{item}.experimental.display.brightness", action = "nut.set.{item}.experimental.display.brightness", param = "value" },
+  { id = "xboost", type = "select", label = "X-Boost", value = "{item}.experimental.output.xboost", action = "nut.set.{item}.experimental.output.xboost", param = "value" },
+  { id = "ac_timeout", type = "select", label = "AC timeout", value = "{item}.experimental.output.ac.timeout", action = "nut.set.{item}.experimental.output.ac.timeout", param = "value" },
+  { id = "screen_timeout", type = "select", label = "Screen timeout", value = "{item}.experimental.display.timeout", action = "nut.set.{item}.experimental.display.timeout", param = "value" },
+  { id = "beeper", type = "toggle", label = "Beeper", value = "{item}.ups.beeper.status", action = "nut.command.{item}", param = "cmd", on = "beeper.enable", off = "beeper.disable", map = { enabled = "beeper.enable", disabled = "beeper.disable" } },
+]
+
 # ---- Processes -----------------------------------------------------------------------------
 
 [dashboards.processes]
