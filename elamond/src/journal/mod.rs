@@ -342,12 +342,12 @@ impl Buffer {
 }
 
 /// Of `lines` (oldest first), the newest that `filter` lets through, `count` and `bytes` at most,
-/// as JSON oldest first; and how many more matched.
+/// as JSON oldest first; and how many older ones matched.
 fn newest<'a>(lines: impl DoubleEndedIterator<Item = &'a Line>, filter: &Filter, count: usize, bytes: usize) -> (Value, u64) {
 	let (mut out, mut size, mut more) = (Vec::new(), 0, 0u64);
 	for l in lines.rev().filter(|l| filter.matches(l)) {
 		let s = l.size();
-		if out.len() < count && size + s <= bytes {
+		if more == 0 && out.len() < count && size + s <= bytes {
 			size += s;
 			out.push(Value::Object(l.json()));
 		} else {

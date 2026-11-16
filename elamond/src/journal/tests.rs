@@ -308,6 +308,14 @@ fn states_keep_within_their_bytes() {
 	let n = texts(&next).len();
 	assert!(serde_json::to_string(&next["lines"]).unwrap().len() <= limit::LOG_NEW_BYTES && n >= 9, "{n}");
 	assert_eq!(next["more"], 100 - n as u64);
+	// The newest that fit, and none older than one that doesn't, however small.
+	let big = "€".repeat(limit::LOG_TEXT_MAX);
+	for (i, text) in ["old", &big, &big, &big, "new"].into_iter().enumerate() {
+		b.push(line(1000 + i as u64, 6, text));
+	}
+	let next = b.state(&mut sent, &Filter::new(7, None), 1000).unwrap();
+	let sizes: Vec<usize> = texts(&next).iter().map(|t| t.chars().count()).collect();
+	assert_eq!((sizes, &next["more"]), (vec![limit::LOG_TEXT_MAX, limit::LOG_TEXT_MAX, 3], &Value::from(2)));
 }
 
 #[test]
