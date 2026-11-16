@@ -62,7 +62,7 @@ restore_font_scale() {
 }
 
 work=$(mktemp -d)
-trap 'kill "${service:-}" "${pairing:-}" "${upsd:-}" 2>/dev/null; restore_font_scale; rm -rf "$work"' EXIT
+trap 'kill "${service:-}" "${pairing:-}" "${upsd:-}" "${writer:-}" 2>/dev/null; restore_font_scale; rm -rf "$work"' EXIT
 
 mkdir -p "$work/cfg/elamond.d" "$work/data"
 # A simulated upsd (upst-core's demo, UPS "rack") on a loopback port of its own, for the UPS tab.
@@ -127,7 +127,7 @@ spark = true
 [profiles.phone]
 name = "Phone"
 theme = "dark"
-dashboards = ["overview", "processes", "sensors", "control", "ups", "test"]
+dashboards = ["overview", "processes", "sensors", "control", "ups", "test", "sources"]
 
 # A UPS on the simulated upsd: its tab, the beeper's switch and the low-battery level it may set.
 [sources.rack]
@@ -139,6 +139,45 @@ user = "elamon"
 password_file = "$work/nut.password"
 commands = ["beeper.*"]
 settings = ["battery.charge.low"]
+
+# Sources of the settings' own: a file a loop below rewrites, a command's JSON, and this user's
+# journal, which the same loop writes to.
+[sources.counter]
+kind = "file"
+path = "$work/counter"
+format = "text"
+interval = 1
+
+[sources.greet]
+kind = "command"
+command = ["printf", '{"word": "hello", "n": 7}']
+interval = 5
+
+[dashboards.sources]
+title = "Sources"
+icon = "terminal"
+
+[[dashboards.sources.widgets]]
+id = "counter"
+type = "value"
+value = "counter.text"
+label = "Counter"
+format = "integer"
+span = 2
+
+[[dashboards.sources.widgets]]
+id = "greet"
+type = "status"
+value = "greet.word"
+label = "Greeting"
+span = 2
+
+[[dashboards.sources.widgets]]
+id = "journal"
+type = "log"
+scope = "user"
+label = "My journal"
+span = 4
 
 [profiles.lean]
 use = "phone"
@@ -153,6 +192,8 @@ run_elamond() {
 		${ELAMON_PCI_IDS:+ELAMON_PCI_IDS="$ELAMON_PCI_IDS"} \
 		"$ELAMOND" "$@"
 }
+# What the Sources tab's file holds until a loop below takes it up.
+echo 100 > "$work/counter"
 run_elamond serve > "$OUT/elamond.log" 2>&1 &
 service=$!
 sleep 2
@@ -191,6 +232,27 @@ flow maestro/profile-back.yaml
 # (the station's own value says so afterwards). Here, as the phone has every tab again.
 flow -e NAME="$NAME" maestro/ups.yaml
 (run_elamond values rack) | grep -E 'ups\.beeper\.status' | grep -qi disabled || fail "the beeper wasn't switched off on the simulated upsd: $( (run_elamond values rack) )"
+# The settings' own sources and the journal, live; a level chip leaves only the warnings. Meanwhile
+# the counter goes up every 2 s from 100, each step a line in this user's journal, every fifth a
+# warning.
+(
+	for i in $(seq 101 400); do
+		sleep 2
+		echo "$i" > "$work/counter"
+		if (( i % 5 == 0 )); then
+			logger -p user.warning -t elamon-maestro "maestro warning $i"
+		else
+			logger -t elamon-maestro "maestro line $i"
+		fi
+	done
+) &
+writer=$!
+flow maestro/sources.yaml
+kill "$writer" 2>/dev/null || true
+(run_elamond values greet) | grep -q 'greet\.word.*hello' || fail "elamond values greet doesn't read the command: $( (run_elamond values greet) )"
+# The flow leaves the tab: the service's journalctl ends with the last stream that showed it.
+for _ in $(seq 20); do pgrep -P "$service" -x journalctl > /dev/null || break; sleep 0.5; done
+! pgrep -P "$service" -x journalctl > /dev/null || fail "the service's journalctl still runs with nobody looking at the journal"
 # Its own profile again, then two keys added to its table with the screen open: the last table in
 # the file is the phone's.
 (run_elamond clients profile all "$own")

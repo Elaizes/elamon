@@ -1,0 +1,41 @@
+# The settings' own sources and this user's journal: run.sh gave the test service a file it rewrites
+# every 2 s ("counter"), a command's JSON ("greet") and a log widget on the user's journal, which the
+# same loop writes a line to at each step (a warning every fifth). Right after ups.yaml.
+appId: io.github.elaizes.elamon.debug
+---
+- scrollUntilVisible:
+    element: "Sources"
+    direction: RIGHT
+    timeout: 10000
+- tapOn: "Sources"
+- extendedWaitUntil:
+    visible: "hello"
+    timeout: 20000
+- assertVisible: "Counter"
+- assertVisible: "1[0-2][0-9]"
+- extendedWaitUntil:
+    visible: ".*maestro line [0-9]+"
+    timeout: 20000
+- takeScreenshot: 40-sources
+# The counter moves on: a minute later it is past any value it had a moment ago.
+- extendedWaitUntil:
+    visible: "1[5-9][0-9]|[2-4][0-9][0-9]"
+    timeout: 120000
+- takeScreenshot: 41-sources-later
+# Warnings only: the service sends the lines again from its buffer, those below gone.
+- tapOn: "Warning"
+- extendedWaitUntil:
+    visible: ".*maestro warning [0-9]+"
+    timeout: 20000
+- assertNotVisible: ".*maestro line [0-9]+"
+- takeScreenshot: 42-journal-warnings
+- tapOn: "Info"
+- extendedWaitUntil:
+    visible: ".*maestro line [0-9]+"
+    timeout: 20000
+# Off the tab: nobody looks at the journal any more.
+- scrollUntilVisible:
+    element: "Overview"
+    direction: LEFT
+    timeout: 10000
+- tapOn: "Overview"
