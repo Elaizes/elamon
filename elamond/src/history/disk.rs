@@ -152,6 +152,30 @@ impl Made {
 		self.close(|tier, slot| slot != tier.slot(secs));
 	}
 
+	/// The points made (with `all`, of the slots still being summed too), each tier's in `slots`:
+	/// taken away.
+	pub fn take(&mut self, all: bool, slots: impl Fn(Tier) -> Range<u32>) -> Vec<(Tier, String, Vec<Point>)> {
+		if all {
+			self.close(|_, _| true);
+		}
+		let mut out = Vec::new();
+		for tier in Tier::ALL {
+			let range = slots(tier);
+			for (address, mut points) in std::mem::take(&mut self.pending[tier.index()]) {
+				points.retain(|(s, _)| range.contains(s));
+				if !points.is_empty() {
+					out.push((tier, address, points));
+				}
+			}
+		}
+		out
+	}
+
+	/// The points made and not taken.
+	pub fn len(&self) -> usize {
+		self.pending.iter().flat_map(|p| p.values()).map(Vec::len).sum()
+	}
+
 	/// The slots summed that `done` says are over become points.
 	fn close(&mut self, done: impl Fn(Tier, u32) -> bool) {
 		let Made { open, pending } = self;
@@ -253,6 +277,21 @@ impl Store {
 			self.trim_files(now);
 			writer.trimmed = now;
 		}
+	}
+
+	/// Appends points made elsewhere (from a recorder's journal) to their files, as a flush does,
+	/// and between flushes. Those outside what their tier keeps at `now` are left out.
+	pub fn write(&self, batch: Vec<(Tier, String, Vec<Point>)>, now: u64) {
+		let mut writer = lock(&self.writer);
+		let batch: Vec<_> = batch
+			.into_iter()
+			.filter_map(|(tier, address, mut points)| {
+				let kept = self.kept(tier, now);
+				points.retain(|(s, _)| kept.contains(s));
+				(!points.is_empty()).then_some((tier, address, points))
+			})
+			.collect();
+		self.write_batch(&mut writer, &batch, now, "those points are lost");
 	}
 
 	/// Appends each of `batch` to its file; what can't be written is said once, until it can be.

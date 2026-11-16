@@ -85,6 +85,9 @@ pub mod cadence {
 	pub const NUT_BACKGROUND_MS: u64 = 10_000;
 	/// How far back a timeline reaches unless its `range` says, in seconds: a day.
 	pub const TIMELINE_RANGE: u64 = 86_400;
+	/// What of a recorder's journal a source starts from, as if it had read it, in seconds: its
+	/// estimates and events go on from there.
+	pub const WARM_UP: u64 = 3600;
 
 	/// The cadences above in ticks of one interval, rounded, and at least every tick.
 	#[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,6 +164,12 @@ pub mod timeout {
 	pub const HEADER_READ: Duration = Duration::from_secs(15);
 	/// Connecting to upsd and each of its answers, for a source and for `elamond values <source>`.
 	pub const NUT: Duration = Duration::from_secs(5);
+	/// Connecting to a source's recorder, and each of its answers as the source starts; the start
+	/// waits no longer than `RECORDER_START` for the last hour of its journal, and while its history is
+	/// filled in, a line of the journal may take `RECORDER_LINE`.
+	pub const RECORDER: Duration = Duration::from_secs(5);
+	pub const RECORDER_START: Duration = Duration::from_secs(10);
+	pub const RECORDER_LINE: Duration = Duration::from_secs(60);
 }
 
 /// Sizes and counts that keep one phone, process or file from costing too much.
@@ -211,6 +220,8 @@ pub mod limit {
 	/// Changes of a UPS source's power kept at most, in memory and in its timeline's file (which may hold
 	/// twice as many before it is written anew with these): the oldest go.
 	pub const TIMELINE_CHANGES: usize = 10_000;
+	/// Points made of a recorder's journal kept in memory before they are written.
+	pub const BACKFILL_POINTS: usize = 500_000;
 }
 
 /// `elamond backup` and `elamond restore`.

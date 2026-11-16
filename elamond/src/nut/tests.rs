@@ -380,6 +380,8 @@ async fn a_timeline_is_kept_across_a_restart() {
 	store.flush(crate::store::now(), true);
 	let last = Store::new(store.dir().to_path_buf()).last_seen("rack").expect("kept");
 	assert!(last >= on);
+	// Started again a second later at least: changes within one second are one.
+	tokio::time::sleep(Duration::from_millis(1100)).await;
 	let rt = Runtime::default();
 	rt.start(tokio::runtime::Handle::current(), &config, history.store());
 	let before: Vec<Supply> = rt.snapshots()["rack"].timeline.iter().map(|c| c.state).collect();
@@ -455,4 +457,185 @@ fn elamond_values_asks_upsd_itself() {
 	server.stop();
 	let gone = cli::values(&config, "rack").unwrap_err();
 	assert!(gone.starts_with("can't reach upsd at 127.0.0.1:"), "{gone}");
+}
+
+// ---- with a recorder ------------------------------------------------------------------------
+
+/// A port of 127.0.0.1 nothing listens on.
+fn closed_port() -> u16 {
+	std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+}
+
+fn owned(list: &[(&str, String)]) -> Vec<(String, String)> {
+	list.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+}
+
+/// Waits up to 10 s for the source `id` to have said `n` lines of its recorder.
+async fn said(id: &str, n: usize) -> Vec<String> {
+	let start = Instant::now();
+	loop {
+		let said = recorder::tests::said(id);
+		if said.len() >= n {
+			return said;
+		}
+		assert!(start.elapsed() < Duration::from_secs(10), "{id} said {said:?}");
+		tokio::time::sleep(Duration::from_millis(50)).await;
+	}
+}
+
+/// The size of each file of the long history in `dir`.
+fn sizes(dir: &std::path::Path) -> Vec<(String, u64)> {
+	let mut out = Vec::new();
+	for sub in ["10s", "5m", "1h", "timeline"] {
+		for e in std::fs::read_dir(dir.join(sub)).into_iter().flatten().flatten() {
+			out.push((format!("{sub}/{}", e.file_name().to_string_lossy()), e.metadata().unwrap().len()));
+		}
+	}
+	out.sort();
+	out
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recorder_fills_in_the_history_and_the_timeline() {
+	use crate::history::disk::Tier;
+	use upst_core::journal::Journal;
+	let _one = POLLERS.lock().await;
+	// upsd isn't there: what the source has of its past is the recorder's journal.
+	let port = closed_port();
+	let label = format!("rack@127.0.0.1:{port}");
+	let journals = crate::history::disk::tests::scratch("journals");
+	let now = crate::store::now();
+	let t0 = (now - 5 * 3600) / 3600 * 3600;
+	let poll = |status: &str, charge: u64, watts: u64| {
+		owned(&[("ups.status", status.into()), ("battery.charge", charge.to_string()), ("ups.realpower", watts.to_string()), ("device.serial", "0000".into())])
+	};
+	// An hour on line, a poll every 10 s, its power going back and forth.
+	let mut j = Journal::open(&journals, &label, t0 as f64).unwrap();
+	for k in 0..360 {
+		j.poll((t0 + k * 10) as f64, &poll("OL", 100, 200 + k % 2)).unwrap();
+		j.tick((t0 + k * 10) as f64).unwrap();
+	}
+	drop(j);
+	// Two hours the recorder didn't run; then half an hour on battery and half an hour on line.
+	let t3 = t0 + 3 * 3600;
+	let mut j = Journal::open(&journals, &label, t3 as f64).unwrap();
+	for k in 0..360 {
+		let (status, charge) = if k < 180 { ("OB DISCHRG", 100 - k / 10) } else { ("OL", 82) };
+		j.poll((t3 + k * 10) as f64, &poll(status, charge, 300 + k % 2)).unwrap();
+		j.tick((t3 + k * 10) as f64).unwrap();
+	}
+	let path = j.path.clone();
+	drop(j);
+	let rec = recorder::tests::Recorder::serve(vec![(label.clone(), path)]);
+	let config = source(&demo_source("past", "rack", "127.0.0.1", port, &format!("recorder = \"{}\"\n", rec.addr)));
+	let history = Scratch::new();
+	let store = history.store();
+	let rt = Runtime::default();
+	rt.start(tokio::runtime::Handle::current(), &config, store.clone());
+	let lines = said("past", 1).await;
+	assert_eq!(lines, [format!("history filled in from the recorder's {label}: all it had before this start")]);
+	// On line, nothing known over the gap, on battery, on line, nothing known since the journal ends.
+	let s = rt.snapshots()["past"].clone();
+	let changes: Vec<(u64, Supply)> = s.timeline.iter().map(|c| (c.t, c.state)).collect();
+	assert_eq!(changes, [(t0, Supply::Line), (t0 + 3590, Supply::None), (t3, Supply::Battery), (t3 + 1800, Supply::Line), (t3 + 3590, Supply::None)]);
+	// A point every 10 s, each the poll's; none over the gap; the hours their means.
+	let slot = |tier: Tier, t: u64| tier.slot(t);
+	let s10 = store.points(Tier::S10, "past.ups.realpower", slot(Tier::S10, t0)..slot(Tier::S10, t0 + 3600));
+	assert_eq!((s10.len(), s10[0], s10[1], s10[359].0), (360, (slot(Tier::S10, t0), 200.0), (slot(Tier::S10, t0) + 1, 201.0), slot(Tier::S10, t0 + 3590)));
+	assert!(store.points(Tier::S10, "past.ups.realpower", slot(Tier::S10, t0 + 3600)..slot(Tier::S10, t3)).is_empty());
+	let h1 = store.points(Tier::H1, "past.ups.realpower", slot(Tier::H1, t0)..slot(Tier::H1, t0) + 5);
+	assert_eq!(h1, [(slot(Tier::H1, t0), 200.5), (slot(Tier::H1, t3), 300.5)]);
+	// The charge, which the journal writes as it changes, at every poll between too: 100, 99, 98.
+	assert_eq!(store.points(Tier::M5, "past.battery.charge", slot(Tier::M5, t3)..slot(Tier::M5, t3) + 1), [(slot(Tier::M5, t3), 99.0)]);
+	assert!(store.points(Tier::H1, "past.device.serial", 0..u32::MAX).is_empty());
+	// Filled in up to the start: that is where the next start goes on from.
+	rt.stop().await;
+	store.flush(crate::store::now(), true);
+	let until = Store::new(store.dir().to_path_buf()).last_seen("past").unwrap();
+	assert!((now..=crate::store::now()).contains(&until), "{until}");
+	// Started again, with nothing new in the journal: nothing is added.
+	let before = sizes(store.dir());
+	let timeline = std::fs::read_to_string(store.dir().join("timeline").join("past")).unwrap();
+	assert_eq!(timeline.lines().count(), 5);
+	let again = Arc::new(Store::new(store.dir().to_path_buf()));
+	let rt = Runtime::default();
+	rt.start(tokio::runtime::Handle::current(), &config, again.clone());
+	let lines = said("past", 2).await;
+	assert!(lines[1].starts_with(&format!("history filled in from the recorder's {label}: the ")), "{lines:?}");
+	rt.stop().await;
+	again.flush(crate::store::now(), true);
+	assert_eq!(sizes(store.dir()), before);
+	assert_eq!(std::fs::read_to_string(store.dir().join("timeline").join("past")).unwrap(), timeline);
+	drop(rec);
+	std::fs::remove_dir_all(&journals).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recorder_out_of_reach_is_a_line_and_the_source_works_without() {
+	use upst_core::journal::Journal;
+	let _one = POLLERS.lock().await;
+	let server = demo::Server::spawn().unwrap();
+	let ups = server.addr().port();
+	// One that answers, but knows another UPS.
+	let journals = crate::history::disk::tests::scratch("journals-other");
+	let mut j = Journal::open(&journals, "pack@nas", 1_700_000_000.0).unwrap();
+	j.poll(1_700_000_000.0, &owned(&[("ups.status", "OL".into())])).unwrap();
+	let path = j.path.clone();
+	drop(j);
+	let rec = recorder::tests::Recorder::serve(vec![("pack@nas".into(), path)]);
+	let closed = closed_port();
+	let config = source(&format!(
+		"{}{}",
+		demo_source("lone", "rack", "127.0.0.1", ups, &format!("recorder = \"127.0.0.1:{closed}\"\n")),
+		demo_source("other", "rack", "127.0.0.1", ups, &format!("recorder = \"{}\"\n", rec.addr)),
+	));
+	let history = Scratch::new();
+	let rt = Runtime::default();
+	rt.start(tokio::runtime::Handle::current(), &config, history.store());
+	for id in ["lone", "other"] {
+		let s = wait_for(&rt, id, Duration::from_secs(5), |s| s.supply == Supply::Line).await;
+		assert!(s.scalars.contains_key(&format!("{id}.battery.charge")));
+	}
+	let lone = said("lone", 1).await;
+	assert_eq!(lone.len(), 1, "{lone:?}");
+	assert!(lone[0].starts_with(&format!("recorder 127.0.0.1:{closed}: ")) && lone[0].ends_with("; no history from before elamond"), "{lone:?}");
+	let other = said("other", 1).await;
+	assert_eq!(other, [format!("recorder {}: it has no journal of rack@127.0.0.1:{ups} (it has pack@nas); no history from before elamond", rec.addr)]);
+	// Read live, its last reading is kept: the next start fills in from there.
+	let store = history.store();
+	store.flush(crate::store::now(), true);
+	assert!(Store::new(store.dir().to_path_buf()).last_seen("lone").is_some());
+	tokio::time::sleep(Duration::from_millis(300)).await;
+	assert_eq!(recorder::tests::said("lone").len(), 1);
+	rt.stop().await;
+	server.stop();
+	std::fs::remove_dir_all(&journals).unwrap();
+}
+
+#[test]
+fn the_last_hour_of_a_journal_primes_the_estimate() {
+	use upst_core::journal::Kind;
+	let config = eco();
+	let until = 1_700_000_000;
+	let rec = |t: u64, kind: Kind| Record::new(t as f64, kind);
+	let set = |t: u64, k: &str, v: String| rec(t, Kind::Set(k.into(), v));
+	let start = until - 3600;
+	let mut records = vec![rec(start, Kind::Start), rec(start, Kind::Up), set(start, "ups.status", "OB DISCHRG".into()), set(start, "battery.charge.low", "20".into())];
+	// Down a percent every 4 minutes.
+	for k in 0..60 {
+		records.push(set(start + k * 60, "battery.charge", (95 - k / 4).to_string()));
+	}
+	let live = |st: &mut Station| {
+		st.polled(vars(&[("ups.status", "OB DISCHRG"), ("battery.charge", "80"), ("battery.charge.low", "20")]), at(until));
+		st.snapshot(at(until))
+	};
+	let mut cold = Station::new("eco", &config.sources["eco"]);
+	assert!(!live(&mut cold).scalars.contains_key("eco.estimate.to_empty"));
+	let mut warm = Station::new("eco", &config.sources["eco"]);
+	warm.warm(&records, at(until), None);
+	let s = live(&mut warm);
+	let to_empty = s.scalars["eco.estimate.to_empty"].v.num().unwrap();
+	// 80 % at a percent every 240 s.
+	assert!((15_000.0..25_000.0).contains(&to_empty), "{to_empty}");
+	assert!(s.scalars.contains_key("eco.estimate.to_low"));
 }

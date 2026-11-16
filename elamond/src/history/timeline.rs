@@ -173,6 +173,23 @@ impl Timeline {
 		}
 	}
 
+	/// What a recorder kept from `from` to `until` (Unix seconds) in place of what the timeline has
+	/// of that time: `window`, its changes then, the first at `from`. Then what the source says now
+	/// goes on, and the file is written anew.
+	pub fn merge(&mut self, from: u64, until: u64, window: Vec<Change>) {
+		let mut all: Vec<Change> = self.changes.iter().filter(|c| c.t < from).cloned().collect();
+		all.extend(window.into_iter().filter(|c| (from..until).contains(&c.t)));
+		all.extend(self.changes.iter().filter(|c| c.t >= until).cloned());
+		let mut all = tidy(all);
+		let last = all.last().map_or(Supply::None, |c| c.state);
+		if last != self.live && !self.closed {
+			let at = all.last().map_or(until, |c| c.t.max(until));
+			all.push(Change::new(at, self.live, "-"));
+		}
+		self.changes = Arc::new(all);
+		self.rewrite();
+	}
+
 	/// The source stops being read at `at`: nothing is known from then on, and nothing more is
 	/// taken.
 	pub fn close(&mut self, at: u64) {
@@ -424,6 +441,31 @@ mod tests {
 		assert_eq!(states(&t), [(1000, L), (2000, B), (2500, N), (3000, B), (3600, N)]);
 		assert_eq!(t.changes()[1].code, "power.lost");
 		assert!(fs::read_to_string(&file).unwrap().ends_with("3600 none -\njunk\n"));
+		fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
+	fn a_recorder_s_past_takes_the_place_of_what_the_timeline_has_of_that_time() {
+		let dir = scratch("merge");
+		let mut t = Timeline::load(&dir, "eco", None);
+		t.set(L, 1000, "-");
+		t.set(N, 2000, "-");
+		// Started again at 9000, on battery.
+		t.set(B, 9000, "power.started_on_battery");
+		t.merge(2000, 9000, changes(&[(2000, L), (5000, B), (6000, N), (6100, B)]));
+		assert_eq!(*t.changes(), changes(&[(1000, L), (5000, B), (6000, N), (6100, B)]));
+		assert_eq!(*Timeline::load(&dir, "eco", Some(9500)).changes(), changes(&[(1000, L), (5000, B), (6000, N), (6100, B), (9500, N)]));
+		// Merged again with what it already has: nothing changes.
+		let mut t = Timeline::load(&dir, "eco", Some(9500));
+		t.set(B, 9600, "-");
+		let before = t.changes();
+		t.merge(2000, 9000, changes(&[(2000, L), (5000, B), (6000, N), (6100, B)]));
+		assert_eq!(t.changes(), before);
+		// The recorder says it was on line until now, but upsd isn't read: from then, none.
+		let mut t = Timeline::memory();
+		t.set(N, 100, "-");
+		t.merge(0, 500, changes(&[(0, L)]));
+		assert_eq!(*t.changes(), changes(&[(0, L), (500, N)]));
 		fs::remove_dir_all(&dir).unwrap();
 	}
 

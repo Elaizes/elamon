@@ -5,13 +5,16 @@
 //! stream or another source.
 
 pub mod cli;
+pub mod recorder;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use tokio::sync::{mpsc, oneshot, watch};
 use upst_core::history::recordable;
+use upst_core::journal::Record;
 use upst_core::poll::{self, Poller, Update};
 use upst_core::status::{flag_info, Severity};
 use upst_core::target::Server;
@@ -191,6 +194,23 @@ impl Station {
 		self.timeline.set(s, upst_core::unix(at) as u64, code);
 	}
 
+	/// The last hour of the source's journal at its recorder (`records`, to `until`) taken in as if
+	/// it had been read: estimates and events go on from it. What happened since the service last
+	/// read the source (`since`) is said in the journal.
+	pub fn warm(&mut self, records: &[Record], until: SystemTime, since: Option<u64>) {
+		let events = self.ups.replay(records, until);
+		for e in events.iter().filter(|e| since.is_none_or(|s| upst_core::unix(e.at) as u64 >= s)) {
+			let ago = until.duration_since(e.at).unwrap_or_default().as_secs_f64();
+			self.say_as(e, &format!(" ({} ago, from the recorder)", format::format(format::Shown::Num(ago), "duration", "s")));
+		}
+	}
+
+	/// What a recorder kept from `from` to `until` (Unix seconds) in place of what the timeline has
+	/// of that time: `window`, its changes then.
+	fn recalled(&mut self, from: u64, until: u64, window: Vec<Change>) {
+		self.timeline.merge(from, until, window);
+	}
+
 	/// The source stops being read at `at`: its timeline ends.
 	fn close(&mut self, at: SystemTime) {
 		self.timeline.close(upst_core::unix(at) as u64);
@@ -342,10 +362,14 @@ impl Station {
 	/// Writes in the journal what happened to the power, the battery's charge and the link.
 	fn say(&self, events: &[Event]) {
 		for e in events {
-			let code = e.code();
-			if ["power.", "battery.low", "upsd.", "data."].iter().any(|p| code.starts_with(p)) {
-				eprintln!("nut {}: {code}: {e}", self.id);
-			}
+			self.say_as(e, "");
+		}
+	}
+
+	fn say_as(&self, e: &Event, after: &str) {
+		let code = e.code();
+		if ["power.", "battery.low", "upsd.", "data."].iter().any(|p| code.starts_with(p)) {
+			eprintln!("nut {}: {code}: {e}{after}", self.id);
 		}
 	}
 }
@@ -518,7 +542,20 @@ fn spawn(handle: &tokio::runtime::Handle, store: &Arc<Store>, id: &str, src: &Nu
 	let snapshot = Arc::new(Mutex::new(Arc::new(station.snapshot(SystemTime::now()))));
 	let (demand, wanted) = watch::channel(Demand::Background);
 	let (stop, stopped) = oneshot::channel();
-	let task = Task { id: id.to_string(), src: src.clone(), poller, updates, wanted, stopped, out: snapshot.clone(), store: store.clone() };
+	let (filler, filled) = mpsc::channel(1);
+	let task = Task {
+		id: id.to_string(),
+		src: src.clone(),
+		poller,
+		updates,
+		wanted,
+		stopped,
+		out: snapshot.clone(),
+		store: store.clone(),
+		filled,
+		filler,
+		cancel: Arc::new(AtomicBool::new(false)),
+	};
 	let task = handle.spawn(task.run(station));
 	Ok(Running { src: src.clone(), snapshot, demand, _stop: stop, task })
 }
@@ -534,14 +571,43 @@ struct Task {
 	/// Where its snapshot is left.
 	out: Arc<Mutex<Arc<Snapshot>>>,
 	store: Arc<Store>,
+	/// What its recorder's journal made of its timeline, once its history is filled in from it.
+	filled: mpsc::Receiver<Filled>,
+	filler: mpsc::Sender<Filled>,
+	/// Set as the task ends: filling in its history stops.
+	cancel: Arc<AtomicBool>,
+}
+
+/// A source's history filled in from the recorder's journal `label`, from `from` to `until` (Unix
+/// seconds): its timeline then, or why not.
+struct Filled {
+	label: String,
+	from: u64,
+	until: u64,
+	result: Result<Vec<Change>, String>,
 }
 
 impl Task {
 	/// What the poller reports becomes the source's snapshot, and the poller asks as often as
-	/// wanted, until the source is stopped; then its timeline ends.
+	/// wanted, until the source is stopped; then its timeline ends. With a recorder, the last hour
+	/// of its journal comes first, and the history is filled in from it meanwhile.
 	async fn run(mut self, mut station: Station) {
 		let mut asking = Asking { interval: self.src.background(), paused: false };
 		asking.set(&self.poller, &self.src, *self.wanted.borrow_and_update());
+		// When the source was last read is kept, for the next start to fill in from; not while its
+		// history is filled in: until that is done, it is still when the service read it before.
+		let mut keep_seen = true;
+		if let Some(addr) = self.src.recorder.clone() {
+			let recalled = recall(&self.id, &self.src, &addr, &self.store, &mut station, self.filler.clone(), self.cancel.clone());
+			tokio::select! {
+				_ = &mut self.stopped => {
+					station.close(SystemTime::now());
+					return;
+				}
+				started = recalled => keep_seen = !started,
+			}
+		}
+		let mut at = SystemTime::now();
 		loop {
 			tokio::select! {
 				_ = &mut self.stopped => break,
@@ -551,11 +617,18 @@ impl Task {
 					}
 					asking.set(&self.poller, &self.src, *self.wanted.borrow_and_update());
 				}
+				Some(f) = self.filled.recv() => {
+					self.filled_in(&mut station, f);
+					keep_seen = true;
+					let s = Arc::new(station.snapshot(at));
+					*self.out.lock().unwrap_or_else(|p| p.into_inner()) = s;
+				}
 				u = self.updates.recv() => {
 					let Some(u) = u else { break };
 					let read = matches!(&u, Update::Vars { ups, .. } if *ups == self.src.ups);
-					if let Some(at) = station.update(&self.src, u) {
-						if read {
+					if let Some(t) = station.update(&self.src, u) {
+						at = t;
+						if read && keep_seen {
 							self.store.seen(&self.id, upst_core::unix(at) as u64);
 						}
 						let s = Arc::new(station.snapshot(at));
@@ -564,10 +637,62 @@ impl Task {
 				}
 			}
 		}
+		self.cancel.store(true, Ordering::Relaxed);
 		station.close(SystemTime::now());
 		// Dropped, the poller tells its thread to end, which it does once a call in flight returns.
 		drop(self.poller);
 	}
+
+	/// The timeline the recorder's journal made takes the place of the station's then, and the
+	/// history is whole to then; or the journal says why not.
+	fn filled_in(&self, station: &mut Station, f: Filled) {
+		match f.result {
+			Ok(window) => {
+				station.recalled(f.from, f.until, window);
+				self.store.seen(&self.id, f.until);
+				let before = match f.from {
+					0 => "all it had".to_string(),
+					from => format!("the {}", format::format(format::Shown::Num(f.until.saturating_sub(from) as f64), "duration", "s")),
+				};
+				recorder::say(&self.id, format!("history filled in from the recorder's {}: {before} before this start", f.label));
+			}
+			Err(e) => {
+				let addr = self.src.recorder.as_deref().unwrap_or_default();
+				recorder::say(&self.id, format!("recorder {addr}: {e}; no history from before elamond"));
+			}
+		}
+	}
+}
+
+/// The last hour of the source's journal at the recorder `addr`, taken in by its station before
+/// anything read now; then its history filled in from the journal in the background, what that
+/// made of its timeline sent to `filled`. Whether that was started: a recorder that can't be
+/// reached, or hasn't the UPS, is a line in the journal.
+async fn recall(id: &str, src: &NutSource, addr: &str, store: &Arc<Store>, station: &mut Station, filled: mpsc::Sender<Filled>, cancel: Arc<AtomicBool>) -> bool {
+	let since = store.last_seen(id);
+	let until = crate::store::now();
+	let (s, a) = (src.clone(), addr.to_string());
+	let job = tokio::task::spawn_blocking(move || recorder::recent(&a, &s, until));
+	let got = match tokio::time::timeout(timeout::RECORDER_START, job).await {
+		Ok(Ok(got)) => got,
+		Ok(Err(e)) => Err(e.to_string()),
+		Err(_) => Err(format!("no answer in {} s", timeout::RECORDER_START.as_secs())),
+	};
+	let recorded = match got {
+		Ok(r) => r,
+		Err(e) => {
+			recorder::say(id, format!("recorder {addr}: {e}; no history from before elamond"));
+			return false;
+		}
+	};
+	station.warm(&recorded.recent, upst_core::from_unix(until as f64), since);
+	let from = since.unwrap_or(0);
+	let (id, addr, store, history, label) = (id.to_string(), addr.to_string(), store.clone(), src.history, recorded.label);
+	tokio::task::spawn_blocking(move || {
+		let result = recorder::backfill(&addr, &label, &id, history, from, until, &store, &cancel);
+		let _ = filled.blocking_send(Filled { label, from, until, result });
+	});
+	true
 }
 
 /// How the poller asks now.
