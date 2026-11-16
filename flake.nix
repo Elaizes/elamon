@@ -547,6 +547,63 @@
 				testScript = builtins.readFile ./nix/ups-test.py;
 			};
 
+			# elamond with sources of its own and the journal, on one machine: a command's, a file's and a
+			# web service's values, read only while a phone looks; the web service's token in its header
+			# and nowhere elamond writes or answers; the user's own journal, then, in systemd-journal, the
+			# system's, live and in pages, a unit's from its link; journalctl gone with the last stream.
+			checks.x86_64-linux.journal = nixpkgs.legacyPackages.x86_64-linux.testers.runNixOSTest {
+				name = "elamond-journal";
+				nodes.machine = { pkgs, ... }: {
+					imports = [ self.nixosModules.default ];
+					# A web service on loopback that wants a token, and writes down each Authorization it gets.
+					systemd.services.token-echo = {
+						wantedBy = [ "multi-user.target" ];
+						serviceConfig = {
+							StateDirectory = "token-echo";
+							ExecStart = pkgs.writers.writePython3 "token-echo" { flakeIgnore = [ "E501" ]; } (builtins.readFile ./nix/token-echo.py);
+						};
+					};
+					# The token, made at boot and so never in the Nix store: alice's alone.
+					systemd.services.app-token = {
+						wantedBy = [ "multi-user.target" ];
+						before = [ "user@1000.service" ];
+						path = [ pkgs.coreutils ];
+						serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+						script = ''
+							install -d -o alice -g users -m 700 /home/alice/.config /home/alice/.config/elamon
+							test -s /home/alice/.config/elamon/app.token || echo "tok-$(head -c 15 /dev/urandom | base32)" > /home/alice/.config/elamon/app.token
+							chown alice:users /home/alice/.config/elamon/app.token
+							chmod 600 /home/alice/.config/elamon/app.token
+						'';
+					};
+					services.elamond = {
+						enable = true;
+						users = [ "alice" ];
+						settings = {
+							control = true;
+							sources.up = { kind = "command"; command = [ "${pkgs.coreutils}/bin/printf" ''{"load": 0.5}'' ]; interval = 2; };
+							sources.mark = { kind = "file"; path = "/home/alice/mark"; format = "text"; interval = 1; };
+							sources.app = { kind = "http"; url = "http://127.0.0.1:8080/status"; token_file = "/home/alice/.config/elamon/app.token"; interval = 2; };
+							links.echo = { name = "Echo"; url = "http://{host}:8080"; unit = "token-echo.service"; scope = "system"; };
+							dashboards.mine = {
+								title = "Mine";
+								icon = "terminal";
+								widgets = [
+									{ id = "load"; type = "value"; value = "up.load"; label = "Load"; }
+									{ id = "mark"; type = "value"; value = "mark.text"; label = "Mark"; }
+									{ id = "app"; type = "status"; value = "app.state"; label = "App"; }
+									{ id = "queue"; type = "value"; value = "app.queue.length"; label = "Queue"; }
+								];
+							};
+							profiles.vm = { name = "VM"; dashboards = [ "mine" "control" ]; };
+						};
+					};
+					users.users.alice = { isNormalUser = true; uid = 1000; linger = true; };
+					environment.systemPackages = [ pkgs.curl pkgs.jq pkgs.procps pkgs.util-linux ];
+				};
+				testScript = builtins.readFile ./nix/journal-test.py;
+			};
+
 			devShells.x86_64-linux = {
 				default = dev.mkShell {
 					packages = [
