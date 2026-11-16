@@ -595,6 +595,59 @@ interval = 3600
 	assert!(rt.snapshots().is_empty());
 }
 
+/// A snapshot waits for the sources due a read alone: one not read yet, or whose last read, good or
+/// not, began an interval ago or more. One read since, or always read, isn't waited for.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_source_is_due_a_read_once_its_interval_has_passed() {
+	let dir = scratch("due");
+	let config = config(&format!(
+		r#"
+[sources.often]
+kind = "command"
+command = ["printf", "1"]
+interval = 2
+
+[sources.kept]
+kind = "command"
+command = ["printf", "1"]
+interval = 3600
+history = true
+
+[sources.missing]
+kind = "file"
+path = "{}"
+interval = 2
+
+[sources.first]
+kind = "command"
+command = ["sleep", "4"]
+interval = 3600
+timeout = 10
+"#,
+		dir.join("missing").display()
+	));
+	let rt = Runtime::default();
+	rt.start(tokio::runtime::Handle::current(), &config);
+	let none = BTreeSet::new();
+	rt.set_demand(&none, &none);
+	let all = ids(&["often", "kept", "missing", "first", "other"]);
+	let due = |rt: &Runtime| rt.due(&all).into_keys().collect::<Vec<_>>();
+	sleep_ms(800).await;
+	// Each read as it started, but the one still at its first.
+	assert_eq!(due(&rt), ["first"]);
+	assert_eq!(rt.due(&all)["first"], 0);
+	sleep_ms(1500).await;
+	// Its interval passed: due, whether its last read was good or not.
+	assert_eq!(due(&rt), ["first", "missing", "often"]);
+	assert_eq!((rt.due(&all)["often"], rt.due(&all)["missing"]), (1, 1));
+	// Read again, not due until its interval passes again.
+	rt.set_demand(&ids(&["often"]), &none);
+	sleep_ms(500).await;
+	assert_eq!(due(&rt), ["first", "missing"]);
+	rt.stop().await;
+	std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// A source taken out of the settings, or changed, stops, and its read in flight with it; the
 /// service stopping stops them all.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

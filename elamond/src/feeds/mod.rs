@@ -74,6 +74,8 @@ pub struct FeedSnapshot {
 	pub exit: Option<i32>,
 	/// Reads made, good or not: what a snapshot waits for one more of.
 	pub reads: u64,
+	/// When its last read began: the next is due an `interval` after.
+	pub begun: Option<tokio::time::Instant>,
 }
 
 /// A source's reads as they come: its snapshot, and what the journal was told.
@@ -231,13 +233,23 @@ impl Runtime {
 		}
 	}
 
-	/// Each source's last snapshot.
-	/// How many reads each source `ids` names has made: a snapshot waits for one more of each.
+	/// How many reads each source `ids` names has made.
 	pub fn reads(&self, ids: &BTreeSet<String>) -> BTreeMap<String, u64> {
 		let inner = self.lock();
 		inner.feeds.iter().filter(|(id, _)| ids.contains(*id)).map(|(id, r)| (id.clone(), r.snapshot.lock().unwrap_or_else(|p| p.into_inner()).reads)).collect()
 	}
 
+	/// How many reads each source `ids` names that is due one has made: one not read yet, or whose
+	/// last read began an `interval` ago or more. A snapshot waits for one more of each; one read
+	/// since has values as new as its interval asks, and isn't read again before it.
+	pub fn due(&self, ids: &BTreeSet<String>) -> BTreeMap<String, u64> {
+		let now = tokio::time::Instant::now();
+		let inner = self.lock();
+		let due = inner.feeds.iter().filter(|(id, _)| ids.contains(*id)).map(|(id, r)| (id, r.feed.interval, r.snapshot.lock().unwrap_or_else(|p| p.into_inner()).clone()));
+		due.filter(|(_, every, s)| s.begun.is_none_or(|b| b + Duration::from_secs(*every) <= now)).map(|(id, _, s)| (id.clone(), s.reads)).collect()
+	}
+
+	/// Each source's last snapshot.
 	pub fn snapshots(&self) -> BTreeMap<String, Arc<FeedSnapshot>> {
 		let inner = self.lock();
 		inner.feeds.iter().map(|(id, r)| (id.clone(), r.snapshot.lock().unwrap_or_else(|p| p.into_inner()).clone())).collect()
@@ -307,6 +319,7 @@ async fn run(id: String, feed: Feed, out: Arc<Mutex<Arc<FeedSnapshot>>>, mut wan
 		for line in keeper.took(outcome, SystemTime::now()) {
 			eprintln!("{line}");
 		}
+		keeper.snap.begun = last;
 		*out.lock().unwrap_or_else(|p| p.into_inner()) = Arc::new(keeper.snap.clone());
 	}
 }

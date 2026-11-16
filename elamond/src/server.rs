@@ -1222,9 +1222,9 @@ async fn snapshot(
 	};
 	let _want = hub.want(need, heads.clone());
 	let deadline = tokio::time::Instant::now() + hub.interval * (cadence::FIRST_FRAME_TICKS + 1);
-	// The dashboard's own sources are read once the collector, at its next tick, sees them wanted:
-	// their values come in a reading after each has been read since this request.
-	let reads = hub.feeds.reads(&heads);
+	// The dashboard's own sources due a read are read once the collector, at its next tick, sees them
+	// wanted: their values come in a reading after each has been read since this request.
+	let reads = hub.feeds.due(&heads);
 	let mut read_by: Option<u64> = None;
 	loop {
 		if read_by.is_none() && hub.feeds.reads(&heads).iter().all(|(id, n)| reads.get(id).is_none_or(|b| n > b)) {
