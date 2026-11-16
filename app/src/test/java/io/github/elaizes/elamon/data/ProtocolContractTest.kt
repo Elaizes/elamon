@@ -19,8 +19,12 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import io.github.elaizes.elamon.Tell
+import io.github.elaizes.elamon.Want
 import io.github.elaizes.elamon.allWidgets
+import io.github.elaizes.elamon.findWidget
 import io.github.elaizes.elamon.headerData
+import io.github.elaizes.elamon.tell
 
 /**
  * The app against elamond/fixtures, which the service's own tests write: every shape of API 2 it
@@ -52,10 +56,17 @@ class ProtocolContractTest {
 		"0.7/history" to GraphHistory.serializer(),
 		"0.7/history-timeline" to TimelineHistory.serializer(),
 		"0.7/action-request-typed" to ActionRequest.serializer(),
+		// And what 0.8 adds.
+		"0.8/hello" to Hello.serializer(),
+		"0.8/ui-sources" to UiDoc.serializer(),
+		"0.8/stream-sources" to StreamLine.serializer(),
+		"0.8/stream-log-next" to StreamLine.serializer(),
+		"0.8/subscribe-log" to Subscribe.serializer(),
+		"0.8/log" to LogPage.serializer(),
 	)
 
 	/** The folders of fixtures under [dir], "" for itself. */
-	private val folders = listOf("", "0.7/")
+	private val folders = listOf("", "0.7/", "0.8/")
 
 	/** Fixtures that aren't a body the app decodes, and the test that reads them. */
 	private val checkedElsewhere = mapOf(
@@ -64,7 +75,10 @@ class ProtocolContractTest {
 	)
 
 	/** Objects keyed by ids rather than by field names: their values are checked together, as a list's items are. */
-	private val maps = setOf("stream-data.widgets", "stream-data.history", "stream-data-detail.widgets", "stream-data-detail.history", "0.7/stream-ups.widgets")
+	private val maps = setOf(
+		"stream-data.widgets", "stream-data.history", "stream-data-detail.widgets", "stream-data-detail.history", "0.7/stream-ups.widgets",
+		"0.8/stream-sources.widgets", "0.8/stream-log-next.widgets", "0.8/subscribe-log.log",
+	)
 
 	/** A group's widgets are widgets: what they have, the dashboards' widgets are checked for. */
 	private val asTheirParents = setOf("ui.dashboards[].widgets[].widgets", "0.7/ui-ups.dashboards[].widgets[].widgets")
@@ -75,17 +89,23 @@ class ProtocolContractTest {
 		"ui-default" to "ui has every field of a ui document",
 		"0.7/ui-ups" to "its fields count as ui's (alsoSent)",
 		"0.7/stream-ups" to "its fields count as stream-data's (alsoSent)",
+		"0.8/ui-sources" to "its fields count as ui's (alsoSent)",
+		"0.8/stream-sources" to "its fields count as stream-data's (alsoSent)",
+		"0.8/stream-log-next" to "its fields count as stream-data's (alsoSent)",
+		"0.8/subscribe-log" to "its fields count as subscribe's (alsoSent)",
 	)
 
 	/**
 	 * Fixtures of 0.7 whose fields count as sent in a fixture of the same shape from before, which
 	 * lacks them until the service writes it again at 0.7: a timeline's keys and state, `ranges`,
-	 * a choice's and a request's `confirm_text`.
+	 * a choice's and a request's `confirm_text`; and so of 0.8: a log's keys and state, a row action's
+	 * `open`, a stream's `log`.
 	 */
 	private val alsoSent = mapOf(
-		"ui" to listOf("0.7/ui-ups"),
-		"stream-data" to listOf("0.7/stream-ups"),
+		"ui" to listOf("0.7/ui-ups", "0.8/ui-sources"),
+		"stream-data" to listOf("0.7/stream-ups", "0.8/stream-sources", "0.8/stream-log-next"),
 		"action-request" to listOf("0.7/action-request-typed"),
+		"subscribe" to listOf("0.8/subscribe-log"),
 	)
 
 	/**
@@ -94,6 +114,7 @@ class ProtocolContractTest {
 	 */
 	private val leftOut: Map<String, String> = mapOf(
 		"stream-data.widgets[].labels" to "the fixture's bars have no labels (none by default)",
+		"stream-data.widgets[].note" to "the fixtures' logs read the journal whole (a note says when they can't)",
 	)
 
 	/** No unknown keys, no coercion: whatever the app can't place is an error. */
@@ -340,6 +361,7 @@ class ProtocolContractTest {
 			"stream-ui" to listOf("ui"),
 			"0.7/history" to listOf("widget", "range", "from", "to", "step_ms"),
 			"0.7/history-timeline" to listOf("widget", "range", "from", "to", "segments[].from", "segments[].to"),
+			"0.8/log" to listOf("widget", "lines[].c", "lines[].t"),
 		)
 		for ((name, paths) in required) {
 			for (path in paths) {
@@ -520,6 +542,95 @@ class ProtocolContractTest {
 		assertEquals(fixture("0.7/action-request-typed"), ProtocolJson.encodeToJsonElement(ActionRequest.serializer(), typed))
 		// Without one, the request is as before 0.7.
 		assertEquals(fixture("action-request"), ProtocolJson.encodeToJsonElement(ActionRequest.serializer(), ActionRequest(JsonObject(mapOf("mode" to JsonPrimitive("server"))))))
+	}
+
+	// ---- elamond 0.8 -------------------------------------------------------------------------------
+
+	@Test
+	fun theSourcesUiAsDescribed() {
+		val ui = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), fixture("0.8/ui-sources"))
+		assertEquals(listOf("sources", "control"), ui.tabs)
+		assertEquals(listOf("sources", "control", "journal", "unit_log.example"), ui.dashboards.map { it.id })
+		val sources = ui.dashboard("sources")!!.widgets
+		val mine = sources.first { it.id == "sources/journal" }
+		assertEquals(listOf("log", "user", "notice", null), listOf(mine.type, mine.scope, mine.level, mine.unit))
+		assertEquals(100, mine.lines)
+		assertEquals(false, mine.search)
+		val app = sources.first { it.id == "sources/app_log" }
+		assertEquals(listOf("unit", "example.service", "info"), listOf(app.scope, app.unit, app.level))
+		assertEquals(200, app.lines)
+		assertEquals(true, app.search)
+		assertEquals("journal", ui.dashboard("control")!!.widgets.first { it.id == "control/journal" }.open)
+		// Every type of it the app draws, the log among them: the service sends it as it is.
+		val types = ui.dashboards.flatMap { allWidgets(it.widgets) }.map { it.type }.toSet()
+		assertTrue("log" in types && types.all { it in WIDGET_TYPES }, "types the app doesn't draw: ${types - WIDGET_TYPES.toSet()}")
+		assertEquals(3, ProtocolJson.decodeFromJsonElement(Hello.serializer(), fixture("0.8/hello")).widgets)
+	}
+
+	@Test
+	fun theLogsStatesAsSent() {
+		val first = assertIs<DataLine>(decodeStreamLine(line("0.8/stream-sources")))
+		// A log before its first line: a reset with none.
+		val mine = first.widgets.getValue("sources/journal")
+		assertEquals(emptyList(), mine.lines)
+		assertTrue(mine.reset)
+		val app = first.widgets.getValue("sources/app_log")
+		assertTrue(app.reset)
+		assertEquals(0, app.more)
+		assertNull(app.note)
+		val lines = app.lines!!
+		assertEquals(listOf("info", "warning", "info"), lines.map { it.level })
+		// Oldest first; the journal's time in µs, the same in ms beside it.
+		assertTrue(lines.zipWithNext().all { (a, b) -> a.c < b.c })
+		assertTrue(lines.all { it.c / 1000 == it.t })
+		assertEquals(listOf("example.service", "example"), listOf(lines[1].unit, lines[1].id))
+		// The sources' values beside them, as any.
+		assertEquals(45_000.0, first.widgets.getValue("sources/zone").number)
+		// A later line: what came since, and how many were left out before it.
+		val next = assertIs<DataLine>(decodeStreamLine(line("0.8/stream-log-next")))
+		val system = next.widgets.getValue("journal/system")
+		assertFalse(system.reset)
+		assertEquals(12, system.more)
+		assertEquals(listOf("warning", "error"), system.lines!!.map { it.level })
+	}
+
+	@Test
+	fun olderLinesAsAnswered() {
+		val page = ProtocolJson.decodeFromJsonElement(LogPage.serializer(), fixture("0.8/log"))
+		assertEquals("journal/system", page.widget)
+		assertEquals(listOf("warning", "error", "critical"), page.lines.map { it.level })
+		assertTrue(page.lines.zipWithNext().all { (a, b) -> a.c < b.c })
+		// The next page starts where this one stopped looking, before its oldest line.
+		assertEquals(1_699_999_612_345_678L, page.before)
+		assertTrue(page.before!! < page.lines.first().c)
+		// A line the journal has no unit for.
+		val kernel = page.lines.last()
+		assertNull(kernel.unit)
+		assertEquals("kernel", kernel.id)
+		// The end of the journal: no `before`.
+		assertNull(ProtocolJson.decodeFromString(LogPage.serializer(), """{"widget":"journal/system","lines":[],"before":null}""").before)
+	}
+
+	@Test
+	fun olderLinesAreAskedForByWidgetAndFilter() {
+		assertEquals(
+			"/api/v1/log?widget=journal%2Fsystem&before=1699999612345678&level=error&search=no%20space",
+			logPath("journal/system", 1_699_999_612_345_678L, "error", "no space"),
+		)
+		// The newest, by the widget's own level, without a search.
+		assertEquals("/api/v1/log?widget=journal%2Fsystem", logPath("journal/system", null, null, ""))
+	}
+
+	@Test
+	fun aLogsFilterIsToldAsTheFixture() {
+		// The journal shows errors; the app's log is to show errors that say "timeout", the journal its own again.
+		val ui = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), fixture("0.8/ui-sources"))
+		val app = findWidget(ui, "sources/app_log")!!
+		val journal = findWidget(ui, "sources/journal")!!
+		val sent = Want("sources", 1000).filtered(journal, level = "error")
+		val want = sent.filtered(app, level = "error", search = "timeout").filtered(journal, level = journal.level)
+		val change = assertIs<Tell.Change>(tell(sent, want, ui, Limits.streamReadTimeoutMs(1000))).change
+		assertEquals(fixture("0.8/subscribe-log"), ProtocolJson.encodeToJsonElement(Subscribe.serializer(), change))
 	}
 }
 

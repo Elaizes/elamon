@@ -35,10 +35,12 @@ import io.github.elaizes.elamon.data.APP_API
 import io.github.elaizes.elamon.data.Action
 import io.github.elaizes.elamon.data.ActionResult
 import io.github.elaizes.elamon.data.ART_PATH
+import io.github.elaizes.elamon.data.DEFAULT_LOG_LEVEL
 import io.github.elaizes.elamon.data.DataLine
 import io.github.elaizes.elamon.data.ElamondClient
 import io.github.elaizes.elamon.data.ElamondException
 import io.github.elaizes.elamon.data.Hello
+import io.github.elaizes.elamon.data.LogFilter
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.StreamOpen
 import io.github.elaizes.elamon.data.Subscribe
@@ -50,6 +52,7 @@ import io.github.elaizes.elamon.data.Widget
 import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.data.cleanName
 import io.github.elaizes.elamon.data.reachPaired
+import io.github.elaizes.elamon.data.takeCodePoints
 import io.github.elaizes.elamon.data.text
 
 enum class Conn { Connecting, Live, Reconnecting, Offline, Unauthorized, CertificateChanged, Refused, Incompatible }
@@ -78,6 +81,8 @@ data class MachineState(
 	val tried: List<String> = emptyList(),
 	/** The graphs and timelines shown over a long range instead of live, by widget id. */
 	val ranges: Map<String, RangeView> = emptyMap(),
+	/** The lines of the logs of the dashboard the stream is on, by widget id; none for one before its first state. */
+	val logs: Map<String, LogLines> = emptyMap(),
 )
 
 /** A graph or timeline shown over a long range: which one, and how asking the computer for it went. */
@@ -93,11 +98,35 @@ data class RangeView(
 	val timeline: TimelineHistory? = null,
 )
 
-/** What the stream is asked for: the dashboard on screen, how often, and the tables asked for another order than their own. */
-data class Want(val dashboard: String?, val intervalMs: Int, val sorts: Map<String, String> = emptyMap()) {
+/**
+ * What the stream is asked for: the dashboard on screen, how often, the tables asked for another
+ * order than their own, and the logs for another filter than their own.
+ */
+data class Want(
+	val dashboard: String?,
+	val intervalMs: Int,
+	val sorts: Map<String, String> = emptyMap(),
+	val logs: Map<String, LogFilter> = emptyMap(),
+) {
 	/** With [table] in the order of [field]: one of its `sorts`, or its own order back. */
 	fun sorted(table: Widget, field: String): Want =
 		copy(sorts = if (field == table.sort?.field) sorts - table.id else sorts + (table.id to field))
+
+	/** With [log] filtered by [level] and [search], each as it is when null: its own filter back when that is its level and no search. */
+	fun filtered(log: Widget, level: String? = null, search: String? = null): Want {
+		val had = logs[log.id]
+		val own = log.level ?: DEFAULT_LOG_LEVEL
+		val l = level ?: had?.level ?: own
+		val q = (search ?: had?.search.orEmpty()).trim().takeCodePoints(Limits.LOG_SEARCH_MAX)
+		return copy(logs = if (l == own && q.isEmpty()) logs - log.id else logs + (log.id to LogFilter(l, q)))
+	}
+
+	/** What the stream sends once it took [change]: this, with the logs' filters as the service has them now. */
+	fun told(change: Subscribe, had: Map<String, LogFilter>): Want {
+		val now = had.toMutableMap()
+		for ((id, f) in change.log.orEmpty()) if (f == null) now -= id else now[id] = f
+		return copy(logs = now)
+	}
 }
 
 /** What an open stream needs, to send what is wanted: see [tell]. */
@@ -114,11 +143,12 @@ sealed interface Tell {
 
 /**
  * What a stream opened to wait [readTimeoutMs] for a line, and told [sent] since, needs to send
- * [want]; [ui] has the tables. Opened anew when a line every `want.intervalMs` needs the
+ * [want]; [ui] has the tables and logs. Opened anew when a line every `want.intervalMs` needs the
  * connection to wait another time ([Limits.streamReadTimeoutMs]), and when a table goes back to
  * its own order where that can't be asked for by name: a stream is told another order (largest
  * first), never to drop one, so a table's own order that is smallest first and also one of its
- * `sorts` comes back only with a new stream.
+ * `sorts` comes back only with a new stream. A log's filter is told only with its dashboard on the
+ * stream, as the service takes it: the others wait until theirs is, and are told again with it.
  */
 fun tell(sent: Want, want: Want, ui: UiDoc?, readTimeoutMs: Int): Tell {
 	if (Limits.streamReadTimeoutMs(want.intervalMs) != readTimeoutMs) return Tell.Reopen
@@ -133,12 +163,23 @@ fun tell(sent: Want, want: Want, ui: UiDoc?, readTimeoutMs: Int): Tell {
 		// Asked for by name, its own order comes as it is: largest first, or not one of the others.
 		if (own != null && (own.desc || own.field !in listed)) sorts[k] = own.field else return Tell.Reopen
 	}
+	// A stream moved to another dashboard is told its logs' filters with it, whatever it kept of them:
+	// their lines start anew then all the same.
+	val moved = want.dashboard != sent.dashboard
+	val logs = logsOf(ui, want.dashboard).filter { want.logs[it] != sent.logs[it] || (moved && it in want.logs) }.associateWith { want.logs[it] }
 	val change = Subscribe(
 		dashboard = want.dashboard?.takeIf { it != sent.dashboard },
 		interval = want.intervalMs.takeIf { it != sent.intervalMs },
 		sort = sorts.ifEmpty { null },
+		log = logs.ifEmpty { null },
 	)
 	return if (change == Subscribe()) Tell.Already else Tell.Change(change)
+}
+
+/** The ids of the logs a stream on [dashboard] sends: its own, and the header's. */
+private fun logsOf(ui: UiDoc?, dashboard: String?): List<String> {
+	ui ?: return emptyList()
+	return listOfNotNull(dashboard, ui.header).distinct().flatMap { d -> allWidgets(ui.dashboard(d)?.widgets.orEmpty()) }.filter { it.type == "log" }.map { it.id }
 }
 
 /** A line for the snackbar: one of the app's strings, or what the computer said, as it said it. */
@@ -213,6 +254,9 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	/** The points of the graphs shown over a long range, by widget id; and what asks the computer for them. */
 	private val longHists = HashMap<String, Hist>()
 	private val fetches = HashMap<String, Job>()
+
+	/** What asks the computer for a log's older lines, by widget id. */
+	private val logFetches = HashMap<String, Job>()
 	private var histCount = 0L
 
 	private val _actions = MutableStateFlow(ActionsState())
@@ -310,6 +354,46 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	/** [table] in the order of [field]: one of its `sorts`, largest first, or its own. */
 	fun sort(table: Widget, field: String) {
 		wanted.update { it.sorted(table, field) }
+	}
+
+	/** Shows the log [w]'s lines at [level] or worse that hold [search], each as it is when null: the stream is told, and sends them anew. */
+	fun filterLog(w: Widget, level: String? = null, search: String? = null) {
+		wanted.update { it.filtered(w, level, search) }
+	}
+
+	/**
+	 * Asks the computer for the lines of the log [w] before those it shows, by the filter it shows
+	 * them by. An answer to a log that started over since (its filter changed, the stream came back)
+	 * is late, and left.
+	 */
+	fun loadOlder(w: Widget) {
+		val had = _state.value.logs[w.id] ?: return
+		if (had.loadingOlder || !had.canLoadOlder) return
+		val filter = wanted.value.logs[w.id]
+		val generation = had.generation
+		changeLog(w.id, generation) { it.asking() }
+		logFetches.remove(w.id)?.cancel()
+		logFetches[w.id] = viewModelScope.launch {
+			try {
+				val c = client() ?: throw ElamondException(ElamondException.Kind.Unreachable)
+				val page = c.log(w.id, had.before, filter?.level, filter?.search)
+				changeLog(w.id, generation) { it.older(page) }
+			} catch (e: CancellationException) {
+				throw e
+			} catch (e: Exception) {
+				// A service before 0.8 has no older lines to give: no button then, rather than an error.
+				val none = (e as? ElamondException)?.kind == ElamondException.Kind.NotFound
+				changeLog(w.id, generation) { if (none) it.noOlder() else it.failed() }
+			}
+		}
+	}
+
+	/** Changes the lines of the log [id] while they are still those of [generation]. */
+	private fun changeLog(id: String, generation: Int, change: (LogLines) -> LogLines) {
+		_state.update { s ->
+			val l = s.logs[id]?.takeIf { it.generation == generation } ?: return@update s
+			s.copy(logs = s.logs + (id to change(l)))
+		}
 	}
 
 	/** The points of the graph or spark [widget]; null until it has any. */
@@ -474,8 +558,9 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 			val opening = wanted.value
 			// The connection waits for a line as long as the interval it opens with asks.
 			val timeout = Limits.streamReadTimeoutMs(opening.intervalMs)
-			// A new stream has its tables in their own order: those wanted in another are told once it is open.
-			var sent = opening.copy(sorts = emptyMap())
+			// A new stream has its tables in their own order and its logs by their own filter: those
+			// wanted otherwise are told once it is open.
+			var sent = opening.copy(sorts = emptyMap(), logs = emptyMap())
 			var streamId: String? = null
 			// Changes to what is wanted, told to the open stream once it has said its id.
 			val subscriber = launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
@@ -491,7 +576,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 						}
 						try {
 							client.subscribe(id, change)
-							sent = target
+							sent = target.told(change, sent.logs)
 							return@collect
 						} catch (e: ElamondException) {
 							when (e.code) {
@@ -510,6 +595,16 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 									wanted.update { it.copy(sorts = it.sorts - bad) }
 									sent = sent.copy(sorts = sent.sorts - bad)
 									target = target.copy(sorts = target.sorts - bad)
+									say(messageFor(e))
+								}
+								// Filters for logs the computer's dashboards don't have (its settings changed):
+								// dropped, the rest told again.
+								"bad_param" -> {
+									val asked = change.log.orEmpty().keys
+									if (e.detail != "log" || asked.isEmpty()) throw e
+									wanted.update { it.copy(logs = it.logs - asked) }
+									sent = sent.copy(logs = sent.logs - asked)
+									target = target.copy(logs = target.logs - asked)
 									say(messageFor(e))
 								}
 								// The stream ended, or something else: opened again.
@@ -582,7 +677,9 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 			val d = w.dashboard?.takeIf { clean.dashboard(it) != null } ?: clean.tabs.firstOrNull()
 			// A table's order asked for stays only while the table has it among its sorts.
 			val sorts = w.sorts.filter { (id, f) -> clean.dashboards.any { dash -> allWidgets(dash.widgets).any { it.id == id && f in it.sorts.orEmpty() } } }
-			w.copy(dashboard = d, intervalMs = interval, sorts = sorts)
+			// And a log's filter while it is a log.
+			val logs = w.logs.filterKeys { id -> findWidget(clean, id)?.type == "log" }
+			w.copy(dashboard = d, intervalMs = interval, sorts = sorts, logs = logs)
 		}
 		for (h in hists.values) h.stepHintMs = interval.toLong()
 		// A long range stays only while the widget still offers it.
@@ -627,11 +724,20 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 		histCount++
 		// The header's pills come with every line, whatever dashboard it is for.
 		val header = ui?.let { headerData(it, line) }?.let { it.dashboard to it }
+		// A log's state is what came since the line before, not a reading: its lines are kept here, those
+		// of the line's dashboard alone.
+		val logs = dash?.let { allWidgets(it.widgets) }.orEmpty().filter { it.type == "log" }
+		val logIds = logs.map { it.id }.toSet()
 		_state.update {
 			it.copy(
 				conn = Conn.Live,
 				host = host,
-				data = it.data + (line.dashboard to line.copy(history = null)) + listOfNotNull(header),
+				data = it.data + (line.dashboard to line.copy(history = null, widgets = line.widgets - logIds)) + listOfNotNull(header),
+				logs = logs.mapNotNull { w ->
+					val had = it.logs[w.id]
+					val s = line.widgets[w.id] ?: return@mapNotNull had?.let { l -> w.id to l }
+					w.id to (had ?: LogLines()).take(s, w.lines ?: Limits.LOG_LINES_DEFAULT)
+				}.toMap(),
 				histVersion = histCount,
 				receivedAt = System.currentTimeMillis(),
 				refused = null,

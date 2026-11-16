@@ -278,6 +278,12 @@ class ElamondClient(
 	/** The same of the timeline [widget]. */
 	suspend fun timelineHistory(widget: String, range: String): TimelineHistory = get(historyPath(widget, range))
 
+	/**
+	 * Lines of the log [widget] older than [before] (Unix µs; the newest without it), by [level] and
+	 * [search] (the widget's own level and none without them); a service before 0.8 answers 404.
+	 */
+	suspend fun log(widget: String, before: Long?, level: String?, search: String?): LogPage = get(logPath(widget, before, level, search))
+
 	/** Changes what the open stream [stream] sends, from its next line, without reconnecting. */
 	suspend fun subscribe(stream: String, change: Subscribe) {
 		post<Subscribe, Ok>("$STREAM_PATH/" + query(stream), change)
@@ -397,10 +403,20 @@ const val ACTIONS_PATH = "/api/v1/actions"
 const val ART_PATH = "/api/v1/media/art"
 const val UNPAIR_PATH = "/api/v1/unpair"
 const val HISTORY_PATH = "/api/v1/history"
+const val LOG_PATH = "/api/v1/log"
 
 /** `GET /api/v1/history` of the graph or timeline [widget] over the range [range] (`1h`, `24h`, `7d`, `30d`, `1y`, `all`). */
 fun historyPath(widget: String, range: String): String =
 	"$HISTORY_PATH?widget=" + ElamondClient.query(widget) + "&range=" + ElamondClient.query(range)
+
+/** `GET /api/v1/log` of the log [widget]: lines before [before], at [level] or worse, holding [search]; each left out when null. */
+fun logPath(widget: String, before: Long?, level: String?, search: String?): String =
+	LOG_PATH + "?widget=" + ElamondClient.query(widget) +
+		listOfNotNull(
+			before?.let { "&before=$it" },
+			level?.let { "&level=" + ElamondClient.query(it) },
+			search?.takeIf { it.isNotEmpty() }?.let { "&search=" + ElamondClient.query(it) },
+		).joinToString("")
 
 /**
  * The widget types this app draws, as it tells the service (`GET /api/v1/ui?widgets=`): it
@@ -408,7 +424,7 @@ fun historyPath(widget: String, range: String): String =
  */
 val WIDGET_TYPES = listOf(
 	"value", "gauge", "meter", "status", "graph", "bars", "list", "table",
-	"button", "toggle", "select", "slider", "text", "group", "media", "timeline",
+	"button", "toggle", "select", "slider", "text", "group", "media", "timeline", "log",
 )
 
 /**

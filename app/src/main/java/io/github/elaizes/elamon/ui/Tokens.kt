@@ -147,6 +147,9 @@ object Sizes {
 	/** The tallest an action's output and the licence text get before they scroll. */
 	val outputMax = 360.dp
 	val licenceMax = 420.dp
+
+	/** The tallest a log's lines get in their card before they scroll on their own. */
+	val logMax = 420.dp
 }
 
 /** How long things move, in milliseconds; with animations off, all of them are instant. */

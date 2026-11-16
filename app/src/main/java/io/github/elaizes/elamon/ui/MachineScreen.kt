@@ -282,6 +282,7 @@ fun MachineScreen(
 								folds = folds,
 								tables = tables,
 								sorts = want.sorts,
+								logs = want.logs,
 							)
 							DashboardList(scope, list) {
 								Column {
@@ -342,7 +343,7 @@ fun MachineScreen(
 
 	// The sheets and the form over the screen: a table's row, what a command printed, an action's values.
 	if (ui != null && current != null && launcher != null) {
-		val scope = DashScope(machine.id, ui, current, state.data[current]?.widgets.orEmpty(), vm, state, name, {}, launcher, folds, tables, want.sorts)
+		val scope = DashScope(machine.id, ui, current, state.data[current]?.widgets.orEmpty(), vm, state, name, {}, launcher, folds, tables, want.sorts, want.logs)
 		TableSheet(scope)
 	}
 	ActionOutput(vm, ui, actionsState)

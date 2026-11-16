@@ -48,6 +48,7 @@ import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.Settings
 import io.github.elaizes.elamon.rangeChips
 import io.github.elaizes.elamon.data.Grid
+import io.github.elaizes.elamon.data.LogFilter
 import io.github.elaizes.elamon.data.Series
 import io.github.elaizes.elamon.data.UniqueKeys
 import io.github.elaizes.elamon.data.UiDoc
@@ -73,6 +74,8 @@ class DashScope(
 	val tables: TableStates,
 	/** The tables in another order than their own, as the stream was asked: the field, by the table's id. */
 	val sorts: Map<String, String>,
+	/** The logs filtered otherwise than by their own level, as the stream was asked, by the log's id. */
+	val logs: Map<String, LogFilter>,
 ) {
 	fun state(w: Widget): WidgetState? = states[w.id]
 }
@@ -150,7 +153,8 @@ private fun acts(w: Widget): Boolean =
 @Composable
 fun GridRow(scope: DashScope, cells: List<Pair<Widget, Int>>, columns: Int) {
 	val used = cells.sumOf { it.second }
-	val several = cells.size > 1
+	// As tall as the tallest asks each how tall it would be, which a log's own list can't say.
+	val several = cells.size > 1 && cells.none { hasLog(it.first) }
 	Row(
 		Modifier.fillMaxWidth().then(if (several) Modifier.height(IntrinsicSize.Min) else Modifier),
 		horizontalArrangement = Arrangement.spacedBy(Space.m),
@@ -161,6 +165,8 @@ fun GridRow(scope: DashScope, cells: List<Pair<Widget, Int>>, columns: Int) {
 		if (used < columns) Spacer(Modifier.weight((columns - used).toFloat()))
 	}
 }
+
+private fun hasLog(w: Widget): Boolean = w.type == "log" || w.widgets.orEmpty().any(::hasLog)
 
 /** One widget, by its type; one this app doesn't know says so. */
 @Composable
@@ -182,6 +188,7 @@ fun WidgetView(scope: DashScope, w: Widget, modifier: Modifier, columns: Int) {
 		"group" -> GroupWidget(scope, w, modifier, columns)
 		"media" -> MediaWidget(scope, w, modifier)
 		"timeline" -> TimelineWidget(scope, w, modifier)
+		"log" -> LogWidget(scope, w, modifier)
 		else -> Notice(scope, w.label, stringResource(R.string.widget_unknown, w.type), "warning", modifier)
 	}
 }

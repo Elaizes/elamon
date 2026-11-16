@@ -48,7 +48,7 @@ data class Hello(
 	@SerialName("min_app") val minApp: String? = null,
 	/**
 	 * The version of the dictionary of widget types and their keys: 1 from elamond 0.6, 2 from 0.7
-	 * (`timeline`, `ranges`). Nothing hangs on it: the service describes only the types the app
+	 * (`timeline`, `ranges`), 3 from 0.8 (`log`, row actions that open a dashboard). Nothing hangs on it: the service describes only the types the app
 	 * lists ([WIDGET_TYPES]), and the app ignores keys it doesn't know.
 	 */
 	val widgets: Int? = null,
@@ -237,6 +237,11 @@ data class Widget(
 	val level: String? = null,
 	// group
 	val widgets: List<Widget>? = null,
+	// log (also `unit`, `level`, `search`)
+	/** Whose journal a log shows: "system", "user", or "unit" (the journal of [unit]). */
+	val scope: String? = null,
+	/** How many of a log's newest lines the app keeps on screen. */
+	val lines: Int? = null,
 ) {
 	/** The caption's text when it holds no values; when it does, the state's. */
 	val captionText: String? get() = caption?.takeIf { it.isString }?.content?.ifEmpty { null }
@@ -265,8 +270,17 @@ data class Bar(val max: JsonPrimitive? = null)
 @Serializable
 data class Sort(val field: String, val desc: Boolean = false)
 
+/**
+ * What a table's row offers in its sheet: an [action] run with [params] filled from the row, or
+ * (from elamond 0.8) a dashboard to [open], `<open>.<the row's key>`. One with neither is left out.
+ */
 @Serializable
-data class RowAction(val action: String, val label: String? = null, val params: JsonObject = JsonObject(emptyMap()))
+data class RowAction(
+	val action: String? = null,
+	val label: String? = null,
+	val params: JsonObject = JsonObject(emptyMap()),
+	val open: String? = null,
+)
 
 @Serializable
 data class Field(val field: String, val label: String? = null, val format: String? = null, val unit: String? = null)
@@ -361,6 +375,15 @@ data class WidgetState(
 	val volume: Volume? = null,
 	/** A timeline's: its range back from the line's time, oldest first. */
 	val segments: List<Segment>? = null,
+	// log
+	/** A log's lines since the last this stream sent, oldest first; with [reset], all it has. */
+	val lines: List<LogLine>? = null,
+	/** The lines replace what the app has: the first state on a stream, or after the filter changed. */
+	val reset: Boolean = false,
+	/** Lines left out before these. */
+	val more: Int = 0,
+	/** Why there may be more lines than these, or none: the journal can't be read whole, or at all. */
+	val note: String? = null,
 ) {
 	/** [v] as a number; null when it is missing or isn't one. */
 	val number: Double? get() = v.number()
@@ -392,6 +415,21 @@ data class HistoryEntry(val t: List<Long> = emptyList(), val v: List<List<Double
 @Serializable
 data class Segment(val from: Long, val to: Long, val state: String = "none")
 
+/**
+ * A line of the journal: [c] its time there in Unix µs, which the app only sends back to ask for the
+ * lines before it; [t] the same in Unix ms; [unit] and [id] (the program) where the journal has them.
+ */
+@Serializable
+data class LogLine(
+	val c: Long,
+	val t: Long,
+	/** "debug", "info", "notice", "warning", "error" or "critical". */
+	val level: String = "info",
+	val unit: String? = null,
+	val id: String? = null,
+	val text: String = "",
+)
+
 // ---- GET /api/v1/history -------------------------------------------------------------------------
 
 /**
@@ -420,6 +458,16 @@ data class TimelineHistory(
 	val from: Long,
 	val to: Long,
 	val segments: List<Segment> = emptyList(),
+)
+
+// ---- GET /api/v1/log ---------------------------------------------------------------------------------
+
+/** Older lines of a log, oldest first; [before] where to go on from, null once the journal has nothing older. */
+@Serializable
+data class LogPage(
+	val widget: String,
+	val lines: List<LogLine> = emptyList(),
+	val before: Long? = null,
 )
 
 @Serializable
@@ -483,7 +531,16 @@ data class Subscribe(
 	val interval: Int? = null,
 	/** A table's id to another of its `sorts`. */
 	val sort: Map<String, String>? = null,
+	/** A log's id to the filter it is to send its lines by; null for its own. */
+	val log: Map<String, LogFilter?>? = null,
 )
+
+/** What a log's lines are filtered by: the least [level], and text they hold (none when empty). Sent whole. */
+@Serializable
+data class LogFilter(val level: String, val search: String)
+
+/** The least level a log shows while its widget doesn't say. */
+const val DEFAULT_LOG_LEVEL = "info"
 
 /** `POST /api/v1/actions/{id}`; [confirmText] only for a choice that asks for it, else left out. */
 @Serializable

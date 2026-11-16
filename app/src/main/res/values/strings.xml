@@ -339,4 +339,22 @@
 	<string name="settings_profile_nix">Set in Nix: services.elamond.settings.profiles.%1$s</string>
 	<!-- Where the profile is, for a phone the computer doesn't tell (any role but admin). -->
 	<string name="settings_profile_table">Changed on the computer, in the table [profiles.%1$s] of its settings (docs/config.md#phones)</string>
+	<!-- 0.8: the journal in a log widget -->
+	<string name="log_empty">No lines yet</string>
+	<string name="log_older">Load older</string>
+	<string name="log_older_failed">Couldn\'t load older lines</string>
+	<!-- Over a log scrolled up from its newest lines: back down to them, following what comes. -->
+	<string name="log_newest">Newest</string>
+	<string name="log_search">Search the journal</string>
+	<!-- Where the stream left lines out: "… 12 more". -->
+	<plurals name="log_more">
+		<item quantity="one">… %1$d more</item>
+		<item quantity="other">… %1$d more</item>
+	</plurals>
+	<string name="log_level_debug">Debug</string>
+	<string name="log_level_info">Info</string>
+	<string name="log_level_notice">Notice</string>
+	<string name="log_level_warning">Warning</string>
+	<string name="log_level_error">Error</string>
+	<string name="log_level_critical">Critical</string>
 </resources>

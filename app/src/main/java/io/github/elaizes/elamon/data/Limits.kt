@@ -62,6 +62,18 @@ object Limits {
 	/** Results and errors kept for the snackbar while no screen shows them. */
 	const val MESSAGES_KEPT = 8
 
+	// ---- the journal ------------------------------------------------------------------------------
+
+	/** The lines a log keeps while its widget doesn't say (`lines`), and the most it keeps with older pages loaded. */
+	const val LOG_LINES_DEFAULT = 200
+	const val LOG_LINES_MAX = 2000
+
+	/** The longest search a log is filtered by, in characters, as the service takes it. */
+	const val LOG_SEARCH_MAX = 100
+
+	/** How long typing in a log's search has to stop before the stream is told. */
+	const val LOG_SEARCH_SETTLE_MS = 400L
+
 	// ---- pairing ----------------------------------------------------------------------------------
 
 	const val PAIRING_DIGITS = 6
