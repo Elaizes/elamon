@@ -93,8 +93,8 @@ async fn run(program: &str, args: &[String], input: Option<&[u8]>, limit: Durati
 		.process_group(0)
 		.kill_on_drop(true)
 		.spawn()?;
-	let pgid = child.id().map(|id| id as i32);
-	let _group = Group(pgid);
+	// Killed as this ends, whatever ends it: the timeout, too much output, the source stopped.
+	let mut group = Group(child.id().map(|id| id as i32));
 	if let (Some(bytes), Some(mut stdin)) = (input, child.stdin.take()) {
 		// A line, into an empty pipe: written at once, whatever the process does.
 		let _ = stdin.write_all(bytes).await;
@@ -120,8 +120,8 @@ async fn run(program: &str, args: &[String], input: Option<&[u8]>, limit: Durati
 			}
 			s = child.wait(), if ran.status.is_none() => {
 				ran.status = Some(s?);
-				// What it started goes with it; what it wrote is in the pipes still.
-				drop(Group(pgid));
+				// What it started goes with it, once; what it wrote is in the pipes still.
+				drop(std::mem::replace(&mut group, Group(None)));
 			}
 		}
 	}
