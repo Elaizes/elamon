@@ -121,6 +121,9 @@ if [ -n "$follow" ]; then
 		echo "Failed to follow the journal." >&2
 		exit 1;;
 	hang.service) exec sleep 600;;
+	late.service)
+		sleep 0.6
+		cat "$here/example.service.tail";;
 	args.service)
 		line 1700000000000000 6 "$*"
 		line 1700000000000001 6 "pid $$";;
@@ -385,14 +388,28 @@ async fn the_system_journal_unread_has_a_note_and_the_users_none() {
 	assert_eq!(user.buffer().lines[0].unit.as_deref(), Some("example-sync.service"));
 }
 
+/// A journalctl that says nothing: its logs have a state, empty, once it has run for a while.
 #[tokio::test]
 async fn a_journalctl_that_says_nothing_holds_up_nothing() {
 	let journal = journal();
 	let tail = journal.tail(&unit("hang.service"));
 	let started = std::time::Instant::now();
 	until(&tail, |b| b.ready).await;
-	assert!(started.elapsed() < timeout::JOURNAL_START, "{:?}", started.elapsed());
+	let took = started.elapsed();
+	assert!(took >= timeout::JOURNAL_START - Duration::from_millis(100) && took < timeout::JOURNAL_START + Duration::from_secs(1), "{took:?}");
 	assert_eq!(Value::Object(tail.buffer().state(&mut None, &Filter::new(6, None), 200).unwrap()), serde_json::json!({ "lines": [], "reset": true }));
+}
+
+/// A journalctl slow to start, as on a big journal not yet in memory: its logs' first state waits
+/// for the lines it prints, rather than starting empty and having them all come as new.
+#[tokio::test]
+async fn a_journalctl_slow_to_start_is_waited_for() {
+	let journal = journal();
+	let tail = journal.tail(&unit("late.service"));
+	until(&tail, |b| b.ready).await;
+	let state = tail.buffer().state(&mut None, &Filter::new(6, None), 200).unwrap();
+	assert_eq!(texts(&state), ["Listening on port 8080", "Slow request: GET /status took 2.1 s", "Request served in 12 ms"]);
+	assert_eq!(state["reset"], true);
 }
 
 #[tokio::test]

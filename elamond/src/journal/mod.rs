@@ -501,12 +501,13 @@ async fn follow(key: &Key, program: &Path, readable: fn() -> bool, buffer: &Mute
 	let mut errors = Vec::new();
 	let mut status = None;
 	// The journal's last lines are in once journalctl has printed as many, or has said nothing for a
-	// moment, or has run for a while.
+	// moment since it began printing (a big journal may take it a while to start), or has run for a
+	// while.
 	let begun = Instant::now();
-	let mut heard = begun;
+	let mut heard: Option<Instant> = None;
 	let (mut read, mut ready) = (0, false);
 	while status.is_none() || out.is_some() || err.is_some() {
-		let ready_at = (heard + timeout::JOURNAL_QUIET).min(begun + timeout::JOURNAL_START);
+		let ready_at = heard.map_or(begun + timeout::JOURNAL_START, |h| (h + timeout::JOURNAL_QUIET).min(begun + timeout::JOURNAL_START));
 		tokio::select! {
 			n = read_some(&mut out, &mut out_buf) => {
 				let mut b = lock(buffer);
@@ -516,7 +517,7 @@ async fn follow(key: &Key, program: &Path, readable: fn() -> bool, buffer: &Mute
 						b.push(line);
 					}
 				});
-				heard = Instant::now();
+				heard = Some(Instant::now());
 				if !ready && read >= limit::JOURNAL_KEPT {
 					ready = true;
 					b.ready();

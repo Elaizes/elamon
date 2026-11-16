@@ -192,8 +192,8 @@ pub mod timeout {
 	/// a source's file read that hangs is left there, not waited for.
 	pub const RUNTIME_STOP: Duration = Duration::from_secs(3);
 	/// A `journalctl` that follows the journal has printed the journal's last lines once it has
-	/// said nothing for `JOURNAL_QUIET`, or printed them all, or run for `JOURNAL_START`: from then
-	/// on its `log`s have a state.
+	/// said nothing for `JOURNAL_QUIET` since it began printing, or printed them all, or run for
+	/// `JOURNAL_START`: from then on its `log`s have a state.
 	pub const JOURNAL_QUIET: Duration = Duration::from_millis(250);
 	pub const JOURNAL_START: Duration = Duration::from_secs(3);
 	/// A `journalctl` run for older lines (`GET /api/v1/log`) is killed after this.
