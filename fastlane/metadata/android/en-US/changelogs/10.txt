@@ -1,0 +1,1 @@
+Works with elamond 0.6 and later. With elamond 0.8, the computer's journal reads live in a log widget: level chips, search, older lines on demand, a tap for the whole line and a long press to copy it. Journal on the Control tab opens the system's; a link's row opens its unit's. Readings of your own, from a command, a web service or a file, show in any widget.
