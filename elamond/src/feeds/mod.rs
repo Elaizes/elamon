@@ -72,8 +72,7 @@ pub struct FeedSnapshot {
 	pub error: Option<String>,
 	/// Its command's exit code, after a run that ended by itself.
 	pub exit: Option<i32>,
-	/// Reads made, which the tests count.
-	#[cfg_attr(not(test), allow(dead_code))]
+	/// Reads made, good or not: what a snapshot waits for one more of.
 	pub reads: u64,
 }
 
@@ -233,6 +232,12 @@ impl Runtime {
 	}
 
 	/// Each source's last snapshot.
+	/// How many reads each source `ids` names has made: a snapshot waits for one more of each.
+	pub fn reads(&self, ids: &BTreeSet<String>) -> BTreeMap<String, u64> {
+		let inner = self.lock();
+		inner.feeds.iter().filter(|(id, _)| ids.contains(*id)).map(|(id, r)| (id.clone(), r.snapshot.lock().unwrap_or_else(|p| p.into_inner()).reads)).collect()
+	}
+
 	pub fn snapshots(&self) -> BTreeMap<String, Arc<FeedSnapshot>> {
 		let inner = self.lock();
 		inner.feeds.iter().map(|(id, r)| (id.clone(), r.snapshot.lock().unwrap_or_else(|p| p.into_inner()).clone())).collect()

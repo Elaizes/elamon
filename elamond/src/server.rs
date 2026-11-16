@@ -1220,9 +1220,20 @@ async fn snapshot(
 	let Some((need, heads)) = dashboard_in(&ui, q.dashboard.as_deref()).map(|d| (needs_of(&ui, d), heads_of(&ui, d))) else {
 		return error(ErrorCode::NoSuchDashboard);
 	};
-	let _want = hub.want(need, heads);
+	let _want = hub.want(need, heads.clone());
 	let deadline = tokio::time::Instant::now() + hub.interval * (cadence::FIRST_FRAME_TICKS + 1);
-	while !frame.read.covers(need) {
+	// The dashboard's own sources are read once the collector, at its next tick, sees them wanted:
+	// their values come in a reading after each has been read since this request.
+	let reads = hub.feeds.reads(&heads);
+	let mut read_by: Option<u64> = None;
+	loop {
+		if read_by.is_none() && hub.feeds.reads(&heads).iter().all(|(id, n)| reads.get(id).is_none_or(|b| n > b)) {
+			read_by = Some(frame.seq);
+		}
+		let read = reads.is_empty() || read_by.is_some_and(|seq| frame.seq > seq);
+		if frame.read.covers(need) && read {
+			break;
+		}
 		match tokio::time::timeout_at(deadline, rx.changed()).await {
 			Ok(Ok(())) => frame = rx.borrow_and_update().clone(),
 			_ => break,
