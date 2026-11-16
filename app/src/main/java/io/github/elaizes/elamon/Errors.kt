@@ -16,12 +16,15 @@ private val CODE_MESSAGES = mapOf(
 	"no_such_process" to R.string.err_no_such_process,
 	"no_such_action" to R.string.err_no_such_action,
 	"no_such_dashboard" to R.string.err_no_such_dashboard,
+	"no_such_widget" to R.string.err_no_such_widget,
 	"no_such_stream" to R.string.err_no_such_stream,
 	"no_art" to R.string.err_no_art,
 	"unknown_signal" to R.string.err_unknown_signal,
 	"bad_sort" to R.string.err_bad_sort,
 	"storage" to R.string.err_storage,
 	"not_allowed" to R.string.err_not_allowed,
+	// A station's command that is typed in, sent without its text: its `message` is the text.
+	"confirm_required" to R.string.err_confirm_required,
 	"process_changed" to R.string.err_process_changed,
 	// Pairing past the phones the computer takes; a key of a phone's own that a token gave already,
 	// which only Elamon 0.6.1 asks for (the service's list of codes still has it).

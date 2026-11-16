@@ -110,6 +110,15 @@ class Hist(val seriesCount: Int, windowMs: Long = DEFAULT_HISTORY_SECONDS * 1000
 	}
 
 	/**
+	 * Adds [values] at [t] only once [stepMs] has passed since the newest point: a stream's points
+	 * joining a long range's buckets, one to a bucket. False when it doesn't.
+	 */
+	fun appendEvery(t: Long, values: List<Double?>, stepMs: Long): Boolean {
+		if (size > 0 && t - lastTime < stepMs) return false
+		return append(t, values)
+	}
+
+	/**
 	 * A data line's points: its [history] when it has one (the first of a dashboard), and its own
 	 * [values] at [t] where that doesn't reach so far, so the newest point is never left out.
 	 */

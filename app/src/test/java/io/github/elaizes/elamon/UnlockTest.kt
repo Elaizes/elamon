@@ -44,6 +44,7 @@ class UnlockTest {
 		assertEquals(Guarded.Units, Guarded.of("units"))
 		assertEquals(Guarded.Profile, Guarded.of("profile"))
 		assertEquals(Guarded.Media, Guarded.of("media"))
+		assertEquals(Guarded.Nut, Guarded.of("nut"))
 		// A newer service's kind counts as the settings' actions.
 		assertEquals(Guarded.Actions, Guarded.of("lights"))
 		assertEquals(UnlockGrace.OneMinute, UnlockGrace.of("1m"))
@@ -54,8 +55,8 @@ class UnlockTest {
 
 	@Test
 	fun kindsAreOrderedByWhatTheyCanDo() {
-		// power, signal, actions, units, profile, media: an unlock covers those after it.
-		val order = listOf(Guarded.Media, Guarded.Profile, Guarded.Units, Guarded.Actions, Guarded.Processes, Guarded.Power)
+		// power, nut, signal, actions, units, profile, media: an unlock covers those after it.
+		val order = listOf(Guarded.Media, Guarded.Profile, Guarded.Units, Guarded.Actions, Guarded.Processes, Guarded.Nut, Guarded.Power)
 		assertEquals(order, Guarded.entries.sortedBy { it.level })
 		assertEquals(Guarded.entries.size, Guarded.entries.map { it.level }.toSet().size)
 	}

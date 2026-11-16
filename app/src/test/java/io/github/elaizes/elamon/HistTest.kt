@@ -178,4 +178,18 @@ class HistTest {
 		h.windowMs = 120_000
 		assertEquals(v0 + 3, h.version)
 	}
+
+	@Test
+	fun aLongRangeTakesAStreamPointABucketAtATime() {
+		// The buckets of a range every 2 min, the newest at 0: a stream's point joins only once a step has passed.
+		val h = Hist(1, 86_400_000)
+		h.replace(HistoryEntry(t = listOf(-240_000L, -120_000L, 0L), v = listOf(listOf(1.0, null, 3.0))))
+		assertFalse(h.appendEvery(119_999, listOf(4.0), 120_000))
+		assertTrue(h.appendEvery(120_000, listOf(5.0), 120_000))
+		assertFalse(h.appendEvery(200_000, listOf(6.0), 120_000))
+		assertEquals(listOf(-240_000L, -120_000L, 0L, 120_000L), h.points(0).times())
+		assertEquals(5f, h.points(0).v(3))
+		// With nothing yet, the first point is taken.
+		assertTrue(Hist(1).appendEvery(5, listOf(1.0), 120_000))
+	}
 }

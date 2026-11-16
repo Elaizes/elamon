@@ -46,7 +46,11 @@ data class Hello(
 	val version: String,
 	/** The oldest app version the service works with. */
 	@SerialName("min_app") val minApp: String? = null,
-	/** The version of the dictionary of widget types and their keys. */
+	/**
+	 * The version of the dictionary of widget types and their keys: 1 from elamond 0.6, 2 from 0.7
+	 * (`timeline`, `ranges`). Nothing hangs on it: the service describes only the types the app
+	 * lists ([WIDGET_TYPES]), and the app ignores keys it doesn't know.
+	 */
 	val widgets: Int? = null,
 )
 
@@ -148,7 +152,7 @@ data class ProfileSource(val file: String, val line: Int)
 
 @Serializable
 data class UnlockProfile(
-	@SerialName("for") val kinds: List<String> = listOf("power", "signal", "actions", "units"),
+	@SerialName("for") val kinds: List<String> = listOf("power", "nut", "signal", "actions", "units"),
 	val grace: String = "every_time",
 )
 
@@ -192,10 +196,15 @@ data class Widget(
 	val min: Double? = null,
 	val max: Double? = null,
 	val spark: Boolean? = null,
-	// graph
+	// graph, timeline
 	val series: List<Series>? = null,
-	/** Seconds back the graph reaches. */
+	/** Seconds back the graph or timeline reaches, live. */
 	val range: Int? = null,
+	/**
+	 * The long ranges `/api/v1/history` answers for it ("1h", "24h", "7d", "30d", "1y", "all"),
+	 * offered beside [range]; null from a service before 0.7, or a graph that offers none.
+	 */
+	val ranges: List<String>? = null,
 	/** "small", "medium" or "large". */
 	val height: String? = null,
 	val floor: Double? = null,
@@ -267,7 +276,7 @@ data class Field(val field: String, val label: String? = null, val format: Strin
 data class Action(
 	val id: String,
 	val name: String = "",
-	/** "power", "signal", "actions", "units", "profile" or "media". */
+	/** "power", "nut" (a station's), "signal", "actions", "units", "profile" or "media". */
 	val kind: String = "actions",
 	val icon: String? = null,
 	val confirm: Boolean = true,
@@ -293,7 +302,12 @@ data class Param(
 )
 
 @Serializable
-data class Choice(val value: String, val label: String? = null)
+data class Choice(
+	val value: String,
+	val label: String? = null,
+	/** What the person types, exactly, before it runs (a station's command that cuts power), and the request carries. */
+	@SerialName("confirm_text") val confirmText: String? = null,
+)
 
 // ---- GET /api/v1/stream -------------------------------------------------------------------------
 
@@ -345,6 +359,8 @@ data class WidgetState(
 	val enabled: Boolean? = null,
 	val players: List<Player>? = null,
 	val volume: Volume? = null,
+	/** A timeline's: its range back from the line's time, oldest first. */
+	val segments: List<Segment>? = null,
 ) {
 	/** [v] as a number; null when it is missing or isn't one. */
 	val number: Double? get() = v.number()
@@ -368,6 +384,43 @@ data class Row(
 /** A graph's (or a spark's) points so far: one time per point, one list per series, null where missing. */
 @Serializable
 data class HistoryEntry(val t: List<Long> = emptyList(), val v: List<List<Double?>> = emptyList())
+
+/**
+ * A stretch of a timeline, Unix ms: "line" (on line, or on bypass), "battery", or "none" where
+ * nothing is known; a state this app doesn't know is drawn as none.
+ */
+@Serializable
+data class Segment(val from: Long, val to: Long, val state: String = "none")
+
+// ---- GET /api/v1/history -------------------------------------------------------------------------
+
+/**
+ * A graph's long history over a range: buckets [stepMs] long from [from] to [to] (Unix ms), each
+ * at its start in [t], the mean of each series in [v], null for a bucket without a point.
+ */
+@Serializable
+data class GraphHistory(
+	val widget: String,
+	val range: String,
+	val from: Long,
+	val to: Long,
+	@SerialName("step_ms") val stepMs: Long,
+	val t: List<Long> = emptyList(),
+	val v: List<List<Double?>> = emptyList(),
+) {
+	/** Its points, as a stream's history has them. */
+	val entry: HistoryEntry get() = HistoryEntry(t, v)
+}
+
+/** A timeline over a range: its [segments] from [from] to [to] (Unix ms), as a stream's state has them. */
+@Serializable
+data class TimelineHistory(
+	val widget: String,
+	val range: String,
+	val from: Long,
+	val to: Long,
+	val segments: List<Segment> = emptyList(),
+)
 
 @Serializable
 data class Volume(
@@ -432,9 +485,12 @@ data class Subscribe(
 	val sort: Map<String, String>? = null,
 )
 
-/** `POST /api/v1/actions/{id}`. */
+/** `POST /api/v1/actions/{id}`; [confirmText] only for a choice that asks for it, else left out. */
 @Serializable
-data class ActionRequest(@EncodeDefault val params: JsonObject = JsonObject(emptyMap()))
+data class ActionRequest(
+	@EncodeDefault val params: JsonObject = JsonObject(emptyMap()),
+	@SerialName("confirm_text") val confirmText: String? = null,
+)
 
 /** What an action answers: for one the settings define, how its command ended and what it printed. */
 @Serializable

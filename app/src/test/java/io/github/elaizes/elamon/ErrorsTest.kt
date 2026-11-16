@@ -32,8 +32,10 @@ class ErrorsTest {
 		assertEquals(Kind.PairDeclined, answer(403, "pair_declined").kind)
 		assertEquals(Kind.Forbidden, answer(403, "something_new").kind)
 		assertEquals(Kind.NotAllowed, answer(403, "not_allowed").kind)
+		// A station's command without its typed text: the text comes beside the code.
+		assertEquals("outlet.1.load.off", answer(403, "confirm_required", "outlet.1.load.off").detail)
 		assertEquals(Kind.Conflict, answer(409, "process_changed").kind)
-		for (code in listOf("not_found", "no_such_process", "no_such_action", "no_art", "no_such_dashboard", "no_such_stream")) {
+		for (code in listOf("not_found", "no_such_process", "no_such_action", "no_art", "no_such_dashboard", "no_such_widget", "no_such_stream")) {
 			assertEquals(Kind.NotFound, answer(404, code).kind, code)
 		}
 		for (code in listOf("unknown_signal", "bad_param", "bad_sort")) {
@@ -76,6 +78,8 @@ class ErrorsTest {
 			(404 to "no_such_dashboard") to R.string.err_no_such_dashboard,
 			(404 to "no_such_stream") to R.string.err_no_such_stream,
 			(400 to "bad_sort") to R.string.err_bad_sort,
+			(404 to "no_such_widget") to R.string.err_no_such_widget,
+			(403 to "confirm_required") to R.string.err_confirm_required,
 		)
 		for ((sent, id) in expected) {
 			assertEquals(Message.Res(id), messageFor(answer(sent.first, sent.second)), sent.second)
