@@ -19,19 +19,15 @@ appId: io.github.elaizes.elamon.debug
 - assertVisible: "Power now"
 - assertVisible: "Output"
 - takeScreenshot: 31-ups-power
-# The watts graph is the one with the legend "Output"; its chips are right below it.
-- scrollUntilVisible:
-    element: "Output"
-    timeout: 20000
-- takeScreenshot: 32-ups-watts
-- tapOn:
-    text: "24 h"
-    below: "Output"
+# A long range from /history: the timeline's chips come first on the tab ("Power", like the watts
+# graph further down, which has the same chips).
+- tapOn: "7 days"
 - extendedWaitUntil:
     notVisible: "Loading…"
     timeout: 20000
 - assertNotVisible: "Couldn.t load.*"
-- takeScreenshot: 33-ups-watts-24h
+- takeScreenshot: 32-ups-power-7-days
+- tapOn: "24 h"
 # The beeper is under Station, which starts closed.
 - scrollUntilVisible:
     element: "Station"
