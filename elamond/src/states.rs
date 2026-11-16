@@ -97,7 +97,10 @@ pub fn state(w: &UiWidget, s: &States) -> Option<Obj> {
 		}
 		"button" => o.put("enabled", d.action.is_none() || s.control),
 		"toggle" | "select" | "slider" => {
-			o.put("v", d.value.as_deref().and_then(|a| s.view.get(a)).map_or(Value::Null, |x| x.v.json()));
+			let now = d.value.as_deref().and_then(|a| s.view.get(a));
+			// A toggle's state read through its map (`on` → `outlet.1.load.on`); what it hasn't, as it is.
+			let mapped = now.as_ref().filter(|_| w.kind == "toggle").and_then(|x| d.map.as_ref()?.get(&x.v.map_key()));
+			o.put("v", mapped.map_or_else(|| now.as_ref().map_or(Value::Null, |x| x.v.json()), |m| Value::from(m.as_str())));
 			o.put("enabled", s.control);
 		}
 		"text" => {

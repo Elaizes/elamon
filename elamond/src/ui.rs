@@ -484,6 +484,17 @@ impl Ctx<'_> {
 		if w.action.as_deref().is_some_and(|a| !self.actions.contains_key(a)) {
 			return None;
 		}
+		// A toggle's `on` and `off` are values its action's parameter takes, or it is left out: a
+		// station's command the station doesn't offer, or its source doesn't allow.
+		if kind == "toggle"
+			&& let Some(spec) = w.action.as_deref().and_then(|a| self.actions.get(a))
+		{
+			let param = w.param.as_deref().and_then(|p| spec.params.iter().find(|x| x.id == p));
+			let (on, off) = (w.on.clone().unwrap_or(Value::Bool(true)), w.off.clone().unwrap_or(Value::Bool(false)));
+			if !param.is_some_and(|p| actions::param_takes(p, &on) && actions::param_takes(p, &off)) {
+				return None;
+			}
+		}
 		let full = format!("{prefix}/{id}");
 		let span = w.span.unwrap_or(if settings::WIDE.contains(&kind.as_str()) { 4 } else { 2 });
 		let mut widgets = Vec::new();

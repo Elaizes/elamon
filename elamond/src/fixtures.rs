@@ -373,7 +373,8 @@ fn ui_source() -> crate::settings::Config {
 /// `ui` for a client of `role` and `profile` that draws every widget type.
 fn ui_for(config: &crate::settings::Config, values: &crate::values::Values, role: Role, profile: &str) -> crate::ui::Ui {
 	let info = info();
-	let caps = crate::actions::Caps::all(&values.power_profiles);
+	// The fixture station's source does what the station offers as far as it allows.
+	let caps = if config.sources.contains_key("eco") { ups_caps(config, values) } else { crate::actions::Caps::all(&values.power_profiles) };
 	crate::ui::build(&crate::ui::Input {
 		config,
 		values,
@@ -630,12 +631,43 @@ fn ups_vars(status: &str) -> Vec<(String, String)> {
 	list.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
 }
 
+/// What upsd says the fixture station offers, as 0.7/ui-ups-source.toml's comments list it: its
+/// commands in upsd's order with their descriptions, and its writable variables.
+fn ups_offers(st: &mut crate::nut::Station) {
+	use upst_core::nut::{CmdInfo, VarInfo};
+	let cmds = [
+		("beeper.enable", "Turn the beeper on"),
+		("beeper.disable", "Turn the beeper off"),
+		("outlet.1.load.on", "Turn on AC outlets, group 1"),
+		("outlet.1.load.off", "Turn off AC outlets, group 1"),
+		("outlet.2.load.on", "Turn on AC outlets, group 2"),
+		("outlet.2.load.off", "Turn off AC outlets, group 2"),
+	];
+	let cmds = cmds.iter().map(|(name, desc)| CmdInfo { name: name.to_string(), desc: Some(desc.to_string()) }).collect();
+	let max = "experimental.battery.charge.max".to_string();
+	let xboost = "experimental.output.xboost".to_string();
+	// Described, as upsd would be asked to, whatever the source's `settings` allow.
+	st.offers(cmds, vec![max.clone(), xboost.clone()]);
+	let words = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+	st.described(max, VarInfo { desc: Some("Charge limit (percent)".into()), kind: words(&["RW", "RANGE", "NUMBER"]), enum_values: Vec::new(), ranges: vec![("50".into(), "100".into())] });
+	st.described(
+		xboost,
+		VarInfo {
+			desc: Some("X-Boost: run heavy AC loads at a lower voltage".into()),
+			kind: words(&["RW", "ENUM", "STRING:32"]),
+			enum_values: words(&["enabled", "disabled"]),
+			ranges: Vec::new(),
+		},
+	);
+}
+
 /// The fixture station as its source's task leaves it at the fixture sample's `t`, its power as its
 /// timeline has it: on line from 1699977600, nothing known from 1699988400, on line again from
-/// 1699992000, on battery since 1699999280.
+/// 1699992000, on battery since 1699999280; what it offers told as upsd is first connected to.
 pub fn ups(config: &crate::settings::Config) -> std::collections::BTreeMap<String, std::sync::Arc<crate::nut::Snapshot>> {
 	let at = |secs: u64| std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs);
 	let mut st = crate::nut::Station::new("eco", &config.sources["eco"]);
+	ups_offers(&mut st);
 	st.polled(ups_vars("OL"), at(1_699_977_600));
 	st.lost(upst_core::Link::Down("connection refused".into()), at(1_699_988_400));
 	st.polled(ups_vars("OL"), at(1_699_992_000));
@@ -652,6 +684,12 @@ pub fn ups_values(config: &crate::settings::Config) -> crate::values::Values {
 	v
 }
 
+/// What the computer can do with the fixture station of `config`: everything, and the station's
+/// actions.
+pub fn ups_caps(config: &crate::settings::Config, values: &crate::values::Values) -> crate::actions::Caps {
+	crate::actions::Caps { nut: crate::nut::actions::of_sources(config, &ups(config)), ..crate::actions::Caps::all(&values.power_profiles) }
+}
+
 /// `ui` for the fixture station's settings, as an admin `android` client of profile `owner` that
 /// draws every widget type gets it.
 fn ui_ups() -> crate::ui::Ui {
@@ -660,7 +698,7 @@ fn ui_ups() -> crate::ui::Ui {
 	let mut features = FEATURES.to_vec();
 	features.push("ups");
 	let info = info();
-	let caps = crate::actions::Caps::all(&values.power_profiles);
+	let caps = ups_caps(&config, &values);
 	crate::ui::build(&crate::ui::Input {
 		config: &config,
 		values: &values,
@@ -692,56 +730,13 @@ fn stream_ups() -> Value {
 	Value::Object(crate::states::data(sample().t, ui.dashboard("ups.eco").unwrap(), None, &s, None))
 }
 
-/// What of 0.7/ui-ups.json and 0.7/stream-ups.json the service has yet: not the station's actions
-/// (`nut.command.*`, `nut.set.*`) and the widgets that run them, which they leave out, nor the
-/// `version` of a document without them.
-fn without_what_comes_later(mut v: Value) -> Value {
-	let later = |id: &str| id.starts_with("ups.eco/switches") || id == "ups.eco/charge_limit";
-	if let Some(o) = v.as_object_mut() {
-		o.remove("version");
-		if let Some(Value::Array(actions)) = o.get_mut("actions") {
-			actions.retain(|a| !a["id"].as_str().is_some_and(|id| id.starts_with("nut.")));
-		}
-		if let Some(Value::Array(dashboards)) = o.get_mut("dashboards") {
-			for d in dashboards {
-				if let Some(Value::Array(widgets)) = d.get_mut("widgets") {
-					widgets.retain(|w| !w["id"].as_str().is_some_and(|id| id.starts_with("ups.eco/switches") || id == "ups.eco/charge_limit"));
-				}
-			}
-		}
-		if let Some(Value::Object(widgets)) = o.get_mut("widgets") {
-			widgets.retain(|id, _| !later(id));
-		}
-	}
-	v
-}
-
-fn fixture_0_7(name: &str) -> Value {
-	serde_json::from_str(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/0.7").join(name)).unwrap()).unwrap()
-}
-
-fn compact_text(v: &Value) -> String {
-	let mut text = String::new();
-	compact(v, 0, 0, &mut text);
-	text
-}
-
-/// What the service builds of the fixture station is 0.7/ui-ups.json and 0.7/stream-ups.json, but
-/// for what comes with the station's actions.
+/// What the service builds of the fixture station is 0.7/ui-ups.json and 0.7/stream-ups.json.
 #[test]
-fn ups_so_far() {
-	assert_eq!(compact_text(&without_what_comes_later(ui_ups().doc)), compact_text(&without_what_comes_later(fixture_0_7("ui-ups.json"))));
-	assert_eq!(compact_text(&without_what_comes_later(stream_ups())), compact_text(&without_what_comes_later(fixture_0_7("stream-ups.json"))));
-}
-
-#[test]
-#[ignore = "the service has no station actions yet (stage 2); ups_so_far checks the rest"]
 fn ui_ups_whole() {
 	check_compact("0.7/ui-ups", &ui_ups().doc);
 }
 
 #[test]
-#[ignore = "the service has no station actions yet (stage 2); ups_so_far checks the rest"]
 fn stream_ups_whole() {
 	check_compact("0.7/stream-ups", &stream_ups());
 }
@@ -801,6 +796,44 @@ fn the_starter_ups_dashboard_shows_what_a_station_has() {
 		assert_eq!(recorded.iter().filter(|r| **r == a).count(), 1, "{a}");
 	}
 	assert!(!recorded.iter().any(|a| *a == "eco.driver.version" || *a == "eco.outlet.1.id" || *a == "eco.status"));
+	// Allowed to run the station's commands and settings, an admin gets its switches and settings: an
+	// outlet's switch where the station offers its commands, and of the settings those it has.
+	let config = crate::settings::read_sources(&[
+		crate::settings::Source::new("elamond.toml", crate::settings::DEFAULTS),
+		crate::settings::Source::new(
+			"elamond.d/ups.toml",
+			"[sources.eco]\nkind = \"nut\"\nups = \"ups\"\nuser = \"elamon\"\npassword_file = \"/etc/elamon/nut.password\"\ncommands = [\"outlet.*.load.*\", \"beeper.*\"]\nsettings = [\"experimental.*\"]\n",
+		),
+	])
+	.unwrap();
+	let values = ups_values(&config);
+	for role in Role::ALL {
+		let ui = ui_for(&config, &values, role, "default");
+		let ups = ui.dashboard("ups.eco").unwrap();
+		let control: Vec<(&str, &str)> =
+			ups.all_widgets().into_iter().filter(|w| w.def.action.is_some() || ["ups.eco/switches", "ups.eco/station"].contains(&w.id.as_str())).map(|w| (w.id.as_str(), w.kind.as_str())).collect();
+		if role < Role::Admin {
+			assert!(control.is_empty(), "{role:?}: {control:?}");
+			continue;
+		}
+		assert_eq!(
+			control,
+			[
+				("ups.eco/switches", "group"),
+				("ups.eco/switches/outlet.eco.1", "toggle"),
+				("ups.eco/switches/outlet.eco.2", "toggle"),
+				("ups.eco/station", "group"),
+				("ups.eco/station/charge_max", "slider"),
+				("ups.eco/station/xboost", "select"),
+				("ups.eco/station/beeper", "toggle"),
+			]
+		);
+		// The beeper's state reads as the command that turns it to what it is.
+		let sorts = std::collections::HashMap::new();
+		let s = crate::states::States { view: crate::values::View::new(&values, role, ui.units), control: true, sorts: &sorts, read: crate::ui::Sources::ALL };
+		let beeper = ups.all_widgets().into_iter().find(|w| w.id == "ups.eco/station/beeper").unwrap();
+		assert_eq!(Value::Object(crate::states::state(beeper, &s).unwrap()), serde_json::json!({ "v": "beeper.enable", "enabled": true }));
+	}
 	// Without a source the tab isn't there.
 	let config = crate::settings::read_sources(&[crate::settings::Source::new("elamond.toml", crate::settings::DEFAULTS)]).unwrap();
 	let bare = self::values(&config);
