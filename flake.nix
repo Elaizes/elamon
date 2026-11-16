@@ -486,6 +486,63 @@
 					touch "$out"
 				'';
 
+			# elamond with a UPS source on nutflow's mock station (a DELTA 3 Max Plus it simulates, no
+			# Bluetooth), on one machine: the station's values in ui and the stream; its outlets switched
+			# and its charge limit set through the API, as the station says; what the source doesn't
+			# allow refused; the history across a restart; and the NUT password nowhere elamond writes.
+			checks.x86_64-linux.ups = nixpkgs.legacyPackages.x86_64-linux.testers.runNixOSTest {
+				name = "elamond-ups";
+				nodes.machine = { pkgs, ... }: {
+					imports = [ self.nixosModules.default nutflow.nixosModules.default ];
+					# The NUT user's password, made at boot and so never in the Nix store: root's alone for
+					# nutflow, which reads it through LoadCredential=, and alice's copy for her service.
+					systemd.services.nut-password = {
+						wantedBy = [ "multi-user.target" ];
+						requiredBy = [ "nutflow.service" ];
+						before = [ "nutflow.service" "user@1000.service" ];
+						path = [ pkgs.coreutils ];
+						serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+						script = ''
+							umask 077
+							mkdir -p /var/lib/secrets
+							test -s /var/lib/secrets/nut-elamon || echo "nut-$(head -c 15 /dev/urandom | base32)" > /var/lib/secrets/nut-elamon
+							install -d -o alice -g users -m 700 /home/alice/.config /home/alice/.config/elamon
+							install -o alice -g users -m 600 /var/lib/secrets/nut-elamon /home/alice/.config/elamon/nut.password
+						'';
+					};
+					services.nutflow = {
+						enable = true;
+						stations = [ { name = "ups"; kind = "mock"; description = "Mock DELTA 3 Max Plus"; } ];
+						# What elamond's source may run, but the beeper: one the station refuses.
+						users.elamon = {
+							passwordFile = "/var/lib/secrets/nut-elamon";
+							allow = [ "outlet.1.load.*" "outlet.2.load.*" "experimental.battery.charge.max" ];
+						};
+					};
+					services.elamond = {
+						enable = true;
+						users = [ "alice" ];
+						settings = {
+							control = true;
+							sources.eco = {
+								kind = "nut";
+								ups = "ups";
+								capacity_wh = 2048;
+								user = "elamon";
+								password_file = "/home/alice/.config/elamon/nut.password";
+								# The station has a switch for each of its nine outlets: those past 2 aren't listed.
+								commands = [ "outlet.1.load.*" "outlet.2.load.*" "beeper.*" ];
+								settings = [ "experimental.battery.charge.max" ];
+								outlets."1".critical = true;
+							};
+						};
+					};
+					users.users.alice = { isNormalUser = true; uid = 1000; linger = true; };
+					environment.systemPackages = [ pkgs.curl pkgs.jq pkgs.nut ];
+				};
+				testScript = builtins.readFile ./nix/ups-test.py;
+			};
+
 			devShells.x86_64-linux = {
 				default = dev.mkShell {
 					packages = [
