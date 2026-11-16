@@ -11,7 +11,7 @@ use crate::settings::{self, Config};
 
 /// What kind of thing an action does: what a profile's `unlock.for` names, in the order an unlock
 /// covers them (an unlock for one covers those after it).
-pub const KINDS: [&str; 6] = ["power", "signal", "actions", "units", "profile", "media"];
+pub const KINDS: [&str; 7] = ["power", "nut", "signal", "actions", "units", "profile", "media"];
 
 /// A parameter's kind, and what it takes.
 #[derive(Clone, Debug, PartialEq)]

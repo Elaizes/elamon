@@ -14,9 +14,10 @@ pub use ring::{json, Ring};
 use crate::values::Values;
 
 /// The addresses the long history keeps, with their values in `values`: those graphs and sparks
-/// show (`tracked`, as the ring keeps).
+/// show (`tracked`, as the ring keeps), and the numbers of each source whose history is kept.
 pub fn recorded<'a>(values: &'a Values, tracked: &'a BTreeSet<String>) -> impl Iterator<Item = (&'a str, f64)> + 'a {
-	tracked.iter().filter_map(|a| Some((a.as_str(), values.scalars.get(a)?.v.num()?)))
+	let sources = values.kept.iter().filter(|a| !tracked.contains(*a));
+	tracked.iter().chain(sources).filter_map(|a| Some((a.as_str(), values.scalars.get(a)?.v.num()?)))
 }
 
 /// Fills `ring`, as the service starts, with the 10-second points of `addresses` over the `span_ms`

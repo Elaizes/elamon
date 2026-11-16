@@ -67,7 +67,12 @@ impl Frame {
 /// the one before needs no new `ui`, unless what the strings hold changed (see `Hub::ui`).
 pub fn shape_of(values: &Values, caps: &Caps) -> u64 {
 	let mut h = std::collections::hash_map::DefaultHasher::new();
-	for a in values.scalars.keys() {
+	// A source's by what it has had since it started, so a value that comes and goes (a link that
+	// drops, a reading the station leaves out) doesn't make a new `ui`; one new to it does.
+	for a in values.scalars.keys().filter(|a| !values.known.contains_key(*a)) {
+		a.hash(&mut h);
+	}
+	for a in values.known.keys() {
 		a.hash(&mut h);
 	}
 	for (name, items) in &values.collections {
@@ -140,6 +145,8 @@ pub struct Hub {
 	pub history: Mutex<Ring>,
 	/// The values the long history records, every 10 seconds, 5 minutes and hour, on disk.
 	pub long: Arc<crate::history::Store>,
+	/// The UPS sources of the settings, each read by a poller of its own.
+	pub nut: crate::nut::Runtime,
 	pub interval: Duration,
 	/// Swapped whole when the settings files change; see `config()`.
 	config: RwLock<Arc<store::Config>>,
@@ -240,6 +247,7 @@ impl Hub {
 			frame,
 			history: Mutex::new(history),
 			long: Arc::new(long),
+			nut: crate::nut::Runtime::default(),
 			interval,
 			config: RwLock::new(config),
 			config_gen: AtomicU64::new(0),
@@ -455,6 +463,7 @@ impl Hub {
 			eprintln!("settings: phones pair as {} from now on", new.default_role.as_str());
 		}
 		self.long.set_keep(new.history.keep);
+		self.nut.apply(&new);
 		let control = new.control;
 		let names_changed = old.names != new.names;
 		if let Ok(mut c) = self.config.write() {

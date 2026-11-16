@@ -80,6 +80,11 @@ pub mod cadence {
 	pub const HISTORY_FLUSH: Duration = Duration::from_secs(300);
 	/// Its files are trimmed to their windows this often, at a flush.
 	pub const HISTORY_TRIM: Duration = Duration::from_secs(86_400);
+	/// A UPS source is asked this often, in milliseconds, while nobody looks at its values, unless
+	/// its `background_ms` says otherwise (or its `interval_ms` is longer).
+	pub const NUT_BACKGROUND_MS: u64 = 10_000;
+	/// How far back a timeline reaches unless its `range` says, in seconds: a day.
+	pub const TIMELINE_RANGE: u64 = 86_400;
 
 	/// The cadences above in ticks of one interval, rounded, and at least every tick.
 	#[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -154,6 +159,8 @@ pub mod timeout {
 	pub const TLS_HANDSHAKE: Duration = Duration::from_secs(10);
 	pub const FIRST_REQUEST: Duration = Duration::from_secs(15);
 	pub const HEADER_READ: Duration = Duration::from_secs(15);
+	/// Connecting to upsd and each of its answers, for a source and for `elamond values <source>`.
+	pub const NUT: Duration = Duration::from_secs(5);
 }
 
 /// Sizes and counts that keep one phone, process or file from costing too much.
@@ -199,6 +206,8 @@ pub mod limit {
 	/// `ui` documents kept built at once (one for each role, profile, kind of client and set of
 	/// widget types asked for); beyond these the least lately asked for is forgotten.
 	pub const UIS_KEPT: usize = 64;
+	/// A UPS source's variables made values at most; any more are left out, said once.
+	pub const NUT_VARS_MAX: usize = 256;
 }
 
 /// `elamond backup` and `elamond restore`.

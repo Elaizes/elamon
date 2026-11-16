@@ -173,11 +173,13 @@ pub struct Sources {
 	pub displays: bool,
 	/// Whether links answer, and the states of their units.
 	pub links: bool,
+	/// A UPS source's values: upsd is asked more often while a client shows them.
+	pub sources: bool,
 }
 
 impl Sources {
 	/// Every source.
-	pub const ALL: Sources = Sources { processes: true, media: true, volume: true, gpus: true, displays: true, links: true };
+	pub const ALL: Sources = Sources { processes: true, media: true, volume: true, gpus: true, displays: true, links: true, sources: true };
 
 	/// What either needs.
 	pub fn union(self, o: Sources) -> Sources {
@@ -188,6 +190,7 @@ impl Sources {
 			gpus: self.gpus || o.gpus,
 			displays: self.displays || o.displays,
 			links: self.links || o.links,
+			sources: self.sources || o.sources,
 		}
 	}
 
@@ -213,6 +216,8 @@ impl Sources {
 			"displays" => self.displays = true,
 			"volume" => self.volume = true,
 			"link" => self.links = true,
+			// Not one of the computer's: a source's.
+			_ if !values::known_prefix(a) => self.sources = true,
 			_ => {}
 		}
 	}
@@ -226,6 +231,7 @@ impl Sources {
 			(self.gpus, "GPUs"),
 			(self.displays, "monitors"),
 			(self.links, "links"),
+			(self.sources, "UPS sources"),
 		]
 		.into_iter()
 		.filter_map(|(on, w)| on.then_some(w))
@@ -457,7 +463,7 @@ impl Ctx<'_> {
 	fn widget(&self, v: Value, prefix: &str, id: &str, children: Option<Vec<UiWidget>>) -> Option<UiWidget> {
 		let mut w: Widget = serde_json::from_value(v).ok()?;
 		let kind = w.kind.clone()?;
-		if w.when.as_deref().is_some_and(|a| self.view.get(a).is_none()) {
+		if w.when.as_deref().is_some_and(|a| !self.view.exists(a)) {
 			return None;
 		}
 		// The least role its values, collection and action need, or its own.
@@ -465,7 +471,8 @@ impl Ctx<'_> {
 		for a in addresses(&w) {
 			need = need.max(values::address_role(a));
 		}
-		if let Some(s) = &w.source {
+		// A timeline's source is a station, which its status shows to all.
+		if let Some(s) = w.source.as_ref().filter(|_| kind != "timeline") {
 			need = need.max(values::collection_role(s));
 		}
 		if kind == "media" {
@@ -528,12 +535,12 @@ impl Ctx<'_> {
 					.collect(),
 			};
 			for i in each {
-				if i.when.as_deref().is_some_and(|a| self.view.get(a).is_none()) {
+				if i.when.as_deref().is_some_and(|a| !self.view.exists(a)) {
 					continue;
 				}
 				let shows = match (&i.value, &i.text) {
 					(Some(a), _) => {
-						self.view.role >= values::address_role(a) && (self.view.get(a).is_some() || i.empty.as_deref().is_some_and(|e| !self.fill(e).is_empty()))
+						self.view.role >= values::address_role(a) && (self.view.exists(a) || i.empty.as_deref().is_some_and(|e| !self.fill(e).is_empty()))
 					}
 					(None, Some(t)) => !self.fill(t).is_empty(),
 					_ => false,
@@ -924,7 +931,7 @@ impl Ctx<'_> {
 
 	/// The format a value is shown in: the widget's, or its address's.
 	fn format_of(&self, given: &Option<String>, address: Option<&str>, otherwise: &str) -> String {
-		given.clone().or_else(|| address.and_then(values::address_def).map(|d| d.format.to_string())).unwrap_or_else(|| otherwise.to_string())
+		given.clone().or_else(|| address.and_then(|a| self.view.format_of(a)).map(str::to_string)).unwrap_or_else(|| otherwise.to_string())
 	}
 
 	fn widget_json(&self, w: &UiWidget) -> Obj {
@@ -998,6 +1005,12 @@ impl Ctx<'_> {
 				o.opt("floor", d.floor.clone());
 				// The long history behind it, but for a small graph's.
 				if d.ranges != Some(false) && d.height.as_deref() != Some("small") {
+					o.put("ranges", Value::Array(crate::history::api::RANGES.iter().map(|r| Value::from(*r)).collect()));
+				}
+			}
+			"timeline" => {
+				o.put("range", d.range.unwrap_or(crate::consts::cadence::TIMELINE_RANGE));
+				if d.ranges != Some(false) {
 					o.put("ranges", Value::Array(crate::history::api::RANGES.iter().map(|r| Value::from(*r)).collect()));
 				}
 			}

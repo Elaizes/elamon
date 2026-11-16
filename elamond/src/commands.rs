@@ -466,9 +466,18 @@ fn defaults_table(name: &str) -> Result<String, String> {
 }
 
 /// `elamond values`: every address this computer has now, with its value, unit and format; then
-/// the collections and how many items each has.
-pub fn values() -> Result<(), String> {
+/// the collections and how many items each has, and the UPS sources. `elamond values <source>`:
+/// that source's, asked of its upsd.
+pub fn values(args: &[String]) -> Result<(), String> {
 	let config = store::load_config()?;
+	match args {
+		[] => {}
+		[id] if !id.starts_with('-') => {
+			print!("{}", crate::nut::cli::values(&config, id)?);
+			return Ok(());
+		}
+		_ => return Err("usage: elamond values [SOURCE]".into()),
+	}
 	let (interval, history_len, _) = crate::timing(&config);
 	let mut c = collect::Collector::new(crate::consts::cadence::Ticks::new(crate::consts::cadence::CLI_SNAPSHOT));
 	let all = crate::ui::Sources::ALL;
@@ -506,7 +515,16 @@ pub fn values() -> Result<(), String> {
 	}
 	println!();
 	println!("Processes and media are read only while a client shows them; here media is the volume alone.");
+	if let Some(line) = sources_line(&config) {
+		println!("{line}");
+	}
 	Ok(())
+}
+
+/// The line naming the UPS sources, after the computer's values.
+fn sources_line(config: &settings::Config) -> Option<String> {
+	let each: Vec<String> = config.sources.keys().map(|id| format!("{id} (elamond values {id})")).collect();
+	(!each.is_empty()).then(|| format!("UPS sources: {}", each.join(", ")))
 }
 
 #[cfg(test)]

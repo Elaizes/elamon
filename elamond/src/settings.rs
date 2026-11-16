@@ -27,8 +27,9 @@ pub const DEFAULTS_NAME: &str = "built-in defaults";
 /// The settings schema this elamond reads: `schema = 3`, a whole file.
 pub const SCHEMA: i64 = 3;
 
-pub const WIDGET_TYPES: [&str; 15] =
-	["value", "gauge", "meter", "status", "graph", "list", "bars", "table", "button", "toggle", "select", "slider", "text", "group", "media"];
+pub const WIDGET_TYPES: [&str; 16] = [
+	"value", "gauge", "meter", "status", "graph", "list", "bars", "table", "button", "toggle", "select", "slider", "text", "group", "media", "timeline",
+];
 pub const ICONS: [&str; 32] = [
 	"battery", "bolt", "chip", "clock", "control", "eye", "fan", "gauge", "globe", "gpu", "help", "laptop", "leaf", "lock", "memory", "monitor",
 	"moon", "music", "network", "next", "overview", "pause", "play", "power", "previous", "processes", "restart", "rocket", "storage", "terminal",
@@ -45,7 +46,7 @@ pub const SCOPES: [&str; 2] = ["user", "system"];
 /// The roles an action may ask for.
 pub const ACTION_ROLES: [&str; 2] = ["operate", "admin"];
 /// The widgets that are 4 columns wide unless they say otherwise.
-pub const WIDE: [&str; 6] = ["graph", "table", "list", "group", "media", "text"];
+pub const WIDE: [&str; 7] = ["graph", "table", "list", "group", "media", "text", "timeline"];
 
 // ---- the settings, typed ------------------------------------------------------------------
 
@@ -78,6 +79,8 @@ pub struct Config {
 	pub profiles: BTreeMap<String, ProfileDef>,
 	pub dashboards: BTreeMap<String, Dashboard>,
 	pub templates: BTreeMap<String, WidgetDef>,
+	/// UPSes and power stations, as upsd serves them.
+	pub sources: BTreeMap<String, NutSource>,
 	/// `[history]`: how long the hourly history is kept.
 	pub history: HistoryDef,
 	/// Where each profile's table is: the file that set it last, and the line of its
@@ -114,6 +117,87 @@ fn keep_days<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u64>, D::E
 		Keep::Days(n) => Some(n),
 		Keep::Word(_) => None,
 	})
+}
+
+/// `[sources.<id>]`: a UPS or a power station on upsd (`kind = "nut"`), its values named
+/// `<id>.<variable>`.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct NutSource {
+	pub kind: String,
+	/// The UPS's name on upsd.
+	pub ups: String,
+	#[serde(default = "localhost")]
+	pub host: String,
+	#[serde(default = "nut_port")]
+	pub port: u16,
+	/// The battery's energy, for `<id>.estimate.watts`.
+	#[serde(default)]
+	pub capacity_wh: Option<f64>,
+	/// How often upsd is asked while a client shows one of the source's values.
+	#[serde(default = "second")]
+	pub interval_ms: u64,
+	/// How often otherwise, while its history is kept or a graph shows it.
+	#[serde(default)]
+	pub background_ms: Option<u64>,
+	/// Keep the long history of every number it has.
+	#[serde(default = "yes")]
+	pub history: bool,
+	/// An `upst record` to fill the history from: a socket path or `host[:port]`.
+	#[serde(default)]
+	pub recorder: Option<String>,
+	/// The NUT user that runs commands and settings, and the file whose first line is its password.
+	#[serde(default)]
+	pub user: Option<String>,
+	#[serde(default)]
+	pub password_file: Option<PathBuf>,
+	/// Patterns of the station's commands and writable variables clients may run and set.
+	#[serde(default)]
+	pub commands: Vec<String>,
+	#[serde(default)]
+	pub settings: Vec<String>,
+	/// The least role that may run them.
+	#[serde(default = "admin")]
+	pub role: Role,
+	/// Outlets by number.
+	#[serde(default)]
+	pub outlets: BTreeMap<String, OutletDef>,
+}
+
+/// `outlets."<N>"` of a source.
+#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(default)]
+pub struct OutletDef {
+	/// It powers this computer: its commands but the one that turns it on are typed in.
+	pub critical: bool,
+}
+
+impl NutSource {
+	/// How often upsd is asked while nobody looks: `background_ms`, or 10 seconds, or `interval_ms`
+	/// when that is more.
+	pub fn background(&self) -> u64 {
+		self.background_ms.unwrap_or(crate::consts::cadence::NUT_BACKGROUND_MS.max(self.interval_ms))
+	}
+
+	/// Whether outlet `n` powers this computer.
+	pub fn critical(&self, n: u32) -> bool {
+		self.outlets.get(&n.to_string()).is_some_and(|o| o.critical)
+	}
+}
+
+fn localhost() -> String {
+	"localhost".into()
+}
+
+fn nut_port() -> u16 {
+	upst_core::nut::DEFAULT_PORT
+}
+
+fn second() -> u64 {
+	1000
+}
+
+fn admin() -> Role {
+	Role::Admin
 }
 
 /// A web page this computer hosts.
@@ -428,6 +512,7 @@ impl Config {
 			profiles: BTreeMap::new(),
 			dashboards: BTreeMap::new(),
 			templates: BTreeMap::new(),
+			sources: BTreeMap::new(),
 			history: HistoryDef::default(),
 			profile_sources: BTreeMap::new(),
 		}
@@ -454,7 +539,7 @@ impl Config {
 			fahrenheit: false,
 			network_bits: false,
 			confirm_actions: true,
-			unlock_for: ["power", "signal", "actions", "units"].map(String::from).to_vec(),
+			unlock_for: ["power", "nut", "signal", "actions", "units"].map(String::from).to_vec(),
 			unlock_grace: "every_time".into(),
 			dashboards: ["overview", "processes", "sensors", "control"].map(String::from).to_vec(),
 			header: "header".into(),
@@ -693,6 +778,33 @@ pub fn warnings(c: &Config) -> Vec<String> {
 			did_you_mean(&c.default_profile, c.profiles.keys().map(String::as_str))
 		));
 	}
+	for (id, s) in &c.sources {
+		if let Some(p) = &s.password_file {
+			out.extend(password_file_warning(id, p));
+		}
+	}
+	out
+}
+
+/// What is wrong with a source's password file as `elamond check` finds it, without reading it: one
+/// that isn't there, can't be read, may be read by others, or would be read as settings. A
+/// warning, not a mistake: the Nix build checks the settings where the file isn't.
+fn password_file_warning(id: &str, p: &std::path::Path) -> Vec<String> {
+	use std::os::unix::fs::PermissionsExt;
+	let mut out = Vec::new();
+	let shown = p.display();
+	let then = "its station's commands and settings fail until it is";
+	match std::fs::File::open(p).and_then(|f| f.metadata()) {
+		Err(e) => out.push(format!("sources.{id}.password_file {shown} can't be read ({e}): {then}")),
+		Ok(m) if m.permissions().mode() & 0o077 != 0 => {
+			out.push(format!("sources.{id}.password_file {shown} may be read by others: chmod 600 it; {then}"))
+		}
+		Ok(_) => {}
+	}
+	let dropin = p.parent().and_then(std::path::Path::file_name).is_some_and(|d| d == crate::store::DROPIN_DIR);
+	if dropin && p.extension().is_some_and(|e| e == "toml") {
+		out.push(format!("sources.{id}.password_file {shown} is read as settings, being a .toml in elamond.d/: keep it elsewhere"));
+	}
 	out
 }
 
@@ -852,8 +964,10 @@ fn role() -> Ty {
 }
 
 /// The records the settings are made of, by name.
-pub const RECORDS: [&str; 16] =
-	["settings", "history", "link", "action", "param", "profile", "unlock", "android", "web", "dashboard", "item", "column", "expand", "bar", "sort", "row_action"];
+pub const RECORDS: [&str; 18] = [
+	"settings", "history", "source", "outlet", "link", "action", "param", "profile", "unlock", "android", "web", "dashboard", "item", "column", "expand", "bar", "sort",
+	"row_action",
+];
 
 /// The keys of a record.
 pub fn record(name: &str) -> Vec<Key> {
@@ -875,9 +989,28 @@ pub fn record(name: &str) -> Vec<Key> {
 			k("profiles", id_map(Ty::Rec("profile"))),
 			k("dashboards", id_map(Ty::Rec("dashboard"))),
 			k("templates", id_map(Ty::Widget)),
+			k("sources", id_map(Ty::Rec("source"))),
 			k("history", Ty::Rec("history")),
 		],
 		"history" => vec![k("keep", Ty::Any(vec![Ty::Enum("word", &["all"]), Ty::Int(30, i64::MAX)]))],
+		"source" => vec![
+			req("kind", Ty::Str),
+			req("ups", Ty::Str),
+			k("host", Ty::Str),
+			k("port", Ty::Int(1, 65535)),
+			k("capacity_wh", Ty::Num),
+			k("interval_ms", Ty::Int(200, 60_000)),
+			k("background_ms", Ty::Int(200, 60_000)),
+			k("history", Ty::Bool),
+			k("recorder", Ty::Str),
+			k("user", Ty::Str),
+			k("password_file", Ty::Str),
+			k("commands", list(Ty::Str)),
+			k("settings", list(Ty::Str)),
+			k("role", Ty::Enum("role", &ACTION_ROLES)),
+			k("outlets", map(Ty::Rec("outlet"))),
+		],
+		"outlet" => vec![k("critical", Ty::Bool)],
 		"link" => vec![req("name", Ty::Str), req("url", Ty::Str), k("unit", Ty::Str), k("scope", Ty::Enum("scope", &SCOPES)), k("icon", icon())],
 		"action" => vec![
 			req("name", Ty::Str),
@@ -1032,10 +1165,11 @@ pub fn type_keys(kind: &str) -> Vec<Key> {
 			k("collapsed", Ty::Bool),
 		],
 		"button" => vec![k("action", Ty::Str), k("params", map(Ty::Scalar))],
-		"toggle" => action().into_iter().chain([k("on", Ty::Scalar), k("off", Ty::Scalar)]).collect(),
+		"toggle" => action().into_iter().chain([k("on", Ty::Scalar), k("off", Ty::Scalar), k("map", map(Ty::Str))]).collect(),
 		"select" | "slider" => action(),
 		"text" => vec![k("text", Ty::Text), k("level", Ty::Enum("level", &LEVELS))],
 		"group" => vec![k("widgets", list(Ty::Widget)), k("collapsed", Ty::Bool)],
+		"timeline" => vec![k("source", Ty::Str), k("range", Ty::Int(600, 2_592_000)), k("ranges", Ty::Bool)],
 		_ => vec![],
 	}
 }
@@ -1371,6 +1505,9 @@ fn semantics(c: &Config) -> Found {
 			push(join(&path, "unit"), format!("{u} {why}"));
 		}
 	}
+	for (id, s) in &c.sources {
+		check_nut_source(id, s, &mut push);
+	}
 	for (id, a) in &c.actions {
 		check_action(id, a, &mut push);
 	}
@@ -1426,6 +1563,65 @@ fn semantics(c: &Config) -> Found {
 
 fn no_collection(name: &str) -> String {
 	format!("no collection \"{name}\"{}", did_you_mean(name, values::COLLECTIONS.iter().map(|c| c.name)))
+}
+
+/// A source as the settings can tell it is sound, without asking upsd anything.
+fn check_nut_source(id: &str, s: &NutSource, push: &mut impl FnMut(String, String)) {
+	let path = join("sources", id);
+	let at = |key: &str| join(&path, key);
+	// Its id is the first part of its values' addresses: not one of the computer's.
+	if values::known_prefix(id) {
+		push(path.clone(), format!("\"{id}\" is the first part of this computer's own values ({id}.…): give the source another id"));
+	} else if id == "item" {
+		push(path.clone(), "\"item\" stands for the item of a for_each: give the source another id".into());
+	}
+	if s.kind != "nut" {
+		push(at("kind"), "only kind = \"nut\" in this version".into());
+	}
+	if s.ups.is_empty() || s.ups.chars().count() > 64 || s.ups.chars().any(char::is_whitespace) {
+		push(at("ups"), format!("\"{}\" isn't a UPS's name on upsd: 1 to 64 characters, no spaces", s.ups));
+	}
+	if s.host.trim().is_empty() {
+		push(at("host"), "is empty: leave it out for localhost".into());
+	}
+	if s.capacity_wh.is_some_and(|w| w.is_nan() || w <= 0.0) {
+		push(at("capacity_wh"), "should be above 0".into());
+	}
+	if let Some(b) = s.background_ms
+		&& b < s.interval_ms
+	{
+		push(at("background_ms"), format!("should be interval_ms ({}) or more, not {b}", s.interval_ms));
+	}
+	if let Some(r) = &s.recorder
+		&& let Err(e) = r.parse::<upst_core::recorder::Addr>()
+	{
+		push(at("recorder"), format!("\"{r}\" isn't a socket path or host[:port]: {e}"));
+	}
+	match (&s.user, &s.password_file) {
+		(Some(_), None) | (None, Some(_)) => push(path.clone(), "user and password_file go together: give both, or neither".into()),
+		_ => {}
+	}
+	if let Some(p) = &s.password_file
+		&& !p.is_absolute()
+	{
+		push(at("password_file"), format!("{} should be an absolute path", p.display()));
+	}
+	let login = s.user.is_some() && s.password_file.is_some();
+	for (key, list) in [("commands", &s.commands), ("settings", &s.settings)] {
+		if !list.is_empty() && !login {
+			push(at(key), format!("{key} run as a NUT user: give user and password_file too"));
+		}
+		for (i, p) in list.iter().enumerate() {
+			if p.is_empty() || !p.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._-*".contains(&b)) {
+				push(format!("{}[{i}]", at(key)), format!("\"{p}\" isn't a pattern: a-z, 0-9, ., _, - and * (any run of characters)"));
+			}
+		}
+	}
+	for n in s.outlets.keys() {
+		if n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) {
+			push(join(&at("outlets"), n), format!("\"{n}\" isn't an outlet: its number, as in outlet.1.status"));
+		}
+	}
 }
 
 fn check_action(id: &str, a: &Action, push: &mut impl FnMut(String, String)) {
@@ -1686,6 +1882,7 @@ fn check_widget_semantics(c: &Config, raw: &WidgetDef, path: &str, scope: Scope,
 		"toggle" | "select" | "slider" => need("action and param", w.action.is_some() && w.param.is_some(), push),
 		"text" => need("text", w.text.is_some(), push),
 		"group" => need("widgets", w.widgets.is_some(), push),
+		"timeline" => need("source", w.source.is_some(), push),
 		_ => {}
 	}
 	if let Some(open) = &w.open {
@@ -1709,8 +1906,16 @@ fn check_widget_semantics(c: &Config, raw: &WidgetDef, path: &str, scope: Scope,
 	if w.colors.as_ref().map_or(0, Vec::len) > w.values.as_ref().map_or(0, Vec::len) {
 		push(join(path, "colors"), "has more colours than the graph has values".into());
 	}
-	if let Some(source) = &w.source {
-		check_source(c, source, &w, &kind, path, push);
+	match &w.source {
+		// A timeline's is a source of the settings', or the item of a dashboard of each.
+		Some(source) if kind == "timeline" => {
+			if !source.contains('{') && !c.sources.contains_key(source) {
+				let there = c.sources.keys().map(String::as_str);
+				push(join(path, "source"), format!("no source \"{source}\" in [sources]{}", did_you_mean(source, there)));
+			}
+		}
+		Some(source) => check_source(c, source, &w, &kind, path, push),
+		None => {}
 	}
 	for (i, item) in w.items.iter().flatten().enumerate() {
 		let ipath = format!("{}[{i}]", join(path, "items"));
@@ -1999,6 +2204,122 @@ mod tests {
 	}
 
 	#[test]
+	fn a_ups_source_takes_every_key_and_is_checked_without_upsd() {
+		// Every key a source takes, as the fixture has them.
+		let c = read(&[("ui-ups-source.toml", include_str!("../fixtures/0.7/ui-ups-source.toml"))]).unwrap();
+		let s = &c.sources["eco"];
+		assert_eq!((s.ups.as_str(), s.host.as_str(), s.port, s.capacity_wh, s.interval_ms, s.background()), ("ups", "localhost", 3493, Some(2048.0), 1000, 10_000));
+		assert_eq!((s.recorder.as_deref(), s.user.as_deref(), s.role), (Some("/run/upst/upst.sock"), Some("elamon"), Role::Admin));
+		assert_eq!(s.password_file.as_deref(), Some(std::path::Path::new("/etc/elamon/nut.password")));
+		assert_eq!((s.commands.len(), s.settings.len()), (2, 2));
+		assert!(s.history && s.critical(1) && !s.critical(2));
+		// What a source leaves out.
+		let bare = read(&[("a.toml", "[sources.ups]\nkind = \"nut\"\nups = \"ups\"\n")]).unwrap();
+		let s = &bare.sources["ups"];
+		assert_eq!((s.host.as_str(), s.port, s.interval_ms, s.background(), s.history, s.role), ("localhost", 3493, 1000, 10_000, true, Role::Admin));
+		assert!(s.commands.is_empty() && s.settings.is_empty() && s.user.is_none() && s.recorder.is_none() && s.capacity_wh.is_none());
+		// Asked less often than shown, never more.
+		let slow = read(&[("a.toml", "[sources.ups]\nkind = \"nut\"\nups = \"ups\"\ninterval_ms = 30000\n")]).unwrap();
+		assert_eq!(slow.sources["ups"].background(), 30_000);
+		// Keys and their kinds.
+		let e = mistakes(&[("a.toml", "[sources.a]\nkind = \"nut\"\nups = \"u\"\nport = 0\ninterval_ms = 100\noutlets.\"1\".power = true\nlable = 1\n")]);
+		for want in [
+			"a.toml:4: sources.a.port: should be an integer from 1 to 65535, not 0",
+			"a.toml:5: sources.a.interval_ms: should be an integer from 200 to 60000, not 100",
+			"a.toml:6: sources.a.outlets.1.power: no key \"power\" here",
+			"a.toml:7: sources.a.lable: no key \"lable\" here",
+		] {
+			assert!(e.contains(want), "missing: {want}\nin:\n{e}");
+		}
+		assert!(mistakes(&[("a.toml", "[sources.a]\nkind = \"nut\"\n")]).contains("sources.a: ups is missing"));
+		// What the settings can tell without asking upsd.
+		let e = mistakes(&[(
+			"a.toml",
+			r#"
+[sources.cpu]
+kind = "nut"
+ups = "ups"
+
+[sources.item]
+kind = "nut"
+ups = "ups"
+
+[sources.bad]
+kind = "snmp"
+ups = "my ups"
+capacity_wh = 0
+interval_ms = 2000
+background_ms = 1000
+recorder = ""
+user = "elamon"
+commands = ["Beeper.*", ""]
+outlets.a.critical = true
+
+[sources.half]
+kind = "nut"
+ups = "ups"
+password_file = "nut.password"
+settings = ["battery.charge.low"]
+"#,
+		)]);
+		for want in [
+			"a.toml:2: sources.cpu: \"cpu\" is the first part of this computer's own values (cpu.…): give the source another id",
+			"sources.item: \"item\" stands for the item of a for_each",
+			"a.toml:11: sources.bad.kind: only kind = \"nut\" in this version",
+			"sources.bad.ups: \"my ups\" isn't a UPS's name on upsd: 1 to 64 characters, no spaces",
+			"sources.bad.capacity_wh: should be above 0",
+			"sources.bad.background_ms: should be interval_ms (2000) or more, not 1000",
+			"sources.bad.recorder: \"\" isn't a socket path or host[:port]: empty address",
+			"sources.bad: user and password_file go together: give both, or neither",
+			"sources.bad.commands: commands run as a NUT user: give user and password_file too",
+			"sources.bad.commands[0]: \"Beeper.*\" isn't a pattern",
+			"sources.bad.commands[1]: \"\" isn't a pattern",
+			"sources.bad.outlets.a: \"a\" isn't an outlet",
+			"sources.half: user and password_file go together",
+			"sources.half.password_file: nut.password should be an absolute path",
+			"sources.half.settings: settings run as a NUT user",
+		] {
+			assert!(e.contains(want), "missing: {want}\nin:\n{e}");
+		}
+		// A timeline shows a source of the settings, or a dashboard's item.
+		let timeline = |src: &str| {
+			read(&[("a.toml", format!("[sources.eco]\nkind = \"nut\"\nups = \"ups\"\n[dashboards.d]\ntitle = \"D\"\nfor_each = \"ups\"\n[[dashboards.d.widgets]]\ntype = \"timeline\"\n{src}").as_str())])
+		};
+		assert!(timeline("source = \"eco\"\nrange = 600\n").is_ok() && timeline("source = \"{item}\"\n").is_ok());
+		let no = |src: &str| join_mistakes(&timeline(src).unwrap_err());
+		assert!(no("source = \"ecco\"\n").contains("dashboards.d.widgets[0].source: no source \"ecco\" in [sources]; did you mean eco?"), "{}", no("source = \"ecco\"\n"));
+		assert!(no("").contains("a timeline widget needs source"));
+		assert!(no("source = \"eco\"\nrange = 300\n").contains("range: should be an integer from 600 to 2592000"));
+	}
+
+	#[test]
+	fn a_password_file_is_warned_of_but_never_read() {
+		use std::os::unix::fs::PermissionsExt;
+		let dir = std::env::temp_dir().join(format!("elamond-password-{}", data_encoding::HEXLOWER.encode(&crate::store::random_bytes::<6>())));
+		let dropins = dir.join(crate::store::DROPIN_DIR);
+		std::fs::create_dir_all(&dropins).unwrap();
+		let file = |path: &std::path::Path, mode: u32| {
+			std::fs::write(path, "marker-password\n").unwrap();
+			std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+			path.display().to_string()
+		};
+		let warned = |path: String| {
+			let c = read(&[("a.toml", format!("[sources.eco]\nkind = \"nut\"\nups = \"ups\"\nuser = \"elamon\"\npassword_file = \"{path}\"\n").as_str())]).unwrap();
+			let w: Vec<String> = warnings(&c).into_iter().filter(|w| w.starts_with("sources.")).collect();
+			assert!(w.iter().all(|w| !w.contains("marker-password")), "{w:?}");
+			w
+		};
+		assert!(warned(file(&dir.join("private"), 0o600)).is_empty());
+		let open = warned(file(&dir.join("open"), 0o644));
+		assert!(open[0].ends_with("/open may be read by others: chmod 600 it; its station's commands and settings fail until it is"), "{open:?}");
+		let gone = warned(dir.join("gone").display().to_string());
+		assert!(gone[0].starts_with("sources.eco.password_file ") && gone[0].contains("/gone can't be read ("), "{gone:?}");
+		let settings = warned(file(&dropins.join("nut.toml"), 0o600));
+		assert!(settings[0].ends_with("is read as settings, being a .toml in elamond.d/: keep it elsewhere"), "{settings:?}");
+		std::fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
 	fn mistakes_name_the_file_the_line_and_what_was_meant() {
 		let e = mistakes(&[("power.toml", "[dashboards.power]\ntitle = \"Power\"\n\n[[dashboards.power.widgets]]\ntype = \"gauge\"\nvalue = \"cpu.usage\"\n\n[[dashboards.power.widgets]]\ntype = \"value\"\nvalue = \"cpu.temp\"\n\n[[dashboards.power.widgets]]\ntype = \"guage\"\nvalue = \"cpu.usage\"\n")]);
 		assert_eq!(e, "power.toml:12: dashboards.power.widgets[2]: no widget type \"guage\"; did you mean gauge?");
@@ -2255,7 +2576,7 @@ label = "{item.nmae}"
 		assert_eq!(schema["$schema"], "https://json-schema.org/draft/2020-12/schema");
 		// The schema these settings are (G39).
 		assert_eq!(schema["title"], format!("elamond settings (schema {SCHEMA})"));
-		for text in [DEFAULTS, include_str!("../fixtures/ui-source.toml")] {
+		for text in [DEFAULTS, include_str!("../fixtures/ui-source.toml"), include_str!("../fixtures/0.7/ui-ups-source.toml")] {
 			assert!(valid(&schema, &as_json(text), &schema));
 		}
 		for bad in [

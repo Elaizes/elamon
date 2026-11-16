@@ -3,7 +3,7 @@
 //! `temps`, `disks`…) that tables and `for_each` go through. Built from one reading of the
 //! computer; a `View` shows them to one client: as far as its role sees, in its profile's units.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::access::Role;
 use crate::activity::Entry;
@@ -276,6 +276,36 @@ pub const COLLECTIONS: &[CollectionDef] = &[
 		level_field: None,
 	},
 	CollectionDef { name: "actions", role: Role::Operate, fields: &[("name", "", "text"), ("icon", "", "text")], level_field: None },
+	CollectionDef {
+		name: "ups",
+		role: Role::Glance,
+		fields: &[
+			("name", "", "text"),
+			("model", "", "text"),
+			("mfr", "", "text"),
+			("status", "", "text"),
+			("power", "", "text"),
+			("link", "", "text"),
+			("ecoflow", "", "bool"),
+		],
+		level_field: None,
+	},
+	CollectionDef {
+		name: "outlets",
+		role: Role::Glance,
+		fields: &[
+			("source", "", "text"),
+			("id", "", "integer"),
+			("desc", "", "text"),
+			("status", "", "text"),
+			("realpower", "W", "watts"),
+			("voltage", "V", "number"),
+			("current", "A", "number"),
+			("switchable", "", "bool"),
+			("critical", "", "bool"),
+		],
+		level_field: None,
+	},
 ];
 
 pub fn collection_def(name: &str) -> Option<&'static CollectionDef> {
@@ -291,13 +321,21 @@ pub fn field_def(collection: &str, field: &str) -> Option<FieldDef> {
 }
 
 /// What `address` is, `{…}` in it standing for any one key: `gpu.{item}.usage` is
-/// `gpu.<key>.usage`.
-pub fn address_def(address: &str) -> Option<&'static AddressDef> {
+/// `gpu.<key>.usage`. An address whose first part isn't one of the computer's is a source's
+/// (`eco.battery.charge`), told by the NUT variable's name after it.
+pub fn address_def(address: &str) -> Option<AddressDef> {
 	let parts = segments(address);
-	ADDRESSES.iter().find(|d| {
+	let own = ADDRESSES.iter().find(|d| {
 		let p: Vec<&str> = d.pattern.split('.').collect();
 		p.len() == parts.len() && p.iter().zip(&parts).all(|(p, s)| *p == "<key>" || s.starts_with('{') || p == s)
-	})
+	});
+	if let Some(d) = own {
+		return Some(*d);
+	}
+	if known_prefix(address) || parts.len() < 2 {
+		return None;
+	}
+	Some(crate::nut::def_of(&address[parts[0].len() + 1..]))
 }
 
 /// The first parts of the addresses there are: an address that starts with one of these is the
@@ -339,8 +377,7 @@ pub fn suggest_address(address: &str) -> Option<String> {
 	settings::suggest(address, candidates.iter().map(String::as_str)).map(str::to_string)
 }
 
-/// The least role that sees `address`: glance for an address that isn't the service's own (a
-/// value an integration adds sees as the basics do).
+/// The least role that sees `address`: a source's as its name says, glance for any other.
 pub fn address_role(address: &str) -> Role {
 	address_def(address).map_or(Role::Glance, |d| d.role)
 }
@@ -554,6 +591,8 @@ pub struct Scalar {
 	pub format: &'static str,
 	pub limits: Option<Limits>,
 	pub max: Option<Max>,
+	/// A level of its own, for a value judged by no limits (a source's `status`).
+	pub level: Option<Level>,
 }
 
 /// An item of a collection: its key, fields, the limits its level is judged by, and the least role
@@ -567,11 +606,11 @@ pub struct Item {
 }
 
 impl Item {
-	fn new(key: String, role: Role) -> Item {
+	pub fn new(key: String, role: Role) -> Item {
 		Item { key, fields: BTreeMap::new(), limits: None, role }
 	}
 
-	fn set(&mut self, field: &'static str, v: Option<V>) {
+	pub fn set(&mut self, field: &'static str, v: Option<V>) {
 		if let Some(v) = v {
 			self.fields.insert(field, v);
 		}
@@ -610,15 +649,21 @@ pub struct Values {
 	pub media: Option<Media>,
 	/// power-profiles-daemon's profiles, for `profile.set`.
 	pub power_profiles: Vec<String>,
+	/// Every address of a source that has had a value since the source started, with the format it
+	/// had: what `when` and a list's rows hold to while the station doesn't say (upsd unreachable,
+	/// a reading the station leaves out for a while), so its dashboard keeps its shape.
+	pub known: BTreeMap<String, &'static str>,
+	/// The sources' numbers the long history keeps, besides what graphs and sparks show.
+	pub kept: BTreeSet<String>,
 }
 
 impl Values {
 	fn put(&mut self, address: String, v: Option<V>) {
 		let Some(v) = v else { return };
-		let def = address_def(&address).copied().unwrap_or(AddressDef { pattern: "", unit: "", format: "text", role: Role::Glance });
+		let def = address_def(&address).unwrap_or(AddressDef { pattern: "", unit: "", format: "text", role: Role::Glance });
 		let limits = default_limits(&address, def.unit);
 		let max = default_max(&address, def.unit);
-		self.scalars.insert(address, Scalar { v, unit: def.unit, format: def.format, limits, max });
+		self.scalars.insert(address, Scalar { v, unit: def.unit, format: def.format, limits, max, level: None });
 	}
 
 	/// Sets the limits of a value that is there.
@@ -650,6 +695,21 @@ fn default_limits(address: &str, unit: &str) -> Option<Limits> {
 		return Some(Limits::battery());
 	}
 	(unit == "°C").then(|| Limits::temp(None, None))
+}
+
+/// A source's value of `var` (a NUT variable, or what the service makes of them: `status`,
+/// `estimate.watts`…), as `address_def` tells it: a number without a unit is a `number`. A battery's
+/// charge, a load and a temperature have the limits the computer's have; a percentage is out of 100.
+pub fn source_scalar(var: &str, v: V, level: Option<Level>) -> Scalar {
+	let def = crate::nut::def_of(var);
+	let format = if def.format == "text" && v.num().is_some() { "number" } else { def.format };
+	let limits = match var {
+		"battery.charge" => Some(Limits::battery()),
+		"ups.load" => Some(Limits::load()),
+		_ => (def.unit == "°C").then(|| Limits::temp(None, None)),
+	};
+	let max = (def.unit == "%").then(|| Max::Num(100.into()));
+	Scalar { v, unit: def.unit, format, limits, max, level }
 }
 
 /// The full scale an address has of its own: 100 for a percentage, the total for what is used of it.
@@ -1185,7 +1245,18 @@ impl<'a> View<'a> {
 		let network = address.starts_with("net.");
 		let (v, unit) = convert(&s.v, s.unit, network, self.units);
 		let limits = s.limits.as_ref().map(|l| convert_limits(l, s.unit, network, self.units));
-		Some(Scalar { v, unit: unit.unwrap_or(s.unit), format: s.format, limits, max: s.max.clone() })
+		Some(Scalar { v, unit: unit.unwrap_or(s.unit), format: s.format, limits, max: s.max.clone(), level: s.level })
+	}
+
+	/// Whether `address` is there for this client: it has a value now, or it is a source's that
+	/// has had one since the source started (`known`) and the client's role sees it.
+	pub fn exists(&self, address: &str) -> bool {
+		self.get(address).is_some() || (self.values.known.contains_key(address) && self.role >= address_role(address))
+	}
+
+	/// The format `address` has: the one its value had last, for a source's, else its own.
+	pub fn format_of(&self, address: &str) -> Option<&'static str> {
+		self.values.known.get(address).copied().or_else(|| address_def(address).map(|d| d.format))
 	}
 
 	/// The unit `address` has for this client, whether or not it is there now.

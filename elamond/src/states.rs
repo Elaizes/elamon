@@ -122,24 +122,27 @@ fn level_of(d_levels: Option<&BTreeMap<String, String>>, w: Option<&Widget>, for
 	if let Some(levels) = d_levels.filter(|l| !l.is_empty()) {
 		return Some((levels.get(&scalar.v.map_key()).and_then(|l| Level::parse(l)).unwrap_or(Level::Normal), 0.0));
 	}
+	let bound = |b: &Option<Bound>| match b {
+		Some(Bound::Num(n)) => n.as_f64(),
+		Some(Bound::Name(a)) => s.view.get(a).and_then(|v| v.v.num()),
+		None => None,
+	};
+	let given = w.map(|w| [bound(&w.warning_above), bound(&w.critical_above), bound(&w.warning_below), bound(&w.critical_below)]);
+	let judged = given.is_some_and(|g| g.iter().any(Option::is_some)) || w.is_some_and(|w| w.soft.is_some());
+	// A value with a level of its own (a source's status) has it, unless something judges it.
+	if let Some(own) = scalar.level.filter(|_| scalar.limits.is_none() && !judged) {
+		return Some((own, 0.0));
+	}
 	let x = scalar.v.num()?;
 	let mut limits = scalar.limits.clone();
-	if let Some(w) = w {
-		let bound = |b: &Option<Bound>| match b {
-			Some(Bound::Num(n)) => n.as_f64(),
-			Some(Bound::Name(a)) => s.view.get(a).and_then(|v| v.v.num()),
-			None => None,
-		};
-		let given = [bound(&w.warning_above), bound(&w.critical_above), bound(&w.warning_below), bound(&w.critical_below)];
-		if given.iter().any(Option::is_some) || w.soft.is_some() {
-			let mut l = limits.unwrap_or_default();
-			l.warning_above = given[0].or(l.warning_above);
-			l.critical_above = given[1].or(l.critical_above);
-			l.warning_below = given[2].or(l.warning_below);
-			l.critical_below = given[3].or(l.critical_below);
-			l.soft = w.soft.unwrap_or(l.soft);
-			limits = Some(l);
-		}
+	if let Some(given) = given.filter(|_| judged) {
+		let mut l = limits.unwrap_or_default();
+		l.warning_above = given[0].or(l.warning_above);
+		l.critical_above = given[1].or(l.critical_above);
+		l.warning_below = given[2].or(l.warning_below);
+		l.critical_below = given[3].or(l.critical_below);
+		l.soft = w.and_then(|w| w.soft).unwrap_or(l.soft);
+		limits = Some(l);
 	}
 	match limits {
 		Some(l) if l != Limits::default() => Some(l.judge(x)),

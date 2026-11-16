@@ -21,6 +21,7 @@ mod mdns;
 mod migrate;
 mod model;
 mod names;
+mod nut;
 mod phones;
 mod server;
 mod settings;
@@ -83,7 +84,8 @@ Usage:
   elamond defaults --diff              where your settings differ from those, and what changed in
                                        them since the version before (defaults.toml.old)
   elamond defaults TABLE               one table of them to copy: dashboards.sensors, profiles.default
-  elamond values                       list the values this computer has now, and the collections
+  elamond values [SOURCE]              list the values this computer has now, and the collections;
+                                       with SOURCE, those of a UPS source, asked of its upsd
   elamond setup                        install the service for this user (systemd user unit, starter
                                        settings) and print what needs root: lingering, the firewall,
                                        the polkit rule (--print: only show it; --no-start)
@@ -129,7 +131,7 @@ fn main() {
 		"edit" => commands::edit(&args[1..]),
 		"schema" => commands::schema(),
 		"defaults" => commands::defaults(&args[1..]),
-		"values" => commands::values(),
+		"values" => commands::values(&args[1..]),
 		"setup" => setup::run(&args[1..]),
 		"update" => update::run(&args[1..]),
 		"-V" | "--version" | "version" => {
@@ -249,6 +251,8 @@ fn serve() -> Result<(), String> {
 
 	// The long history is written every few minutes by a thread of its own, and as the service stops.
 	history::disk::spawn_writer(hub.long.clone()).map_err(|e| e.to_string())?;
+	// Each UPS source's poller, its updates taken in by a task.
+	hub.nut.start(runtime.handle().clone(), &hub.config());
 	let long = hub.long.clone();
 	{
 		let hub = hub.clone();
@@ -513,7 +517,7 @@ fn collect_loop(
 		}
 		let config = hub.config();
 		let activity = hub.activity.newest(limit::ACTIVITY_MAX);
-		let values = values::read(&values::Reading {
+		let mut values = values::read(&values::Reading {
 			sample: &reading.sample,
 			info: &info,
 			media: got.media.as_ref(),
@@ -521,6 +525,8 @@ fn collect_loop(
 			activity: &activity,
 			actions: &config.actions,
 		});
+		// The UPS sources as their tasks last left them: a slow or gone upsd holds nothing up here.
+		nut::put(&mut values, &config, &hub.nut.snapshots());
 		let shape = server::shape_of(&values, &got.caps);
 		let stamp = Some((hub.config_gen(), shape));
 		if tracked.0 != stamp {
@@ -532,6 +538,8 @@ fn collect_loop(
 				history::prefill(&mut h, &hub.long, &tracked.1, values.t, span);
 			}
 		}
+		// Upsd is asked often while a client shows a source's values, less while its history is kept.
+		hub.nut.set_demand(need.sources, &tracked.1);
 		if let Ok(mut h) = hub.history.lock() {
 			h.push(&values, &tracked.1);
 		}
@@ -540,10 +548,13 @@ fn collect_loop(
 			processes: reading.processes.is_some(),
 			gpus: need.gpus,
 			displays: reading.displays,
+			// What the sources' tasks keep is there every reading.
+			sources: true,
 			..got.read
 		};
 		let mut features = vec!["processes"];
 		features.extend([
+			(!config.sources.is_empty(), "ups"),
 			(got.caps.poweroff || got.caps.reboot || got.caps.suspend || got.caps.lock, "power"),
 			(!got.caps.power_profiles.is_empty(), "power_profiles"),
 			(got.caps.units, "units"),
