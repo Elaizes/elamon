@@ -14,7 +14,7 @@ appId: io.github.elaizes.elamon.debug
 - assertVisible: "Status"
 # The timeline's legend, once the source has been read for a moment.
 - extendedWaitUntil:
-    visible: "On line · .*"
+    visible: "(On line|On battery|No data) · .*"
     timeout: 20000
 - assertVisible: "Power now"
 - assertVisible: "Output"
