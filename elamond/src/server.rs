@@ -2552,6 +2552,8 @@ dashboards = ["overview", "control"]
 			assert_eq!((status, v["error"].as_str(), v["message"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_param"), Some("log")), "{body}");
 		}
 		assert_eq!(lines.next_of("data").await.unwrap()["dashboard"], "logs");
+		// A filter is kept by the widget's id, as an order is.
+		assert_eq!(change(r#"{"log":{"logs/unit":{"search":"slow"}}}"#.into()).await.0, StatusCode::OK);
 		// Another dashboard, a log of it asked for in the same request: the journals left behind let go
 		// of; the one that says nothing holds up neither the stream nor the readings.
 		let (status, _) = change(r#"{"dashboard":"stuck","log":{"stuck/hang":{"level":"error"}}}"#.into()).await;
@@ -2563,8 +2565,15 @@ dashboards = ["overview", "control"]
 		for _ in 0..3 {
 			assert!(lines.next_of("data").await.unwrap()["widgets"]["stuck/cpu"]["v"].is_number());
 		}
+		// Back: each log anew, filtered as its client asked, its journalctl started again.
+		let (unit, args) = (have.resets("logs/unit"), have.resets("logs/args"));
+		assert_eq!(change(r#"{"dashboard":"logs"}"#.into()).await.0, StatusCode::OK);
+		have.until(&mut lines, |h| h.resets("logs/unit") > unit && h.resets("logs/args") > args && h.texts("logs/args").len() == 2).await;
+		assert_eq!(have.texts("logs/unit"), ["Slow request: GET /status took 2.1 s"]);
+		let pid: i32 = have.texts("logs/args")[1].strip_prefix("pid ").unwrap().parse().unwrap();
 		// Gone with the stream.
 		drop(lines);
+		assert!(crate::journal::tests::ended(pid).await, "journalctl {pid} left running");
 		for _ in 0..50 {
 			if hub.journal.followed() == 0 {
 				break;
