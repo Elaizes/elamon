@@ -1632,8 +1632,9 @@ fn check_nut_source(id: &str, s: &NutSource, push: &mut impl FnMut(String, Strin
 			}
 		}
 	}
+	// As `NutSource::critical` looks it up: `1`, not `01`.
 	for n in s.outlets.keys() {
-		if n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) {
+		if n.parse::<u32>().ok().map(|x| x.to_string()).as_ref() != Some(n) {
 			push(join(&at("outlets"), n), format!("\"{n}\" isn't an outlet: its number, as in outlet.1.status"));
 		}
 	}
@@ -2272,6 +2273,7 @@ recorder = ""
 user = "elamon"
 commands = ["Beeper.*", ""]
 outlets.a.critical = true
+outlets."01".critical = true
 
 [sources.half]
 kind = "nut"
@@ -2293,6 +2295,7 @@ settings = ["battery.charge.low"]
 			"sources.bad.commands[0]: \"Beeper.*\" isn't a pattern",
 			"sources.bad.commands[1]: \"\" isn't a pattern",
 			"sources.bad.outlets.a: \"a\" isn't an outlet",
+			"sources.bad.outlets.01: \"01\" isn't an outlet: its number, as in outlet.1.status",
 			"sources.half: user and password_file go together",
 			"sources.half.password_file: nut.password should be an absolute path",
 			"sources.half.settings: settings run as a NUT user",

@@ -148,7 +148,7 @@ pub struct Station {
 	infos: BTreeMap<String, VarInfo>,
 	/// The variables upsd was asked about since it last said what the station offers.
 	asked: BTreeSet<String>,
-	/// Those that take neither a list of values nor a range, which the journal said.
+	/// Those that take neither a list of values nor one range, which the journal said.
 	unoffered: BTreeSet<String>,
 }
 

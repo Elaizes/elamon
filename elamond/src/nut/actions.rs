@@ -13,6 +13,7 @@ use upst_core::poll::{Action, Creds, Failure};
 use upst_core::fmt as nut_fmt;
 
 use super::{allows, def_of, Runtime, Station, V};
+use crate::access::Role;
 use crate::actions::{self, label_of, Param, ParamKind, Spec};
 use crate::errors::{reason, ErrorCode};
 use crate::settings::NutSource;
@@ -61,16 +62,16 @@ pub struct Meta {
 	pub rw: Vec<String>,
 }
 
-/// What a writable variable takes, as a parameter: its list of values, or its ranges as one from
-/// the least to the most on a step of 1, in its unit. `None` for any other kind.
+/// What a writable variable takes, as a parameter: its list of values, or its range on a step of
+/// 1, in its unit. `None` for any other kind, and for more than one range: a range from the least
+/// to the most would take what lies between them.
 fn takes(var: &str, info: &VarInfo) -> Option<ParamKind> {
 	if !info.enum_values.is_empty() {
 		return Some(ParamKind::Choice(info.enum_values.iter().map(|v| (v.clone(), label_of(v))).collect()));
 	}
-	let bounds: Vec<(f64, f64)> = info.ranges.iter().filter_map(|(lo, hi)| Some((nut_fmt::parse_num(lo)?, nut_fmt::parse_num(hi)?))).collect();
-	let min = bounds.iter().map(|b| b.0).fold(f64::INFINITY, f64::min);
-	let max = bounds.iter().map(|b| b.1).fold(f64::NEG_INFINITY, f64::max);
-	if bounds.is_empty() || min > max {
+	let [(lo, hi)] = info.ranges.as_slice() else { return None };
+	let (min, max) = (nut_fmt::parse_num(lo)?, nut_fmt::parse_num(hi)?);
+	if min > max {
 		return None;
 	}
 	let number = |x: f64| {
@@ -135,7 +136,7 @@ impl Station {
 
 	/// The station's actions named `name`, as far as upsd has said what it offers: its commands
 	/// the source's `commands` allow, then each writable variable its `settings` allow that takes a
-	/// list of values or a range. One that takes neither is said in the journal, once.
+	/// list of values or one range. One that takes neither is said in the journal, once.
 	pub(super) fn actions(&mut self, name: &str) -> Vec<Spec> {
 		let Some(meta) = &self.meta else { return Vec::new() };
 		let mut out = Vec::new();
@@ -163,7 +164,7 @@ impl Station {
 		}
 		for var in unoffered {
 			if self.unoffered.insert(var.clone()) {
-				super::recorder::say(&self.id, format!("{var} takes neither a list of values nor a range: not offered as a setting"));
+				super::recorder::say(&self.id, format!("{var} takes neither a list of values nor one range: not offered as a setting"));
 			}
 		}
 		out
@@ -201,6 +202,34 @@ pub fn typed_in(spec: &Spec, params: &BTreeMap<String, Value>, text: Option<&str
 		{
 			return Err((ErrorCode::ConfirmRequired, v.clone()));
 		}
+	}
+	Ok(())
+}
+
+/// A station's action checked once more against its source as the settings `config` have it now,
+/// as it is about to run for a client of `role`: for a tick after they are read again, its spec
+/// may be of those before. 403 `not_allowed` for a role below the source's, or a command it no
+/// longer allows; 404 `no_such_action` for a source or variable it no longer has or allows; 403
+/// `confirm_required` for a command that is now typed in, without its text.
+pub fn still_allowed(config: &crate::settings::Config, role: Role, id: &str, params: &BTreeMap<String, Value>, text: Option<&str>) -> Result<(), (ErrorCode, Option<String>)> {
+	let target = target(id).ok_or((ErrorCode::NoSuchAction, None))?;
+	let (Target::Command { source } | Target::Set { source, .. }) = target;
+	let src = config.sources.get(source).ok_or((ErrorCode::NoSuchAction, None))?;
+	if role < src.role {
+		return Err((ErrorCode::NotAllowed, None));
+	}
+	match target {
+		Target::Command { .. } => {
+			let cmd = params.get("cmd").and_then(Value::as_str).unwrap_or_default();
+			if !allows(&src.commands, cmd) {
+				return Err((ErrorCode::NotAllowed, Some("cmd".into())));
+			}
+			if typed(src, cmd) && text != Some(cmd) {
+				return Err((ErrorCode::ConfirmRequired, Some(cmd.into())));
+			}
+		}
+		Target::Set { var, .. } if !allows(&src.settings, var) => return Err((ErrorCode::NoSuchAction, None)),
+		Target::Set { .. } => {}
 	}
 	Ok(())
 }
@@ -346,6 +375,32 @@ pub mod tests {
 	}
 
 	#[test]
+	fn an_action_is_checked_again_against_the_settings_as_they_are_now() {
+		let config = |extra: &str| {
+			let text = format!("[sources.eco]\nkind = \"nut\"\nups = \"ups\"\nuser = \"elamon\"\npassword_file = \"/etc/elamon/nut.password\"\n{extra}");
+			crate::settings::read_sources(&[crate::settings::Source::new("a.toml", &text)]).unwrap()
+		};
+		let cmd = |c: &str| BTreeMap::from([("cmd".to_string(), Value::from(c))]);
+		let value = BTreeMap::from([("value".to_string(), Value::from(90))]);
+		let set = "nut.set.eco.experimental.battery.charge.max";
+		let before = config("commands = [\"outlet.*\"]\nsettings = [\"experimental.*\"]\nrole = \"operate\"\n");
+		assert_eq!(still_allowed(&before, Role::Operate, "nut.command.eco", &cmd("outlet.1.load.off"), None), Ok(()));
+		assert_eq!(still_allowed(&before, Role::Operate, set, &value, None), Ok(()));
+		// The outlet now powers this computer: typed in.
+		let critical = config("commands = [\"outlet.*\"]\nrole = \"operate\"\noutlets.\"1\".critical = true\n");
+		assert_eq!(still_allowed(&critical, Role::Operate, "nut.command.eco", &cmd("outlet.1.load.off"), None), Err((ErrorCode::ConfirmRequired, Some("outlet.1.load.off".into()))));
+		assert_eq!(still_allowed(&critical, Role::Operate, "nut.command.eco", &cmd("outlet.1.load.off"), Some("outlet.1.load.off")), Ok(()));
+		// Its commands, settings or role changed, or the source is gone.
+		let fewer = config("commands = [\"beeper.*\"]\nrole = \"operate\"\n");
+		assert_eq!(still_allowed(&fewer, Role::Operate, "nut.command.eco", &cmd("outlet.1.load.off"), None), Err((ErrorCode::NotAllowed, Some("cmd".into()))));
+		assert_eq!(still_allowed(&fewer, Role::Operate, set, &value, None), Err((ErrorCode::NoSuchAction, None)));
+		let admin = config("commands = [\"outlet.*\"]\n");
+		assert_eq!(still_allowed(&admin, Role::Operate, "nut.command.eco", &cmd("outlet.1.load.on"), None), Err((ErrorCode::NotAllowed, None)));
+		assert_eq!(still_allowed(&admin, Role::Admin, "nut.command.eco", &cmd("outlet.1.load.on"), None), Ok(()));
+		assert_eq!(still_allowed(&crate::settings::Config::default(), Role::Admin, "nut.command.eco", &cmd("outlet.1.load.on"), None), Err((ErrorCode::NoSuchAction, None)));
+	}
+
+	#[test]
 	fn ids_name_the_source_and_the_variable() {
 		assert_eq!(target("nut.command.eco"), Some(Target::Command { source: "eco" }));
 		assert_eq!(target("nut.set.eco.ups.beeper.status"), Some(Target::Set { source: "eco", var: "ups.beeper.status" }));
@@ -372,8 +427,11 @@ pub mod tests {
 		};
 		let choice = takes("ups.beeper.status", &info(&["RW", "ENUM"], &["enabled", "disabled"], &[]));
 		assert_eq!(choice, Some(ParamKind::Choice(vec![("enabled".into(), "Enabled".into()), ("disabled".into(), "Disabled".into())])));
-		let range = takes("battery.charge.low", &info(&["RW", "RANGE", "NUMBER"], &[], &[("10", "20"), ("50", "90")]));
+		let range = takes("battery.charge.low", &info(&["RW", "RANGE", "NUMBER"], &[], &[("10", "90")]));
 		assert_eq!(range, Some(ParamKind::Range { min: 10.into(), max: 90.into(), step: 1.into(), unit: Some("%".into()) }));
+		// Of two ranges, one from the least to the most would take 30, between them: neither is offered.
+		assert_eq!(takes("battery.charge.low", &info(&["RW", "RANGE", "NUMBER"], &[], &[("10", "20"), ("50", "90")])), None);
+		assert_eq!(takes("battery.charge.low", &info(&["RW", "RANGE", "NUMBER"], &[], &[("90", "10")])), None);
 		let unitless = takes("input.sensitivity.level", &info(&["RW", "RANGE"], &[], &[("0.5", "3")]));
 		assert_eq!(unitless, Some(ParamKind::Range { min: serde_json::Number::from_f64(0.5).unwrap(), max: 3.into(), step: 1.into(), unit: None }));
 		assert_eq!(takes("ups.id", &info(&["RW", "STRING:32"], &[], &[])), None);

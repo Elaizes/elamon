@@ -603,7 +603,7 @@ offered after, while upsd can't be reached); until then the widgets that run the
 | id | parameter | |
 |---|---|---|
 | `nut.command.<source>` | `cmd`: a choice of the station's commands that `commands` allows, in the station's order | each labelled by upsd's description of it, else, for `outlet.N.load.on` and `.off`, the outlet's `desc` and `on` or `off`, else the command; named as the station is (`device.model`, else `ups.model`, else the source's id) |
-| `nut.set.<source>.<variable>` | `value`: a `choice` of its values (labelled as words: `enabled` → `Enabled`), or a `range` from the least to the most of its ranges on a step of 1, in the variable's unit | one for each writable variable of the station that `settings` allows and that takes a list of values or a range (others aren't offered; the journal says so once); named by upsd's description of it, else the variable |
+| `nut.set.<source>.<variable>` | `value`: a `choice` of its values (labelled as words: `enabled` → `Enabled`), or a `range`, its one range on a step of 1, in the variable's unit | one for each writable variable of the station that `settings` allows and that takes a list of values or one range (others, and one of several ranges, aren't offered; the journal says so once); named by upsd's description of it, else the variable |
 
 Their least role is the source's `role` (`admin` unless it says `operate`); each asks before it
 runs (`confirm`), and unlocks as the profile's `unlock.for` says for the kind `nut`.

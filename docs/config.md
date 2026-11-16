@@ -408,9 +408,10 @@ Every action also needs control: `control = true`, and no `elamond control off`.
 A [source](#sources) with `commands` adds `nut.command.<source>`, whose one parameter `cmd` is a
 choice of the commands the station offers that a pattern of `commands` matches, each labelled as
 upsd describes it (`Turn off AC outlets, group 2`). With `settings`, each writable variable a
-pattern matches that takes a list of values (`ENUM`) or a range (`RANGE`) is an action
+pattern matches that takes a list of values (`ENUM`) or one range (`RANGE`) is an action
 `nut.set.<source>.<variable>` with one parameter `value`, the list as a choice or the range on a
-step of 1 in the variable's unit; one of another kind isn't offered, and the journal says so once.
+step of 1 in the variable's unit; one of another kind, or of several ranges, isn't offered, and the
+journal says so once.
 They come once upsd has said what the station offers, and stay while it can't be reached; until
 then the widgets that run them are left out, and so is a toggle whose `on` or `off` isn't among
 them.

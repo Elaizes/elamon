@@ -152,7 +152,8 @@ pub(crate) struct ActionResult {
 /// (or can't do), 403 `not_allowed` for one the client's role may not run, 403 `control_disabled`
 /// while control is off, 400 `bad_param` naming the first parameter that is wrong. A station's
 /// besides: 403 `not_allowed` for a command it doesn't offer (before the parameters), and 403
-/// `confirm_required` for one that is typed in without its text (after them).
+/// `confirm_required` for one that is typed in without its text (after them); then all of that
+/// again, and the role, by the settings as they are now (`nut::actions::still_allowed`).
 pub async fn action(
 	State(hub): State<Arc<Hub>>,
 	Extension(who): Extension<Caller>,
@@ -186,6 +187,7 @@ pub async fn action(
 		let params = actions::check_params(&spec, &req.params).map_err(|p| Refusal { code: ErrorCode::BadParam, message: Some(p) })?;
 		if station {
 			crate::nut::actions::typed_in(&spec, &params, req.confirm_text.as_deref()).map_err(refused)?;
+			crate::nut::actions::still_allowed(&config, who.role, &spec.id, &params, req.confirm_text.as_deref()).map_err(|(code, message)| Refusal { code, message })?;
 		}
 		let result = run_spec(&hub, &who, &spec, &params, &config).await;
 		hub.refresh_soon();

@@ -213,7 +213,7 @@ fn a_station_s_actions_are_what_it_offers_as_far_as_its_source_allows() {
 	assert_eq!(ids(&snap), ["nut.command.offers", "nut.set.offers.experimental.battery.charge.max", "nut.set.offers.experimental.output.xboost"]);
 	assert_eq!(snap.actions[1].name, "experimental.battery.charge.max");
 	let said = recorder::tests::said("offers");
-	assert_eq!(said.iter().filter(|l| l.contains("experimental.id takes neither a list of values nor a range")).count(), 1, "{said:?}");
+	assert_eq!(said.iter().filter(|l| l.contains("experimental.id takes neither a list of values nor one range")).count(), 1, "{said:?}");
 	// They stay while upsd can't be reached.
 	st.lost(Link::Down("connection refused".into()), at(1010));
 	assert_eq!(ids(&st.snapshot(at(1010))).len(), 3);

@@ -2250,7 +2250,16 @@ dashboards = ["overview", "control"]
 		for s in &seen {
 			assert!(!s.contains(&marker), "the password in: {s}");
 		}
+
+		// The settings read again, the station's actions not made anew yet (for a tick): what they no
+		// longer allow is refused all the same.
 		ticks.abort();
+		let mut fewer = config.clone();
+		fewer.sources.get_mut("rack").unwrap().commands = vec!["beeper.*".into()];
+		hub.set_config(fewer);
+		assert!(tx.borrow().caps.nut.iter().any(|s| s.params[0].typed.contains(&"load.off".to_string())), "{:?}", tx.borrow().caps.nut);
+		let (status, v) = call(&hub, "POST", "/api/v1/actions/nut.command.rack", "admin", r#"{"params":{"cmd":"load.off"},"confirm_text":"load.off"}"#).await;
+		assert_eq!((status.as_u16(), v["error"].as_str(), v["message"].as_str()), (403, Some("not_allowed"), Some("cmd")), "{v}");
 		hub.nut.stop().await;
 		server.stop();
 		remove_test_dir(&hub.dir);

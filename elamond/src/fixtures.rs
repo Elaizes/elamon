@@ -741,6 +741,23 @@ fn stream_ups_whole() {
 	check_compact("0.7/stream-ups", &stream_ups());
 }
 
+/// The typed request the app sends (0.7/action-request-typed.json) reads as the service reads it,
+/// and passes the checks of the station's command it names, which without its text it doesn't.
+#[test]
+fn a_typed_request_is_the_command_and_its_text() {
+	let read = |name: &str| std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join(name)).unwrap();
+	let request: crate::control::ActionRequest = serde_json::from_slice(&read("0.7/action-request-typed.json")).unwrap();
+	let ui = ui_ups();
+	let spec = ui.actions.iter().find(|a| a.id == "nut.command.eco").unwrap();
+	crate::nut::actions::offered(spec, &request.params).unwrap();
+	let params = crate::actions::check_params(spec, &request.params).unwrap();
+	let text = request.confirm_text.as_deref();
+	assert_eq!(text, Some("outlet.1.load.off"));
+	crate::nut::actions::typed_in(spec, &params, text).unwrap();
+	crate::nut::actions::still_allowed(&ui_ups_source(), Role::Admin, &spec.id, &params, text).unwrap();
+	assert_eq!(crate::nut::actions::typed_in(spec, &params, None), Err((ErrorCode::ConfirmRequired, "outlet.1.load.off".into())));
+}
+
 /// The starter `ups` dashboard, with a source of the fixture station added to the starter settings:
 /// a tab of the default profile, showing what the station has and leaving out what it hasn't.
 #[test]
