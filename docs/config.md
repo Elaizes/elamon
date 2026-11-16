@@ -342,9 +342,9 @@ url = "http://localhost:8080/status"
 token_file = "/home/me/.config/elamon/app.token"
 interval = 30
 
-[sources.zone]
+[sources.charge]
 kind = "file"
-path = "/sys/class/thermal/thermal_zone0/temp"
+path = "/sys/class/power_supply/BAT0/capacity"
 format = "text"
 interval = 5
 ```
@@ -884,8 +884,8 @@ Keys and the parts of a path are written in `A-Z`, `a-z`, `0-9`, `_` and `-`, an
 becoming `_` (`build info` → `build_info`; an empty one is `_`); `exit`, `age` and `error` are the
 service's own, and a key or leaf of one of those names is left out. A value has no unit, and the
 format `number`, `text` or `bool` as it is (`<id>.age` aside): the widget says the rest with its
-own `unit` and `format` (`format = "time"` for a Unix time in seconds; `unit = "m°C"` and
-`format = "integer"` for the millidegrees of a /sys temperature). The service guesses nothing from
+own `unit` and `format` (`format = "time"` for a Unix time in seconds; `unit = "%"` for a
+battery's charge read from /sys). The service guesses nothing from
 a name: a key `temperature` gets no °C and no limits. Their role is the source's `role`.
 
 A command that exits with another code than 0 reads well only when what it printed gives at least
