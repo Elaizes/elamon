@@ -892,6 +892,7 @@ fn check(init: &dyn InitSystem) -> Result<(), String> {
 	items.push(check_polkit(&user, &settings));
 	items.extend(check_buses());
 	items.push(check_nvml());
+	items.push(journal_item(&user, crate::update::which("journalctl").is_some(), crate::journal::system_readable()));
 
 	print!("{}", format_items(&items));
 	if failed(&items) {
@@ -1057,6 +1058,21 @@ fn check_buses() -> Vec<Item> {
 
 fn has_power_profiles(names: &[String]) -> bool {
 	names.iter().any(|n| n == "org.freedesktop.UPower.PowerProfiles" || n == "net.hadess.PowerProfiles")
+}
+
+/// The journal a `log` shows: all of the system's when `user` may read it, else only its own; none
+/// without `journalctl`.
+fn journal_item(user: &str, journalctl: bool, readable: bool) -> Item {
+	if !journalctl {
+		Item::new(Mark::Absent, "journal: no journalctl: the journal widget needs systemd's journal")
+	} else if readable {
+		Item::new(Mark::Ok, "journal: the system journal is readable")
+	} else {
+		Item::new(
+			Mark::Bad,
+			format!("journal: only this user's own journal: add the user to systemd-journal to read the system's (sudo usermod -aG systemd-journal {user}, then log in again)"),
+		)
+	}
 }
 
 /// NVIDIA's management library, which the service reads NVIDIA graphics cards through.
@@ -1358,6 +1374,18 @@ mod tests {
 		broken.push(Item::new(Mark::Bad, "nothing answers on port 47823").essential());
 		assert!(failed(&broken));
 		assert!(!failed(&[Item::new(Mark::Unknown, "systemd isn't running here").essential()]));
+	}
+
+	#[test]
+	fn the_journal_line_says_how_much_of_it_the_user_reads() {
+		let lines = |journalctl, readable| format_items(&[journal_item("alice", journalctl, readable)]);
+		assert_eq!(lines(true, true), "  OK  journal: the system journal is readable\n");
+		assert_eq!(
+			lines(true, false),
+			"  !   journal: only this user's own journal: add the user to systemd-journal to read the system's (sudo usermod -aG systemd-journal alice, then log in again)\n"
+		);
+		assert_eq!(lines(false, true), "  -   journal: no journalctl: the journal widget needs systemd's journal\n");
+		assert!(!failed(&[journal_item("alice", true, false)]), "the service runs without");
 	}
 
 	#[test]
