@@ -164,6 +164,8 @@ pub mod timeout {
 	pub const HEADER_READ: Duration = Duration::from_secs(15);
 	/// Connecting to upsd and each of its answers, for a source and for `elamond values <source>`.
 	pub const NUT: Duration = Duration::from_secs(5);
+	/// A station's command or setting is answered within this, once given to upsd, or has timed out.
+	pub const NUT_ACTION: Duration = Duration::from_secs(25);
 	/// Connecting to a source's recorder, and each of its answers as the source starts; the start
 	/// waits no longer than `RECORDER_START` for the last hour of its journal, and while its history is
 	/// filled in, a line of the journal may take `RECORDER_LINE`.

@@ -2065,6 +2065,197 @@ dashboards = ["overview", "control"]
 		remove_test_dir(&hub.dir);
 	}
 
+	/// A reading of the fixtures for the hub's settings, with its UPS sources as their tasks left
+	/// them and their stations' actions.
+	fn station_frame(hub: &Hub, seq: u64) -> Frame {
+		let config = hub.config();
+		let snapshots = hub.nut.snapshots();
+		let mut values = crate::fixtures::values(&config);
+		crate::nut::put(&mut values, &config, &snapshots);
+		let caps = Caps { nut: crate::nut::actions::of_sources(&config, &snapshots), ..Caps::all(&values.power_profiles) };
+		Frame { seq, shape: shape_of(&values, &caps), values: Arc::new(values), caps: Arc::new(caps), read: Sources::ALL, features: Arc::new(vec!["processes", "ups"]) }
+	}
+
+	/// A file of `text` at `path`, readable as `mode` says.
+	fn write_mode(path: &std::path::Path, text: &str, mode: u32) {
+		use std::os::unix::fs::PermissionsExt;
+		std::fs::write(path, text).unwrap();
+		std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+	}
+
+	#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+	async fn a_station_runs_what_its_source_allows_and_says_how_it_went() {
+		let _one = crate::nut::tests::POLLERS.lock().await;
+		let server = upst_core::demo::Server::spawn().unwrap();
+		let (hub, tx) = hub(true);
+		// The password where the guide has it, among the settings; a marker that must go nowhere.
+		let marker = format!("marker-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>()));
+		let password = hub.place.dir.join("nut.password");
+		write_mode(&password, &format!("{marker}\nsecond line\n"), 0o600);
+		let extra = format!(
+			"[sources.rack]\nkind = \"nut\"\nups = \"rack\"\nhost = \"127.0.0.1\"\nport = {}\ninterval_ms = 200\nbackground_ms = 1000\n\
+			 user = \"admin\"\npassword_file = \"{}\"\ncommands = [\"beeper.*\", \"load.off\"]\nsettings = [\"battery.charge.low\", \"ups.beeper.status\"]\n",
+			server.addr().port(),
+			password.display()
+		);
+		let text = format!("control = true\n{SETTINGS}{extra}");
+		std::fs::write(hub.place.dropins().join("base.toml"), &text).unwrap();
+		let config = crate::settings::read_over_defaults(&[crate::settings::Source::new("test.toml", text)]).unwrap();
+		hub.set_config(config.clone());
+		hub.nut.start(tokio::runtime::Handle::current(), &config, hub.long.clone());
+		// Readings as the collector makes them, until the station has told what it offers.
+		let ticks = {
+			let (hub, tx) = (hub.clone(), tx.clone());
+			tokio::spawn(async move {
+				for seq in 2..=u64::MAX {
+					tx.send_replace(Arc::new(station_frame(&hub, seq)));
+					tokio::time::sleep(Duration::from_millis(100)).await;
+				}
+			})
+		};
+		let start = std::time::Instant::now();
+		while tx.borrow().caps.nut.len() < 3 {
+			assert!(start.elapsed() < Duration::from_secs(10), "no actions: {:?}", tx.borrow().caps.nut);
+			tokio::time::sleep(Duration::from_millis(50)).await;
+		}
+		// Everything said is kept, to look for the password in at the end.
+		let said = std::sync::Mutex::new(Vec::<String>::new());
+		let act = async |phone: &str, id: &str, body: &str| {
+			let (status, v) = call(&hub, "POST", &format!("/api/v1/actions/{id}"), phone, body).await;
+			said.lock().unwrap().push(v.to_string());
+			(status.as_u16(), v["error"].as_str().map(str::to_string), v["message"].as_str().or(v["output"].as_str()).map(str::to_string))
+		};
+		let err = |status: u16, e: &str, m: &str| (status, Some(e.to_string()), Some(m.to_string()));
+		let done = (200, None, Some("done".to_string()));
+
+		// What the station offers that the source allows, in its order; the typed one with its text.
+		let (_, ui) = call(&hub, "GET", "/api/v1/ui", "admin", "").await;
+		said.lock().unwrap().push(ui.to_string());
+		let actions: Vec<&serde_json::Value> = ui["actions"].as_array().unwrap().iter().filter(|a| a["kind"] == "nut").collect();
+		let ids: Vec<&str> = actions.iter().map(|a| a["id"].as_str().unwrap()).collect();
+		assert_eq!(ids, ["nut.command.rack", "nut.set.rack.battery.charge.low", "nut.set.rack.ups.beeper.status"]);
+		assert_eq!(actions[0]["name"], "Smart 1500 RM (simulated)");
+		assert_eq!(
+			actions[0]["params"][0]["choices"],
+			serde_json::json!([
+				{ "value": "beeper.disable", "label": "Disable the UPS beeper" },
+				{ "value": "beeper.enable", "label": "Enable the UPS beeper" },
+				{ "value": "beeper.mute", "label": "Temporarily mute the UPS beeper" },
+				{ "value": "load.off", "label": "Turn off the load immediately", "confirm_text": "load.off" }
+			])
+		);
+		assert_eq!(actions[1]["params"][0], serde_json::json!({ "id": "value", "kind": "range", "label": "Value", "min": 10, "max": 90, "step": 1, "unit": "%" }));
+		assert_eq!(actions[2]["params"][0]["choices"][2], serde_json::json!({ "value": "muted", "label": "Muted" }));
+		assert!(actions.iter().all(|a| a["confirm"] == true && a["unlock"] == true));
+
+		// A command it allows runs, and the station's state follows.
+		assert_eq!(act("admin", "nut.command.rack", r#"{"params":{"cmd":"beeper.disable"}}"#).await, done);
+		let start = std::time::Instant::now();
+		while hub.nut.snapshots()["rack"].scalars.get("rack.ups.beeper.status").map(|s| s.v.clone()) != Some(crate::values::V::Text("disabled".into())) {
+			assert!(start.elapsed() < Duration::from_secs(5), "the beeper isn't disabled");
+			tokio::time::sleep(Duration::from_millis(50)).await;
+		}
+		// What it doesn't allow, the station hasn't, another UPS's on the same upsd, or more on a line: never sent.
+		for cmd in ["load.on", "calibrate.start", "driver.reload", "beeper.mute\nLOGOUT", "beeper.mute ", "BEEPER.MUTE", ""] {
+			let body = serde_json::json!({ "params": { "cmd": cmd } }).to_string();
+			assert_eq!(act("admin", "nut.command.rack", &body).await, err(403, "not_allowed", "cmd"), "{cmd:?}");
+		}
+		// The wrong kind of parameter, none, or one it hasn't: 400.
+		for body in [r#"{"params":{"cmd":5}}"#, r#"{"params":{}}"#, r#"{"params":{"cmd":"beeper.mute","value":1}}"#] {
+			assert_eq!(act("admin", "nut.command.rack", body).await.0, 400, "{body}");
+		}
+		// A setting within its range and on its step, or among its values; nothing else.
+		assert_eq!(act("admin", "nut.set.rack.battery.charge.low", r#"{"params":{"value":50}}"#).await, done);
+		for value in ["95", "5", "50.5", "\"50\""] {
+			assert_eq!(act("admin", "nut.set.rack.battery.charge.low", &format!(r#"{{"params":{{"value":{value}}}}}"#)).await, err(400, "bad_param", "value"), "{value}");
+		}
+		assert_eq!(act("admin", "nut.set.rack.ups.beeper.status", r#"{"params":{"value":"loud"}}"#).await, err(400, "bad_param", "value"));
+		assert_eq!(act("admin", "nut.set.rack.ups.beeper.status", r#"{"params":{"value":"enabled"}}"#).await, done);
+		// Not allowed by `settings`, not the station's, another source's: no such action.
+		for id in ["nut.set.rack.input.sensitivity", "nut.set.rack.battery.runtime.low", "nut.command.pack", "nut.set.pack.battery.charge.low"] {
+			assert_eq!(act("admin", id, r#"{"params":{"value":1}}"#).await.1.as_deref(), Some("no_such_action"), "{id}");
+		}
+		// Below the source's role (admin unless it says otherwise): refused before anything else.
+		for phone in ["glance", "monitor", "operate"] {
+			assert_eq!(act(phone, "nut.command.rack", r#"{"params":{"cmd":"beeper.enable"}}"#).await.1.as_deref(), Some("not_allowed"), "{phone}");
+			assert_eq!(act(phone, "nut.set.rack.battery.charge.low", r#"{"params":{"value":95}}"#).await.1.as_deref(), Some("not_allowed"), "{phone}");
+		}
+		// Control held off.
+		store::set_control_off(&hub.dir, true).unwrap();
+		assert_eq!(act("admin", "nut.command.rack", r#"{"params":{"cmd":"load.on"}}"#).await.1.as_deref(), Some("control_disabled"));
+		store::set_control_off(&hub.dir, false).unwrap();
+		// The whole station's load off: typed in, exactly; a text where none is needed is ignored.
+		assert_eq!(act("admin", "nut.command.rack", r#"{"params":{"cmd":"load.off"}}"#).await, err(403, "confirm_required", "load.off"));
+		assert_eq!(act("admin", "nut.command.rack", r#"{"params":{"cmd":"load.off"},"confirm_text":"load.of"}"#).await, err(403, "confirm_required", "load.off"));
+		assert_eq!(act("admin", "nut.command.rack", r#"{"params":{"cmd":"load.off"},"confirm_text":"load.off"}"#).await, done);
+		assert_eq!(act("admin", "nut.command.rack", r#"{"params":{"cmd":"beeper.enable"},"confirm_text":"whatever"}"#).await, done);
+		// One at a time on a source: two at once take as long as one after the other.
+		let start = std::time::Instant::now();
+		let (a, b) = tokio::join!(
+			act("admin", "nut.command.rack", r#"{"params":{"cmd":"beeper.mute"}}"#),
+			act("admin", "nut.set.rack.battery.charge.low", r#"{"params":{"value":40}}"#)
+		);
+		assert_eq!((a, b), (done.clone(), done.clone()));
+		assert!(start.elapsed() >= Duration::from_millis(1500), "{:?}", start.elapsed());
+
+		// The password file, read at each action: a wrong password is upsd's refusal; a file others may
+		// read, or none, is refused before upsd is asked.
+		write_mode(&password, "wrong\n", 0o600);
+		assert_eq!(act("admin", "nut.command.rack", r#"{"params":{"cmd":"beeper.enable"}}"#).await, err(502, "failed", "access denied (check the user's permissions in upsd.users)"));
+		write_mode(&password, &format!("{marker}\n"), 0o640);
+		assert_eq!(act("admin", "nut.command.rack", r#"{"params":{"cmd":"beeper.enable"}}"#).await, err(502, "failed", "password_file may be read by others: chmod 600 it"));
+		std::fs::remove_file(&password).unwrap();
+		assert_eq!(act("admin", "nut.command.rack", r#"{"params":{"cmd":"beeper.enable"}}"#).await, err(502, "failed", "password_file is missing"));
+		write_mode(&password, &format!("{marker}\n"), 0o600);
+
+		// The activity log: the source and the command, or the variable and its value, and how it went.
+		let log = hub.activity.newest(usize::MAX);
+		let entries: Vec<(&str, &str, Option<&str>)> = log.iter().map(|e| (e.what.as_str(), e.result.as_str(), e.message.as_deref())).collect();
+		for entry in [
+			("nut rack beeper.disable", "ok", Some("done")),
+			("nut rack load.on", "not_allowed", Some("cmd")),
+			("nut rack battery.charge.low 50", "ok", Some("done")),
+			("nut rack battery.charge.low 95", "bad_param", Some("value")),
+			("nut rack ups.beeper.status enabled", "ok", Some("done")),
+			("nut rack load.on", "control_disabled", None),
+			("nut rack load.off", "confirm_required", Some("load.off")),
+			("nut rack beeper.enable", "failed", Some("access denied (check the user's permissions in upsd.users)")),
+		] {
+			assert!(entries.contains(&entry), "no {entry:?} in {entries:?}");
+		}
+
+		// The password went nowhere: not to a client, an error, the activity log or its file, the
+		// journal, `elamond check` or `elamond values`, nor a backup.
+		for phone in PHONES {
+			let (_, ui) = call(&hub, "GET", "/api/v1/ui", phone, "").await;
+			let (_, snapshot) = call(&hub, "GET", "/api/v1/snapshot?dashboard=ups.rack", phone, "").await;
+			said.lock().unwrap().extend([ui.to_string(), snapshot.to_string()]);
+		}
+		let mut seen = said.into_inner().unwrap();
+		seen.extend(hub.activity.newest(usize::MAX).iter().map(|e| format!("{e:?}")));
+		seen.push(std::fs::read_to_string(hub.dir.join(crate::activity::FILE)).unwrap_or_default());
+		seen.extend(crate::nut::actions::tests::JOURNAL.lock().unwrap().iter().cloned());
+		seen.extend(crate::nut::recorder::tests::said("rack"));
+		seen.extend(crate::settings::warnings(&config));
+		seen.push(crate::nut::cli::values(&config, "rack").unwrap());
+		for name in [crate::identity::ID_FILE, crate::identity::CERT_FILE, crate::identity::KEY_FILE] {
+			std::fs::write(hub.dir.join(name), b"test").unwrap();
+		}
+		let settings_files = vec![("elamond.toml".to_string(), hub.place.main()), ("elamond.d/base.toml".to_string(), hub.place.dropins().join("base.toml"))];
+		let backup = crate::backup::collect(&hub.dir, &settings_files).unwrap();
+		seen.extend(backup.state.values().map(|b| String::from_utf8_lossy(b).into_owned()));
+		seen.extend(backup.settings.values().cloned());
+		seen.push(String::from_utf8_lossy(&crate::backup::pack(&backup).unwrap()).into_owned());
+		assert!(seen.iter().any(|s| s.contains("nut rack beeper.disable")), "nothing looked at");
+		for s in &seen {
+			assert!(!s.contains(&marker), "the password in: {s}");
+		}
+		ticks.abort();
+		hub.nut.stop().await;
+		server.stop();
+		remove_test_dir(&hub.dir);
+	}
+
 	/// The lines of a stream as they come, each in time.
 	struct Lines(axum::body::BodyDataStream);
 

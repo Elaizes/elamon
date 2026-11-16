@@ -28,7 +28,7 @@ impl Drop for Scratch {
 }
 
 /// The tests that run pollers, one at a time: a thread left from one is never counted by another.
-static POLLERS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub static POLLERS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn source(text: &str) -> Config {
 	settings::read_sources(&[Source::new("a.toml", text)]).unwrap_or_else(|m| panic!("{}", settings::join_mistakes(&m)))

@@ -132,6 +132,8 @@ pub mod reason {
 	pub const VOLUME_FAILED: &str = "volume_failed";
 	pub const MUTE_FAILED: &str = "mute_failed";
 	pub const TIMED_OUT: &str = "timed_out";
+	/// upsd took a station's command or setting but can't say whether the station did it.
+	pub const NOT_CONFIRMED: &str = "accepted by upsd but not confirmed by the station";
 }
 
 #[cfg(test)]

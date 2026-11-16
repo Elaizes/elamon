@@ -1,16 +1,20 @@
 //! A station's actions (docs/protocol.md, Station actions): `nut.command.<source>` and
-//! `nut.set.<source>.<variable>` as the station offers them and the source allows, and the checks a
-//! request for one goes through that the other actions haven't.
+//! `nut.set.<source>.<variable>` as the station offers them and the source allows; the checks a
+//! request for one goes through that the other actions haven't; and running it, the source's
+//! password read afresh each time, one at a time on a source.
 
 use std::collections::BTreeMap;
+use std::io::Read;
+use std::os::unix::fs::PermissionsExt;
 
 use serde_json::Value;
 use upst_core::nut::{dangerous, CmdInfo, VarInfo};
+use upst_core::poll::{Action, Creds, Failure};
 use upst_core::fmt as nut_fmt;
 
-use super::{allows, def_of, Station, V};
-use crate::actions::{label_of, Param, ParamKind, Spec};
-use crate::errors::ErrorCode;
+use super::{allows, def_of, Runtime, Station, V};
+use crate::actions::{self, label_of, Param, ParamKind, Spec};
+use crate::errors::{reason, ErrorCode};
 use crate::settings::NutSource;
 
 /// What a station's action is about, from its id: the source, and a setting's variable.
@@ -185,9 +189,99 @@ pub fn typed_in(spec: &Spec, params: &BTreeMap<String, Value>, text: Option<&str
 	Ok(())
 }
 
+/// The longest password file read: its first line is all that is wanted.
+const PASSWORD_FILE_MAX: u64 = 4096;
+
+/// The NUT user of the source `id` and its password, the first line of its `password_file`, read
+/// now. A file that is missing, can't be read, may be read by others or is empty fails, saying
+/// which and never what is in it; the journal says where.
+pub fn creds(id: &str, src: &NutSource) -> Result<Creds, String> {
+	let (Some(user), Some(path)) = (&src.user, &src.password_file) else {
+		return Err("the source has no user and password_file".into());
+	};
+	let fail = |what: &str, why: Option<std::io::Error>| {
+		let why = why.map(|e| format!(" ({e})")).unwrap_or_default();
+		journal(format!("nut {id}: password_file {} {what}{why}: nothing run", path.display()));
+		format!("password_file {what}")
+	};
+	let mut file = match std::fs::File::open(path) {
+		Ok(f) => f,
+		Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(fail("is missing", Some(e))),
+		Err(e) => return Err(fail("can't be read", Some(e))),
+	};
+	match file.metadata() {
+		Ok(m) if m.permissions().mode() & 0o077 != 0 => return Err(fail("may be read by others: chmod 600 it", None)),
+		Ok(_) => {}
+		Err(e) => return Err(fail("can't be read", Some(e))),
+	}
+	let mut text = String::new();
+	if let Err(e) = file.by_ref().take(PASSWORD_FILE_MAX).read_to_string(&mut text) {
+		return Err(fail("can't be read", Some(e)));
+	}
+	let password = text.lines().next().unwrap_or_default().to_string();
+	if password.is_empty() {
+		return Err(fail("has no password on its first line", None));
+	}
+	Ok(Creds { user: user.clone(), password })
+}
+
+/// What a station's answer means for the client: done, or why not.
+pub fn outcome(result: Result<String, Failure>) -> Result<(), String> {
+	match result {
+		Ok(s) if s == "done" => Ok(()),
+		Ok(s) if s == "accepted by upsd" => Err(reason::NOT_CONFIRMED.into()),
+		Ok(s) if s.starts_with("accepted, still pending") => Err(reason::TIMED_OUT.into()),
+		Ok(s) => Err(s),
+		Err(f) => Err(f.message),
+	}
+}
+
+/// Runs a station's action whose request passed every check, for the phone `who`: its password
+/// read, given to upsd once any other of its source has ended, the station's answer waited for.
+pub async fn run(rt: &Runtime, who: &str, id: &str, src: &NutSource, params: &BTreeMap<String, Value>) -> Result<(), String> {
+	let Some(target) = target(id) else { return Err(reason::UNKNOWN_ACTION.into()) };
+	let (source, action) = match target {
+		Target::Command { source } => {
+			let cmd = params.get("cmd").and_then(Value::as_str).unwrap_or_default().to_string();
+			(source, Action::Command { cmd, value: None })
+		}
+		Target::Set { source, var } => {
+			let value = params.get("value").map(actions::argument).unwrap_or_default();
+			(source, Action::Set { var: var.to_string(), value })
+		}
+	};
+	let what = match &action {
+		Action::Command { cmd, .. } => cmd.clone(),
+		Action::Set { var, value } => format!("{var} {value}"),
+	};
+	let creds = creds(source, src)?;
+	journal(format!("control: {who} asked {source} for {what}"));
+	let result = match rt.act(source, action, creds).await {
+		Ok(answer) => outcome(answer),
+		Err(why) => Err(why.to_string()),
+	};
+	match &result {
+		Ok(()) => journal(format!("nut {source}: {what}: done")),
+		Err(e) => journal(format!("nut {source}: {what} failed: {e}")),
+	}
+	result
+}
+
+/// Writes `line` in the journal.
+fn journal(line: String) {
+	eprintln!("{line}");
+	#[cfg(test)]
+	tests::JOURNAL.lock().unwrap_or_else(|p| p.into_inner()).push(line);
+}
+
 #[cfg(test)]
 pub mod tests {
+	use std::sync::Mutex;
+
 	use super::*;
+
+	/// What `journal` wrote.
+	pub static JOURNAL: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 	fn src(text: &str) -> NutSource {
 		let config = crate::settings::read_sources(&[crate::settings::Source::new("a.toml", text)]).unwrap();
@@ -242,6 +336,14 @@ pub mod tests {
 		assert_eq!(target("nut.command.eco.x"), None);
 		assert_eq!(target("nut.set.eco"), None);
 		assert_eq!(target("power.reboot"), None);
+	}
+
+	#[test]
+	fn what_a_station_answered() {
+		assert_eq!(outcome(Ok("done".into())), Ok(()));
+		assert_eq!(outcome(Ok("accepted by upsd".into())), Err("accepted by upsd but not confirmed by the station".into()));
+		assert_eq!(outcome(Ok("accepted, still pending after 15s".into())), Err("timed_out".into()));
+		assert_eq!(outcome(Err(Failure { message: "invalid value".into(), auth: false })), Err("invalid value".into()));
 	}
 
 	#[test]

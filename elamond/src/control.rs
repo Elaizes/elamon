@@ -261,6 +261,19 @@ fn what_of(id: &str, spec: Option<&Spec>, params: &Map<String, Value>, config: &
 async fn run_spec(hub: &Hub, who: &Caller, spec: &Spec, params: &BTreeMap<String, Value>, config: &crate::settings::Config) -> Result<Acted, Refusal> {
 	let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
 	let id = spec.id.as_str();
+	if spec.kind == "nut" {
+		let source = match crate::nut::actions::target(id) {
+			Some(crate::nut::actions::Target::Command { source } | crate::nut::actions::Target::Set { source, .. }) => source,
+			None => return Err(ErrorCode::NoSuchAction.into()),
+		};
+		let Some(src) = config.sources.get(source) else {
+			return Err(ErrorCode::NoSuchAction.into());
+		};
+		return match crate::nut::actions::run(&hub.nut, &who.name, id, src, params).await {
+			Ok(()) => Ok(Acted { response: Json(json!({ "ok": true, "output": "done" })).into_response(), note: Some("done".into()) }),
+			Err(e) => Err(Refusal::failed(e)),
+		};
+	}
 	if let Some(name) = id.strip_prefix("power.") {
 		eprintln!("control: {} asked to {name}", who.name);
 		return done(hub.bus.power(name).await);

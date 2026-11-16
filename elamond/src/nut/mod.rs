@@ -11,13 +11,13 @@ pub mod recorder;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use tokio::sync::{mpsc, oneshot, watch};
 use upst_core::history::recordable;
 use upst_core::journal::Record;
 use upst_core::nut::VarInfo;
-use upst_core::poll::{self, Poller, Update};
+use upst_core::poll::{self, Action, Creds, Failure, Poller, Update};
 use upst_core::status::{flag_info, Severity};
 use upst_core::target::Server;
 use upst_core::{fmt as nut_fmt, Event, Link, Ups};
@@ -461,6 +461,9 @@ struct Running {
 	src: NutSource,
 	snapshot: Arc<Mutex<Arc<Snapshot>>>,
 	demand: watch::Sender<Demand>,
+	/// Its actions go to its task, one at a time.
+	acts: mpsc::Sender<Act>,
+	one: Arc<tokio::sync::Mutex<()>>,
 	_stop: oneshot::Sender<()>,
 	task: tokio::task::JoinHandle<()>,
 }
@@ -514,6 +517,25 @@ impl Runtime {
 		}
 	}
 
+	/// Runs `action` on the station of source `id` as `creds`' user once any other action of the
+	/// source has ended, and waits up to `timeout::NUT_ACTION` for the station's answer. `Err` says
+	/// why there is none: none in time, or the source stopped meanwhile.
+	pub async fn act(&self, id: &str, action: Action, creds: Creds) -> Result<Result<String, Failure>, &'static str> {
+		let (acts, one) = {
+			let inner = self.lock();
+			let r = inner.sources.get(id).ok_or("the source isn't read")?;
+			(r.acts.clone(), r.one.clone())
+		};
+		let _one = one.lock().await;
+		let (reply, answer) = oneshot::channel();
+		acts.send(Act { action, creds, reply }).await.map_err(|_| "the source stopped")?;
+		match tokio::time::timeout(timeout::NUT_ACTION, answer).await {
+			Ok(Ok(result)) => Ok(result),
+			Ok(Err(_)) => Err("the source stopped"),
+			Err(_) => Err(crate::errors::reason::TIMED_OUT),
+		}
+	}
+
 	/// Each source's last snapshot.
 	pub fn snapshots(&self) -> BTreeMap<String, Arc<Snapshot>> {
 		let inner = self.lock();
@@ -564,6 +586,7 @@ fn spawn(handle: &tokio::runtime::Handle, store: &Arc<Store>, id: &str, src: &Nu
 	let (demand, wanted) = watch::channel(Demand::Background);
 	let (stop, stopped) = oneshot::channel();
 	let (filler, filled) = mpsc::channel(1);
+	let (acts, asked) = mpsc::channel(1);
 	let task = Task {
 		id: id.to_string(),
 		src: src.clone(),
@@ -576,9 +599,11 @@ fn spawn(handle: &tokio::runtime::Handle, store: &Arc<Store>, id: &str, src: &Nu
 		filled,
 		filler,
 		cancel: Arc::new(AtomicBool::new(false)),
+		asked,
+		pending: Vec::new(),
 	};
 	let task = handle.spawn(task.run(station));
-	Ok(Running { src: src.clone(), snapshot, demand, _stop: stop, task })
+	Ok(Running { src: src.clone(), snapshot, demand, acts, one: Arc::new(tokio::sync::Mutex::new(())), _stop: stop, task })
 }
 
 /// What a source's task works with, besides its station.
@@ -597,7 +622,27 @@ struct Task {
 	filler: mpsc::Sender<Filled>,
 	/// Set as the task ends: filling in its history stops.
 	cancel: Arc<AtomicBool>,
+	/// The actions asked of the source, and those given to upsd that the station hasn't answered.
+	asked: mpsc::Receiver<Act>,
+	pending: Vec<Pending>,
 }
+
+/// An action for a source's station, and where its answer goes.
+struct Act {
+	action: Action,
+	creds: Creds,
+	reply: oneshot::Sender<Result<String, Failure>>,
+}
+
+/// An action given to upsd, waiting for the station's answer.
+struct Pending {
+	action: Action,
+	reply: oneshot::Sender<Result<String, Failure>>,
+	since: Instant,
+}
+
+/// An action whose asker has stopped waiting is forgotten after this, if its answer never comes.
+const PENDING_KEPT: Duration = Duration::from_secs(120);
 
 /// A source's history filled in from the recorder's journal `label`, from `from` to `until` (Unix
 /// seconds): its timeline then, or why not.
@@ -644,6 +689,12 @@ impl Task {
 					let s = Arc::new(station.snapshot(at));
 					*self.out.lock().unwrap_or_else(|p| p.into_inner()) = s;
 				}
+				Some(act) = self.asked.recv() => {
+					// Only one is asked at a time (`Running::one`); one whose asker gave up may still be answered.
+					self.pending.retain(|p| !p.reply.is_closed() || p.since.elapsed() < PENDING_KEPT);
+					self.poller.run(&self.src.ups, act.action.clone(), act.creds);
+					self.pending.push(Pending { action: act.action, reply: act.reply, since: Instant::now() });
+				}
 				u = self.updates.recv() => {
 					let Some(u) = u else { break };
 					let u = match self.offered(&mut station, u) {
@@ -672,7 +723,8 @@ impl Task {
 		drop(self.poller);
 	}
 
-	/// Takes in what upsd says the station offers; any other update is given back.
+	/// Takes in what upsd says the station offers, and how the station answered an action (which
+	/// goes to the first that waits for an answer to it); any other update is given back.
 	fn offered(&mut self, station: &mut Station, u: Update) -> Option<Update> {
 		match u {
 			Update::Meta { ups, cmds, rw } if ups == self.src.ups => {
@@ -681,6 +733,13 @@ impl Task {
 				}
 			}
 			Update::Info { ups, var, info } if ups == self.src.ups => station.described(var, info),
+			Update::Done { ups, action, result } if ups == self.src.ups => {
+				if let Some(i) = self.pending.iter().position(|p| p.action == action) {
+					let _ = self.pending.remove(i).reply.send(result);
+				}
+				// What it changed is read at once.
+				self.poller.refresh();
+			}
 			other => return Some(other),
 		}
 		None
