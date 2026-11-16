@@ -3,6 +3,7 @@ package io.github.elaizes.elamon
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.atomic.AtomicInteger
 import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.data.LogLine
 import io.github.elaizes.elamon.data.LogPage
@@ -36,7 +37,7 @@ data class LogLines(
 	val atStart: Boolean = false,
 	/** Why there may be more lines than these, or none, as the service says. */
 	val note: String? = null,
-	/** Counts the resets: a page asked for before the last one is late. */
+	/** Tells the resets apart, those of every log: a page asked for before the last one is late, even for a log shown anew since. */
 	val generation: Int = 0,
 	/** An older page is on its way; the last one asked for didn't come. */
 	val loadingOlder: Boolean = false,
@@ -59,14 +60,17 @@ data class LogLines(
 	 * these on a reset, else after them, "… n more" before them where it left some out.
 	 */
 	fun take(s: WidgetState, keep: Int): LogLines {
-		var key = nextKey
-		val added = buildList {
-			if (s.more > 0) add(LogItem.More(key++, s.more))
-			for (l in s.lines.orEmpty()) add(LogItem.Line(key++, l))
-		}
 		// A note stays until a reset comes without one: the service may send it with the reset alone.
-		val base = if (s.reset) LogLines(keep = keep, note = s.note, generation = generation + 1) else copy(keep = keep, note = s.note ?: note)
-		return base.copy(items = base.items + added, nextKey = key).trimmed()
+		val base = if (s.reset) LogLines(keep = keep, note = s.note, generation = generations.incrementAndGet()) else copy(keep = keep, note = s.note ?: note)
+		var key = nextKey
+		val items = base.items.toMutableList()
+		if (s.more > 0) {
+			// Left out again with no line since: one "… n more" for both.
+			val last = items.lastOrNull()
+			if (last is LogItem.More) items[items.lastIndex] = last.copy(count = last.count + s.more) else items += LogItem.More(key++, s.more)
+		}
+		for (l in s.lines.orEmpty()) items += LogItem.Line(key++, l)
+		return base.copy(items = items, nextKey = key).trimmed()
 	}
 
 	/** Asking for an older page. */
@@ -115,6 +119,9 @@ data class LogLines(
 		return copy(items = items.drop(i), cursor = null, atStart = false)
 	}
 }
+
+/** Counts the resets of every log, so that one left and shown anew doesn't take the generation it had before. */
+private val generations = AtomicInteger()
 
 /** How a line's level looks: critical and error alike, debug dimmed. */
 enum class LogTone { Error, Warning, Notice, Normal, Dimmed }

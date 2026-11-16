@@ -4,6 +4,7 @@ import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import io.github.elaizes.elamon.data.Limits
@@ -27,21 +28,28 @@ class LogLinesTest {
 	fun aResetReplacesTheRestAddsAfterAndCountsWhatWasLeftOut() {
 		val first = LogLines().take(state(1L..3L, reset = true), keep = 10)
 		assertEquals(listOf<Long?>(1, 2, 3), first.cs())
-		assertEquals(1, first.generation)
 		// Lines since, then a gap: "… 12 more" before the lines that came after it.
 		val next = first.take(state(4L..5L), keep = 10).take(state(20L..21L, more = 12), keep = 10)
 		assertEquals(listOf<Long?>(1, 2, 3, 4, 5, null, 20, 21), next.cs())
 		assertEquals(12, (next.items[5] as LogItem.More).count)
-		assertEquals(1, next.generation)
+		assertEquals(first.generation, next.generation)
 		// Nothing new: nothing changes but the keys to come.
 		assertEquals(next.items, next.take(WidgetState(lines = emptyList()), keep = 10).items)
 		// The filter changed: what there was goes.
 		val again = next.take(state(30L..31L, reset = true), keep = 10)
 		assertEquals(listOf<Long?>(30, 31), again.cs())
-		assertEquals(2, again.generation)
+		assertNotEquals(next.generation, again.generation)
 		// Every item has a key of its own, across resets too.
 		val keys = (next.items + again.items).map { it.key }
 		assertEquals(keys.size, keys.toSet().size)
+	}
+
+	@Test
+	fun aLogShownAnewIsNotTheOneBefore() {
+		// Left and come back to, a log starts from nothing: a page asked for before is late all the same.
+		val before = LogLines().take(state(1L..1L, reset = true), keep = 5)
+		val anew = LogLines().take(state(1L..1L, reset = true), keep = 5)
+		assertNotEquals(before.generation, anew.generation)
 	}
 
 	@Test
@@ -56,6 +64,24 @@ class LogLinesTest {
 		assertEquals(listOf<Long?>(2, null, 10, 11), gap.cs())
 		val further = gap.take(state(12L..12L), keep = 3)
 		assertEquals(listOf<Long?>(10, 11, 12), further.cs())
+	}
+
+	@Test
+	fun whatIsLeftOutTimeAfterTimeIsOneRow() {
+		// Errors shown, a flood of info: each state leaves lines out and has none to show.
+		val flood = WidgetState(lines = emptyList(), more = 5)
+		var l = LogLines().take(state(1L..2L, reset = true), keep = 10)
+		repeat(1000) { l = l.take(flood, keep = 10) }
+		assertEquals(listOf<Long?>(1, 2, null), l.cs())
+		assertEquals(5000, (l.items.last() as LogItem.More).count)
+		// A gap before a line adds to it too; the next, after the line, is a row of its own.
+		l = l.take(state(3L..3L, more = 1), keep = 10).take(state(4L..4L, more = 2), keep = 10)
+		assertEquals(listOf<Long?>(1, 2, null, 3, null, 4), l.cs())
+		assertEquals(listOf(5001, 2), l.items.filterIsInstance<LogItem.More>().map { it.count })
+		// With no line at all, still one.
+		var none = LogLines().take(WidgetState(lines = emptyList(), reset = true), keep = 10)
+		repeat(1000) { none = none.take(flood, keep = 10) }
+		assertEquals(listOf<Long?>(null), none.cs())
 	}
 
 	@Test
