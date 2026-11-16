@@ -9,7 +9,7 @@ use axum::response::Response;
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{cant_start, parse, priority_of, spawn, why_failed, Filter, Key, Line, Splitter, FIELDS, INFO};
+use super::{cant_start, parse, priority_of, spawn, why_failed, Asked, Filter, Key, Line, Splitter, FIELDS, INFO};
 use crate::access::Caller;
 use crate::consts::{limit, timeout};
 use crate::control::{read_some, Group};
@@ -34,21 +34,17 @@ pub async fn log(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>,
 		Some(Ok(b)) if b > 0 => Some(b),
 		Some(_) => return error_with(ErrorCode::BadParam, "before"),
 	};
-	let level = match q.level.as_deref().map(priority_of) {
-		None => None,
-		Some(Some(p)) => Some(p),
-		Some(None) => return error_with(ErrorCode::BadParam, "level"),
+	let asked = match Asked::of(q.level.as_deref(), q.search.as_deref()) {
+		Ok(a) => a,
+		Err(which) => return error_with(ErrorCode::BadParam, which),
 	};
-	if q.search.as_ref().is_some_and(|s| s.chars().count() > limit::LOG_SEARCH_MAX) {
-		return error_with(ErrorCode::BadParam, "search");
-	}
 	let key = hub.ui_key(&who, &app.kind, hub.draws_of(&who.id, &app.kind));
 	let frame = hub.frame.borrow().clone();
 	let ui = hub.ui(&key, &frame);
 	let found = ui.dashboards.iter().flat_map(|d| d.all_widgets()).find(|w| w.id == widget && w.kind == "log");
 	let Some((w, journal)) = found.and_then(|w| Some((w, Key::of(&w.def, &hub.config())?))) else { return error(ErrorCode::NoSuchWidget) };
 	let own = w.def.level.as_deref().and_then(priority_of).unwrap_or(INFO);
-	let filter = Filter::new(level.unwrap_or(own), q.search.as_deref());
+	let filter = Filter::new(asked.priority.unwrap_or(own), asked.search.as_deref());
 	// A few at a time; the rest wait their turn.
 	let Ok(_turn) = hub.journal.pages.acquire().await else { return error(ErrorCode::Failed) };
 	match tokio::time::timeout(timeout::JOURNAL_PAGE, page(&hub.journal.program, &journal, before, &filter)).await {

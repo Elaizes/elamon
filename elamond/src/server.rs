@@ -176,7 +176,7 @@ pub struct Hub {
 	/// When a stream of each phone last sent its first line at once (`first_at_once`).
 	first_lines: Mutex<HashMap<String, Instant>>,
 	/// What the clients looking now need read, by who asked: streams and snapshots. Beside the
-	/// costlier sources, the heads of the addresses on their screens (`ui::Dashboard::source_heads`):
+	/// costlier sources, the heads of the addresses on their screens (`ui::Dashboard::heads`):
 	/// the `command`, `http` and `file` sources to read.
 	wants: Mutex<HashMap<u64, (Sources, BTreeSet<String>)>>,
 	next_want: AtomicU64,
@@ -1174,7 +1174,7 @@ pub(crate) fn needs_of(ui: &Ui, dashboard: &ui::Dashboard) -> Sources {
 /// and `file` sources it needs read.
 pub(crate) fn heads_of(ui: &Ui, dashboard: &ui::Dashboard) -> BTreeSet<String> {
 	let header = ui.header.as_deref().and_then(|h| ui.dashboard(h));
-	dashboard.source_heads().iter().chain(header.into_iter().flat_map(|h| h.source_heads())).cloned().collect()
+	dashboard.heads.iter().chain(header.into_iter().flat_map(|h| &h.heads)).cloned().collect()
 }
 
 /// A `data` line's object for `dashboard` of `ui`, as `who` sees the reading `frame`, with its

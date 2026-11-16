@@ -945,7 +945,7 @@ fn the_sources_widgets_ui_and_states() {
 		assert_eq!(line["widgets"][id], want["widgets"][id], "{id}");
 	}
 	// The dashboard on screen needs its three sources read; no graph does, and `zone`'s history is kept.
-	assert_eq!(sources.source_heads().iter().collect::<Vec<_>>(), ["app", "backup", "zone"]);
+	assert_eq!(sources.heads.iter().collect::<Vec<_>>(), ["app", "backup", "zone"]);
 	assert!(crate::ui::tracked(&config, &values).iter().all(|a| !a.contains('.') || crate::values::known_prefix(a)));
 	assert_eq!(values.kept.iter().collect::<Vec<_>>(), ["zone.text"]);
 }
@@ -990,7 +990,7 @@ fn stream_sources_whole() {
 	let mut line = crate::states::data(sample().t, sources, None, &sources_states(&values, &ui, &sorts), None);
 	let tails = [(Key::User, tail_of(&tests::user_lines())), (Key::Unit { name: "example.service".into(), user: false }, tail_of(&tests::example_lines()))];
 	let mut logs = Logs::default();
-	logs.show(crate::journal::on_screen(&ui, sources, &config), |key| tails.iter().find(|(k, _)| k == key).unwrap().1.clone());
+	logs.show(crate::journal::on_screen(sources, &config), |key| tails.iter().find(|(k, _)| k == key).unwrap().1.clone());
 	logs.put(&mut line);
 	check_compact("0.8/stream-sources", &Value::Object(line));
 }
@@ -1009,7 +1009,7 @@ fn stream_log_next() {
 	let journal = ui.dashboard("journal").unwrap();
 	let tail = tail_of(&json_line(1_700_000_000_000_000, 4, Some("example.service"), None, "example", "Started"));
 	let mut logs = crate::journal::Logs::default();
-	logs.show(crate::journal::on_screen(&ui, journal, &config), |_| tail.clone());
+	logs.show(crate::journal::on_screen(journal, &config), |_| tail.clone());
 	let mut first = crate::states::data(sample().t, journal, None, &s, None);
 	logs.put(&mut first);
 	assert_eq!(first["widgets"]["journal/system"]["lines"][0]["c"], 1_700_000_000_000_000_u64);
@@ -1051,6 +1051,6 @@ fn subscribe_log() {
 	assert_eq!(change.log.into_iter().collect::<Vec<_>>(), [("sources/app_log".to_string(), Some(filter)), ("sources/journal".to_string(), None)]);
 	let config = crate::settings::read_sources(&[crate::settings::Source::new("ui-sources.toml", UI_SOURCES)]).unwrap();
 	let ui = ui_for(&config, &sources_values(&config), Role::Admin, "owner");
-	let logs: Vec<&str> = crate::journal::on_screen(&ui, ui.dashboard("sources").unwrap(), &config).into_iter().map(|(w, _)| w.id.as_str()).collect();
+	let logs: Vec<&str> = crate::journal::on_screen(ui.dashboard("sources").unwrap(), &config).into_iter().map(|(w, _)| w.id.as_str()).collect();
 	assert_eq!(logs, ["sources/journal", "sources/app_log"]);
 }

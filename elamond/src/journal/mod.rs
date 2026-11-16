@@ -18,7 +18,7 @@ use tokio::time::Instant;
 use crate::consts::{cadence, limit, timeout};
 use crate::control::{read_some, Group};
 use crate::settings::{Config, Widget};
-use crate::ui::{Dashboard, Obj, Put, Ui, UiWidget};
+use crate::ui::{Dashboard, Obj, Put, UiWidget};
 
 /// What journalctl prints of each line: the rest the service has no use for. With `--all`, as
 /// without it a message over 4096 bytes comes as `null`.
@@ -554,10 +554,10 @@ pub fn system_readable() -> bool {
 
 // ---- a stream's logs ------------------------------------------------------------------------
 
-/// The `log`s of `dashboard` and of `ui`'s header, in order, each with its journal.
-pub fn on_screen<'a>(ui: &'a Ui, dashboard: &'a Dashboard, config: &Config) -> Vec<(&'a UiWidget, Key)> {
-	let header = ui.header.as_deref().filter(|h| *h != dashboard.id).and_then(|h| ui.dashboard(h));
-	let widgets = std::iter::once(dashboard).chain(header).flat_map(|d| d.all_widgets()).filter(|w| w.kind == "log");
+/// The `log`s of `dashboard`, in order, each with its journal. The header has none: `ui` leaves
+/// them out of it.
+pub fn on_screen<'a>(dashboard: &'a Dashboard, config: &Config) -> Vec<(&'a UiWidget, Key)> {
+	let widgets = dashboard.all_widgets().into_iter().filter(|w| w.kind == "log");
 	widgets.filter_map(|w| Some((w, Key::of(&w.def, config)?))).collect()
 }
 
@@ -566,6 +566,19 @@ pub fn on_screen<'a>(ui: &'a Ui, dashboard: &'a Dashboard, config: &Config) -> V
 pub struct Asked {
 	pub priority: Option<u8>,
 	pub search: Option<String>,
+}
+
+impl Asked {
+	/// The filter of `level`, one of the six, and `search`, of `limit::LOG_SEARCH_MAX` characters at
+	/// most (an empty one is none); else which of the two isn't so.
+	pub fn of(level: Option<&str>, search: Option<&str>) -> Result<Asked, &'static str> {
+		let priority = level.map(|l| priority_of(l).ok_or("level")).transpose()?;
+		let search = search.filter(|s| !s.is_empty());
+		if search.is_some_and(|s| s.chars().count() > limit::LOG_SEARCH_MAX) {
+			return Err("search");
+		}
+		Ok(Asked { priority, search: search.map(str::to_string) })
+	}
 }
 
 /// A `log` on a stream's screen, with the tail of its journal.

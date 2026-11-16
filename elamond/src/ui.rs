@@ -102,15 +102,11 @@ pub struct Dashboard {
 	/// The first parts of the addresses its widgets name that aren't the computer's (`app` of
 	/// `app.state`): of the widgets as the settings write them, those a client doesn't see now (a
 	/// `when` not yet met, a list's rows without values) included, and as `for_each` spread them.
+	/// The sources a client with it on screen needs read are those whose ids it has.
 	pub heads: BTreeSet<String>,
 }
 
 impl Dashboard {
-	/// The sources a client with it on screen needs read: those whose ids `heads` has.
-	pub fn source_heads(&self) -> &BTreeSet<String> {
-		&self.heads
-	}
-
 	/// Every widget, those in groups included, in order.
 	pub fn all_widgets(&self) -> Vec<&UiWidget> {
 		fn walk<'a>(ws: &'a [UiWidget], out: &mut Vec<&'a UiWidget>) {
@@ -186,7 +182,7 @@ pub struct Sources {
 	pub displays: bool,
 	/// Whether links answer, and the states of their units.
 	pub links: bool,
-	/// Some source's values: which sources, `Dashboard::source_heads` says.
+	/// Some source's values: which sources, `Dashboard::heads` says.
 	pub sources: bool,
 }
 
@@ -1685,7 +1681,7 @@ row_actions = [{ action = "unit.restart", params = { link = "{id}" } }]
 		let shown: Vec<&str> = d.all_widgets().iter().map(|w| w.id.as_str()).collect();
 		assert_eq!(shown, ["d/1", "d/2.app", "d/2.web", "d/3", "d/4"]);
 		assert_eq!(d.widgets[0].def.items.as_ref().map(Vec::len), Some(1));
-		assert_eq!(d.source_heads().iter().collect::<Vec<_>>(), ["app", "job", "tpl", "web", "zone"]);
+		assert_eq!(d.heads.iter().collect::<Vec<_>>(), ["app", "job", "tpl", "web", "zone"]);
 		assert_eq!(crate::server::heads_of(&ui, d).iter().collect::<Vec<_>>(), ["app", "job", "tpl", "up", "web", "zone"]);
 	}
 }

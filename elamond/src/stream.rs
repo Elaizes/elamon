@@ -111,15 +111,7 @@ pub struct LogFilter {
 impl LogFilter {
 	/// The filter as the stream keeps it; none for a level not of the six or a search too long.
 	fn asked(&self) -> Option<journal::Asked> {
-		let priority = match self.level.as_deref() {
-			Some(l) => Some(journal::priority_of(l)?),
-			None => None,
-		};
-		let search = self.search.clone().filter(|s| !s.is_empty());
-		if search.as_ref().is_some_and(|s| s.chars().count() > limit::LOG_SEARCH_MAX) {
-			return None;
-		}
-		Some(journal::Asked { priority, search })
+		journal::Asked::of(self.level.as_deref(), self.search.as_deref()).ok()
 	}
 }
 
@@ -396,14 +388,14 @@ impl Run {
 		self.show_logs();
 	}
 
-	/// Holds the tails of the journals of the `log`s on screen, the dashboard's and the header's, and
-	/// lets go of the rest.
+	/// Holds the tails of the journals of the `log`s of the dashboard on screen, and lets go of the
+	/// rest.
 	fn show_logs(&mut self) {
 		self.logs_of = self.hub.config_gen();
 		let config = self.hub.config();
 		let on = self.dashboard.as_deref().and_then(|d| self.ui.dashboard(d));
 		let hub = &self.hub;
-		self.logs.show(on.map(|d| journal::on_screen(&self.ui, d, &config)).unwrap_or_default(), |key| hub.journal.tail(key));
+		self.logs.show(on.map(|d| journal::on_screen(d, &config)).unwrap_or_default(), |key| hub.journal.tail(key));
 	}
 
 	/// What `POST /api/v1/stream/{id}` asked for, checked there, from the next line on.
@@ -493,7 +485,7 @@ pub async fn change(State(hub): State<Arc<Hub>>, Extension(who): Extension<Calle
 		let waiting = ctl.change.lock().unwrap_or_else(|p| p.into_inner()).as_ref().and_then(|w| w.dashboard.clone());
 		let on = c.dashboard.clone().or(waiting).or(on);
 		let config = hub.config();
-		let logs = on.as_deref().and_then(|d| ui.dashboard(d)).map(|d| journal::on_screen(&ui, d, &config)).unwrap_or_default();
+		let logs = on.as_deref().and_then(|d| ui.dashboard(d)).map(|d| journal::on_screen(d, &config)).unwrap_or_default();
 		let shown = |id: &str| logs.iter().any(|(w, _)| w.id == id);
 		if c.log.iter().any(|(id, f)| !shown(id) || f.as_ref().is_some_and(|f| f.asked().is_none())) {
 			return server::error_with(ErrorCode::BadParam, "log");
