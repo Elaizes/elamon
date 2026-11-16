@@ -11,8 +11,7 @@ use crate::values::Values;
 
 /// What `elamond values <id>` prints for the source `id` of `config`, read now.
 pub fn listing(config: &Config, id: &str, feed: &Feed) -> Result<String, String> {
-	let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| e.to_string())?;
-	let outcome = rt.block_on(read(feed, &mut None));
+	let outcome = now(read(feed, &mut None))?;
 	let at = SystemTime::now();
 	let mut keeper = Keeper::new(id);
 	// What the journal would say is the service's to say.
@@ -31,4 +30,13 @@ pub fn listing(config: &Config, id: &str, feed: &Feed) -> Result<String, String>
 		rows.push(vec![address.clone(), shown, s.unit.to_string(), s.format.to_string(), role.as_str().to_string()]);
 	}
 	Ok(crate::nut::cli::table(&rows, ""))
+}
+
+/// What `f` gives, run on a runtime of its own that ends with it: a file read that hangs, left on
+/// its thread at the timeout, isn't waited for.
+pub(super) fn now<F: std::future::Future>(f: F) -> Result<F::Output, String> {
+	let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| e.to_string())?;
+	let out = rt.block_on(f);
+	rt.shutdown_background();
+	Ok(out)
 }

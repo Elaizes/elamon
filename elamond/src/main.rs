@@ -309,6 +309,8 @@ fn serve() -> Result<(), String> {
 	runtime.block_on(stopping.nut.stop());
 	runtime.block_on(stopping.feeds.stop());
 	stopping.long.flush(store::now(), true);
+	// Dropped, the runtime would wait for ever for a file read that hangs.
+	runtime.shutdown_timeout(timeout::RUNTIME_STOP);
 	served
 }
 

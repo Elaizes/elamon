@@ -452,6 +452,25 @@ async fn a_file_is_read_if_it_is_a_regular_one() {
 	std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// `elamond values` ends at a source's timeout, its file read that hangs (on a mount that doesn't
+/// answer, which a test can't make without root) left on its thread, not waited for.
+#[test]
+fn a_read_left_behind_holds_up_no_listing() {
+	let (release, held) = std::sync::mpsc::channel::<()>();
+	let (done, ended) = std::sync::mpsc::channel();
+	std::thread::spawn(move || {
+		let left = cli::now(async move {
+			let job = tokio::task::spawn_blocking(move || held.recv());
+			tokio::time::timeout(Duration::from_millis(100), job).await.is_err()
+		});
+		let _ = done.send(left);
+	});
+	let got = ended.recv_timeout(Duration::from_secs(5));
+	// The read that hung ends now, and its thread.
+	let _ = release.send(());
+	assert_eq!(got, Ok(Ok(true)));
+}
+
 // ---- what is kept of the reads ----------------------------------------------------------------
 
 #[test]

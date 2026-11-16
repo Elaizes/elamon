@@ -188,6 +188,9 @@ pub mod timeout {
 	pub const FEED_SECS: u64 = 5;
 	/// A source stopped as the service stops gets this long for its read to end.
 	pub const FEED_STOP: Duration = Duration::from_secs(1);
+	/// As the service stops, what still runs on a thread of the blocking pool gets this long to end:
+	/// a source's file read that hangs is left there, not waited for.
+	pub const RUNTIME_STOP: Duration = Duration::from_secs(3);
 	/// A `journalctl` that follows the journal has printed the journal's last lines once it has
 	/// said nothing for `JOURNAL_QUIET`, or printed them all, or run for `JOURNAL_START`: from then
 	/// on its `log`s have a state.
