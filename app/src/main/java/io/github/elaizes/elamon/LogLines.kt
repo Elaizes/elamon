@@ -144,6 +144,6 @@ private val CLOCK = DateTimeFormatter.ofPattern("HH:mm:ss")
 /** A line's time of day on the phone's clock, [t] in Unix ms. */
 fun logClock(t: Long, zone: ZoneId = ZoneId.systemDefault()): String = CLOCK.format(Instant.ofEpochMilli(t).atZone(zone))
 
-/** A line as it is copied: "14:02:01 warning sshd.service: Connection closed". */
+/** A line as it is copied: "14:02:01 warning sshd: Connection closed", its unit where it has no program's name. */
 fun logCopy(line: LogLine, zone: ZoneId = ZoneId.systemDefault()): String =
-	listOfNotNull(logClock(line.t, zone), line.level, line.unit ?: line.id).joinToString(" ") + ": " + line.text
+	listOfNotNull(logClock(line.t, zone), line.level, line.id ?: line.unit).joinToString(" ") + ": " + line.text

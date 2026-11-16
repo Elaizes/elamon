@@ -247,7 +247,8 @@ private fun LogLineRow(line: LogLine, expanded: Boolean, onTap: () -> Unit, onLo
 	val level = levelLabel(line.level)
 	// The mark sits by the first line of text, however many it takes.
 	val rowHeight = style.lineHeight.takeIf { it.isSp }?.let { with(LocalDensity.current) { it.toDp() } } ?: Sizes.iconS
-	val source = line.unit ?: line.id
+	// The program, as journalctl names a line by it; its unit where the journal has no name.
+	val source = line.id ?: line.unit
 	val text = buildAnnotatedString {
 		if (source != null) {
 			withStyle(SpanStyle(color = variant, fontWeight = FontWeight.Medium)) { append(source) }

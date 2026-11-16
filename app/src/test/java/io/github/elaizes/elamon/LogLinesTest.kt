@@ -185,8 +185,8 @@ class LogLinesTest {
 		// 2023-11-14 22:13:15.234 UTC.
 		val l = LogLine(c = 1_699_999_995_234_567, t = 1_699_999_995_234, level = "warning", unit = "example.service", id = "example", text = "Slow request")
 		assertEquals("22:13:15", logClock(l.t, utc))
-		assertEquals("22:13:15 warning example.service: Slow request", logCopy(l, utc))
-		assertEquals("22:13:15 warning example: Slow request", logCopy(l.copy(unit = null), utc))
+		assertEquals("22:13:15 warning example: Slow request", logCopy(l, utc))
+		assertEquals("22:13:15 warning example.service: Slow request", logCopy(l.copy(id = null), utc))
 		assertEquals("22:13:15 warning: Slow request", logCopy(l.copy(unit = null, id = null), utc))
 		// The phone's own clock, 24 hours.
 		assertEquals("01:13:15", logClock(l.t, ZoneOffset.ofHours(3)))
