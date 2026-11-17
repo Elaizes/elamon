@@ -77,6 +77,47 @@ class SettingsTest {
 	}
 
 	@Test
+	fun thePhonesOwnThemeOverTheProfiles() {
+		val a = Machine("a".repeat(32), "deskpc", listOf("192.0.2.1"), 47823, "f")
+		val b = Machine("b".repeat(32), "laptop", listOf("192.0.2.2"), 47823, "f")
+		val light = Profile(theme = "light", pureBlack = false, animations = false, intervalMs = 5000, confirmActions = false, android = AndroidProfile(dynamicColor = true))
+		val profiles = mapOf(a.id to light, b.id to Profile(theme = "system", pureBlack = true, android = AndroidProfile(dynamicColor = false)))
+		val own = OwnTheme(ThemeMode.Dark, pureBlack = true, dynamicColor = false)
+		// Off: the profile's, as before.
+		assertEquals(Prefs.of(light), prefsFor(Screen.Machine(a.id), listOf(a, b), profiles, own = null))
+		// On: the phone's theme; the rest the profile's.
+		val on = prefsFor(Screen.Machine(a.id), listOf(a, b), profiles, own)
+		assertEquals(own, OwnTheme.of(on))
+		assertEquals(Prefs.of(light).copy(theme = ThemeMode.Dark, pureBlack = true, dynamicColor = false), on)
+		// The same theme at home, on any computer, in the settings, and with none paired.
+		for (top in listOf(Screen.Home, Screen.Machine(b.id), Screen.Settings(), Screen.Settings(a.id))) {
+			assertEquals(own, OwnTheme.of(prefsFor(top, listOf(a, b), profiles, own)), "$top")
+		}
+		assertEquals(own, OwnTheme.of(prefsFor(Screen.Home, emptyList(), emptyMap(), own)))
+		// The profile changes while it is on: the theme doesn't, the rest follows.
+		val changed = mapOf(a.id to light.copy(theme = "light", pureBlack = false, animations = true, android = AndroidProfile(dynamicColor = true)))
+		val after = prefsFor(Screen.Machine(a.id), listOf(a), changed, own)
+		assertEquals(own, OwnTheme.of(after))
+		assertEquals(true, after.animations)
+	}
+
+	@Test
+	fun thePhonesOwnThemeStartsAsTheThemeInForce() {
+		val profile = Prefs.of(Profile(theme = "light", pureBlack = true, android = AndroidProfile(dynamicColor = false)))
+		// Turned on the first time: what the profile gives now, so nothing jumps.
+		val on = Look().turned(true, profile)
+		assertEquals(OwnTheme(ThemeMode.Light, pureBlack = true, dynamicColor = false), on.theme)
+		// Off: none over the profiles, but kept for next time, whatever the profile is by then.
+		val off = on.copy(own = on.own!!.copy(theme = ThemeMode.Dark)).turned(false, profile)
+		assertNull(off.theme)
+		assertEquals(OwnTheme(ThemeMode.Dark, pureBlack = true, dynamicColor = false), off.turned(true, Prefs()).theme)
+		// Turned off before it was ever on: nothing kept.
+		assertNull(Look().turned(false, profile).own)
+		// The scale stays as it was.
+		assertEquals(120, Look(scale = 120).turned(true, profile).scale)
+	}
+
+	@Test
 	fun pairedAgainUnderANewIdLeavesTheOldEntryToForget() {
 		val old = "0123456789abcdef0123456789abcdef"
 		val new = "fedcba9876543210fedcba9876543210"

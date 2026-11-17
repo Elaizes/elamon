@@ -23,8 +23,9 @@ enum class ThemeMode(val key: String) {
 
 /**
  * How the app looks and behaves: the profile the computer gives this phone (docs/config.md,
- * "Profiles"), read into the app's terms. Immutable, so the UI can take it as one state. Nothing of
- * it is kept in the app's settings.
+ * "Profiles"), read into the app's terms, with the phone's own theme over it while that is on
+ * ([OwnTheme], [prefsFor]). Immutable, so the UI can take it as one state. The app's settings keep
+ * none of it but that theme; its scale is apart ([Look]).
  */
 data class Prefs(
 	val theme: ThemeMode = ThemeMode.System,
@@ -96,8 +97,28 @@ object Scale {
 	private const val PERCENT = 100f
 }
 
-/** How the app looks whatever the computers' profiles say, kept on the phone: its [scale]. */
-data class Look(val scale: Int = Scale.DEFAULT)
+/** A theme set on the phone, in place of the profiles' own: light or dark, black in the dark, colours from the wallpaper. */
+data class OwnTheme(val theme: ThemeMode, val pureBlack: Boolean, val dynamicColor: Boolean) {
+	companion object {
+		/** The theme [prefs] have: what turning the phone's own on starts from, so nothing jumps. */
+		fun of(prefs: Prefs) = OwnTheme(prefs.theme, prefs.pureBlack, prefs.dynamicColor)
+	}
+}
+
+/**
+ * How the app looks whatever the computers' profiles say, kept on the phone: its [scale], and the
+ * theme of its own, [own], which is the app's while [ownOn] (kept while it is off, for next time).
+ */
+data class Look(val scale: Int = Scale.DEFAULT, val ownOn: Boolean = false, val own: OwnTheme? = null) {
+	/** The theme over every profile's: the phone's own, while it is on. */
+	val theme: OwnTheme? get() = own.takeIf { ownOn }
+
+	/** Its own theme turned [on]; the first time, as [now], the theme in force, has it. */
+	fun turned(on: Boolean, now: Prefs): Look = copy(ownOn = on, own = own ?: OwnTheme.of(now).takeIf { on })
+}
+
+/** [this] with [own]'s theme over the profile's, when there is one. */
+fun Prefs.with(own: OwnTheme?): Prefs = own?.let { copy(theme = it.theme, pureBlack = it.pureBlack, dynamicColor = it.dynamicColor) } ?: this
 
 /** How often to ask for readings, in milliseconds. */
 object Intervals {
@@ -111,13 +132,21 @@ object Intervals {
 
 /**
  * What the app keeps of its own: the state of what is on screen (folded sections, the last tab of
- * each computer) and its [look], the scale. How it looks and behaves otherwise comes from the
- * computers' profiles.
+ * each computer) and its [look]: the scale, and the theme of its own. How it looks and behaves
+ * otherwise comes from the computers' profiles.
  */
 class Settings private constructor(context: Context) {
 	private val state: SharedPreferences = context.getSharedPreferences(UI_STATE, Context.MODE_PRIVATE)
 
-	private val _look = MutableStateFlow(Look(scale = Scale.of(state.getInt(SCALE, Scale.DEFAULT))))
+	private val _look = MutableStateFlow(
+		Look(
+			scale = Scale.of(state.getInt(SCALE, Scale.DEFAULT)),
+			ownOn = state.getBoolean(OWN, false),
+			own = state.getString(OWN_THEME, null)?.let { mode ->
+				OwnTheme(ThemeMode.of(mode), state.getBoolean(OWN_BLACK, false), state.getBoolean(OWN_DYNAMIC, true))
+			},
+		),
+	)
 
 	/** The app's own look, which the whole app follows at once. */
 	val look: StateFlow<Look> = _look.asStateFlow()
@@ -126,6 +155,24 @@ class Settings private constructor(context: Context) {
 		val scale = Scale.of(percent)
 		state.edit { putInt(SCALE, scale) }
 		_look.update { it.copy(scale = scale) }
+	}
+
+	/** The phone's own theme on or off; turned on the first time, it starts as [now], the theme in force, has it. */
+	fun setOwnTheme(on: Boolean, now: Prefs) = keep(_look.value.turned(on, now))
+
+	/** The phone's own theme changed to [own]. */
+	fun setOwn(own: OwnTheme) = keep(_look.value.copy(own = own))
+
+	private fun keep(look: Look) {
+		state.edit {
+			putBoolean(OWN, look.ownOn)
+			look.own?.let {
+				putString(OWN_THEME, it.theme.key)
+				putBoolean(OWN_BLACK, it.pureBlack)
+				putBoolean(OWN_DYNAMIC, it.dynamicColor)
+			}
+		}
+		_look.value = look
 	}
 
 	/** Whether the group or table [widget] of the computer [machine] is folded; [initial] until it was folded or opened. */
@@ -147,6 +194,10 @@ class Settings private constructor(context: Context) {
 		private const val FOLDED = "folded/"
 		private const val TAB = "tab/"
 		private const val SCALE = "scale"
+		private const val OWN = "own_theme"
+		private const val OWN_THEME = "own_theme/mode"
+		private const val OWN_BLACK = "own_theme/pure_black"
+		private const val OWN_DYNAMIC = "own_theme/dynamic_color"
 
 		@Volatile private var instance: Settings? = null
 		fun get(context: Context): Settings =

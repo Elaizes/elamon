@@ -213,6 +213,19 @@
 	<string name="settings_scale_reset">Reset to %1$s</string>
 	<!-- What a screen reader calls the scale's slider. -->
 	<string name="settings_scale_slider">Scale of the app</string>
+	<string name="settings_own_theme">Own theme</string>
+	<string name="settings_own_theme_on">Set here, the same with every computer</string>
+	<string name="settings_own_theme_off">As each computer\'s profile says</string>
+	<string name="settings_theme">Theme</string>
+	<string name="settings_theme_system">System</string>
+	<string name="settings_theme_light">Light</string>
+	<string name="settings_theme_dark">Dark</string>
+	<string name="settings_pure_black">Pure black</string>
+	<string name="settings_pure_black_summary">Black instead of dark grey in the dark theme</string>
+	<string name="settings_dynamic_color">Wallpaper colours</string>
+	<string name="settings_dynamic_color_summary">Colours from the phone\'s wallpaper</string>
+	<!-- Under the profiles, while the app's own theme is on. -->
+	<string name="settings_theme_from_phone">The theme is this phone\'s own, under Display; the rest is as the profile says.</string>
 	<string name="settings_about">About</string>
 	<string name="settings_help_summary">Installing the service, the firewall, pairing</string>
 	<string name="settings_source">Source code</string>

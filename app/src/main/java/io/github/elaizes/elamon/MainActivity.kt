@@ -145,16 +145,16 @@ class MainActivity : FragmentActivity() {
 		// The app's own background from the first frame, not the phone's day or night.
 		val cache = UiCache.get(this)
 		val store = MachineStore.get(this)
-		val start = prefsFor(nav.top, store.machines.value, cache.profiles.value)
+		val settings = Settings.get(this)
+		val start = prefsFor(nav.top, store.machines.value, cache.profiles.value, settings.look.value.theme)
 		window.setBackgroundDrawable(appColorScheme(this, start, isDark(this, start)).surface.toArgb().toDrawable())
 		if (savedInstanceState == null) handle(intent)
 		val guard = Guard(this, guardState)
-		val settings = Settings.get(this)
 		setContent {
 			val profiles by cache.profiles.collectAsStateWithLifecycle()
 			val paired by store.machines.collectAsStateWithLifecycle()
 			val look by settings.look.collectAsStateWithLifecycle()
-			val prefs = prefsFor(nav.top, paired, profiles)
+			val prefs = prefsFor(nav.top, paired, profiles, look.theme)
 			AppScale(look.scale) {
 				ElamonTheme(prefs) {
 					CompositionLocalProvider(LocalGuard provides guard) {
@@ -258,13 +258,14 @@ class MainActivity : FragmentActivity() {
 /**
  * How the app looks on [top]: as the profile of the computer it shows says (a computer's screen,
  * or the settings opened from it), elsewhere as the first paired computer's, as last heard; with
- * none, as the built-in `default` profile.
+ * none, as the built-in `default` profile. With the phone's [own] theme on, that theme over any of
+ * them, the same everywhere: the one place it goes over a profile.
  */
-fun prefsFor(top: Screen, paired: List<Paired>, profiles: Map<String, Profile>): Prefs {
+fun prefsFor(top: Screen, paired: List<Paired>, profiles: Map<String, Profile>, own: OwnTheme? = null): Prefs {
 	val id = when (top) {
 		is Screen.Machine -> top.id
 		is Screen.Settings -> top.machine ?: paired.firstOrNull()?.id
 		else -> paired.firstOrNull()?.id
 	}
-	return id?.let { profiles[it] }?.let(Prefs::of) ?: Prefs()
+	return (id?.let { profiles[it] }?.let(Prefs::of) ?: Prefs()).with(own)
 }

@@ -3,6 +3,8 @@ package io.github.elaizes.elamon.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -35,10 +38,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import kotlin.math.roundToInt
+import android.os.Build
 import io.github.elaizes.elamon.BuildConfig
+import io.github.elaizes.elamon.OwnTheme
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.Scale
 import io.github.elaizes.elamon.Settings
+import io.github.elaizes.elamon.ThemeMode
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.Profile
 import io.github.elaizes.elamon.data.UiCache
@@ -46,7 +52,8 @@ import io.github.elaizes.elamon.data.withoutControls
 
 /**
  * Which profile each computer gives this phone, and where it is changed (how the app looks and
- * behaves comes from there). What stays the app's own: help, source and licences.
+ * behaves comes from there). What stays the app's own: its scale and, if it is on, its own theme
+ * (Display), the same from home and from any computer; help, source and licences.
  */
 @Composable
 fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
@@ -97,11 +104,50 @@ fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
 					}
 				}
 
+				// With the phone's own theme on, the profile gives the rest but not the theme.
+				if (look.ownOn) {
+					item {
+						Text(
+							stringResource(R.string.settings_theme_from_phone),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.padding(horizontal = Space.xl),
+						)
+					}
+				}
+
 				// The app's own: the same from home and from any computer.
 				item { GroupLabel(stringResource(R.string.settings_display)) }
 				item {
+					// Off, what turning it on would give: as last set, or the theme in force now.
+					val own = look.own ?: OwnTheme.of(p)
 					ListGroup {
 						ScaleRow(look.scale, settings::setScale)
+						GroupDivider()
+						SwitchRow(
+							stringResource(R.string.settings_own_theme),
+							stringResource(if (look.ownOn) R.string.settings_own_theme_on else R.string.settings_own_theme_off),
+							checked = look.ownOn,
+						) { settings.setOwnTheme(it, p) }
+						GroupDivider()
+						ThemeModeRow(own.theme, enabled = look.ownOn) { settings.setOwn(own.copy(theme = it)) }
+						GroupDivider()
+						SwitchRow(
+							stringResource(R.string.settings_pure_black),
+							stringResource(R.string.settings_pure_black_summary),
+							checked = own.pureBlack,
+							enabled = look.ownOn,
+						) { settings.setOwn(own.copy(pureBlack = it)) }
+						// Colours from the wallpaper are Android 12's.
+						if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+							GroupDivider()
+							SwitchRow(
+								stringResource(R.string.settings_dynamic_color),
+								stringResource(R.string.settings_dynamic_color_summary),
+								checked = own.dynamicColor,
+								enabled = look.ownOn,
+							) { settings.setOwn(own.copy(dynamicColor = it)) }
+						}
 					}
 				}
 
@@ -178,6 +224,33 @@ private fun ScaleRow(scale: Int, onChange: (Int) -> Unit) {
 			modifier = Modifier.padding(end = Space.m).semantics { contentDescription = describe },
 		)
 	}
+}
+
+/** The phone's own theme's mode: the phone's day and night, light, or dark; a chip each. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ThemeModeRow(mode: ThemeMode, enabled: Boolean, onChange: (ThemeMode) -> Unit) {
+	val alpha = if (enabled) 1f else Alpha.DISABLED
+	Column(Modifier.fillMaxWidth().padding(horizontal = Space.xl, vertical = Space.s)) {
+		Text(stringResource(R.string.settings_theme), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
+		FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+			for (m in ThemeMode.entries) {
+				FilterChip(
+					selected = m == mode,
+					onClick = { if (m != mode) onChange(m) },
+					label = { Text(stringResource(themeLabel(m))) },
+					enabled = enabled,
+					shape = PillShape,
+				)
+			}
+		}
+	}
+}
+
+private fun themeLabel(mode: ThemeMode): Int = when (mode) {
+	ThemeMode.System -> R.string.settings_theme_system
+	ThemeMode.Light -> R.string.settings_theme_light
+	ThemeMode.Dark -> R.string.settings_theme_dark
 }
 
 /** Where a profile is set on the computer, as a person finds it. */
