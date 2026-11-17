@@ -1,14 +1,12 @@
 # Every tab and a detail page, with the computer paired by pair.yaml.
 appId: io.github.elaizes.elamon.debug
 ---
+# The app starts on the computer opened last: the one pair.yaml paired.
 - launchApp
-- extendedWaitUntil:
-    visible: ${NAME}
-    timeout: 20000
-- tapOn: ${NAME}
 - extendedWaitUntil:
     visible: "Overview"
     timeout: 20000
+- assertVisible: ${NAME}
 - waitForAnimationToEnd
 - takeScreenshot: 03-overview
 - scroll

@@ -5,6 +5,16 @@ appId: io.github.elaizes.elamon.debug
 ---
 - launchApp:
     stopApp: true
+# The app starts on the computer opened last while it is paired (not after forget.yaml): back to
+# the list, then.
+- extendedWaitUntil:
+    visible: "Add computer|Overview"
+    timeout: 20000
+- runFlow:
+    when:
+      visible: "Overview"
+    commands:
+      - back
 - extendedWaitUntil:
     visible: "Add computer"
     timeout: 20000

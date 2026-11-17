@@ -1,0 +1,106 @@
+# What is the phone's own (0.8.1): the app starts on the computer opened last, with Home under it;
+# the Test tab's timeline of the simulated UPS, whose settings say legend = "both", tells shares of
+# the time and durations, on its own range and a long one; the scale (Settings → Display) at its
+# largest and the app's own theme, light over the profile's dark, both kept across a restart; then
+# both put back, and the computer's screen left open for own-profile.yaml.
+appId: io.github.elaizes.elamon.debug
+---
+- launchApp:
+    stopApp: true
+# On the computer, not the list.
+- extendedWaitUntil:
+    visible: "Overview"
+    timeout: 20000
+- assertNotVisible: "Add computer"
+- takeScreenshot: 40-start-on-computer
+- tapOn: "Test"
+- scrollUntilVisible:
+    element: "Rack power"
+    timeout: 20000
+# "On battery · 100% · 14 min": a share and a duration, whichever state the simulated UPS is in;
+# "No data · 23 h 45 min", which has no share, by its duration alone.
+- extendedWaitUntil:
+    visible: "(On line|On battery) · ([0-9]+|<1)% · .*"
+    timeout: 30000
+- assertVisible: "No data · [0-9][^%]*"
+- assertNotVisible: "No data · .*%.*"
+- takeScreenshot: 41-legend-both
+# A long range: the shares are of it, as the legend is.
+- tapOn: "7 days"
+- extendedWaitUntil:
+    notVisible: "Loading…"
+    timeout: 20000
+- extendedWaitUntil:
+    visible: "(On line|On battery) · ([0-9]+|<1)% · .*"
+    timeout: 20000
+- takeScreenshot: 42-legend-both-7-days
+- tapOn: "24 h"
+# Settings, from the computer: Display.
+- tapOn: "More"
+- tapOn: "Settings"
+- scrollUntilVisible:
+    element: "Own theme"
+    timeout: 10000
+- assertVisible: "100% of the phone.s own size.*"
+- swipe:
+    from: "Scale of the app"
+    direction: RIGHT
+- extendedWaitUntil:
+    visible: "140% of the phone.s own size.*"
+    timeout: 10000
+- waitForAnimationToEnd
+- takeScreenshot: 43-scale-140
+- scrollUntilVisible:
+    element: "Own theme"
+    timeout: 10000
+- tapOn: "Own theme"
+- extendedWaitUntil:
+    visible: "Set here, the same with every computer"
+    timeout: 10000
+- scrollUntilVisible:
+    element: "Light"
+    timeout: 10000
+- tapOn: "Light"
+- waitForAnimationToEnd
+- takeScreenshot: 44-own-theme-light
+# Started again: on the computer, at 140%, its theme the phone's (a screenshot to look at).
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: "Overview"
+    timeout: 20000
+- waitForAnimationToEnd
+- takeScreenshot: 45-restarted-140-light
+# Back: the list of computers, not out of the app.
+- back
+- extendedWaitUntil:
+    visible: "Add computer"
+    timeout: 10000
+- takeScreenshot: 46-back-to-the-list
+- tapOn: "Settings"
+- scrollUntilVisible:
+    element: "Own theme"
+    timeout: 10000
+- assertVisible: "140% of the phone.s own size.*"
+- assertVisible: "Set here, the same with every computer"
+- takeScreenshot: 47-settings-kept
+# Put back: 100%, and the theme each profile says, which own-profile.yaml changes next.
+- tapOn: "Reset to 100%"
+- extendedWaitUntil:
+    visible: "100% of the phone.s own size.*"
+    timeout: 10000
+- scrollUntilVisible:
+    element: "Own theme"
+    timeout: 10000
+- tapOn: "Own theme"
+- extendedWaitUntil:
+    visible: "As each computer.s profile says"
+    timeout: 10000
+- back
+- extendedWaitUntil:
+    visible: "Add computer"
+    timeout: 10000
+- tapOn: ${NAME}
+- extendedWaitUntil:
+    visible: "Overview"
+    timeout: 20000

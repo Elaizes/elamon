@@ -2,15 +2,13 @@
 # was reached, so home shows no word of elamond revoke. run.sh then checks the computer's side.
 appId: io.github.elaizes.elamon.debug
 ---
+# The app starts on the computer opened last.
 - launchApp:
     stopApp: true
 - extendedWaitUntil:
-    visible: ${NAME}
-    timeout: 20000
-- tapOn: ${NAME}
-- extendedWaitUntil:
     visible: "Overview"
     timeout: 20000
+- assertVisible: ${NAME}
 - tapOn: "More"
 - tapOn: "Forget computer"
 - extendedWaitUntil:

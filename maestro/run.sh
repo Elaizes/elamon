@@ -123,6 +123,14 @@ label = "Test load"
 icon = "chip"
 spark = true
 
+# The UPS below as a timeline whose legend tells shares too: "On battery · 100% · 14 min".
+[[dashboards.test.widgets]]
+id = "power"
+type = "timeline"
+source = "rack"
+label = "Rack power"
+legend = "both"
+
 # The profile the phone pairs with, and a leaner one elamond clients profile switches it to.
 [profiles.phone]
 name = "Phone"
@@ -249,6 +257,9 @@ flow -e NAME="$NAME" maestro/ups.yaml
 writer=$!
 flow maestro/sources.yaml
 kill "$writer" 2>/dev/null || true
+# What is the phone's own: the app starts on the computer opened last, Back to the list; the scale
+# and the app's own theme kept across a restart; the Test tab's timeline tells shares of the time.
+flow -e NAME="$NAME" maestro/look.yaml
 (run_elamond values greet) | grep -q 'greet\.word.*hello' || fail "elamond values greet doesn't read the command: $( (run_elamond values greet) )"
 # The flow leaves the tab: the service's journalctl ends with the last stream that showed it.
 for _ in $(seq 20); do pgrep -P "$service" -x journalctl > /dev/null || break; sleep 0.5; done

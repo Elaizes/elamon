@@ -3,11 +3,8 @@
 # settings' own Test tab stays for its reading, without the choice a glance phone can't make.
 appId: io.github.elaizes.elamon.debug
 ---
+# The app starts on the computer opened last.
 - launchApp
-- extendedWaitUntil:
-    visible: ${NAME}
-    timeout: 20000
-- tapOn: ${NAME}
 - extendedWaitUntil:
     visible: "This phone's role: Glance.*"
     timeout: 20000
