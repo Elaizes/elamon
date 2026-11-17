@@ -1126,6 +1126,8 @@ impl Ctx<'_> {
 				if d.ranges != Some(false) {
 					o.put("ranges", Value::Array(crate::history::api::RANGES.iter().map(|r| Value::from(*r)).collect()));
 				}
+				// Only as the settings give it: without it, a client tells durations.
+				o.opt("legend", d.legend.clone());
 			}
 			"list" => {
 				let items: Vec<Value> = d

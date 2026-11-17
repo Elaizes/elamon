@@ -47,6 +47,8 @@ pub const SCOPES: [&str; 2] = ["user", "system"];
 /// Which journal a `log` shows, and the levels it may show from, the least first.
 pub const LOG_SCOPES: [&str; 3] = ["system", "user", "unit"];
 pub const LOG_LEVELS: [&str; 6] = ["debug", "info", "notice", "warning", "error", "critical"];
+/// What a timeline's legend tells of each state: how long, what share of the known time, or both.
+pub const LEGENDS: [&str; 3] = ["duration", "percent", "both"];
 /// The roles an action may ask for.
 pub const ACTION_ROLES: [&str; 2] = ["operate", "admin"];
 /// The widgets that are 4 columns wide unless they say otherwise.
@@ -481,6 +483,8 @@ pub struct Widget {
 	pub scope: Option<String>,
 	/// The lines a client keeps of a `log`.
 	pub lines: Option<u64>,
+	/// What a `timeline`'s legend tells: `duration`, `percent` or `both`.
+	pub legend: Option<String>,
 }
 
 /// A table's search: on or off, or the fields it searches.
@@ -1329,7 +1333,12 @@ pub fn type_keys(kind: &str) -> Vec<Key> {
 		"select" | "slider" => action(),
 		"text" => vec![k("text", Ty::Text), k("level", Ty::Enum("level", &LEVELS))],
 		"group" => vec![k("widgets", list(Ty::Widget)), k("collapsed", Ty::Bool)],
-		"timeline" => vec![k("source", Ty::Str), k("range", Ty::Int(600, 2_592_000)), k("ranges", Ty::Bool)],
+		"timeline" => vec![
+			k("source", Ty::Str),
+			k("range", Ty::Int(600, 2_592_000)),
+			k("ranges", Ty::Bool),
+			k("legend", Ty::Enum("legend", &LEGENDS)),
+		],
 		"log" => vec![
 			k("scope", Ty::Enum("log scope", &LOG_SCOPES)),
 			k("unit", Ty::Str),
@@ -2577,6 +2586,18 @@ settings = ["battery.charge.low"]
 		assert!(no("source = \"ecco\"\n").contains("dashboards.d.widgets[0].source: no source \"ecco\" in [sources]; did you mean eco?"), "{}", no("source = \"ecco\"\n"));
 		assert!(no("").contains("a timeline widget needs source"));
 		assert!(no("source = \"eco\"\nrange = 300\n").contains("range: should be an integer from 600 to 2592000"));
+		// Its legend: one of three words, and on a timeline alone.
+		for l in LEGENDS {
+			assert!(timeline(&format!("source = \"eco\"\nlegend = \"{l}\"\n")).is_ok(), "{l}");
+		}
+		let percents = no("source = \"eco\"\nlegend = \"percents\"\n");
+		assert!(percents.contains("dashboards.d.widgets[0].legend: no legend \"percents\"; did you mean percent?"), "{percents}");
+		let hours = no("source = \"eco\"\nlegend = \"hours\"\n");
+		assert!(hours.contains("dashboards.d.widgets[0].legend: no legend \"hours\""), "{hours}");
+		let on_a_graph = join_mistakes(
+			&read(&[("a.toml", "[dashboards.d]\ntitle = \"D\"\n[[dashboards.d.widgets]]\ntype = \"graph\"\nvalues = [\"cpu.usage\"]\nlegend = \"both\"\n")]).unwrap_err(),
+		);
+		assert!(on_a_graph.contains("dashboards.d.widgets[0].legend"), "{on_a_graph}");
 	}
 
 	#[test]

@@ -696,14 +696,19 @@ pub fn ups_caps(config: &crate::settings::Config, values: &crate::values::Values
 /// `ui` for the fixture station's settings, as an admin `android` client of profile `owner` that
 /// draws every widget type gets it.
 fn ui_ups() -> crate::ui::Ui {
-	let config = ui_ups_source();
-	let values = ups_values(&config);
+	ui_with_station(&ui_ups_source())
+}
+
+/// `ui` for `config` with its UPS sources as the fixture station, as an admin `android` client of
+/// profile `owner` that draws every widget type gets it.
+fn ui_with_station(config: &crate::settings::Config) -> crate::ui::Ui {
+	let values = ups_values(config);
 	let mut features = FEATURES.to_vec();
 	features.push("ups");
 	let info = info();
-	let caps = ups_caps(&config, &values);
+	let caps = ups_caps(config, &values);
 	crate::ui::build(&crate::ui::Input {
-		config: &config,
+		config,
 		values: &values,
 		caps: &caps,
 		service: crate::ui::Service {
@@ -859,6 +864,20 @@ fn the_starter_ups_dashboard_shows_what_a_station_has() {
 	let bare = self::values(&config);
 	let ui = ui_for(&config, &bare, Role::Admin, "default");
 	assert_eq!(ui.tabs, ["overview", "processes", "sensors", "control"]);
+}
+
+// ---- 0.8.1: a timeline's legend ---------------------------------------------------------------
+
+/// What the service builds of 0.8.1/ui-legend.toml with the fixture station is 0.8.1/ui-legend.json:
+/// `legend` only where the settings give it.
+#[test]
+fn ui_legend_whole() {
+	let config = crate::settings::read_sources(&[crate::settings::Source::new("ui-legend.toml", include_str!("../fixtures/0.8.1/ui-legend.toml"))]).unwrap();
+	let ui = ui_with_station(&config);
+	check_compact("0.8.1/ui-legend", &ui.doc);
+	let legend = |id: &str| widget_of(&ui.doc, id).unwrap().get("legend").cloned();
+	assert_eq!(legend("power/plain"), None);
+	assert_eq!(legend("power/both"), Some(Value::from("both")));
 }
 
 // ---- 0.8: a command, a web service and a file ------------------------------------------------
