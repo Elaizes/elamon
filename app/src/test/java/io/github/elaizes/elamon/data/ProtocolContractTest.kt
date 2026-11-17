@@ -63,10 +63,12 @@ class ProtocolContractTest {
 		"0.8/stream-log-next" to StreamLine.serializer(),
 		"0.8/subscribe-log" to Subscribe.serializer(),
 		"0.8/log" to LogPage.serializer(),
+		// And what 0.8.1 adds.
+		"0.8.1/ui-legend" to UiDoc.serializer(),
 	)
 
 	/** The folders of fixtures under [dir], "" for itself. */
-	private val folders = listOf("", "0.7/", "0.8/")
+	private val folders = listOf("", "0.7/", "0.8/", "0.8.1/")
 
 	/** Fixtures that aren't a body the app decodes, and the test that reads them. */
 	private val checkedElsewhere = mapOf(
@@ -93,16 +95,17 @@ class ProtocolContractTest {
 		"0.8/stream-sources" to "its fields count as stream-data's (alsoSent)",
 		"0.8/stream-log-next" to "its fields count as stream-data's (alsoSent)",
 		"0.8/subscribe-log" to "its fields count as subscribe's (alsoSent)",
+		"0.8.1/ui-legend" to "its fields count as ui's (alsoSent)",
 	)
 
 	/**
 	 * Fixtures of 0.7 whose fields count as sent in a fixture of the same shape from before, which
 	 * lacks them until the service writes it again at 0.7: a timeline's keys and state, `ranges`,
 	 * a choice's and a request's `confirm_text`; and so of 0.8: a log's keys and state, a row action's
-	 * `open`, a stream's `log`.
+	 * `open`, a stream's `log`; and of 0.8.1: a timeline's `legend`.
 	 */
 	private val alsoSent = mapOf(
-		"ui" to listOf("0.7/ui-ups", "0.8/ui-sources"),
+		"ui" to listOf("0.7/ui-ups", "0.8/ui-sources", "0.8.1/ui-legend"),
 		"stream-data" to listOf("0.7/stream-ups", "0.8/stream-sources", "0.8/stream-log-next"),
 		"action-request" to listOf("0.7/action-request-typed"),
 		"subscribe" to listOf("0.8/subscribe-log"),

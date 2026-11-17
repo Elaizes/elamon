@@ -39,6 +39,9 @@ object Fmt {
 	private const val WATT_HOUR = "Wh"
 	private const val RPM = "RPM"
 
+	/** A share above nothing that rounds to none: "<1%". */
+	private const val UNDER = "<1"
+
 	/** Units written right after their number. */
 	private val ATTACHED = setOf(PERCENT, CELSIUS, FAHRENHEIT)
 
@@ -161,6 +164,12 @@ object Fmt {
 		if (round(mhz, 0).toDouble() >= KILO) round(mhz / KILO, 2) to GHZ else round(mhz, 0) to MHZ
 
 	fun percent(p: Double): String = round(p, 0) + PERCENT
+
+	/** A timeline's share: "5%", or "<1%". */
+	fun share(s: Share): String = when (s) {
+		is Share.Percent -> "${s.n}$PERCENT"
+		Share.UnderOne -> "$UNDER$PERCENT"
+	}
 
 	/** "3 d 4 h", "4 h 12 min", "12 min"; a moment over nothing is a minute. */
 	fun duration(seconds: Long): String {

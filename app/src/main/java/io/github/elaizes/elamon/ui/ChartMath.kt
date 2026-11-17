@@ -266,6 +266,72 @@ fun timeIn(segments: List<Segment>, start: Long, end: Long): Map<String, Long> {
 	return out
 }
 
+/** A state's share of the time something was known, as a timeline's legend tells it. */
+sealed interface Share {
+	/** Whole percent, 1 or more. */
+	data class Percent(val n: Int) : Share
+
+	/** More than none, yet under one percent: "<1%". */
+	data object UnderOne : Share
+}
+
+/** The states of a timeline that count as known: on line and on battery. "none" and states this app doesn't know don't. */
+private val KNOWN_STATES = setOf("line", "battery")
+
+/**
+ * Each known state's share of [totals] ([timeIn]'s) over the time something was known, on line and
+ * on battery: none for "none", and none at all where nothing was known. Whole percent, each
+ * rounded on its own, so they needn't add up to 100; a share above nothing that rounds to 0 is
+ * [Share.UnderOne].
+ */
+fun shares(totals: Map<String, Long>): Map<String, Share> {
+	val known = totals.filter { (state, ms) -> state in KNOWN_STATES && ms > 0 }
+	val sum = known.values.sum()
+	if (sum <= 0) return emptyMap()
+	return known.mapValues { (_, ms) ->
+		val percent = Math.round(ms * PERCENT / sum).toInt()
+		if (percent == 0) Share.UnderOne else Share.Percent(percent)
+	}
+}
+
+private const val PERCENT = 100.0
+
+/** What a timeline's legend tells of each state (its settings' `legend`): how long, its share of the known time, or both. */
+enum class LegendMode {
+	Duration,
+	Percent,
+	Both;
+
+	companion object {
+		/** A word this app doesn't know, or none (an older service), tells durations, as before. */
+		fun of(key: String?): LegendMode = when (key) {
+			"percent" -> Percent
+			"both" -> Both
+			else -> Duration
+		}
+	}
+}
+
+/** A state in a timeline's legend: how long it lasted, in seconds, where that is told; its share where that is. */
+data class LegendEntry(val state: String, val seconds: Long?, val share: Share?)
+
+/**
+ * The legend of [totals] ([timeIn]'s) in [mode]: [states] in order, those the range has. A state
+ * without a share ("none", or any where nothing was known) is told by its duration, whatever the
+ * mode.
+ */
+fun legendEntries(totals: Map<String, Long>, mode: LegendMode, states: List<String>): List<LegendEntry> {
+	val shares = if (mode == LegendMode.Duration) emptyMap() else shares(totals)
+	return states.mapNotNull { state ->
+		val ms = totals[state] ?: return@mapNotNull null
+		val share = shares[state]
+		val seconds = (ms / MS_PER_S).takeIf { mode != LegendMode.Percent || share == null }
+		LegendEntry(state, seconds, share)
+	}
+}
+
+private const val MS_PER_S = 1000L
+
 /**
  * A long range's [history], which reaches [to] (when it was asked for), carried on to now by the
  * stream's [live] segments from then on; a stretch that goes on across [to] is one.

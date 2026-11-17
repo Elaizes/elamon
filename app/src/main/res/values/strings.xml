@@ -285,8 +285,10 @@
 	<string name="timeline_line">On line</string>
 	<string name="timeline_battery">On battery</string>
 	<string name="timeline_none">No data</string>
-	<!-- Under a timeline, a state and how long it lasted in the range: "On battery · 12 min". -->
+	<!-- Under a timeline, a state and what the legend tells of it in the range: how long it lasted, its share of the known time, or both: "On battery · 12 min", "On battery · 4%". -->
 	<string name="timeline_legend">%1$s · %2$s</string>
+	<!-- A state's share of the known time and how long it lasted, in a timeline's legend: "4% · 12 min". -->
+	<string name="timeline_share_and_time">%1$s · %2$s</string>
 	<!-- A stretch a finger is on: its state, from, to, how long: "On battery · 16/11/2026, 14:02 – 14:14 · 12 min". -->
 	<string name="timeline_touched">%1$s · %2$s – %3$s · %4$s</string>
 	<string name="done_ran">%1$s: done</string>

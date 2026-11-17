@@ -197,8 +197,9 @@ fun TimelineWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	WidgetSection(scope, w, accent(w.color), modifier) {
 		if (chips.isNotEmpty()) RangeChips(chips, long?.range) { scope.vm.showRange(w, it) }
 		RangeNote(view, chips, has = history != null)
-		// Each state there is in the range, and how long it lasted: "On battery · 12 min".
-		val legend = TIMELINE_STATES.mapNotNull { st -> totals[st]?.let { st to stringResource(R.string.timeline_legend, stateLabel(st), Fmt.duration(it / MS_PER_SECOND)) } }
+		// Each state there is in the range, and how long it lasted, its share of the known time, or
+		// both, as the settings' `legend` says: "On battery · 12 min", "On battery · 4%".
+		val legend = legendEntries(totals, LegendMode.of(w.legend), TIMELINE_STATES).map { it.state to legendText(it) }
 		val description = stringResource(R.string.a11y_chart, span, legend.joinToString(res.getString(R.string.a11y_list_separator)) { it.second })
 		TimelineBar(segments, start, end, description) { touched = it }
 		if (segments.isNotEmpty()) TimeAxis(start, end)
@@ -212,6 +213,15 @@ fun TimelineWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 		}
 		captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 	}
+}
+
+/** A state of a timeline's legend: "On battery · 12 min", "On battery · 4%", "On battery · 4% · 12 min". */
+@Composable
+private fun legendText(e: LegendEntry): String {
+	val share = e.share?.let(Fmt::share)
+	val time = e.seconds?.let(Fmt::duration)
+	val told = if (share != null && time != null) stringResource(R.string.timeline_share_and_time, share, time) else share ?: time.orEmpty()
+	return stringResource(R.string.timeline_legend, stateLabel(e.state), told)
 }
 
 /** One stretch as a finger reads it: "On battery · 16/11/2026, 14:02 – 14:14 · 12 min". */

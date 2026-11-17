@@ -205,6 +205,8 @@ data class Widget(
 	 * offered beside [range]; null from a service before 0.7, or a graph that offers none.
 	 */
 	val ranges: List<String>? = null,
+	/** What a timeline's legend tells: "duration", "percent" or "both"; null from a service before 0.8.1, or settings without it (durations). */
+	val legend: String? = null,
 	/** "small", "medium" or "large". */
 	val height: String? = null,
 	val floor: Double? = null,
