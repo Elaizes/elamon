@@ -105,7 +105,8 @@ Usage:
 Roles, each allowing what the one before does and more:
   glance   the basics: CPU, memory, GPUs, temperatures, fans, disks, network, battery, power and
            UPSes; no processes, monitors, links or media
-  monitor  everything there is to see: processes, monitors, links, media, the activity log
+  monitor  everything there is to see: processes, monitors, links, media, the activity log,
+           the journal, and the values of sources of your own unless they say otherwise
   operate  also the units of links, media and the volume, the power profile and actions, and a
            station's commands and settings where its source says role = \"operate\"
   admin    also powering off, restarting, sleeping, locking, ending processes, and a station's

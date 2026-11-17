@@ -21,9 +21,9 @@ Watch and control a Linux computer from your Android phone, live.
 
 Every screen is a dashboard of widgets that the service describes, set in its settings on the
 computer (`~/.config/elamon`, or Nix on NixOS): the standard Overview, Processes, Sensors and
-Control, and a tab for each UPS, come in the settings it starts with, and you can change them or
-add your own — any reading, table, graph, button or choice — without updating the app
-([settings reference](docs/config.md)).
+Control, a tab for each UPS and a Journal page come in the settings it starts with, and you can
+change them or add your own — any reading, table, graph, button or choice — without updating the
+app ([settings reference](docs/config.md)).
 How the app looks and behaves on each phone is that phone's profile, set on the computer too.
 
 Watching, always:
@@ -124,6 +124,10 @@ settings name ([security](docs/guide.md#13-security)).
 - A UPS is read over NUT's network protocol, from upsd or, for an EcoFlow station, nutflow; the
   computer needs no NUT client. With `upst record` running, the history and the timeline also
   cover the time the service didn't run.
+- Readings of your own: a command runs without a shell, in a process group the service ends
+  with it; a web service is asked through the computer's `curl`, without following redirects; the
+  journal is read through `journalctl` as the service's user (the system's in the
+  `systemd-journal` group), and only while a phone shows it.
 - Charts reach back further than the ten minutes in memory: the service keeps what they show on
   disk, every 10 seconds for a day, every 5 minutes for 30 days and every hour from then on.
 - The service uses about 0.3 % of one CPU core while no phone watches, 1–2.5 % while one does
@@ -150,7 +154,7 @@ Tests:
 ```sh
 nix develop -c bash -c 'cd elamond && cargo test' # the service, and the protocol fixtures in elamond/fixtures
 nix develop -c ./gradlew :app:testDebugUnitTest    # app, against the same fixtures
-nix flake check                                   # the NixOS module in a VM
+nix flake check                                   # VM tests: the NixOS module, a UPS on a mock station, the sources and the journal
 maestro/run.sh                                    # the app on an emulator only (a real phone: --yes-real-phone), against a throwaway service
 ```
 

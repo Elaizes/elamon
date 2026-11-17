@@ -1120,8 +1120,9 @@ without a `when` in it, such as a `text` of fixed words, and the tab is always t
 The Control tab has a **Journal** button. It opens the computer's system journal: the lines
 systemd collects from the kernel and every service, the newest at the bottom.
 
-- It starts with warnings and above. The chips along the top (*Debug*, *Info*, *Notice*,
-  *Warning*, *Error*, *Critical*) pick the least level shown.
+- It starts with warnings and above; when the newest lines hold only a few, the page reaches
+  back for older ones at once. The chips along the top (*Debug*, *Info*, *Notice*, *Warning*,
+  *Error*) pick the least level shown (a log that starts at `critical` has a *Critical* chip too).
 - The search field filters by text, unit and program name. The service searches the whole journal
   you can reach, not only the lines on the screen.
 - **Load older** at the top goes further back. New lines arrive while the page is open, and
@@ -1130,6 +1131,9 @@ systemd collects from the kernel and every service, the newest at the bottom.
 
 **One service's journal.** A link with a unit (see [Links](#links)) has a *Journal* row
 action: hold its row in Links and pick *Journal* to see that unit's lines alone.
+
+**As a tab.** Add `"journal"` to a profile's `dashboards` and the journal is a tab of its own
+([section 10](#profiles)); the button on Control then opens the same page.
 
 **Who sees it.** The `monitor` role and above. A phone with `glance` has no journal button, and
 an app older than 0.8 shows a page that asks to update.
