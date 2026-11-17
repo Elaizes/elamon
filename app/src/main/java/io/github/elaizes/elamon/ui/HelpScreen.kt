@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -59,7 +60,7 @@ object Project {
 }
 
 /** The help's parts in the order they show. */
-private enum class HelpItem { Intro, Install, Firewall, Pair, Guide }
+private enum class HelpItem { Intro, Install, Firewall, Pair, Phone, Guide }
 
 private sealed interface Block {
 	/** A paragraph; [args] fill its placeholders. */
@@ -98,6 +99,12 @@ private val FIREWALL = listOf(
 	c(FIREWALLD),
 	t(R.string.help_fw_nixos),
 	c("networking.firewall.allowedTCPPorts = [ $DEFAULT_PORT ];\nnetworking.firewall.allowedUDPPorts = [ $MDNS_PORT ];"),
+)
+
+/** What the computer's profile sets, and what is this phone's own. */
+private val PHONE = listOf(
+	t(R.string.help_phone_profile),
+	t(R.string.help_phone_own),
 )
 
 private val PAIR = listOf(
@@ -139,6 +146,7 @@ fun HelpScreen(onBack: () -> Unit) {
 					HelpItem.Install -> Section(stringResource(R.string.help_install), ElIcons.Laptop) { Blocks(INSTALL) }
 					HelpItem.Firewall -> Section(stringResource(R.string.help_firewall), Icons.Default.Lock) { Blocks(FIREWALL) }
 					HelpItem.Pair -> Section(stringResource(R.string.help_pair), ElIcons.Qr) { Blocks(PAIR) }
+					HelpItem.Phone -> Section(stringResource(R.string.help_phone), Icons.Default.Settings) { Blocks(PHONE) }
 					HelpItem.Guide -> {
 						Section(stringResource(R.string.help_guide), Icons.Default.Info) {
 							Text(stringResource(R.string.help_guide_body), style = MaterialTheme.typography.bodyMedium)

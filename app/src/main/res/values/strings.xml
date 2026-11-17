@@ -227,7 +227,7 @@
 	<!-- Under the profiles, while the app's own theme is on. -->
 	<string name="settings_theme_from_phone">The theme is this phone\'s own, under Display; the rest is as the profile says.</string>
 	<string name="settings_about">About</string>
-	<string name="settings_help_summary">Installing the service, the firewall, pairing</string>
+	<string name="settings_help_summary">Installing the service, pairing, what this phone sets</string>
 	<string name="settings_source">Source code</string>
 	<string name="settings_licences">Licences</string>
 	<string name="settings_licences_summary">Elamon: GPL-3.0-or-later · Inter: SIL OFL · Icons: Apache-2.0</string>
@@ -252,7 +252,7 @@
 	<string name="help_screen_title">Help</string>
 	<string name="copy">Copy</string>
 	<string name="copied">Copied</string>
-	<string name="help_intro">Elamon has two parts: this app, and elamond, a small service on the computer you want to watch. It needs no root and runs as your user. Everything is set on the computer, and the app draws what the service describes; only its scale and, if you like, a theme of its own are set here, in Settings.</string>
+	<string name="help_intro">Elamon has two parts: this app, and elamond, a small service on the computer you want to watch. It needs no root and runs as your user. Almost everything is set on the computer; the app draws what the service describes.</string>
 	<string name="help_install">1. Install the service</string>
 	<string name="help_nixos_input">On NixOS, use the module instead. Add the project to your flake\'s inputs:</string>
 	<string name="help_nixos_module">Import its module and turn the service on. openFirewall opens the ports; linger keeps the service running while you\'re logged out. For Home Manager, see the full guide.</string>
@@ -267,6 +267,9 @@
 	<string name="help_pair_scan">It shows a QR code and a six-digit code, good for five minutes. Scan the QR code with the phone\'s camera and open the link: that pairs in one tap.</string>
 	<string name="help_pair_code">Or in this app tap the computer under Found on this network, or Add computer and its address, and enter the code. Check that the certificate digits the app shows match the Certificate line on the computer.</string>
 	<string name="help_pair_allow">Then elamond pair asks on the computer: Allow? [y/N]. Answer y if the phone is yours, and keep elamond pair running until the phone is paired.</string>
+	<string name="help_phone">4. On this phone</string>
+	<string name="help_phone_profile">Tabs, widgets, the theme, confirmations and how often readings come are the computer\'s: the profile it gives this phone. Settings names it and where it is changed.</string>
+	<string name="help_phone_own">This phone\'s own, under Settings → Display: the app\'s scale, and a theme that stays whatever the computers say. The app opens on the computer you opened last; Back goes to the list.</string>
 	<string name="help_guide">Full guide</string>
 	<string name="help_guide_body">Settings, dashboards, the control panel, roles, backups and troubleshooting are in the full guide, online.</string>
 	<string name="help_guide_button">Full guide</string>
