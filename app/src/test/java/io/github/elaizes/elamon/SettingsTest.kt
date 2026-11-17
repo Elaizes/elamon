@@ -118,6 +118,21 @@ class SettingsTest {
 	}
 
 	@Test
+	fun theAppStartsOnTheComputerOpenedLast() {
+		val a = Machine("a".repeat(32), "deskpc", listOf("192.0.2.1"), 47823, "f")
+		val b = Machine("b".repeat(32), "laptop", listOf("192.0.2.2"), 47823, "f")
+		// The one opened last, over Home, whether or not it can be reached now.
+		assertEquals(Screen.Machine(b.id), startScreen(b.id, listOf(a, b), link = false))
+		// Forgotten, or paired again under a new id: Home.
+		assertNull(startScreen("c".repeat(32), listOf(a, b), link = false))
+		// Started by a link to pair: the pairing, over Home.
+		assertNull(startScreen(b.id, listOf(a, b), link = true))
+		// Nothing paired, or none opened yet: Home.
+		assertNull(startScreen(b.id, emptyList(), link = false))
+		assertNull(startScreen(null, listOf(a, b), link = false))
+	}
+
+	@Test
 	fun pairedAgainUnderANewIdLeavesTheOldEntryToForget() {
 		val old = "0123456789abcdef0123456789abcdef"
 		val new = "fedcba9876543210fedcba9876543210"

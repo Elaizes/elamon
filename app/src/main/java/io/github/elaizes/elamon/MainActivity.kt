@@ -146,9 +146,13 @@ class MainActivity : FragmentActivity() {
 		val cache = UiCache.get(this)
 		val store = MachineStore.get(this)
 		val settings = Settings.get(this)
+		if (savedInstanceState == null) {
+			// Started afresh: on the computer opened last, Home under it; a link to pair comes first.
+			startScreen(settings.lastMachine(), store.machines.value, link = intent?.data != null)?.let(nav::push)
+			handle(intent)
+		}
 		val start = prefsFor(nav.top, store.machines.value, cache.profiles.value, settings.look.value.theme)
 		window.setBackgroundDrawable(appColorScheme(this, start, isDark(this, start)).surface.toArgb().toDrawable())
-		if (savedInstanceState == null) handle(intent)
 		val guard = Guard(this, guardState)
 		setContent {
 			val profiles by cache.profiles.collectAsStateWithLifecycle()
@@ -194,6 +198,8 @@ class MainActivity : FragmentActivity() {
 												if (next != null) nav.paired(next) else nav.reset(Screen.Home)
 											}
 										} else {
+											// The computer the app starts on next time.
+											LaunchedEffect(screen) { settings.setLastMachine(screen.id) }
 											MachineScreen(
 												machine,
 												owner = nav.owner(screen),
@@ -254,6 +260,14 @@ class MainActivity : FragmentActivity() {
 		}
 	}
 }
+
+/**
+ * The screen a fresh start opens over Home: the computer opened [last], while it is still among
+ * the [paired] (reachable or not: its screen shows what it last had), unless the app was started
+ * by a [link], whose pairing comes first. None otherwise: Home, as with nothing paired.
+ */
+fun startScreen(last: String?, paired: List<Paired>, link: Boolean): Screen? =
+	last?.takeIf { id -> !link && paired.any { it.id == id } }?.let { Screen.Machine(it) }
 
 /**
  * How the app looks on [top]: as the profile of the computer it shows says (a computer's screen,

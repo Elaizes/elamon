@@ -132,7 +132,7 @@ object Intervals {
 
 /**
  * What the app keeps of its own: the state of what is on screen (folded sections, the last tab of
- * each computer) and its [look]: the scale, and the theme of its own. How it looks and behaves
+ * each computer, the computer opened last) and its [look]: the scale, and the theme of its own. How it looks and behaves
  * otherwise comes from the computers' profiles.
  */
 class Settings private constructor(context: Context) {
@@ -184,15 +184,24 @@ class Settings private constructor(context: Context) {
 
 	fun setLastTab(machine: String, tab: String) = state.edit { putString("$TAB$machine", tab) }
 
-	/** A computer forgotten: what was kept of its screen goes too. */
+	/** The computer whose screen was opened last: the app opens it again when it starts. */
+	fun lastMachine(): String? = state.getString(LAST, null)
+
+	fun setLastMachine(machine: String) {
+		if (lastMachine() != machine) state.edit { putString(LAST, machine) }
+	}
+
+	/** A computer forgotten: what was kept of its screen goes too, and the app no longer starts on it. */
 	fun forget(machine: String) = state.edit {
 		for (k in state.all.keys) if (k.startsWith("$FOLDED$machine/") || k == "$TAB$machine") remove(k)
+		if (state.getString(LAST, null) == machine) remove(LAST)
 	}
 
 	companion object {
 		private const val UI_STATE = "ui_state"
 		private const val FOLDED = "folded/"
 		private const val TAB = "tab/"
+		private const val LAST = "last_machine"
 		private const val SCALE = "scale"
 		private const val OWN = "own_theme"
 		private const val OWN_THEME = "own_theme/mode"
