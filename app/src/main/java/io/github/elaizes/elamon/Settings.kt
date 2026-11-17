@@ -77,7 +77,7 @@ data class Prefs(
 
 /**
  * The app's own scale, in percent, over the phone's density and font size: one for the whole app,
- * not a computer's, so it is kept on the phone (ui/Theme.kt, AppScale, applies it).
+ * not a computer's, so it is kept on the phone (ui/Theme.kt, appDensity, applies it).
  */
 object Scale {
 	const val MIN = 80

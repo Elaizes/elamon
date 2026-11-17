@@ -25,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalDensity
 import androidx.core.graphics.drawable.toDrawable
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
@@ -37,7 +38,6 @@ import io.github.elaizes.elamon.data.Machine as Paired
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.Profile
 import io.github.elaizes.elamon.data.UiCache
-import io.github.elaizes.elamon.ui.AppScale
 import io.github.elaizes.elamon.ui.ElamonTheme
 import io.github.elaizes.elamon.ui.ForgottenUntold
 import io.github.elaizes.elamon.ui.Guard
@@ -51,6 +51,7 @@ import io.github.elaizes.elamon.ui.Motion
 import io.github.elaizes.elamon.ui.PairScreen
 import io.github.elaizes.elamon.ui.SettingsScreen
 import io.github.elaizes.elamon.ui.appColorScheme
+import io.github.elaizes.elamon.ui.appDensity
 import io.github.elaizes.elamon.ui.forgetUnlock
 import io.github.elaizes.elamon.ui.isDark
 
@@ -159,77 +160,75 @@ class MainActivity : FragmentActivity() {
 			val paired by store.machines.collectAsStateWithLifecycle()
 			val look by settings.look.collectAsStateWithLifecycle()
 			val prefs = prefsFor(nav.top, paired, profiles, look.theme)
-			AppScale(look.scale) {
-				ElamonTheme(prefs) {
-					CompositionLocalProvider(LocalGuard provides guard) {
-						Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-							BackHandler(enabled = nav.stack.size > 1) { nav.pop() }
-							AnimatedContent(
-								nav.top,
-								transitionSpec = {
-									if (prefs.animations) (fadeIn(tween(Motion.SCREEN_IN)) + scaleIn(tween(Motion.SCREEN_IN), initialScale = Motion.SCREEN_SCALE)) togetherWith fadeOut(tween(Motion.SCREEN_OUT))
-									else fadeIn(tween(0)) togetherWith fadeOut(tween(0))
-								},
-								label = "screen",
-							) { screen ->
-								DisposableEffect(screen) {
-									nav.attach(screen)
-									onDispose { nav.detach(screen) }
-								}
-								when (screen) {
-									Screen.Home -> HomeScreen(
-										onOpen = { nav.push(Screen.Machine(it.id)) },
-										onPair = { nav.push(Screen.Pair(it)) },
-										onHelp = { nav.push(Screen.Help) },
-										onSettings = { nav.push(Screen.Settings()) },
-									)
-									is Screen.Machine -> {
-										val store = MachineStore.get(this@MainActivity)
-										// Watched, not read once: the entry may go or be replaced while the screen is open.
-										val machines by store.machines.collectAsStateWithLifecycle()
-										val machine = machines.find { it.id == screen.id }
-										if (machine == null) {
-											LaunchedEffect(screen) {
-												// Only the screen on top moves; one on its way out is left alone.
-												if (nav.top != screen) return@LaunchedEffect
-												// Paired again under a new id, with the pairing screen left before it
-												// finished: on to the new entry. Otherwise it's gone: back home.
-												val next = store.successor(screen.id)
-												if (next != null) nav.paired(next) else nav.reset(Screen.Home)
-											}
-										} else {
-											// The computer the app starts on next time.
-											LaunchedEffect(screen) { settings.setLastMachine(screen.id) }
-											MachineScreen(
-												machine,
-												owner = nav.owner(screen),
-												onBack = { nav.pop() },
-												onPairAgain = { nav.push(Screen.Pair(it)) },
-												onForgotten = { untold ->
-													nav.untold = untold
-													nav.reset(Screen.Home)
-												},
-												onHelp = { nav.push(Screen.Help) },
-												onSettings = { nav.push(Screen.Settings(screen.id)) },
-											)
+			ElamonTheme(prefs) {
+				CompositionLocalProvider(LocalGuard provides guard, LocalDensity provides appDensity(look.scale)) {
+					Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+						BackHandler(enabled = nav.stack.size > 1) { nav.pop() }
+						AnimatedContent(
+							nav.top,
+							transitionSpec = {
+								if (prefs.animations) (fadeIn(tween(Motion.SCREEN_IN)) + scaleIn(tween(Motion.SCREEN_IN), initialScale = Motion.SCREEN_SCALE)) togetherWith fadeOut(tween(Motion.SCREEN_OUT))
+								else fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+							},
+							label = "screen",
+						) { screen ->
+							DisposableEffect(screen) {
+								nav.attach(screen)
+								onDispose { nav.detach(screen) }
+							}
+							when (screen) {
+								Screen.Home -> HomeScreen(
+									onOpen = { nav.push(Screen.Machine(it.id)) },
+									onPair = { nav.push(Screen.Pair(it)) },
+									onHelp = { nav.push(Screen.Help) },
+									onSettings = { nav.push(Screen.Settings()) },
+								)
+								is Screen.Machine -> {
+									val store = MachineStore.get(this@MainActivity)
+									// Watched, not read once: the entry may go or be replaced while the screen is open.
+									val machines by store.machines.collectAsStateWithLifecycle()
+									val machine = machines.find { it.id == screen.id }
+									if (machine == null) {
+										LaunchedEffect(screen) {
+											// Only the screen on top moves; one on its way out is left alone.
+											if (nav.top != screen) return@LaunchedEffect
+											// Paired again under a new id, with the pairing screen left before it
+											// finished: on to the new entry. Otherwise it's gone: back home.
+											val next = store.successor(screen.id)
+											if (next != null) nav.paired(next) else nav.reset(Screen.Home)
 										}
+									} else {
+										// The computer the app starts on next time.
+										LaunchedEffect(screen) { settings.setLastMachine(screen.id) }
+										MachineScreen(
+											machine,
+											owner = nav.owner(screen),
+											onBack = { nav.pop() },
+											onPairAgain = { nav.push(Screen.Pair(it)) },
+											onForgotten = { untold ->
+												nav.untold = untold
+												nav.reset(Screen.Home)
+											},
+											onHelp = { nav.push(Screen.Help) },
+											onSettings = { nav.push(Screen.Settings(screen.id)) },
+										)
 									}
-									is Screen.Pair -> PairScreen(
-										screen.target,
-										owner = nav.owner(screen),
-										onBack = { nav.pop() },
-										onPaired = { nav.paired(it.id) },
-										onHelp = { nav.push(Screen.Help) },
-									)
-									is Screen.Help -> HelpScreen(onBack = { nav.pop() })
-									is Screen.Settings -> SettingsScreen(screen.machine, onBack = { nav.pop() }, onHelp = { nav.push(Screen.Help) })
 								}
+								is Screen.Pair -> PairScreen(
+									screen.target,
+									owner = nav.owner(screen),
+									onBack = { nav.pop() },
+									onPaired = { nav.paired(it.id) },
+									onHelp = { nav.push(Screen.Help) },
+								)
+								is Screen.Help -> HelpScreen(onBack = { nav.pop() })
+								is Screen.Settings -> SettingsScreen(screen.machine, onBack = { nav.pop() }, onHelp = { nav.push(Screen.Help) })
 							}
 						}
-						// One confirmation for every action that may ask, over whatever screen asked.
-						GuardDialog(guard)
-						nav.untold?.let { ForgottenUntold(it) { nav.untold = null } }
 					}
+					// One confirmation for every action that may ask, over whatever screen asked.
+					GuardDialog(guard)
+					nav.untold?.let { ForgottenUntold(it) { nav.untold = null } }
 				}
 			}
 		}

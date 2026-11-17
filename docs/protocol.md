@@ -149,8 +149,8 @@ may ignore.
 |---|---|
 | `legend` of `timeline` (`duration`, `percent` or `both`) | [widgets in `ui`](#widgets-in-ui) |
 
-What an app of 0.8 or before sees of a 0.8.1 service: what it saw before; it ignores `legend` and
-words the legend in durations. An app of 0.7 or before gets a `timeline` as a `text`, as before.
+What an app of 0.7 or 0.8 sees of a 0.8.1 service: what it saw before; it ignores `legend` and
+words the legend in durations. An app of 0.6.2 or before gets a `timeline` as a `text`, as before.
 An app of 0.8.1 with an older service gets no `legend`, and words it in durations as well.
 
 The fixtures 0.8.1 adds are in `elamond/fixtures/0.8.1/`: `ui-legend.toml` (the settings: four

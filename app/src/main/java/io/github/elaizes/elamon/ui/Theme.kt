@@ -138,15 +138,15 @@ fun ElamonTheme(prefs: Prefs, content: @Composable () -> Unit) {
 }
 
 /**
- * [content] at the app's own scale, [percent] ([Scale]), over the phone's density and font size:
- * the one place it is applied. Everything measured in dp or sp grows alike, text, spacing, widgets
- * and charts, and so does the grid, which counts its columns in dp.
+ * The density the app draws at, its own scale [percent] ([Scale]) over the phone's density and font
+ * size; MainActivity provides it over everything, the one place the scale is applied. Everything
+ * measured in dp or sp grows alike, text, spacing, widgets and charts, and so does the grid, which
+ * counts its columns in dp.
  */
 @Composable
-fun AppScale(percent: Int, content: @Composable () -> Unit) {
+fun appDensity(percent: Int): Density {
 	val phone = LocalDensity.current
-	val density = remember(phone, percent) { scaled(phone, Scale.factor(percent)) }
-	CompositionLocalProvider(LocalDensity provides density, content = content)
+	return remember(phone, percent) { scaled(phone, Scale.factor(percent)) }
 }
 
 /** [phone]'s density with [factor] times the pixels to a dp; sp to dp as [phone] has it (Android 14+ grows large text less). */
