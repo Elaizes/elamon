@@ -1,0 +1,1 @@
+Works with elamond 0.6 and later. Settings → Display: a scale for the whole app, 80 to 140%, and a theme of the app's own that stays whatever the computers' profiles say. The app opens on the computer you opened last; Back goes to the list. With elamond 0.8.1, a timeline's legend can show shares of the time: legend = "percent" or "both" in its settings.

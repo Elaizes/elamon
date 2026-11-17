@@ -24,7 +24,8 @@ computer (`~/.config/elamon`, or Nix on NixOS): the standard Overview, Processes
 Control, a tab for each UPS and a Journal page come in the settings it starts with, and you can
 change them or add your own — any reading, table, graph, button or choice — without updating the
 app ([settings reference](docs/config.md)).
-How the app looks and behaves on each phone is that phone's profile, set on the computer too.
+How the app looks and behaves on each phone is that phone's profile, set on the computer too; the
+app's scale, and a theme of its own if you want one, stay on the phone.
 
 Watching, always:
 

@@ -2,7 +2,8 @@
 
 Everything the app and the web page show, and everything a phone may run, is set on the computer,
 in elamond's settings: the dashboards and their widgets, the actions, how each phone looks and
-behaves (its *profile*). The app keeps nothing of it; it draws what the service describes. These
+behaves (its *profile*). The app keeps nothing of it but its own scale and, if you turn it on, a
+theme of its own; it draws what the service describes. These
 settings are TOML on every distribution; on NixOS the module's `settings` mirror them one to one.
 
 The files are all there is. The service reads these, in this order, a later one adding to and
@@ -515,7 +516,8 @@ activity log has them as `nut eco outlet.2.load.off` and `nut eco experimental.b
 ## Profiles
 
 How a client looks and behaves. The app saves none of this: it takes its profile from the computer
-with the dashboards. Each paired phone has one of its own in [phones.toml](#phones), which `use`s
+with the dashboards. Only with *Own theme* on in the app's settings does the phone's own theme go
+over `theme`, `pure_black` and `android.dynamic_color`. Each paired phone has one of its own in [phones.toml](#phones), which `use`s
 another (`elamond pair --profile ID`, or `default_profile`); `elamond clients profile ID PROFILE`
 gives it any other.
 

@@ -383,8 +383,20 @@ be told, the app says so: remove the phone there with `elamond revoke` ([section
 How the app looks and behaves with a computer comes from that computer: from the phone's
 **profile** there ([section 10](#profiles)). The Settings screen names the profile each computer
 gives this phone and where it is changed: the file and line, for an admin phone, or "Set in Nix".
-To change something, change the profile on the computer. The rest of the screen is the app's own:
-help, the source and licences.
+To change something, change the profile on the computer. Two things are the phone's own, under
+**Display**, the same with every computer and on the home screen:
+
+- **Scale**, 80 to 140%: everything in the app, text, spacing, widgets and charts, over the phone's
+  own display size and font size. On a large scale the dashboards may have two columns where they
+  had four.
+- **Own theme**, off at first: on, the theme is set here (System, Light or Dark; pure black;
+  wallpaper colours on Android 12 and later) and stays so whatever the computers' profiles say. It
+  starts as the theme you had. Off, each computer's profile sets it again.
+
+The rest of the screen is help, the source and licences.
+
+The app opens on the computer you opened last; Back goes to the list of computers. A link to pair
+opens the pairing instead, and a computer you forget isn't opened again.
 
 ### How do I…
 
@@ -872,9 +884,18 @@ values = ["eco.experimental.battery.cell.voltage.max", "eco.experimental.battery
 labels = ["Highest cell", "Lowest cell"]
 label = "Cells"
 icon = "battery"
+
+[[dashboards.station.widgets]]
+type = "timeline"
+source = "eco"
+label = "Power"
+legend = "both"     # On battery · 4% · 12 min
 ```
 
-with `"station"` in your profile's `dashboards`. On the station's tab itself, it goes under
+with `"station"` in your profile's `dashboards`. A timeline's legend tells how long each state
+lasted; `legend = "percent"` tells instead its share of the time anything was known (*No data* left
+out of it, so a stopped service doesn't lower the share on battery), and `"both"` tells both, for
+whichever range is shown. On the station's tab itself, it goes under
 `[dashboards.ups]` in `elamond.d/dashboards.toml`, with `{item}` for the source's id and a `when`,
 so a station without it leaves it out (`value = "{item}.battery.charger.status"`,
 `when = "{item}.battery.charger.status"`); under Nix, after the standard widgets with `++`
@@ -1469,11 +1490,14 @@ follow the version by themselves; only what you set in `settings` stays as it wa
 
 - **Settings belong to a computer, not to a phone.** A phone paired with three computers has a table
   on each, and may look different on each. To look the same everywhere, give the computers the same
-  shared profile (one Nix module for all of them does it), and `use` it in the phone's tables.
+  shared profile (one Nix module for all of them does it), and `use` it in the phone's tables; or,
+  for the theme alone, turn on *Own theme* in the app's settings. The app's scale is the phone's
+  too.
 - **A dashboard's widgets are one list.** A later file or Nix can't change one widget of a dashboard
   by its `id`: it gives the whole list.
 - **No profile switching by situation** (other tabs over a VPN, at night…).
-- **No editing on the phone.** One place to change things, one place to back up.
+- **No editing on the phone.** One place to change things, one place to back up. The scale and the
+  app's own theme are the exceptions: they are how the phone shows things, and stay on it.
 
 ### Where the service listens
 

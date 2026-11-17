@@ -252,7 +252,7 @@
 	<string name="help_screen_title">Help</string>
 	<string name="copy">Copy</string>
 	<string name="copied">Copied</string>
-	<string name="help_intro">Elamon has two parts: this app, and elamond, a small service on the computer you want to watch. It needs no root and runs as your user. Everything is set on the computer; the app only draws what the service describes.</string>
+	<string name="help_intro">Elamon has two parts: this app, and elamond, a small service on the computer you want to watch. It needs no root and runs as your user. Everything is set on the computer, and the app draws what the service describes; only its scale and, if you like, a theme of its own are set here, in Settings.</string>
 	<string name="help_install">1. Install the service</string>
 	<string name="help_nixos_input">On NixOS, use the module instead. Add the project to your flake\'s inputs:</string>
 	<string name="help_nixos_module">Import its module and turn the service on. openFirewall opens the ports; linger keeps the service running while you\'re logged out. For Home Manager, see the full guide.</string>
