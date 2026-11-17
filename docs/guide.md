@@ -386,9 +386,9 @@ gives this phone and where it is changed: the file and line, for an admin phone,
 To change something, change the profile on the computer. Two things are the phone's own, under
 **Display**, the same with every computer and on the home screen:
 
-- **Scale**, 80 to 140%: everything in the app, text, spacing, widgets and charts, over the phone's
-  own display size and font size. On a large scale the dashboards may have two columns where they
-  had four.
+- **Scale**, 80 to 140%: everything in the app, text, spacing, widgets and charts, dialogs and
+  menus, over the phone's own display size and font size. On a large scale the dashboards have
+  fewer columns: two where they had four, and one on a phone held upright from about 120%.
 - **Own theme**, off at first: on, the theme is set here (System, Light or Dark; pure black;
   wallpaper colours on Android 12 and later) and stays so whatever the computers' profiles say. It
   starts as the theme you had. Off, each computer's profile sets it again.

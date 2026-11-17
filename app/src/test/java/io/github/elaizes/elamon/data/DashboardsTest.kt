@@ -22,6 +22,11 @@ class DashboardsTest {
 
 	@Test
 	fun fourColumnsOrTwoOnANarrowScreen() {
+		// One where two would be too narrow: a phone of 384 dp at the scale of 140% has 274.
+		assertEquals(1, Grid.columns(274))
+		assertEquals(1, Grid.columns(319))
+		assertEquals(2, Grid.columns(320))
+		assertEquals(listOf(1, 1, 1, 1), (1..4).map { Grid.span(it, 1) })
 		assertEquals(2, Grid.columns(411))
 		assertEquals(2, Grid.columns(599))
 		assertEquals(4, Grid.columns(600))

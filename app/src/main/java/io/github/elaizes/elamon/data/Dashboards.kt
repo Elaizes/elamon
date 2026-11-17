@@ -19,7 +19,17 @@ object Grid {
 	/** Narrower than this (dp), a screen is narrow: a phone held upright. */
 	const val NARROW_DP = 600
 
-	fun columns(widthDp: Int): Int = if (widthDp < NARROW_DP) COLUMNS / 2 else COLUMNS
+	/**
+	 * Narrower than this (dp), one column: two would leave a tile too narrow for a name beside its
+	 * icon. No phone is, at the app's own scale of 100%; a phone at a large one may be.
+	 */
+	const val ONE_COLUMN_DP = 320
+
+	fun columns(widthDp: Int): Int = when {
+		widthDp < ONE_COLUMN_DP -> 1
+		widthDp < NARROW_DP -> COLUMNS / 2
+		else -> COLUMNS
+	}
 
 	/** A widget's [span] in a grid of [columns]: halved, rounding up, where there are half as many. */
 	fun span(span: Int, columns: Int): Int {
