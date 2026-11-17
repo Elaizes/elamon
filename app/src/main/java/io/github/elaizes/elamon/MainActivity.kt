@@ -1,5 +1,6 @@
 package io.github.elaizes.elamon
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
@@ -25,7 +26,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalDensity
 import androidx.core.graphics.drawable.toDrawable
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
@@ -51,9 +51,9 @@ import io.github.elaizes.elamon.ui.Motion
 import io.github.elaizes.elamon.ui.PairScreen
 import io.github.elaizes.elamon.ui.SettingsScreen
 import io.github.elaizes.elamon.ui.appColorScheme
-import io.github.elaizes.elamon.ui.appDensity
 import io.github.elaizes.elamon.ui.forgetUnlock
 import io.github.elaizes.elamon.ui.isDark
+import io.github.elaizes.elamon.ui.scaledConfiguration
 
 sealed interface Screen {
 	data object Home : Screen
@@ -140,6 +140,15 @@ class MainActivity : FragmentActivity() {
 	private val nav: Nav by viewModels()
 	private val guardState: GuardState by viewModels()
 
+	/** The app's scale this activity was made at; another makes it again. */
+	private var madeAt = Scale.DEFAULT
+
+	override fun attachBaseContext(base: Context) {
+		super.attachBaseContext(base)
+		madeAt = Settings.get(base).look.value.scale
+		scaledConfiguration(base.resources.configuration, madeAt)?.let(::applyOverrideConfiguration)
+	}
+
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
 		enableEdgeToEdge()
@@ -148,9 +157,11 @@ class MainActivity : FragmentActivity() {
 		val store = MachineStore.get(this)
 		val settings = Settings.get(this)
 		if (savedInstanceState == null) {
+			// A link the task was started by, brought back from recents, was taken up when it came.
+			val link = intent?.takeIf { it.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY == 0 }
 			// Started afresh: on the computer opened last, Home under it; a link to pair comes first.
-			startScreen(settings.lastMachine(), store.machines.value, link = intent?.data != null)?.let(nav::push)
-			handle(intent)
+			startScreen(settings.lastMachine(), store.machines.value, link = link?.data != null)?.let(nav::push)
+			handle(link)
 		}
 		val start = prefsFor(nav.top, store.machines.value, cache.profiles.value, settings.look.value.theme)
 		window.setBackgroundDrawable(appColorScheme(this, start, isDark(this, start)).surface.toArgb().toDrawable())
@@ -159,9 +170,11 @@ class MainActivity : FragmentActivity() {
 			val profiles by cache.profiles.collectAsStateWithLifecycle()
 			val paired by store.machines.collectAsStateWithLifecycle()
 			val look by settings.look.collectAsStateWithLifecycle()
+			// Another scale: made again at it, as after a turn of the phone.
+			LaunchedEffect(look.scale) { if (look.scale != madeAt) recreate() }
 			val prefs = prefsFor(nav.top, paired, profiles, look.theme)
 			ElamonTheme(prefs) {
-				CompositionLocalProvider(LocalGuard provides guard, LocalDensity provides appDensity(look.scale)) {
+				CompositionLocalProvider(LocalGuard provides guard) {
 					Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
 						BackHandler(enabled = nav.stack.size > 1) { nav.pop() }
 						AnimatedContent(

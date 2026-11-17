@@ -281,16 +281,16 @@ private val KNOWN_STATES = setOf("line", "battery")
 /**
  * Each known state's share of [totals] ([timeIn]'s) over the time something was known, on line and
  * on battery: none for "none", and none at all where nothing was known. Whole percent, each
- * rounded on its own, so they needn't add up to 100; a share above nothing that rounds to 0 is
- * [Share.UnderOne].
+ * rounded on its own, so they needn't add up to 100; a share above nothing but under one percent
+ * is [Share.UnderOne], never "0%" nor "1%".
  */
 fun shares(totals: Map<String, Long>): Map<String, Share> {
 	val known = totals.filter { (state, ms) -> state in KNOWN_STATES && ms > 0 }
 	val sum = known.values.sum()
 	if (sum <= 0) return emptyMap()
 	return known.mapValues { (_, ms) ->
-		val percent = Math.round(ms * PERCENT / sum).toInt()
-		if (percent == 0) Share.UnderOne else Share.Percent(percent)
+		val percent = ms * PERCENT / sum
+		if (percent < 1) Share.UnderOne else Share.Percent(Math.round(percent).toInt())
 	}
 }
 

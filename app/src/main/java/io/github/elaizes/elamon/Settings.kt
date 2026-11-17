@@ -76,8 +76,8 @@ data class Prefs(
 }
 
 /**
- * The app's own scale, in percent, over the phone's density and font size: one for the whole app,
- * not a computer's, so it is kept on the phone (ui/Theme.kt, appDensity, applies it).
+ * The app's own scale, in percent, over the phone's display size and font size: one for the whole
+ * app, not a computer's, so it is kept on the phone (MainActivity applies it, scaledConfiguration).
  */
 object Scale {
 	const val MIN = 80
@@ -93,6 +93,12 @@ object Scale {
 
 	/** What the phone's density is multiplied by at [percent]. */
 	fun factor(percent: Int): Float = of(percent) / PERCENT
+
+	/** The phone's density, [phone] dpi, at [percent]: more pixels to a dp. */
+	fun dpi(phone: Int, percent: Int): Int = Math.round(phone * factor(percent))
+
+	/** A length of the screen, [phone] dp on the phone, at [percent]: as many fewer dp as each is larger. */
+	fun dp(phone: Int, percent: Int): Int = (phone / factor(percent)).toInt()
 
 	private const val PERCENT = 100f
 }

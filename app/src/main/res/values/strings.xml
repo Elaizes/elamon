@@ -208,7 +208,7 @@
 	<string name="settings_display">Display</string>
 	<string name="settings_scale">Scale</string>
 	<!-- %1$s: the scale, "115%". -->
-	<string name="settings_scale_summary">%1$s of the phone\'s own size, on every computer</string>
+	<string name="settings_scale_summary">%1$s of the phone\'s own size</string>
 	<!-- %1$s: "100%". -->
 	<string name="settings_scale_reset">Reset to %1$s</string>
 	<!-- What a screen reader calls the scale's slider. -->

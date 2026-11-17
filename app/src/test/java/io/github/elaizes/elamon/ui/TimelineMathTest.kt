@@ -106,6 +106,8 @@ class TimelineMathTest {
 		assertEquals(mapOf("line" to Share.Percent(75), "battery" to Share.Percent(25)), shares(mapOf("none" to day, "line" to 3 * minute, "battery" to minute, "bypass" to day)))
 		// A minute in 1000: under one percent, not 0%; on line rounds to 100, and the two aren't made to add up.
 		assertEquals(mapOf("line" to Share.Percent(100), "battery" to Share.UnderOne), shares(mapOf("line" to 1000 * minute, "battery" to minute)))
+		// Under one percent but more than a half: still "<1%", never "1%".
+		assertEquals(mapOf("line" to Share.UnderOne, "battery" to Share.Percent(99)), shares(mapOf("line" to 7L, "battery" to 993L)))
 		// Halves round up; each share on its own.
 		assertEquals(mapOf("line" to Share.Percent(3), "battery" to Share.Percent(98)), shares(mapOf("line" to 25L, "battery" to 975L)))
 		assertEquals("<1%", Fmt.share(Share.UnderOne))

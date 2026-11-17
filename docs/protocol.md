@@ -478,8 +478,8 @@ A `timeline`'s `legend` says what its legend tells of each state over the range 
 on line and on battery: `On battery · 4%`), or `both` (`On battery · 4% · 12 min`). The client
 works the shares out from the segments it draws, so they follow the range and the stream; *No
 data* has none and is told by its duration, and where nothing was known at all there are no shares,
-only durations. A share above nothing that rounds to 0 is `<1%`; the shares are whole and left
-as they round, so they needn't add up to 100.
+only durations. A share above nothing but under 1% is `<1%`; the others are whole, each rounded
+on its own, so they needn't add up to 100.
 
 A `toggle`'s `on` and `off` are values its action's `param` takes: one the action doesn't take (a
 station's command it doesn't offer, or `commands` doesn't allow) leaves the toggle out.

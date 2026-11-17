@@ -18,18 +18,13 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toDrawable
 import androidx.core.view.WindowCompat
@@ -138,25 +133,19 @@ fun ElamonTheme(prefs: Prefs, content: @Composable () -> Unit) {
 }
 
 /**
- * The density the app draws at, its own scale [percent] ([Scale]) over the phone's density and font
- * size; MainActivity provides it over everything, the one place the scale is applied. Everything
- * measured in dp or sp grows alike, text, spacing, widgets and charts, and so does the grid, which
- * counts its columns in dp.
+ * [phone], the configuration the phone gives the app, at the app's own scale [percent] ([Scale]),
+ * as Android's own display size does it: more pixels to a dp, and as many fewer dp across the
+ * screen; the font scale as the phone has it, so text grows with the rest and large text the
+ * phone's way. MainActivity takes it as its own, the one place the scale is applied: every window
+ * it opens, dialogs, sheets and menus too, is at it. Null at 100%.
  */
-@Composable
-fun appDensity(percent: Int): Density {
-	val phone = LocalDensity.current
-	return remember(phone, percent) { scaled(phone, Scale.factor(percent)) }
-}
-
-/** [phone]'s density with [factor] times the pixels to a dp; sp to dp as [phone] has it (Android 14+ grows large text less). */
-fun scaled(phone: Density, factor: Float): Density = if (factor == 1f) phone else ScaledDensity(phone, factor)
-
-private class ScaledDensity(private val phone: Density, factor: Float) : Density {
-	override val density: Float = phone.density * factor
-	override val fontScale: Float get() = phone.fontScale
-
-	override fun Dp.toSp(): TextUnit = with(phone) { this@toSp.toSp() }
-
-	override fun TextUnit.toDp(): Dp = with(phone) { this@toDp.toDp() }
+fun scaledConfiguration(phone: Configuration, percent: Int): Configuration? {
+	if (Scale.of(percent) == Scale.DEFAULT) return null
+	// Only these fields: an override leaves every one it doesn't set as the phone's.
+	return Configuration().apply {
+		densityDpi = Scale.dpi(phone.densityDpi, percent)
+		screenWidthDp = Scale.dp(phone.screenWidthDp, percent)
+		screenHeightDp = Scale.dp(phone.screenHeightDp, percent)
+		smallestScreenWidthDp = Scale.dp(phone.smallestScreenWidthDp, percent)
+	}
 }
