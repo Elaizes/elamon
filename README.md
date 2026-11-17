@@ -23,9 +23,8 @@ Every screen is a dashboard of widgets that the service describes, set in its se
 computer (`~/.config/elamon`, or Nix on NixOS): the standard Overview, Processes, Sensors and
 Control, a tab for each UPS and a Journal page come in the settings it starts with, and you can
 change them or add your own — any reading, table, graph, button or choice — without updating the
-app ([settings reference](docs/config.md)).
-How the app looks and behaves on each phone is that phone's profile, set on the computer too; the
-app's scale, and a theme of its own if you want one, stay on the phone.
+app ([settings reference](docs/config.md)). How the app looks and behaves on each phone is that
+phone's profile, set on the computer too.
 
 Watching, always:
 
@@ -37,7 +36,7 @@ Watching, always:
 - connected monitors with their modes and arrangement, read from the kernel, so under any desktop;
 - a UPS, or an EcoFlow power station, through NUT: its status, charge and time left, the power in
   and out and each outlet's, the battery, and a timeline of when it was on battery, kept for good
-  (its last 10 000 changes);
+  (its last 10 000 changes), its legend in hours or in shares of the time;
 - your own readings: a program's output, a web service's answer or a file's contents, each
   shown with its own unit and format in a dashboard of yours;
 - the system journal, warnings first, with search and older lines on request, and the journal of
@@ -63,7 +62,9 @@ Moving is kept simple: `elamond backup` saves the computer's identity and its pa
 file only you can read, which `elamond restore` puts back on a reinstalled or new computer without
 pairing the phones again; a new phone pairs with `elamond pair`.
 
-The app: Material You with frosted glass on Android 12 and newer, light, dark or pure black.
+The app: Material You with frosted glass on Android 12 and newer, light, dark or pure black. It
+opens on the computer you opened last. Two things are the phone's own, not the computer's: the
+app's scale, 80 to 140%, and, if you want one, a theme that stays whatever the profiles say.
 
 ## Quick start
 
@@ -164,9 +165,11 @@ dashboards and profiles: [docs/config.md](docs/config.md).
 
 ## Where it's going
 
-Your own readings and the system journal came with 0.8, UPSes and power stations with 0.7. Next, as
-they're needed: notifications through ntfy, and controlling monitors under Hyprland. Not planned: the
-service for Windows or macOS, app stores (the app is the APK in each release), a web version.
+UPSes and power stations came with 0.7, your own readings and the system journal with 0.8, the
+phone's own scale and theme with 0.8.1. Next, as they're needed: notifications through ntfy;
+controlling monitors under Hyprland, with a home-screen widget and Quick Settings tiles; then a web
+version with an admin page. Not planned: the service for Windows or macOS, app stores (the app is
+the APK in each release).
 
 ## License
 
