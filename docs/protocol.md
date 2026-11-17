@@ -45,7 +45,7 @@ those 0.8.1 adds in [`elamond/fixtures/0.8.1`](../elamond/fixtures/0.8.1)
 ### `GET /api/v1/hello` (no token)
 
 ```json
-{ "app": "elamon", "api": 2, "widgets": 3, "id": "…", "name": "…", "version": "0.8.0", "min_app": "0.6.0" }
+{ "app": "elamon", "api": 2, "widgets": 3, "id": "…", "name": "…", "version": "0.8.1", "min_app": "0.6.0" }
 ```
 
 Anyone on the network may ask, so it says which service this is and which versions it speaks, and
@@ -382,7 +382,7 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
 ```json
 {
   "version": "5c1f0e2a9d3b7a41",
-  "service": { "id": "…", "name": "…", "version": "0.8.0", "interval_ms": 1000, "history_seconds": 600,
+  "service": { "id": "…", "name": "…", "version": "0.8.1", "interval_ms": 1000, "history_seconds": 600,
                "features": ["control", "media", "power", "power_profiles", "processes", "units", "ups"],
                "endpoints": ["192.0.2.10", "100.64.0.7", "desk.example.net"] },
   "role": "admin",
