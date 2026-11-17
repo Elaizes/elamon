@@ -1,0 +1,59 @@
+# The settings that ui-legend.json describes (elamond 0.8.1): a timeline's `legend`, each of its
+# three values, and a timeline without one. elamond's tests read this file with the fixture station
+# of 0.7/ui-ups-source.toml (fixtures.rs), for an admin `android` client of profile "owner" that
+# draws every widget type, and check that what they build is ui-legend.json. A whole file of
+# settings schema 3: nothing is read under it.
+#
+# Over the fixture station's day to the sample's `t` (1700000000123 ms), as 0.7/stream-ups.json has
+# it: nothing known for 18 h 46 min, on line for 5 h 1 min, on battery for 12 min. Something was
+# known for 5 h 13 min, so on line is 96 % of it and on battery 4 %; "No data" has no share. Under
+# each timeline (the last offers no long ranges, so its legend is always of the day) an app of
+# 0.8.1 shows:
+#   duration (and none): On line · 5 h 1 min, On battery · 12 min, No data · 18 h 46 min
+#   percent:             On line · 96 %, On battery · 4 %, No data · 18 h 46 min
+#   both:                On line · 96 % · 5 h 1 min, On battery · 4 % · 12 min, No data · 18 h 46 min
+schema = 3
+name = "fixture"
+control = true
+default_profile = "owner"
+
+[sources.eco]
+kind = "nut"
+ups = "ups"
+
+[profiles.owner]
+name = "Owner"
+dashboards = ["power"]
+header = ""
+
+[dashboards.power]
+title = "Power"
+icon = "power"
+
+[[dashboards.power.widgets]]
+id = "plain"
+type = "timeline"
+source = "eco"
+label = "Power"
+
+[[dashboards.power.widgets]]
+id = "duration"
+type = "timeline"
+source = "eco"
+label = "Power, how long"
+legend = "duration"
+
+[[dashboards.power.widgets]]
+id = "percent"
+type = "timeline"
+source = "eco"
+label = "Power, how much"
+legend = "percent"
+
+[[dashboards.power.widgets]]
+id = "both"
+type = "timeline"
+source = "eco"
+label = "Power, both"
+legend = "both"
+ranges = false

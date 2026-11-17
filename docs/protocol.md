@@ -20,8 +20,10 @@ Every shape below, with each optional field filled in, is in
 [`elamond/fixtures`](../elamond/fixtures): the service's tests write those files and the app's
 tests read them, so the two can't drift apart. Those elamond 0.7 adds are in
 [`elamond/fixtures/0.7`](../elamond/fixtures/0.7) until the service writes them and the app reads
-them ([below](#what-came-with-elamond-07)), and those 0.8 adds in
-[`elamond/fixtures/0.8`](../elamond/fixtures/0.8) ([below](#what-came-with-elamond-08)).
+them ([below](#what-came-with-elamond-07)), those 0.8 adds in
+[`elamond/fixtures/0.8`](../elamond/fixtures/0.8) ([below](#what-came-with-elamond-08)), and
+those 0.8.1 adds in [`elamond/fixtures/0.8.1`](../elamond/fixtures/0.8.1)
+([below](#what-came-with-elamond-081)).
 
 ## Versions and what each side can do
 
@@ -35,7 +37,8 @@ them ([below](#what-came-with-elamond-07)), and those 0.8 adds in
   [`/log`](#get-apiv1log) behind it) and row actions that open a dashboard (`open`). A client
   needs it for nothing it draws, as the service describes only the types the client lists and a
   client ignores keys it doesn't know; it says which dictionary the service speaks, so a client
-  can tell why it never sees a type.
+  can tell why it never sees a type. A key that changes only how a client words what it draws
+  comes without a new number: elamond 0.8.1 added `legend` of `timeline` to 3.
 - `min_app` is the oldest app version that understands this service.
 - `version` is the service's own.
 
@@ -136,6 +139,24 @@ journal's widget); `hello.json` (`widgets` 3). They move up beside the others on
 writes them and the app reads them. Then, with the service at 0.8.0, these change as well:
 `hello.json` (`version` 0.8.0, `widgets` 3) and `ui-default.json` (Control's *Journal* button,
 the Links table's row action `{ open, label }`, and the `journal` dashboard).
+
+### What came with elamond 0.8.1
+
+A timeline's legend in shares of the time. The API stays 2 and `widgets` 3: it is one key a client
+may ignore.
+
+| new | where |
+|---|---|
+| `legend` of `timeline` (`duration`, `percent` or `both`) | [widgets in `ui`](#widgets-in-ui) |
+
+What an app of 0.8 or before sees of a 0.8.1 service: what it saw before; it ignores `legend` and
+words the legend in durations. An app of 0.7 or before gets a `timeline` as a `text`, as before.
+An app of 0.8.1 with an older service gets no `legend`, and words it in durations as well.
+
+The fixtures 0.8.1 adds are in `elamond/fixtures/0.8.1/`: `ui-legend.toml` (the settings: four
+timelines of the 0.7 fixture station, without `legend` and with each of its values), with what an
+app shows under each in its comments; `ui-legend.json` (its `ui` for an admin `android` client).
+They move up beside the others once the service writes them there and the app reads them.
 
 ## Discovery
 
@@ -431,7 +452,7 @@ reads, beside `id`, `type`, `span`, `label`, `icon`, `color` and `open`:
 | `value`, `gauge`, `meter`, `status` | `unit`, `format`, `min`, `max` (a number; one that changes comes in the state), `spark` (`value`) |
 | `bars` | `unit`, `format`, `max` |
 | `graph` | `series: [{ label, color, unit, format }]`, `range` (s), `height`, `min`, `max`, `floor`, `ranges` |
-| `timeline` | `range` (s), `ranges` |
+| `timeline` | `range` (s), `ranges`, `legend` (`duration`, `percent` or `both`; only when the settings give it) |
 | `list` | `items: [{ label, unit, format }]` |
 | `table` | `source`, `columns: [{ field, label, format, unit, bar: { max }, grow }]` (`max` a number, a field or `"top"`), `sort: { field, desc }`, `sorts`, `sort_labels` (field → the label of its chip; a field without one, its column's label or the field), `search` (bool), `search_fields` (the fields a client searches, when `search`: rows carry them), `hide_empty`, `row_open`, `row_actions: [{ action, label, params } or { open, label }]`, `expand: [{ field, label, format, unit }]` |
 | `button` | `action`, `params`, `open` |
@@ -451,6 +472,14 @@ reads, beside `id`, `type`, `span`, `label`, `icon`, `color` and `open`:
 draws its points over that window, adds a stream's point only once `step_ms` has passed since the
 newest it has, and fetches again when it comes back to the screen. Which one is chosen is the
 client's to keep, not the service's.
+
+A `timeline`'s `legend` says what its legend tells of each state over the range shown: `duration`
+(how long it lasted, as without the key), `percent` (its share of the time something was known,
+on line and on battery: `On battery · 4 %`), or `both` (`On battery · 4 % · 12 min`). The client
+works the shares out from the segments it draws, so they follow the range and the stream; *No
+data* has none and is told by its duration, and where nothing was known at all there are no shares,
+only durations. A share above nothing that rounds to 0 is `<1 %`; the shares are whole and left
+as they round, so they needn't add up to 100.
 
 A `toggle`'s `on` and `off` are values its action's `param` takes: one the action doesn't take (a
 station's command it doesn't offer, or `commands` doesn't allow) leaves the toggle out.
