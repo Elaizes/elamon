@@ -204,6 +204,15 @@
 	<string name="err_unknown">Something went wrong</string>
 
 	<!-- Settings -->
+	<!-- The app's own settings, kept on the phone and the same on every computer. -->
+	<string name="settings_display">Display</string>
+	<string name="settings_scale">Scale</string>
+	<!-- %1$s: the scale, "115%". -->
+	<string name="settings_scale_summary">%1$s of the phone\'s own size, on every computer</string>
+	<!-- %1$s: "100%". -->
+	<string name="settings_scale_reset">Reset to %1$s</string>
+	<!-- What a screen reader calls the scale's slider. -->
+	<string name="settings_scale_slider">Scale of the app</string>
 	<string name="settings_about">About</string>
 	<string name="settings_help_summary">Installing the service, the firewall, pairing</string>
 	<string name="settings_source">Source code</string>

@@ -18,18 +18,24 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toDrawable
 import androidx.core.view.WindowCompat
 import io.github.elaizes.elamon.Prefs
 import io.github.elaizes.elamon.R
+import io.github.elaizes.elamon.Scale
 import io.github.elaizes.elamon.ThemeMode
 
 val LocalMetricColors = staticCompositionLocalOf { metricColors(true) }
@@ -129,4 +135,28 @@ fun ElamonTheme(prefs: Prefs, content: @Composable () -> Unit) {
 	) {
 		MaterialTheme(colorScheme = scheme, typography = AppTypography, content = content)
 	}
+}
+
+/**
+ * [content] at the app's own scale, [percent] ([Scale]), over the phone's density and font size:
+ * the one place it is applied. Everything measured in dp or sp grows alike, text, spacing, widgets
+ * and charts, and so does the grid, which counts its columns in dp.
+ */
+@Composable
+fun AppScale(percent: Int, content: @Composable () -> Unit) {
+	val phone = LocalDensity.current
+	val density = remember(phone, percent) { scaled(phone, Scale.factor(percent)) }
+	CompositionLocalProvider(LocalDensity provides density, content = content)
+}
+
+/** [phone]'s density with [factor] times the pixels to a dp; sp to dp as [phone] has it (Android 14+ grows large text less). */
+fun scaled(phone: Density, factor: Float): Density = if (factor == 1f) phone else ScaledDensity(phone, factor)
+
+private class ScaledDensity(private val phone: Density, factor: Float) : Density {
+	override val density: Float = phone.density * factor
+	override val fontScale: Float get() = phone.fontScale
+
+	override fun Dp.toSp(): TextUnit = with(phone) { this@toSp.toSp() }
+
+	override fun TextUnit.toDp(): Dp = with(phone) { this@toDp.toDp() }
 }
