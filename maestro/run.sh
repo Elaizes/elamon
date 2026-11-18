@@ -135,7 +135,7 @@ legend = "both"
 [profiles.phone]
 name = "Phone"
 theme = "dark"
-dashboards = ["overview", "processes", "sensors", "control", "ups", "test", "sources"]
+dashboards = ["overview", "processes", "sensors", "control", "ups", "test", "sources", "events"]
 
 # A UPS on the simulated upsd: its tab, the beeper's switch and the low-battery level it may set.
 [sources.rack]
@@ -257,6 +257,15 @@ flow -e NAME="$NAME" maestro/ups.yaml
 writer=$!
 flow maestro/sources.yaml
 kill "$writer" 2>/dev/null || true
+# Events: `elamond notify` makes one before the tab is opened and one while it is open; both are
+# kept, with nowhere to send them (the settings name no target).
+(run_elamond notify --level warning "maestro event one") || fail "elamond notify failed with the service running"
+( sleep 20; run_elamond notify "maestro event two" ) &
+writer=$!
+flow maestro/events.yaml
+wait "$writer" 2>/dev/null || true
+(run_elamond events) | grep -q 'notify: maestro event two' || fail "elamond events doesn't list what elamond notify made: $( (run_elamond events) )"
+[[ -f "$work/cfg/elamond.d/events.toml" ]] || fail "the service wrote no elamond.d/events.toml with its starter settings"
 # What is the phone's own: the app starts on the computer opened last, Back to the list; the scale
 # and the app's own theme kept across a restart; the Test tab's timeline tells shares of the time.
 flow -e NAME="$NAME" maestro/look.yaml

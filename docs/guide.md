@@ -1251,7 +1251,7 @@ every key).
    On NixOS: `services.elamond.settings.notify.phone.topic_file = "/home/you/.config/elamon/ntfy.topic";`
    (the file itself stays out of the Nix store).
 4. Try it: `elamond notify --level warning "Hello from the computer"`. `elamond check` says
-   `Events: 8 rules on; sent on to phone.`, and `elamond events` lists what was told, each with
+   `Events: 7 rules on; sent on to phone.`, and `elamond events` lists what was told, each with
    how sending it went.
 
 **What the server sees.** A notification passes through the ntfy server in the clear, so a target

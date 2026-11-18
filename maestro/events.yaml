@@ -1,0 +1,34 @@
+# The service's events on a tab: run.sh made one with `elamond notify` before this flow (a
+# warning) and makes another while it runs (an info), which arrives with the tab open; a level
+# chip leaves the warning alone. Right after sources.yaml.
+appId: io.github.elaizes.elamon.debug
+---
+- scrollUntilVisible:
+    element: "Events"
+    direction: RIGHT
+    timeout: 10000
+- tapOn: "Events"
+- extendedWaitUntil:
+    visible: ".*maestro event one"
+    timeout: 20000
+# The rule's place in a line is `elamond notify`'s name for its events.
+- assertVisible: ".*notify.*"
+- extendedWaitUntil:
+    visible: ".*maestro event two"
+    timeout: 60000
+- takeScreenshot: 45-events
+- tapOn: "Warning"
+- extendedWaitUntil:
+    notVisible: ".*maestro event two"
+    timeout: 20000
+- assertVisible: ".*maestro event one"
+- takeScreenshot: 46-events-warnings
+- tapOn: "Info"
+- extendedWaitUntil:
+    visible: ".*maestro event two"
+    timeout: 20000
+- scrollUntilVisible:
+    element: "Overview"
+    direction: LEFT
+    timeout: 10000
+- tapOn: "Overview"
