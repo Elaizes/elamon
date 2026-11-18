@@ -1,0 +1,101 @@
+# The settings that ui-events.json, stream-events.json, log-events.json, events.jsonl and
+# ntfy.json describe (elamond 0.9): rules of each kind, one of the settings' own on a source's
+# value, a target, and a dashboard of the events. elamond's tests read this file (fixtures.rs),
+# run its rules over the readings below, keep what they make as the service does, and check that
+# what comes of it is those files: the `ui` for an admin `android` client of profile "owner" that
+# draws every widget type, the dashboard's first `data` line, `GET /api/v1/log` of its widget
+# before the line of the fourth event, the events' file, and the bodies ntfy is sent: for each
+# event, what the target `phone` below sends (no names), then what it sends with `names = true`,
+# `null` where the event is below the target's `level`. The topic in them stands for the first
+# line of `topic_file`, which no fixture and no test has.
+#
+# A whole file of settings schema 3: nothing is read under it but the keys of `[events]` it
+# leaves out, which are those elamond starts with (`elamond defaults events`): events are kept
+# 1000 and 30 days, shown to `monitor`; a rule's `for` is 0, its end an event at `info`; a target
+# sends from `warning`, without names, to https://ntfy.sh.
+#
+# The readings, in seconds before the fixture sample's `t` (1700000000123 ms), and what each
+# rule makes of them (n, the event's number):
+#   -600  disk.data.percent 93, link.web.unit_state active, queue.length 3
+#   -540  the same: the disk has been above 90 for its minute          → 1  disk     start  warning
+#   -300  link.web.unit_state failed                                    → 2  unit     start  critical
+#   -200  the source eco says power.lost ("Power lost, on battery")     → 3  ups      start  warning
+#   -120  `elamond notify --title Backup "The backup is done"`          → 4  notify   once   info
+#   -100  queue.length 250                                              → 5  backlog  start  warning
+#    -60  disk.data.percent 80; eco says power.restored                 → 6  disk     end    info
+#                                                                       → 7  ups      end    info
+#     -1  queue.length 2: `recovered = false`, so no event
+schema = 3
+name = "fixture"
+control = true
+default_profile = "owner"
+
+[links.web]
+name = "Web"
+url = "http://{host}:8080"
+unit = "web.service"
+scope = "system"
+
+[sources.eco]
+kind = "nut"
+ups = "ups"
+
+[sources.queue]
+kind = "command"
+command = ["queue-status"]
+
+[rules.disk]
+value = "disk.*.percent"
+above = 90
+clear = 2
+for = 60
+code = "disk.full"
+text = "Disk {name} is {value} full"
+plain = "A disk is {value} full"
+recovered_text = "Disk {name} has room again: {value} full"
+recovered_plain = "The disk has room again"
+
+[rules.unit]
+value = "link.*.unit_state"
+equals = "failed"
+level = "critical"
+code = "unit.failed"
+text = "The unit of {name} failed"
+plain = "A unit failed"
+
+[rules.ups]
+kind = "ups"
+codes = ["power.lost", "power.started_on_battery"]
+ends = ["power.restored"]
+text = "{source} is on battery"
+plain = "The UPS is on battery"
+recovered_text = "{source}: the power is back after {duration}"
+recovered_plain = "The power is back after {duration}"
+
+[rules.backlog]
+value = "queue.length"
+above = 100
+recovered = false
+text = "The queue on {computer} is {value} long"
+plain = "The queue is {value} long"
+priority = 3
+tags = ["inbox_tray"]
+
+[notify.phone]
+topic_file = "/home/alice/.config/elamon/ntfy.topic"
+
+[profiles.owner]
+name = "Owner"
+dashboards = ["events"]
+header = ""
+
+[dashboards.events]
+title = "Events"
+icon = "terminal"
+
+[[dashboards.events.widgets]]
+id = "events"
+type = "log"
+scope = "events"
+level = "info"
+label = "Events"

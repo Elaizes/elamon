@@ -1,0 +1,171 @@
+{
+  "version": "3da3f2bcbd5e4c93",
+  "service": {
+    "id": "0123456789abcdef0123456789abcdef",
+    "name": "fixture",
+    "version": "9.9.9",
+    "interval_ms": 1000,
+    "history_seconds": 600,
+    "features": ["control", "displays", "media", "power", "power_profiles", "processes", "units"],
+    "endpoints": ["192.0.2.10", "100.64.0.7", "desk.example.net", "desk.tail0000.ts.net"]
+  },
+  "role": "admin",
+  "control": { "enabled": true, "off_reason": null },
+  "profile": {
+    "id": "owner",
+    "name": "Owner",
+    "theme": "system",
+    "pure_black": false,
+    "animations": true,
+    "interval_ms": 1000,
+    "fahrenheit": false,
+    "network_bits": false,
+    "confirm_actions": true,
+    "unlock": { "for": ["power", "nut", "signal", "actions", "units"], "grace": "every_time" },
+    "android": { "dynamic_color": true, "blur": true, "haptics": true, "keep_screen_on": false },
+    "source": { "file": "ui-events.toml", "line": 87 }
+  },
+  "tabs": ["events"],
+  "header": null,
+  "dashboards": [
+    {
+      "id": "events",
+      "title": "Events",
+      "icon": "terminal",
+      "widgets": [
+        {
+          "id": "events/events",
+          "type": "log",
+          "span": 4,
+          "label": "Events",
+          "scope": "events",
+          "level": "info",
+          "lines": 200,
+          "search": true
+        }
+      ]
+    }
+  ],
+  "actions": [
+    { "id": "power.poweroff", "name": "Shut down", "kind": "power", "icon": "power", "confirm": true, "unlock": true, "params": [] },
+    { "id": "power.reboot", "name": "Restart", "kind": "power", "icon": "restart", "confirm": true, "unlock": true, "params": [] },
+    { "id": "power.suspend", "name": "Sleep", "kind": "power", "icon": "moon", "confirm": true, "unlock": true, "params": [] },
+    { "id": "power.lock", "name": "Lock", "kind": "power", "icon": "lock", "confirm": true, "unlock": true, "params": [] },
+    {
+      "id": "profile.set",
+      "name": "Power profile",
+      "kind": "profile",
+      "icon": "bolt",
+      "confirm": false,
+      "unlock": false,
+      "params": [
+        {
+          "id": "profile",
+          "kind": "choice",
+          "label": "Profile",
+          "choices": [
+            { "value": "power-saver", "label": "Power saver" },
+            { "value": "balanced", "label": "Balanced" },
+            { "value": "performance", "label": "Performance" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "process.signal",
+      "name": "Signal",
+      "kind": "signal",
+      "icon": "processes",
+      "confirm": true,
+      "unlock": true,
+      "params": [
+        { "id": "pid", "kind": "integer", "label": "Process" },
+        {
+          "id": "signal",
+          "kind": "choice",
+          "label": "Signal",
+          "choices": [{ "value": "term", "label": "Quit" }, { "value": "kill", "label": "Force kill" }]
+        },
+        { "id": "start", "kind": "integer", "label": "Started", "optional": true }
+      ]
+    },
+    {
+      "id": "unit.start",
+      "name": "Start",
+      "kind": "units",
+      "icon": "play",
+      "confirm": false,
+      "unlock": true,
+      "params": [{ "id": "link", "kind": "choice", "label": "Link", "choices": [{ "value": "web", "label": "Web" }] }]
+    },
+    {
+      "id": "unit.stop",
+      "name": "Stop",
+      "kind": "units",
+      "icon": "pause",
+      "confirm": false,
+      "unlock": true,
+      "params": [{ "id": "link", "kind": "choice", "label": "Link", "choices": [{ "value": "web", "label": "Web" }] }]
+    },
+    {
+      "id": "unit.restart",
+      "name": "Restart",
+      "kind": "units",
+      "icon": "restart",
+      "confirm": false,
+      "unlock": true,
+      "params": [{ "id": "link", "kind": "choice", "label": "Link", "choices": [{ "value": "web", "label": "Web" }] }]
+    },
+    {
+      "id": "media.play_pause",
+      "name": "Play or pause",
+      "kind": "media",
+      "icon": "play",
+      "confirm": false,
+      "unlock": false,
+      "params": [{ "id": "player", "kind": "string", "label": "Player" }]
+    },
+    {
+      "id": "media.next",
+      "name": "Next",
+      "kind": "media",
+      "icon": "next",
+      "confirm": false,
+      "unlock": false,
+      "params": [{ "id": "player", "kind": "string", "label": "Player" }]
+    },
+    {
+      "id": "media.previous",
+      "name": "Previous",
+      "kind": "media",
+      "icon": "previous",
+      "confirm": false,
+      "unlock": false,
+      "params": [{ "id": "player", "kind": "string", "label": "Player" }]
+    },
+    {
+      "id": "media.seek",
+      "name": "Seek",
+      "kind": "media",
+      "icon": "play",
+      "confirm": false,
+      "unlock": false,
+      "params": [
+        { "id": "player", "kind": "string", "label": "Player" },
+        { "id": "position", "kind": "number", "label": "Position", "unit": "s" }
+      ]
+    },
+    {
+      "id": "volume.set",
+      "name": "Volume",
+      "kind": "media",
+      "icon": "volume",
+      "confirm": false,
+      "unlock": false,
+      "params": [
+        { "id": "level", "kind": "range", "label": "Level", "min": 0, "max": 100, "step": 1, "unit": "%", "optional": true },
+        { "id": "muted", "kind": "bool", "label": "Muted", "optional": true }
+      ]
+    }
+  ]
+}

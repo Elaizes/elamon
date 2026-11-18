@@ -1,0 +1,7 @@
+{"n":1,"t":1699999460123,"level":"warning","of":"warning","rule":"disk","code":"disk.full","phase":"start","text":"Disk data is 93% full","plain":"A disk is 93% full"}
+{"n":2,"t":1699999700123,"level":"critical","of":"critical","rule":"unit","code":"unit.failed","phase":"start","text":"The unit of web failed","plain":"A unit failed"}
+{"n":3,"t":1699999800123,"level":"warning","of":"warning","rule":"ups","code":"power.lost","phase":"start","text":"eco is on battery","plain":"The UPS is on battery"}
+{"n":4,"t":1699999880123,"level":"info","of":"info","rule":"notify","code":"notify","phase":"once","text":"The backup is done","plain":"The backup is done","title":"Backup"}
+{"n":5,"t":1699999900123,"level":"warning","of":"warning","rule":"backlog","code":"backlog","phase":"start","text":"The queue on fixture is 250 long","plain":"The queue is 250 long"}
+{"n":6,"t":1699999940123,"level":"info","of":"warning","rule":"disk","code":"disk.full","phase":"end","text":"Disk data has room again: 80% full","plain":"The disk has room again"}
+{"n":7,"t":1699999940123,"level":"info","of":"warning","rule":"ups","code":"power.restored","phase":"end","text":"eco: the power is back after 2 min","plain":"The power is back after 2 min"}

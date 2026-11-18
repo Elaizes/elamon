@@ -1,0 +1,69 @@
+[
+  {
+    "n": 1,
+    "phone": { "topic": "<the topic>", "title": "Elamon", "message": "A disk is 93% full", "priority": 4, "tags": ["warning"] },
+    "with_names": { "topic": "<the topic>", "title": "fixture", "message": "Disk data is 93% full", "priority": 4, "tags": ["warning"] }
+  },
+  {
+    "n": 2,
+    "phone": { "topic": "<the topic>", "title": "Elamon", "message": "A unit failed", "priority": 5, "tags": ["rotating_light"] },
+    "with_names": {
+      "topic": "<the topic>",
+      "title": "fixture",
+      "message": "The unit of web failed",
+      "priority": 5,
+      "tags": ["rotating_light"]
+    }
+  },
+  {
+    "n": 3,
+    "phone": { "topic": "<the topic>", "title": "Elamon", "message": "The UPS is on battery", "priority": 4, "tags": ["warning"] },
+    "with_names": { "topic": "<the topic>", "title": "fixture", "message": "eco is on battery", "priority": 4, "tags": ["warning"] }
+  },
+  { "n": 4, "phone": null, "with_names": null },
+  {
+    "n": 5,
+    "phone": { "topic": "<the topic>", "title": "Elamon", "message": "The queue is 250 long", "priority": 3, "tags": ["inbox_tray"] },
+    "with_names": {
+      "topic": "<the topic>",
+      "title": "fixture",
+      "message": "The queue on fixture is 250 long",
+      "priority": 3,
+      "tags": ["inbox_tray"]
+    }
+  },
+  {
+    "n": 6,
+    "phone": {
+      "topic": "<the topic>",
+      "title": "Elamon",
+      "message": "The disk has room again",
+      "priority": 2,
+      "tags": ["white_check_mark"]
+    },
+    "with_names": {
+      "topic": "<the topic>",
+      "title": "fixture",
+      "message": "Disk data has room again: 80% full",
+      "priority": 2,
+      "tags": ["white_check_mark"]
+    }
+  },
+  {
+    "n": 7,
+    "phone": {
+      "topic": "<the topic>",
+      "title": "Elamon",
+      "message": "The power is back after 2 min",
+      "priority": 2,
+      "tags": ["white_check_mark"]
+    },
+    "with_names": {
+      "topic": "<the topic>",
+      "title": "fixture",
+      "message": "eco: the power is back after 2 min",
+      "priority": 2,
+      "tags": ["white_check_mark"]
+    }
+  }
+]

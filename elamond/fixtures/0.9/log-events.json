@@ -1,0 +1,9 @@
+{
+  "widget": "events/events",
+  "lines": [
+    { "c": 1699999460123001, "t": 1699999460123, "level": "warning", "id": "disk", "text": "Disk data is 93% full" },
+    { "c": 1699999700123002, "t": 1699999700123, "level": "critical", "id": "unit", "text": "The unit of web failed" },
+    { "c": 1699999800123003, "t": 1699999800123, "level": "warning", "id": "ups", "text": "eco is on battery" }
+  ],
+  "before": null
+}

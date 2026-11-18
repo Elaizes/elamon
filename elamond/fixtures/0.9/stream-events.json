@@ -1,0 +1,19 @@
+{
+  "type": "data",
+  "t": 1700000000123,
+  "dashboard": "events",
+  "widgets": {
+    "events/events": {
+      "lines": [
+        { "c": 1699999460123001, "t": 1699999460123, "level": "warning", "id": "disk", "text": "Disk data is 93% full" },
+        { "c": 1699999700123002, "t": 1699999700123, "level": "critical", "id": "unit", "text": "The unit of web failed" },
+        { "c": 1699999800123003, "t": 1699999800123, "level": "warning", "id": "ups", "text": "eco is on battery" },
+        { "c": 1699999880123004, "t": 1699999880123, "level": "info", "id": "notify", "text": "The backup is done" },
+        { "c": 1699999900123005, "t": 1699999900123, "level": "warning", "id": "backlog", "text": "The queue on fixture is 250 long" },
+        { "c": 1699999940123006, "t": 1699999940123, "level": "info", "id": "disk", "text": "Disk data has room again: 80% full" },
+        { "c": 1699999940123007, "t": 1699999940123, "level": "info", "id": "ups", "text": "eco: the power is back after 2 min" }
+      ],
+      "reset": true
+    }
+  }
+}

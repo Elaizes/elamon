@@ -140,6 +140,31 @@ writes them and the app reads them. Then, with the service at 0.8.0, these chang
 `hello.json` (`version` 0.8.0, `widgets` 3) and `ui-default.json` (Control's *Journal* button,
 the Links table's row action `{ open, label }`, and the `journal` dashboard).
 
+### What came with elamond 0.9
+
+Events: what the rules of the settings and `elamond notify` tell, kept by the service, sent on by
+it to ntfy topics, and shown by a `log`. The API stays 2 and `widgets` 3: a `log` of the service's
+events is a `log`, its lines and its state those of a journal's, so an app of 0.8 shows it as it
+is. Nothing a client may ask makes an event, a rule or a target: they are the settings' and the
+computer's own.
+
+| new | where |
+|---|---|
+| `scope` `events` of `log` | [widgets in `ui`](#widgets-in-ui), [its state](#a-logs-state), [`GET /api/v1/log`](#get-apiv1log) |
+
+What an older app sees of a 0.9 service: an app of 0.8 or 0.8.1 shows the events as any `log`
+(the standard `events` dashboard, behind Control's Events button); an app of 0.7 or before gets
+the `log` as a `text` saying to update, as it does a journal's. An app of 0.9 with an older
+service finds no such `log` in its `ui`.
+
+The fixtures 0.9 adds are in `elamond/fixtures/0.9/`: `ui-events.toml` (the settings: the rules
+elamond starts with, a rule of the settings' own and a target, and a dashboard of the events) with
+the readings and what each rule made of them in its comments; `ui-events.json` (its `ui` for an
+admin `android` client); `stream-events.json` (the dashboard's first `data` line); `log-events.json`
+(`GET /api/v1/log` of it, before its oldest line); `events.jsonl` (the file the events are kept
+in); `ntfy.json` (what the target and one with names are sent for each event: the bodies of the
+requests to ntfy, the topic in them a placeholder).
+
 ### What came with elamond 0.8.1
 
 A timeline's legend in shares of the time. The API stays 2 and `widgets` 3: it is one key a client
@@ -343,7 +368,7 @@ Each paired client has a role. They are ordered, each allowing what the one befo
 | role | sees | may run |
 |---|---|---|
 | `glance` | the basics: CPU, memory, GPUs, temperatures, fans, disks, disk I/O, network, battery, power, the system, UPSes | nothing |
-| `monitor` | everything there is to read: also processes with their commands and users, monitors, links, media with their covers, the activity log, the journal, a UPS's driver, serial numbers and versions | nothing |
+| `monitor` | everything there is to read: also processes with their commands and users, monitors, links, media with their covers, the activity log, the journal, the events (unless the settings give them to another role), a UPS's driver, serial numbers and versions | nothing |
 | `operate` | | actions of kind `profile`, `units`, `media` and `actions`, and `nut` of a source whose `role` is `operate` |
 | `admin` | | `power`, `signal` and `nut` too |
 
@@ -485,12 +510,14 @@ A `toggle`'s `on` and `off` are values its action's `param` takes: one the actio
 station's command it doesn't offer, or `commands` doesn't allow) leaves the toggle out.
 
 A `log` shows lines of the systemd journal ([config.md](config.md#the-journal-log)): `scope` is
-`system` (as far as the service's user may read it), `user` (that user's own) or `unit` (the
-journal of `unit`, a link's unit); `level` the least level it shows at first, of `debug`, `info`,
+`system` (as far as the service's user may read it), `user` (that user's own), `unit` (the
+journal of `unit`, a link's unit) or, from 0.9, `events` (no journal: the service's own
+[events](config.md#events-and-notifications)); `level` the least level it shows at first, of `debug`, `info`,
 `notice`, `warning`, `error` and `critical`; `lines` how many a client keeps on screen (10–1000);
 `search` whether it offers a search field. Its lines come in the stream ([its
 state](#a-logs-state)), as the client filters them ([`log`](#post-apiv1streamid)), and older ones
-from [`/log`](#get-apiv1log). Its role is `monitor` at least.
+from [`/log`](#get-apiv1log). Its role is `monitor` at least, and with `scope` `events` the
+role the settings give the events (`[events]`'s `role`).
 
 ### Row actions that open a dashboard
 
@@ -617,6 +644,12 @@ client filters it.
   again every 10 seconds at most while a client shows the widget). A client shows it above the
   lines.
 
+A `log` of `scope` `events` has the same state, of events instead of a journal's lines: `id` is
+the id of the rule that made the event (`notify`, for `elamond notify`'s), `unit` is left out,
+`level` is `info`, `warning` or `critical`, `text` the event with names, `c` its time in µs (made
+unlike any other's), and there is no `note`. Its lines are there from the first state: the
+service keeps the events itself, the last 1000 of them at hand for the stream.
+
 A line matches when its level is the filter's or worse, and, with a search, when its `text`,
 `unit` or `id` holds the search, whatever the case. Until the client asks for another
 ([below](#post-apiv1streamid)), the filter is the widget's `level` and no search. The service reads
@@ -742,7 +775,8 @@ runs `journalctl`, for 5 seconds at most, two such requests at a time (others wa
 
 404 `no_such_widget` for an id that isn't a `log` in the client's `ui`; 400 `bad_param`, with
 `widget`, `before`, `level` or `search` in `message`, for one missing where it is needed or not as
-above; 502 `failed` when `journalctl` can't be run (its error in `message`) or takes longer
+above. For a `log` of `scope` `events` the service answers from the events it keeps, at once,
+100 lines a page. 502 `failed` when `journalctl` can't be run (its error in `message`) or takes longer
 (`timed_out`). A service before 0.8 answers 404 `not_found`.
 
 ## `POST /api/v1/actions/{id}`

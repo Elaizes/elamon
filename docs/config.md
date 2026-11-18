@@ -37,17 +37,20 @@ read there and then.
 ## The starter file
 
 Where there is no elamond.toml, `elamond setup` and the service's first start write the settings
-elamond starts with, in two files:
+elamond starts with, in three files:
 
 - `elamond.toml`, short: `schema = 3` and the top-level keys (control, where it listens, names,
   the role and profile new phones get), each with a line on what it does, commented-out examples of
   a link and an action, and the `default` profile;
 - `elamond.d/dashboards.toml` (unless one is there already): every standard dashboard (`header`,
   `overview`, `ups`, `processes`, `sensors`, `control`, and the pages their tiles open) and the
-  templates they use.
+  templates they use;
+- `elamond.d/events.toml` (unless one is there already): `[events]` and the standard rules
+  ([Events and notifications](#events-and-notifications)).
 
 Together they are the whole of the settings, as one file would be: nothing is built in under
-them. Both are yours from then on: elamond never writes them again. Each begins with a line for
+them (but the keys of `[events]`, which are those of events.toml where the settings leave them
+out). All are yours from then on: elamond never writes them again. Each begins with a line for
 editors, `#:schema elamond-schema.json` (`../elamond-schema.json` in elamond.d/), naming the JSON
 Schema of the settings that the service keeps beside them, as it keeps defaults.toml; editors that
 read it (taplo, Even Better TOML) then suggest keys and mark mistakes.
@@ -202,6 +205,9 @@ The default is what a key left out is; the starter file writes most of them out.
 | `templates` | table of [templates](#templates) | | |
 | `sources` | table of [sources](#sources) | | UPSes and power stations; what commands print, web services answer and files hold |
 | `history` | [table](#the-long-history) | | how long the hourly history is kept |
+| `events` | [table](#events-and-notifications) | events.toml's | how events are kept and shown, `elamond notify`, and what a rule or a target leaves out |
+| `rules` | table of [rules](#rules) | | what makes an event |
+| `notify` | table of [targets](#targets-ntfy) | | the ntfy topics events are sent on to |
 
 Settings schema 1 (elamond 0.5 and before) had `[[links]]`, `[[actions]]` and `units`; they are
 refused with a note on what replaces them: `[links.<id>]`, `[actions.<id>]`, and a unit named on
@@ -431,6 +437,174 @@ left off, from what `upst record` kept meanwhile (all of it the first time), and
 estimates from the last hour of it. A recorder that can't be reached, or that doesn't know the
 UPS, is one line in the journal; the source works without it.
 
+## Events and notifications
+
+The service tells what happens to the computer as it happens. A **rule** that turns makes an
+**event**; events are kept in `events.jsonl` in the service's data folder, shown by a
+[`log`](#the-journal-log) of `scope = "events"` (the standard `events` dashboard, behind Control's
+Events button), and sent on to each **target**, an [ntfy](https://ntfy.sh) topic, which the ntfy
+app on a phone shows whether or not Elamon is open. `elamond notify` makes an event of a script's
+words.
+
+Nothing of this is built in. The rules elamond starts with are settings like any other
+(`elamond.d/events.toml` of a new install, `elamond defaults rules` to copy from, the module's
+defaults under Nix): change one, turn it off, take it out, write your own. A key a rule leaves
+out is `[events.rule]`'s, a key a target leaves out is `[events.target]`'s, and a key `[events]`
+leaves out is the one of the settings elamond starts with (`elamond defaults events`), so settings
+written before 0.9 read as they did: no rules, no targets, nothing sent.
+
+```toml
+[notify.phone]
+topic_file = "/home/you/.config/elamon/ntfy.topic"   # chmod 600; its first line is the topic
+
+[rules.disk]
+above = 85                     # the standard rule, sooner
+
+[rules.backlog]                # one of your own, on a source's value
+value = "queue.length"
+above = 100
+for = 300
+text = "The queue on {computer} is {value} long"
+plain = "The queue is {value} long"
+```
+
+### `[events]`
+
+| key | type | starts as | |
+|---|---|---|---|
+| `keep` | integer, 10–100 000 | 1000 | events kept at most |
+| `keep_days` | integer, 1–3650 | 30 | and for how many days |
+| `role` | role | `monitor` | the least role that sees them: they name units, disks and sources |
+| `background` | integer of seconds, 5–3600 | 30 | how often what only a rule needs is read while no client shows it: links' units, and a GPU's values for a rule on them |
+| `notify` | table | | `elamond notify`, below |
+| `rule` | table of a rule's keys | | what a rule's keys are when the rule leaves them out |
+| `target` | table of a target's keys | | the same of a target (`topic_file` and `token_file` aside) |
+
+`[events.notify]`, for `elamond notify [--level LEVEL] [--title TITLE] TEXT`:
+
+| key | type | starts as | |
+|---|---|---|---|
+| `level` | `info` \| `warning` \| `critical` | `info` | the level without `--level` |
+| `rule` | id | `notify` | what its events are called, where a rule's have the rule's id (a target's `rules` may name it) |
+| `code` | string | `notify` | their code |
+| `length` | integer, 1–4000 | 500 | characters of text taken; a longer one is refused |
+| `burst`, `per` | integers | 10, 60 | events it may make in `per` seconds; the rest are dropped, which the service's journal says |
+
+The command leaves the event for the running service, which takes it within its tick; without
+the service it fails. The text is a person's: it goes as it is to every target, those with
+`names = false` too.
+
+### Rules
+
+`[rules.<id>]`. A rule is calm or in trouble, for each thing it looks at: turning to trouble is
+an event (`start`), turning back another (`end`), and nothing is told in between, however long it
+lasts. The state is kept (`events-state.json`), so a restart of the service or new settings tell
+nothing twice; a rule turned off or taken out is forgotten.
+
+| key | type | `[events.rule]` starts as | |
+|---|---|---|---|
+| `enabled` | bool | `true` | |
+| `kind` | `value` \| `ups` \| `boot` | `value` | what it goes by, below |
+| `level` | `info` \| `warning` \| `critical` | `warning` | the level of the trouble |
+| `for` | integer of seconds | 0 | how long the trouble must last before its event |
+| `clear_for` | integer of seconds | 0 | how long the calm must last before the event of its end |
+| `clear` | number | 0 | with `above` or `below`: how far back past the limit the value must go to count as calm |
+| `again` | integer of seconds | 0 | after an event of one thing, how long before another of the same is made; a trouble that begins sooner is taken in silence, its end too |
+| `recovered` | bool | `true` | whether the end is an event |
+| `recovered_level` | level | `info` | its level |
+| `code` | string | the rule's id | the event's code: lower-case letters, digits, `.`, `-`, `_` (a `ups` rule's is upst-core's) |
+| `text`, `recovered_text` | string | `{rule}: {value}`, `{rule}: back to normal after {duration}` | the event with names: `{value}`, `{name}` (the thing's key, or the source), `{duration}` (how long the trouble lasted), `{rule}`, `{source}`, `{text}` (upst-core's words), `{computer}` |
+| `plain`, `recovered_plain` | string | `{rule}`, as above | the same without names, which a target with `names = false` sends: `{value}`, `{duration}` and `{rule}` only |
+| `priority` | integer, 1–5 | | ntfy's priority for its start, whatever the target's |
+| `tags` | list of strings | | and its tags |
+
+**`kind = "value"`** looks at a value ([Values](#values); `elamond values` lists them, a source's
+begin with its id). A `*` in the place of a thing's key makes it a rule of each thing:
+`disk.*.percent`, `link.*.unit_state`, `gpu.*.temp`.
+
+| key | type | |
+|---|---|---|
+| `value` | address | what it looks at |
+| `when` | `warning` \| `critical` | trouble while the value is at that [level](#levels) or worse, as the service judges it everywhere else: one limit for the dashboard and the rule |
+| `above`, `below` | number | trouble while the number is above, or below, this |
+| `equals`, `not` | string, number or bool | trouble while the value is this, or isn't |
+| `also` | `{ value, when \| above \| below \| equals \| not }` | a second condition that must hold too (the battery low, and not on AC) |
+
+One of `when`, `above`, `below`, `equals` and `not`. A value that isn't there (a disk unmounted, a
+source that failed) changes nothing: the rule stays as it was until the value is back.
+
+**`kind = "ups"`** goes by what a [`nut` source](#upses-and-power-stations-nut) says happened,
+upst-core's events by their codes (`power.lost`, `power.started_on_battery`, `power.restored`,
+`power.left_battery`, `battery.low`, `battery.low.cleared`, `upsd.lost`, `upsd.unreachable`,
+`upsd.back`, `load.overload`, `battery.replace`…; the service's journal names each as it comes).
+What a recorder's journal tells of the time before makes no events.
+
+| key | type | |
+|---|---|---|
+| `codes` | list of codes | what begins the trouble |
+| `ends` | list of codes | what ends it; without, each of `codes` is an event that stands alone |
+| `ends_always` | bool, `false` | tell an end whenever it comes, a trouble told before it or not: without, upsd answering for the first time after a start it wasn't there for is no event |
+| `source` | source id | the one source it hears; every `nut` source without |
+
+**`kind = "boot"`** tells once that the computer started: the service finds a boot other than the
+one it saw last. A restart of the service alone is no event.
+
+The rules elamond starts with:
+
+| id | on | what |
+|---|---|---|
+| `disk` | yes | a filesystem above 90% for a minute, calm again at 88% |
+| `cpu-temp` | yes | the CPU at its sensor's `critical` for 30 seconds |
+| `gpu-temp` | no | the same of a GPU: reading an NVIDIA card's values wakes it, every `background` seconds |
+| `unit` | yes | a [link](#links)'s unit `failed` |
+| `battery` | yes | the laptop's battery `critical` (below 15%) while not on AC |
+| `power-saver` | no | the power profile is `power-saver` (`info`) |
+| `boot` | no | the computer started (`info`) |
+| `ups-battery` | yes | a UPS on battery, and the power back, with how long it was gone |
+| `ups-low` | yes | a UPS's battery low (`critical`) |
+| `ups-link` | yes | upsd not answering for a minute, and answering again |
+
+`elamond check` names a rule's value that this computer hasn't, a rule without a test or with
+two, a `ups` rule on a source that isn't there, a `{…}` a text can't hold; and warns of a code
+upst-core doesn't give. Its `Events:` line says how many rules are on and where their events go.
+
+### Targets: ntfy
+
+`[notify.<id>]`: an ntfy topic, on ntfy.sh or a server of your own. Install the ntfy app, think of
+a long random topic and subscribe to it, and put it in a file only you can read. The topic is
+all that protects it on a public server: whoever knows it reads what is sent, and the server sees
+it too, which is why a target starts with `names = false`: `A disk is 93% full`, not which disk
+of which computer.
+
+| key | type | `[events.target]` starts as | |
+|---|---|---|---|
+| `topic_file` | path | (required) | the file whose first line is the topic: `chmod 600` |
+| `token_file` | path | | for a server that wants one: sent as `Authorization: Bearer …` |
+| `url` | string | `https://ntfy.sh` | the server |
+| `enabled` | bool | `true` | |
+| `level` | level | `warning` | the least level sent; the end of a trouble goes by the level of its start |
+| `names` | bool | `false` | send `text` rather than `plain`, and `title_names` rather than `title` |
+| `rules` | list of rule ids | `[]` | the rules sent; every rule when empty |
+| `title`, `title_names` | string | `Elamon`, `{computer}` | the notification's title (`elamond notify --title` gives its own); `{computer}`, `{rule}`, `{code}`, `{level}` |
+| `message` | string | `{text}` | its text: `{text}` the event's, and those of the title |
+| `priority` | table by `info`, `warning`, `critical`, `recovered` | 2, 4, 5, 2 | ntfy's priority, 1 (min) to 5 (max); `recovered` is a trouble's end |
+| `tags` | table by the same, of lists | none, `warning`, `rotating_light`, `white_check_mark` | ntfy's tags (emoji names) |
+| `timeout` | seconds, 1–120 | 10 | how long a request may take |
+| `retries`, `retry`, `retry_max` | integers | 5, 10, 300 | how often a request that failed is tried again, the first time after `retry` seconds, twice as long each time up to `retry_max` |
+| `queue` | integer | 50 | events waiting at most; beyond, the oldest goes |
+| `expire` | seconds | 1800 | an event that has waited this long isn't sent any more |
+| `burst`, `per` | integers | 20, 3600 | notifications in `per` seconds at most; those beyond are told as one, once there is room |
+| `more` | string | `… and {count} more events` | that one's text |
+
+A request is tried again when the network or the server fails (no answer, 429, 5xx) and given up
+when the server refuses it (another 4xx, a redirect) or the topic file can't be read. What waits
+is in memory: after a restart of the service nothing is sent late. The topic and the token are
+read from their files for each request and go to `curl` on its standard input with the body, never
+among its arguments; they are in no journal, no error, no `ui` and no backup.
+
+`elamond events` lists what is kept, each event with how sending it went: `sent`, `not sent:
+below warning`, `held back: …`, `failed: HTTP 401`.
+
 ## Actions
 
 What a client may run on the computer. There are built-in ones, and the ones the settings add,
@@ -597,6 +771,13 @@ profiles. Settings started before 0.8 have neither, nor the button and the row a
 `elamond defaults dashboards.journal` and `dashboards.unit_log` into `elamond.d/dashboards.toml`,
 and the two widgets from `dashboards.control`.
 
+`events` is what the rules and `elamond notify` told ([Events and
+notifications](#events-and-notifications)), newest last, which Control's *Events* button opens:
+for `[events]`'s `role` and up, and no tab of the starter's profiles either. Settings started
+before 0.9 have neither it, the button nor any rule: copy `elamond defaults dashboards.events`,
+the button from `dashboards.control`, and `elamond defaults rules` (into `elamond.d/events.toml`,
+say).
+
 ```toml
 [dashboards.power]
 title = "Power"
@@ -729,7 +910,7 @@ label = "System journal"
 
 | key | type | default | |
 |---|---|---|---|
-| `scope` | `system` \| `user` \| `unit` | `system` | the system journal (as far as elamond's user may read it), that user's own, or one unit's |
+| `scope` | `system` \| `user` \| `unit` \| `events` | `system` | the system journal (as far as elamond's user may read it), that user's own, one unit's, or the service's own [events](#events-and-notifications) |
 | `unit` | string | | with `scope = "unit"`: the `unit` of one of the [links](#links) (`"{item.unit}"` in a dashboard `for_each = "links"`); the link's `scope` says whether it is a system or a user unit |
 | `level` | `debug` \| `info` \| `notice` \| `warning` \| `error` \| `critical` | `info` | the least level shown at first; the client may pick another |
 | `lines` | integer, 10–1000 | 200 | the lines a client keeps on screen |
@@ -742,6 +923,10 @@ journal's priorities: 0–2 `critical`, 3 `error`, 4 `warning`, 5 `notice`, 6 `i
 `info` for a line without one. A client picks another level and searches (the text, unit and name
 of each line) through the service, and loads older lines as it is scrolled back
 ([protocol](protocol.md#get-apiv1log)).
+
+With `scope = "events"` it shows no journal but the events the service keeps: each a line, the
+rule's id where a journal's line has its program, the level `info`, `warning` or `critical`, the
+text with names. Its role is `[events]`'s `role` at least.
 
 The service reads the journal with systemd's `journalctl`, and only while a client shows a `log`.
 The system journal needs elamond's user in the `systemd-journal` group (or `adm`, or `wheel`, where
