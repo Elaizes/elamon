@@ -184,8 +184,6 @@ fun MachineScreen(
 		onDispose { view.keepScreenOn = false }
 	}
 
-	BackHandler(enabled = shownPages.isNotEmpty()) { pages = shownPages.dropLast(1) }
-
 	val name = ui?.service?.name?.ifEmpty { null } ?: machine.name
 	val connStatus = connText(state.conn, want.intervalMs)
 	val updating = stringResource(R.string.conn_updating)
@@ -194,7 +192,11 @@ fun MachineScreen(
 	val statusOf = { d: String? -> if (state.conn == Conn.Live && d != null && !liveOn(d)) updating else connStatus }
 	// Unpaired, another certificate, refused or not understood: the screen is a notice, with no
 	// tabs to switch between and no old numbers coming back.
-	val turnedAway = state.conn in setOf(Conn.Unauthorized, Conn.CertificateChanged, Conn.Refused, Conn.Incompatible)
+	val turnedAway = turnsAway(state.conn)
+	// The page open over the tabs while it is on screen: the bar names it, and Back closes it. Under
+	// a notice the bar is the computer's, and Back leaves it.
+	val page = pageShown(current, shownPages, turnedAway)
+	BackHandler(enabled = page != null) { pages = shownPages.dropLast(1) }
 	val currentList = lists.getOrPut(current ?: "") { LazyListState() }
 	val collapsed = rememberCollapsed(currentList)
 	val haptics = LocalHapticFeedback.current
@@ -307,11 +309,11 @@ fun MachineScreen(
 				}
 
 				GlassTopBar(
-					title = if (current != null && current in shownPages) ui?.dashboard(current)?.title ?: name else name,
+					title = page?.let { ui?.dashboard(it)?.title } ?: name,
 					// No big title on a notice: the bar says whose it is.
 					collapsed = collapsed || ui == null || turnedAway || current == null,
-					onBack = { if (shownPages.isNotEmpty()) pages = shownPages.dropLast(1) else onBack() },
-					subtitle = if (current != null && current in shownPages) name else statusOf(current),
+					onBack = { if (page != null) pages = shownPages.dropLast(1) else onBack() },
+					subtitle = if (page != null) name else statusOf(current),
 					actions = {
 						IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.machine_more)) }
 						DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -525,6 +527,18 @@ private fun Tried(hosts: List<String>) {
 		)
 	}
 }
+
+/** Whether the computer turned this phone away (unpaired, another certificate, refused, not understood): its screen is a notice then. */
+internal fun turnsAway(conn: Conn): Boolean = conn in TURNED_AWAY
+
+private val TURNED_AWAY = setOf(Conn.Unauthorized, Conn.CertificateChanged, Conn.Refused, Conn.Incompatible)
+
+/**
+ * The page the top bar names and Back closes: [current], when it is one of the open [pages] and on
+ * screen. Turned away, the screen is the computer's notice whatever page was open: none.
+ */
+internal fun pageShown(current: String?, pages: List<String>, turnedAway: Boolean): String? =
+	current?.takeIf { !turnedAway && it in pages }
 
 @Composable
 private fun connText(conn: Conn, intervalMs: Int): String = when (conn) {
