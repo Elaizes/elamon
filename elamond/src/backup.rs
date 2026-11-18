@@ -341,6 +341,16 @@ pub fn restore_into(c: &Contents, dir: &Path, settings: Option<&SettingsPlace>) 
 			fs::remove_file(&stock)?;
 			restored.settings_removed.push(stock);
 		}
+		// The same of its elamond.d/events.toml: settings that had no rules get none from it.
+		let events = format!("{}/{}", store::DROPIN_DIR, crate::migrate::EVENTS_FILE);
+		let stock = place.dir.join(&events);
+		if c.settings.contains_key(store::CONFIG_FILE)
+			&& !c.settings.contains_key(&events)
+			&& fs::read_to_string(&stock).is_ok_and(|t| t == crate::migrate::starter_events())
+		{
+			fs::remove_file(&stock)?;
+			restored.settings_removed.push(stock);
+		}
 		if let Ok(entries) = fs::read_dir(place.dir.join(store::DROPIN_DIR)) {
 			let mut kept: Vec<PathBuf> = entries
 				.flatten()
@@ -851,13 +861,14 @@ mod tests {
 		let fresh = SettingsPlace { dir: to.join("fresh"), main: to.join("fresh/elamond.toml") };
 		crate::migrate::write_starter(&fresh.main).unwrap();
 		let r = restore_into(&c, &to.join("data"), Some(&fresh)).unwrap();
-		assert_eq!(r.settings_removed, [to.join("fresh/elamond.d/dashboards.toml")]);
-		assert!(!to.join("fresh/elamond.d/dashboards.toml").exists());
+		assert_eq!(r.settings_removed, [to.join("fresh/elamond.d/dashboards.toml"), to.join("fresh/elamond.d/events.toml")]);
+		assert!(!to.join("fresh/elamond.d/dashboards.toml").exists() && !to.join("fresh/elamond.d/events.toml").exists());
 		let changed = SettingsPlace { dir: to.join("changed"), main: to.join("changed/elamond.toml") };
 		crate::migrate::write_starter(&changed.main).unwrap();
 		fs::write(to.join("changed/elamond.d/dashboards.toml"), "[dashboards.mine]\ntitle = \"Mine\"\n").unwrap();
 		let r = restore_into(&c, &to.join("data"), Some(&changed)).unwrap();
-		assert!(r.settings_removed.is_empty() && r.settings_kept.contains(&to.join("changed/elamond.d/dashboards.toml")));
+		// Its untouched events.toml goes all the same: the backup's settings had no rules.
+		assert!(r.settings_removed == [to.join("changed/elamond.d/events.toml")] && r.settings_kept.contains(&to.join("changed/elamond.d/dashboards.toml")));
 		assert_eq!(r.settings_written.len(), 2);
 
 		// A main file NixOS or Home Manager make, or one that can't be written, is left alone.

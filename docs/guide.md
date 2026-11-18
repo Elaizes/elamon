@@ -1282,9 +1282,12 @@ module's defaults. Settings from before 0.9 have none: `elamond defaults rules` 
 defaults events` print them to copy, with `elamond defaults dashboards.events` and the Events
 button of `dashboards.control`.
 
-Change one by naming its key:
+Change one by naming its key, in `elamond.d/events.toml` itself or in a file of elamond.d/ whose
+name comes after it (files are read by name, the later one winning; the same lines in elamond.toml
+would lose to events.toml):
 
 ```toml
+# ~/.config/elamon/elamond.d/mine.toml
 [rules.disk]
 above = 85          # sooner
 level = "critical"
@@ -1325,7 +1328,8 @@ plain = "The queue is {value} long"        # what a target without names sends
   past the limit a number must go. `again` keeps a thing that flaps quiet for a while.
 - A `*` makes it a rule of each thing: `disk.*.percent`, `link.*.unit_state`; `{name}` is the
   thing's key.
-- A source a rule looks at is read at its own `interval`, whether or not a phone shows it.
+- A source a rule looks at is read at its own `interval`, whether or not a phone shows it; a UPS
+  a rule hears is asked on the same way.
 - For a UPS: `kind = "ups"` with `codes`, what upst-core calls what happened (`power.lost`,
   `battery.low`, `load.overload`…), and `ends`, what ends it.
 

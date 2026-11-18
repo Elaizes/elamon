@@ -53,6 +53,8 @@ pub const LOG_LEVELS: [&str; 6] = ["debug", "info", "notice", "warning", "error"
 pub const LEGENDS: [&str; 3] = ["duration", "percent", "both"];
 /// The roles an action may ask for.
 pub const ACTION_ROLES: [&str; 2] = ["operate", "admin"];
+/// The roles events may be for: a `log` is never `glance`'s.
+pub const EVENT_ROLES: [&str; 3] = ["monitor", "operate", "admin"];
 /// The widgets that are 4 columns wide unless they say otherwise.
 pub const WIDE: [&str; 8] = ["graph", "table", "list", "group", "media", "text", "timeline", "log"];
 
@@ -1176,8 +1178,10 @@ pub fn record(name: &str) -> Vec<Key> {
 		"events" => vec![
 			k("keep", Ty::Int(10, 100_000)),
 			k("keep_days", Ty::Int(1, 3650)),
-			k("role", role()),
+			k("role", Ty::Enum("role", &EVENT_ROLES)),
 			k("background", Ty::Int(5, 3600)),
+			k("fahrenheit", Ty::Bool),
+			k("network_bits", Ty::Bool),
 			k("notify", Ty::Rec("events_notify")),
 			k("rule", Ty::Rec("rule")),
 			k("target", Ty::Rec("target_defaults")),
@@ -1186,7 +1190,7 @@ pub fn record(name: &str) -> Vec<Key> {
 			k("level", event_level()),
 			k("rule", Ty::Id),
 			k("code", Ty::Str),
-			k("length", Ty::Int(1, 4000)),
+			k("length", Ty::Int(1, 2000)),
 			k("burst", Ty::Int(1, 1000)),
 			k("per", Ty::Int(1, 86_400)),
 		],

@@ -144,6 +144,8 @@ pub struct Station {
 	/// Where what happens to it is told, for the rules of the settings (`crate::events`): of a
 	/// source the service runs, not of one read for `elamond values`.
 	heard: Option<Arc<Mutex<Vec<Heard>>>>,
+	/// It has been read since it started.
+	watching: bool,
 	/// Every outlet it has had, by number, with its fields as last told.
 	outlets: BTreeMap<u32, BTreeMap<&'static str, V>>,
 	/// What upsd last said the station offers, kept while it can't be reached; and what it said of
@@ -203,6 +205,7 @@ impl Station {
 			too_many: false,
 			known,
 			heard: None,
+			watching: false,
 			outlets: BTreeMap::new(),
 			meta: None,
 			infos: BTreeMap::new(),
@@ -378,6 +381,13 @@ impl Station {
 			Update::Vars { ups, vars, at } if ups == src.ups => {
 				let e = self.polled(vars, at);
 				self.say(&e);
+				// Its first reading: what it tells from now on is every change.
+				if !std::mem::replace(&mut self.watching, true)
+					&& let Some(heard) = &self.heard
+				{
+					let mut heard = heard.lock().unwrap_or_else(|p| p.into_inner());
+					heard.push(Heard { source: self.id.clone(), code: crate::events::rules::WATCHING.into(), text: String::new(), t: upst_core::unix(at) as u64 * 1000 });
+				}
 				return Some(at);
 			}
 			Update::NoData { ups, error } if ups == src.ups => self.lost(Link::Stale(error), now).into_iter().collect(),

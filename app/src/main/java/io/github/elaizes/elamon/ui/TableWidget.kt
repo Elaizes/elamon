@@ -420,7 +420,8 @@ fun TableSheet(scope: DashScope) {
 						val label = ra.label ?: action.name
 						val kill = params["signal"].text() == "kill"
 						FilledTonalButton(
-							onClick = { scope.actions.launch(action, params, "$label $name", key = action.id + "/" + row.key, button = label, afterAsking = { scope.tables.close() }) },
+							// The tables' state alone goes with the request: it outlives this screen's scope.
+							onClick = { val tables = scope.tables; scope.actions.launch(action, params, "$label $name", key = action.id + "/" + row.key, button = label, afterAsking = { tables.close() }) },
 							enabled = scope.actions.enabled(action, null) && !gone && !busy,
 							modifier = Modifier.weight(1f),
 						) {

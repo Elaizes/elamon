@@ -273,7 +273,11 @@ pub async fn run(mut rx: mpsc::UnboundedReceiver<Outgoing>, mut settings: watch:
 		let until = wake(&lines, &config);
 		tokio::select! {
 			got = rx.recv() => match (got, kept.upgrade()) {
-				(Some(o), Some(events)) => take(&mut lines, &o, &settings.borrow(), &computer, &events, Instant::now()),
+				// The settings as they are now, let go of before anything is done with them.
+				(Some(o), Some(events)) => {
+					let config = settings.borrow().clone();
+					take(&mut lines, &o, &config, &computer, &events, Instant::now());
+				}
 				_ => return,
 			},
 			_ = async { match until { Some(at) => tokio::time::sleep_until(at).await, None => std::future::pending().await } } => {}

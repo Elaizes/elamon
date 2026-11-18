@@ -27,7 +27,7 @@ pub fn at_start(place: &Place) {
 			let main = place.main();
 			if fs::symlink_metadata(&main).is_err() {
 				match write_starter(&main) {
-					Ok(()) => eprintln!("settings: wrote {} and its {}/{DASHBOARDS_FILE}, the settings elamond starts with (control is off)", store::shown(&main), store::DROPIN_DIR),
+					Ok(()) => eprintln!("settings: wrote {} and its {}/{DASHBOARDS_FILE} and {EVENTS_FILE}, the settings elamond starts with (control is off)", store::shown(&main), store::DROPIN_DIR),
 					Err(e) => eprintln!("settings: can't write {}, the settings to start from: {e}", store::shown(&main)),
 				}
 			}

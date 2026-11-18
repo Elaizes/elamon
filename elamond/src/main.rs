@@ -595,7 +595,10 @@ fn collect_loop(
 		// or its history is kept.
 		// The same of one a rule looks at.
 		let mut heads = hub.wanted_heads();
-		hub.nut.set_demand(&heads, &tracked.1, &timelines);
+		// A UPS a rule hears or looks at is asked on with nobody looking, as one a timeline shows is.
+		let mut kept = timelines.clone();
+		kept.extend(rule_needs.1.ups.iter().cloned());
+		hub.nut.set_demand(&heads, &tracked.1, &kept);
 		heads.extend(rule_needs.1.heads.iter().cloned());
 		hub.feeds.set_demand(&heads, &tracked.1);
 		// What the rules make of this reading and of what the UPS sources said since the last,

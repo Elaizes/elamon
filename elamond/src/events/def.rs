@@ -59,6 +59,9 @@ pub struct EventsDef {
 	pub keep_days: u64,
 	pub role: Role,
 	pub background: u64,
+	/// The units `{value}` is told in: temperatures in °F, network rates in bit/s.
+	pub fahrenheit: bool,
+	pub network_bits: bool,
 	pub notify: NotifyDef,
 	/// `[events.rule]` and `[events.target]`: already in each rule and target.
 	#[serde(default)]
@@ -310,6 +313,12 @@ pub fn check(c: &Config, push: &mut impl FnMut(String, String)) {
 				push(at("priority"), format!("has no {mood}"));
 			}
 		}
+		for (key, mood) in t.priority.keys().map(|m| ("priority", m)).chain(t.tags.keys().map(|m| ("tags", m))) {
+			if !MOODS.contains(&mood.as_str()) {
+				let hint = settings::suggest(mood, MOODS).map(|h| format!("; did you mean {h}?")).unwrap_or_default();
+				push(at(key), format!("no \"{mood}\" here: {}{hint}", MOODS.join(", ")));
+			}
+		}
 		if t.retry_max < t.retry {
 			push(at("retry_max"), "is less than retry".into());
 		}
@@ -376,12 +385,14 @@ pub fn summary(c: &Config) -> String {
 }
 
 /// What only the rules need read: the heads of their values' addresses (a `command`, `http` or
-/// `file` source's id among them), whether a link's, and whether a GPU's.
+/// `file` source's id among them), whether a link's, whether a GPU's, and the UPS sources their
+/// rules hear or look at, which are asked on for them.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Needs {
 	pub heads: std::collections::BTreeSet<String>,
 	pub links: bool,
 	pub gpus: bool,
+	pub ups: std::collections::BTreeSet<String>,
 }
 
 impl Needs {
@@ -393,6 +404,15 @@ impl Needs {
 				n.links |= head == "link";
 				n.gpus |= head == "gpu";
 				n.heads.insert(head.to_string());
+				if c.sources.contains_key(head) {
+					n.ups.insert(head.to_string());
+				}
+			}
+		}
+		for r in c.rules.values().filter(|r| r.enabled && r.kind == Kind::Ups) {
+			match &r.source {
+				Some(s) => drop(n.ups.insert(s.clone())),
+				None => n.ups.extend(c.sources.keys().cloned()),
 			}
 		}
 		n

@@ -372,7 +372,7 @@ interval = 5
 
 A source is read only while it is needed: while some client has a dashboard (or the header) on
 screen that shows one of its values, while a graph or a spark of the settings shows one, or with
-`history = true`; otherwise not at all. Needed again, it is read at once if its last read is older
+`history = true`, or while an enabled [rule](#rules) looks at one; otherwise not at all. Needed again, it is read at once if its last read is older
 than `interval`. One read of a source runs at a time, the next waiting for it; a slow one never
 holds up the computer's readings or another source's.
 
@@ -453,6 +453,11 @@ out is `[events.rule]`'s, a key a target leaves out is `[events.target]`'s, and 
 leaves out is the one of the settings elamond starts with (`elamond defaults events`), so settings
 written before 0.9 read as they did: no rules, no targets, nothing sent.
 
+Files are read in order, elamond.toml first and then elamond.d/ by name, a later one winning key
+by key: change a standard rule in `elamond.d/events.toml` itself, or in a drop-in whose name comes
+after it (`elamond.d/mine.toml`, `rules.toml`). The same key in elamond.toml, or in a drop-in
+named before `events`, is overridden by events.toml without a word.
+
 ```toml
 [notify.phone]
 topic_file = "/home/you/.config/elamon/ntfy.topic"   # chmod 600; its first line is the topic
@@ -474,8 +479,9 @@ plain = "The queue is {value} long"
 |---|---|---|---|
 | `keep` | integer, 10–100 000 | 1000 | events kept at most |
 | `keep_days` | integer, 1–3650 | 30 | and for how many days |
-| `role` | role | `monitor` | the least role that sees them: they name units, disks and sources |
+| `role` | `monitor` \| `operate` \| `admin` | `monitor` | the least role that sees them: they name units, disks and sources |
 | `background` | integer of seconds, 5–3600 | 30 | how often what only a rule needs is read while no client shows it: links' units, and a GPU's values for a rule on them |
+| `fahrenheit`, `network_bits` | bool | `false` | the units a rule's `{value}` is told in: temperatures in °F, network rates in bit/s |
 | `notify` | table | | `elamond notify`, below |
 | `rule` | table of a rule's keys | | what a rule's keys are when the rule leaves them out |
 | `target` | table of a target's keys | | the same of a target (`topic_file` and `token_file` aside) |
@@ -487,7 +493,7 @@ plain = "The queue is {value} long"
 | `level` | `info` \| `warning` \| `critical` | `info` | the level without `--level` |
 | `rule` | id | `notify` | what its events are called, where a rule's have the rule's id (a target's `rules` may name it) |
 | `code` | string | `notify` | their code |
-| `length` | integer, 1–4000 | 500 | characters of text taken; a longer one is refused |
+| `length` | integer, 1–2000 | 500 | characters of text taken; a longer one is refused (a `--title` is cut at 64) |
 | `burst`, `per` | integers | 10, 60 | events it may make in `per` seconds; the rest are dropped, which the service's journal says |
 
 The command leaves the event for the running service, which takes it within its tick; without
@@ -513,7 +519,7 @@ nothing twice; a rule turned off or taken out is forgotten.
 | `recovered` | bool | `true` | whether the end is an event |
 | `recovered_level` | level | `info` | its level |
 | `code` | string | the rule's id | the event's code: lower-case letters, digits, `.`, `-`, `_` (a `ups` rule's is upst-core's) |
-| `text`, `recovered_text` | string | `{rule}: {value}`, `{rule}: back to normal after {duration}` | the event with names: `{value}`, `{name}` (the thing's key, or the source), `{duration}` (how long the trouble lasted), `{rule}`, `{source}`, `{text}` (upst-core's words), `{computer}` |
+| `text`, `recovered_text` | string | `{rule}: {value}`, `{rule}: back to normal after {duration}` | the event with names: `{value}`, `{name}` (the thing's key, or the source), `{duration}` (how long the trouble lasted, from its first sign, `for` included; whole minutes, one at the least; empty for an end told by `ends_always` alone), `{rule}`, `{source}`, `{text}` (upst-core's words), `{computer}`. What is filled in is never read again: braces in a value stay as they are |
 | `plain`, `recovered_plain` | string | `{rule}`, as above | the same without names, which a target with `names = false` sends: `{value}`, `{duration}` and `{rule}` only |
 | `priority` | integer, 1–5 | | ntfy's priority for its start, whatever the target's |
 | `tags` | list of strings | | and its tags |
@@ -537,7 +543,11 @@ source that failed) changes nothing: the rule stays as it was until the value is
 upst-core's events by their codes (`power.lost`, `power.started_on_battery`, `power.restored`,
 `power.left_battery`, `battery.low`, `battery.low.cleared`, `upsd.lost`, `upsd.unreachable`,
 `upsd.back`, `load.overload`, `battery.replace`…; the service's journal names each as it comes).
-What a recorder's journal tells of the time before makes no events.
+What a recorder's journal tells of the time before makes no events. A source a `ups` rule hears,
+or a `value` rule looks at, is asked on with nobody looking, as one with `history = true` is.
+When a source starts anew (with the service, or as its settings change) and finds none of a
+rule's `codes` to tell of, a trouble kept from before is over, without an event: the power came
+back while nobody was watching. `for` holds a `ups` rule's start back; `clear_for` is not its.
 
 | key | type | |
 |---|---|---|
@@ -590,11 +600,11 @@ of which computer.
 | `priority` | table by `info`, `warning`, `critical`, `recovered` | 2, 4, 5, 2 | ntfy's priority, 1 (min) to 5 (max); `recovered` is a trouble's end |
 | `tags` | table by the same, of lists | none, `warning`, `rotating_light`, `white_check_mark` | ntfy's tags (emoji names) |
 | `timeout` | seconds, 1–120 | 10 | how long a request may take |
-| `retries`, `retry`, `retry_max` | integers | 5, 10, 300 | how often a request that failed is tried again, the first time after `retry` seconds, twice as long each time up to `retry_max` |
+| `retries`, `retry`, `retry_max` | integers | 12, 10, 300 | how often a request that failed is tried again, the first time after `retry` seconds, twice as long each time up to `retry_max`: as they start, for longer than `expire`, which then ends it |
 | `queue` | integer | 50 | events waiting at most; beyond, the oldest goes |
 | `expire` | seconds | 1800 | an event that has waited this long isn't sent any more |
 | `burst`, `per` | integers | 20, 3600 | notifications in `per` seconds at most; those beyond are told as one, once there is room |
-| `more` | string | `… and {count} more events` | that one's text |
+| `more` | string | `… and {count} more events` | that one's text; it has `info`'s priority and tags |
 
 A request is tried again when the network or the server fails (no answer, 429, 5xx) and given up
 when the server refuses it (another 4xx, a redirect) or the topic file can't be read. What waits

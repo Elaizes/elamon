@@ -14,6 +14,9 @@ role = "monitor"
 # Seconds between reads of what only a rule needs while no phone shows it: links' units and,
 # for a rule on a GPU's values, the GPU (which wakes a sleeping NVIDIA card).
 background = 30
+# The units a rule's {value} is told in: temperatures in °F, network rates in bit/s.
+fahrenheit = false
+network_bits = false
 
 # `elamond notify`: the level without --level, what its events are called, the characters of
 # text taken, and how many events it may make in `per` seconds (the rest are dropped).
@@ -71,9 +74,10 @@ message = "{text}"
 priority = { info = 2, warning = 4, critical = 5, recovered = 2 }
 tags = { info = [], warning = ["warning"], critical = ["rotating_light"], recovered = ["white_check_mark"] }
 # Seconds a request may take; how often one that failed is tried again, the first time after
-# `retry` seconds and then twice as long each time, up to `retry_max`.
+# `retry` seconds and then twice as long each time, up to `retry_max`: these outlast `expire`,
+# which then ends the trying.
 timeout = 10
-retries = 5
+retries = 12
 retry = 10
 retry_max = 300
 # Events waiting at most, and the seconds after which one is no longer worth sending.

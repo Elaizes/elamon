@@ -108,6 +108,8 @@ struct Log {
 	entries: VecDeque<(Event, Vec<Delivery>)>,
 	/// Lines in the file, to know when to write it anew.
 	lines: usize,
+	/// The lines it had when it was last written anew.
+	floor: usize,
 	next: u64,
 	told: bool,
 }
@@ -115,9 +117,10 @@ struct Log {
 impl Log {
 	fn load(dir: &Path) -> Log {
 		let path = dir.join(FILE);
-		let mut log = Log { path, entries: VecDeque::new(), lines: 0, next: 1, told: false };
-		let text = match fs::read_to_string(&log.path) {
-			Ok(t) => t,
+		let mut log = Log { path, entries: VecDeque::new(), lines: 0, floor: 0, next: 1, told: false };
+		// Bytes, each line read as far as it is text: one torn by a power cut loses itself alone.
+		let text = match fs::read(&log.path) {
+			Ok(t) => String::from_utf8_lossy(&t).into_owned(),
 			Err(e) => {
 				if e.kind() != io::ErrorKind::NotFound {
 					eprintln!("events: can't read {}: {e}; starting anew", log.path.display());
@@ -155,8 +158,9 @@ impl Log {
 	}
 
 	fn write(&mut self, line: &Kept, keep: usize) {
-		// Written anew once it holds three times what is kept: deliveries are lines too.
-		let written = if self.lines + 1 > keep.max(self.entries.len()).saturating_mul(3) {
+		// Written anew once it holds three times what is kept, or what it held when last written
+		// anew, whichever is more: deliveries are lines too, several an event with several targets.
+		let written = if self.lines + 1 > keep.max(self.floor).saturating_mul(3) {
 			let mut text = Vec::new();
 			let mut lines = 0;
 			for (e, sent) in &self.entries {
@@ -166,7 +170,10 @@ impl Log {
 					lines += 1;
 				}
 			}
-			crate::store::write_private(&self.path, &text).map(|()| self.lines = lines)
+			crate::store::write_private(&self.path, &text).map(|()| {
+				self.lines = lines;
+				self.floor = lines;
+			})
 		} else {
 			append(&self.path, line).map(|()| self.lines += 1)
 		};
@@ -198,7 +205,7 @@ fn priority(level: Lvl) -> u8 {
 
 /// An event as a `log` shows it: the rule in the program's place, the text with names.
 fn line(e: &Event) -> Line {
-	Line { seq: 0, us: e.t * 1000 + e.n % 1000, priority: priority(e.level), unit: None, id: Some(e.rule.clone()), text: e.text.clone() }
+	Line { seq: 0, us: e.t.saturating_mul(1000).saturating_add(e.n % 1000), priority: priority(e.level), unit: None, id: Some(e.rule.clone()), text: e.text.clone() }
 }
 
 /// The service's events: kept, shown and handed to the targets.
@@ -209,6 +216,8 @@ pub struct Events {
 	dir: PathBuf,
 	/// The settings as the targets go by them, and the events for them.
 	settings: tokio::sync::watch::Sender<Arc<Config>>,
+	/// `[events] keep`, as last taken: read where the settings themselves mustn't be waited for.
+	keep: std::sync::atomic::AtomicUsize,
 	out: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Outgoing>>>,
 }
 
@@ -229,7 +238,8 @@ impl Events {
 			buffer.push(line(e));
 		}
 		buffer.ready();
-		Events { log: Mutex::new(log), buffer: Arc::new(Mutex::new(buffer)), dir: dir.to_path_buf(), settings: tokio::sync::watch::channel(config).0, out: Mutex::new(None) }
+		let keep = std::sync::atomic::AtomicUsize::new(config.events.keep);
+		Events { log: Mutex::new(log), buffer: Arc::new(Mutex::new(buffer)), dir: dir.to_path_buf(), settings: tokio::sync::watch::channel(config).0, keep, out: Mutex::new(None) }
 	}
 
 	fn log(&self) -> MutexGuard<'_, Log> {
@@ -246,6 +256,7 @@ impl Events {
 
 	/// Newly read settings: what is kept, and where events go from now on.
 	pub fn apply(&self, config: Arc<Config>) {
+		self.keep.store(config.events.keep, std::sync::atomic::Ordering::Relaxed);
 		self.settings.send_replace(config);
 	}
 
@@ -266,7 +277,9 @@ impl Events {
 		};
 		log.next += 1;
 		log.entries.push_back((event.clone(), Vec::new()));
-		log.trim(config.events.keep, config.events.keep_days, event.t);
+		// Against the clock, or the event's own time when that is earlier: one from a clock that
+		// ran ahead takes none of the others with it.
+		log.trim(config.events.keep, config.events.keep_days, event.t.min(crate::activity::now_ms()));
 		log.write(&Kept::Event(event.clone()), config.events.keep);
 		drop(log);
 		self.buffer.lock().unwrap_or_else(|p| p.into_inner()).push(line(&event));
@@ -280,7 +293,7 @@ impl Events {
 	/// How sending the event `n` to `target` went.
 	pub fn delivered(&self, n: u64, target: &str, result: &str) {
 		let d = Delivery { sent: n, t: crate::activity::now_ms(), target: target.to_string(), result: clean(result, crate::consts::limit::WHAT_MAX) };
-		let keep = self.settings.borrow().events.keep;
+		let keep = self.keep.load(std::sync::atomic::Ordering::Relaxed);
 		let mut log = self.log();
 		let Some((_, sent)) = log.entries.iter_mut().rev().find(|(e, _)| e.n == n) else { return };
 		sent.push(d.clone());
@@ -330,8 +343,9 @@ impl Events {
 			window.push_back(now);
 			let level = n.level.unwrap_or(def.level);
 			let text = clean(&n.text, def.length);
+			// When the service took it: events stay in the order they were kept in.
 			self.record(
-				Draft { t: n.t, level, of: level, rule: def.rule.clone(), code: def.code.clone(), phase: Phase::Once, plain: text.clone(), text, title: n.title, priority: None, tags: None },
+				Draft { t: now, level, of: level, rule: def.rule.clone(), code: def.code.clone(), phase: Phase::Once, plain: text.clone(), text, title: n.title, priority: None, tags: None },
 				config,
 			);
 		}
@@ -361,6 +375,12 @@ fn spool_lock(dir: &Path) -> io::Result<fs::File> {
 	Ok(f)
 }
 
+/// The same lock, if nobody holds it now.
+fn spool_try_lock(dir: &Path) -> Option<fs::File> {
+	let f = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600).open(dir.join(SPOOL_LOCK)).ok()?;
+	f.try_lock().ok().map(|()| f)
+}
+
 /// Leaves `n` for the service that uses `dir`.
 pub fn spool(dir: &Path, n: &Notified) -> io::Result<()> {
 	let _lock = spool_lock(dir)?;
@@ -374,7 +394,8 @@ fn take_spool(dir: &Path) -> Vec<Notified> {
 	if !fs::metadata(&path).is_ok_and(|m| m.len() > 0) {
 		return Vec::new();
 	}
-	let Ok(_lock) = spool_lock(dir) else { return Vec::new() };
+	// Not waited for: a command that holds it, stopped, mustn't stop the readings. Next tick.
+	let Some(_lock) = spool_try_lock(dir) else { return Vec::new() };
 	let text = fs::File::open(&path).and_then(|f| {
 		use std::io::Read;
 		let mut text = String::new();

@@ -192,6 +192,51 @@ fn a_ups_goes_by_its_codes() {
 }
 
 #[test]
+fn a_trouble_kept_from_before_a_start_ends_when_the_source_no_longer_tells_of_it() {
+	use super::rules::WATCHING;
+	let dir = scratch("watching");
+	let c = config(STATION);
+	let tick = |e: &mut Engine, secs: u64, heard: &[Heard]| e.tick(&c, &at(secs, &[]), heard, "desk", None);
+	let mut e = Engine::load(&dir);
+	assert_eq!(tick(&mut e, 10, &[heard("power.lost", 10), heard("battery.low", 10)]).len(), 2);
+	e.save();
+	// The computer went down with the power and is back: the station, read for the first time,
+	// is on line and has nothing to tell. What was kept ends there, in silence, and the next cut
+	// is told as any.
+	let mut e = Engine::load(&dir);
+	assert!(tick(&mut e, 5000, &[heard(WATCHING, 5000)]).is_empty());
+	assert_eq!(told(&tick(&mut e, 9000, &[heard("power.lost", 9000)]))[0].2, "eco is on battery");
+	assert_eq!(told(&tick(&mut e, 9060, &[heard("power.restored", 9060)]))[0].2, "eco: the power is back after 1 min");
+	// Started anew while still on battery, the station says so first: the same trouble, no event.
+	assert_eq!(tick(&mut e, 9100, &[heard("power.lost", 9100)]).len(), 1);
+	e.save();
+	let mut e = Engine::load(&dir);
+	assert!(tick(&mut e, 9200, &[heard("power.started_on_battery", 9200), heard(WATCHING, 9200)]).is_empty());
+	assert_eq!(told(&tick(&mut e, 9300, &[heard("power.restored", 9300)]))[0].0, Phase::End);
+	// Nothing is kept of what is calm and has nothing to remember.
+	let c = config("[rules.disk]\nfor = 0\n");
+	let mut e = Engine::load(&scratch("calm"));
+	let many: Vec<(String, V)> = (0..50).map(|i| (format!("disk.d{i}.percent"), V::Float(if i == 7 { 99.0 } else { 10.0 }))).collect();
+	let many: Vec<(&str, V)> = many.iter().map(|(a, v)| (a.as_str(), v.clone())).collect();
+	assert_eq!(e.tick(&c, &at(1, &many), &[], "desk", None).len(), 1);
+	assert_eq!(e.tick(&c, &at(2, &many), &[], "desk", None).len(), 0);
+	e.save();
+	let kept: serde_json::Value = serde_json::from_slice(&std::fs::read(e_path(&e)).unwrap()).unwrap();
+	assert_eq!(kept["states"].as_object().unwrap().keys().collect::<Vec<_>>(), ["disk/d7"]);
+	// What a value holds is never read as a placeholder.
+	assert_eq!(super::rules::fill("{value} on {computer}{", &[("value", "{computer} {name}"), ("computer", "desk")]), "{computer} {name} on desk{");
+	// A UPS a rule hears, or looks at, is one to ask on with nobody looking.
+	let needs = def::Needs::of(&config(&format!("{STATION}[sources.rack]\nkind = \"nut\"\nups = \"rack\"\n[rules.ups-battery]\nsource = \"eco\"\n[rules.ups-low]\nenabled = false\n[rules.ups-link]\nenabled = false\n")));
+	assert_eq!(needs.ups.iter().collect::<Vec<_>>(), ["eco"]);
+	assert_eq!(def::Needs::of(&config(STATION)).ups.len(), 1);
+	std::fs::remove_dir_all(dir).unwrap();
+}
+
+fn e_path(e: &Engine) -> PathBuf {
+	e.path().to_path_buf()
+}
+
+#[test]
 fn upsd_back_is_told_only_after_its_loss_was() {
 	let dir = scratch("upsd");
 	let c = config(STATION);
@@ -287,6 +332,10 @@ fn the_settings_of_events_are_checked() {
 		("[notify.phone]\ntopic_file = \"/x\"\ntitle = \"{name}\"\n", "no {name} here"),
 		("[events]\nkeep = 1\n", "events.keep"),
 		("[events]\nrole = \"owner\"\n", "no role \"owner\""),
+		("[events]\nrole = \"glance\"\n", "no role \"glance\""),
+		("[notify.phone]\ntopic_file = \"/x\"\npriority = { warnign = 3 }\n", "no \"warnign\" here"),
+		("[notify.phone]\ntopic_file = \"/x\"\ntags = { recoverd = [\"x\"] }\n", "did you mean recovered?"),
+		("[events.notify]\nlength = 3000\n", "events.notify.length"),
 	] {
 		let said = bad(more);
 		assert!(said.contains(says), "{more:?} → {said}");
@@ -339,9 +388,15 @@ fn events_are_kept_within_their_count_and_days_and_read_back() {
 	assert_eq!(again.newest(100), newest);
 	assert_eq!(again.record(draft(then + 30, Lvl::Critical, "More"), &c).n, 26);
 	// Older than its days, an event goes, as the next is kept or as the service starts.
-	let later = Events::load(&dir, c.clone());
-	later.record(draft(then + 3 * day, Lvl::Info, "Later"), &c);
-	assert_eq!(later.newest(100).iter().map(|(e, _)| e.n).collect::<Vec<_>>(), [27]);
+	let aged = scratch("aged");
+	let later = Events::load(&aged, c.clone());
+	later.record(draft(then - 3 * day, Lvl::Info, "Long ago"), &c);
+	assert_eq!(later.newest(100).len(), 1);
+	later.record(draft(then, Lvl::Info, "Later"), &c);
+	assert_eq!(later.newest(100).iter().map(|(e, _)| e.n).collect::<Vec<_>>(), [2]);
+	// One from a clock that ran ahead takes none of the others with it.
+	later.record(draft(then + 300 * day, Lvl::Info, "From the future"), &c);
+	assert_eq!(later.newest(100).len(), 2);
 	// As a `log` has them: the rule in the program's place, the level a journal's.
 	let (lines, more) = again.page(None, &crate::journal::Filter::new(4, None), 3);
 	assert_eq!(lines.iter().map(|l| (l.id.as_deref(), l.priority, l.text.as_str())).collect::<Vec<_>>(), [(Some("disk"), 4, "Disk 23 [2J is full"), (Some("disk"), 4, "Disk 24 [2J is full"), (Some("disk"), 2, "More")]);

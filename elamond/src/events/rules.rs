@@ -18,6 +18,10 @@ use crate::values::{Level, Scalar, Units, Values, View};
 /// The rules' states, in the data directory.
 pub const STATE_FILE: &str = "events-state.json";
 
+/// What a source says with the events of its first reading since it started (after them): from
+/// here on it tells every change, and a trouble it doesn't tell of now isn't there.
+pub const WATCHING: &str = "elamon.watching";
+
 /// What a UPS source said: an event of upst-core, by its code and in its words.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Heard {
@@ -109,12 +113,29 @@ fn addresses(pattern: &str, values: &Values) -> Vec<(Option<String>, String)> {
 		.collect()
 }
 
-/// `template` with each `{name}` of `with` filled in.
+/// `template` with each `{name}` of `with` filled in, in one pass: what is filled in is never
+/// read again, so a value that holds braces of its own brings in nothing.
 pub fn fill(template: &str, with: &[(&str, &str)]) -> String {
-	let mut out = template.to_string();
-	for (name, value) in with {
-		out = out.replace(&format!("{{{name}}}"), value);
+	let mut out = String::with_capacity(template.len());
+	let mut rest = template;
+	while let Some(at) = rest.find('{') {
+		out.push_str(&rest[..at]);
+		let known = rest[at + 1..].find('}').and_then(|end| {
+			let name = &rest[at + 1..at + 1 + end];
+			with.iter().find(|(n, _)| *n == name).map(|(_, value)| (*value, at + end + 2))
+		});
+		match known {
+			Some((value, after)) => {
+				out.push_str(value);
+				rest = &rest[after..];
+			}
+			None => {
+				out.push('{');
+				rest = &rest[at + 1..];
+			}
+		}
 	}
+	out.push_str(rest);
 	out
 }
 
@@ -191,6 +212,12 @@ impl Engine {
 		Engine { path, saved, dirty: false, booted: false }
 	}
 
+	/// Where the states are kept.
+	#[cfg(test)]
+	pub fn path(&self) -> &Path {
+		&self.path
+	}
+
 	/// Writes the states, if they changed since they were last written.
 	pub fn save(&mut self) {
 		if !self.dirty {
@@ -241,7 +268,7 @@ impl Engine {
 		self.saved.states.retain(|k, _| on(k));
 		self.dirty |= self.saved.states.len() != before;
 		// Names and all: a target that sends no names sends `plain`, which holds none.
-		let view = View::new(values, Role::Admin, Units::default());
+		let view = View::new(values, Role::Admin, Units { fahrenheit: config.events.fahrenheit, bits: config.events.network_bits });
 		for (id, rule) in config.rules.iter().filter(|(_, r)| r.enabled) {
 			match rule.kind {
 				Kind::Value => self.value(id, rule, &view, computer, now, &mut out),
@@ -269,7 +296,8 @@ impl Engine {
 				(_, Some(Truth::Between)) => Truth::Between,
 			};
 			let key = name.as_ref().map_or_else(|| id.to_string(), |n| format!("{id}/{n}"));
-			let st = self.saved.states.entry(key.clone()).or_default();
+			// A thing that is calm and has nothing to remember has no state kept.
+			let mut st = self.saved.states.get(&key).cloned().unwrap_or_default();
 			let turn = match (st.fired, truth) {
 				(_, Truth::Missing) => None,
 				(false, Truth::Bad) => (now.saturating_sub(*st.pending.get_or_insert(now)) >= rule.hold * 1000).then_some(Phase::Start),
@@ -283,7 +311,16 @@ impl Engine {
 					None
 				}
 			};
+			let st_began = st.pending;
+			let blank = !st.fired && st.pending.is_none() && (st.last == 0 || now.saturating_sub(st.last) >= rule.again * 1000);
+			if !blank {
+				self.saved.states.insert(key.clone(), st);
+			} else if self.saved.states.remove(&key).is_some_and(|was| was.last > 0) {
+				self.dirty = true;
+			}
 			let Some(phase) = turn else { continue };
+			// The trouble is as old as its first sign, `for` included.
+			let began = st_began.unwrap_or(now);
 			let value = view.text(&address, None).unwrap_or_default();
 			let told = Told { id, rule, computer, name: name.as_deref().unwrap_or_default(), source: "", value: &value, text: "", code: None };
 			match phase {
@@ -293,7 +330,7 @@ impl Engine {
 					}
 				}
 				_ => {
-					if self.begin(&key, now, rule.again) {
+					if self.begin(&key, began, rule.again) {
 						out.push(told.draft(now, Phase::Start, None));
 					}
 				}
@@ -307,6 +344,18 @@ impl Engine {
 		};
 		for h in heard.iter().filter(|h| rule.source.as_deref().is_none_or(|s| s == h.source)) {
 			let key = format!("{id}/{}", h.source);
+			// The source started anew (the service did, or its settings changed) and has told what
+			// it found: a trouble kept from before that it didn't tell of again is over, how and
+			// when unknown, so without an event. Else it would stay, and the next one go untold.
+			if h.code == WATCHING {
+				let restated = heard.iter().any(|o| o.source == h.source && rule.codes.contains(&o.code));
+				if let Some(st) = self.saved.states.get_mut(&key).filter(|st| st.fired && !restated) {
+					st.fired = false;
+					st.silent = false;
+					self.dirty = true;
+				}
+				continue;
+			}
 			let begins = rule.codes.contains(&h.code);
 			let ends = rule.ends.contains(&h.code);
 			// Without `ends`, each of its codes stands alone.
