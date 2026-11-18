@@ -51,18 +51,28 @@ if [[ "$qemu" != 1 && "$real_phone" != true ]]; then
 	exit 2
 fi
 
-# "null" when the phone never had it set: then it is deleted again rather than set.
-font_scale_before=$(adb shell settings get system font_scale | tr -d '\r')
-restore_font_scale() {
-	if [[ -z "$font_scale_before" || "$font_scale_before" == null ]]; then
-		adb shell settings delete system font_scale >/dev/null 2>&1 || true
+# The font scale and the rotation (rotate.yaml turns the phone), put back as they were afterwards;
+# "null" when the phone never had one set: then it is deleted again rather than set.
+setting() { adb shell settings get system "$1" | tr -d '\r'; }
+put_back() {
+	if [[ -z "$2" || "$2" == null ]]; then
+		adb shell settings delete system "$1" >/dev/null 2>&1 || true
 	else
-		adb shell settings put system font_scale "$font_scale_before" >/dev/null 2>&1 || true
+		adb shell settings put system "$1" "$2" >/dev/null 2>&1 || true
 	fi
+}
+font_scale_before=$(setting font_scale)
+rotation_before=$(setting accelerometer_rotation)
+user_rotation_before=$(setting user_rotation)
+restore_settings() {
+	put_back font_scale "$font_scale_before"
+	put_back accelerometer_rotation "$rotation_before"
+	put_back user_rotation "$user_rotation_before"
 }
 
 work=$(mktemp -d)
-trap 'kill "${service:-}" "${pairing:-}" "${upsd:-}" "${writer:-}" 2>/dev/null; restore_font_scale; rm -rf "$work"' EXIT
+# The service writes its history as it stops: waited for, or it writes $work/data again once gone.
+trap 'kill "${service:-}" "${pairing:-}" "${upsd:-}" "${writer:-}" 2>/dev/null; [[ -z "${service:-}" ]] || wait "$service" 2>/dev/null || true; restore_settings; rm -rf "$work"' EXIT
 
 mkdir -p "$work/cfg/elamond.d" "$work/data"
 # A simulated upsd (upst-core's demo, UPS "rack") on a loopback port of its own, for the UPS tab.
@@ -266,6 +276,15 @@ flow maestro/events.yaml
 wait "$writer" 2>/dev/null || true
 (run_elamond events) | grep -q 'notify: maestro event two' || fail "elamond events doesn't list what elamond notify made: $( (run_elamond events) )"
 [[ -f "$work/cfg/elamond.d/events.toml" ]] || fail "the service wrote no elamond.d/events.toml with its starter settings"
+# A row's sheet, an action's confirmation and its form, and the licences, each turned while open:
+# each action confirmed there runs once. Not on a real phone, where an action unlocks it instead.
+if [[ "$real_phone" != true ]]; then
+	runs() { grep -c "\"what\":\"action $1\"" "$work/data/activity.jsonl" || true; }
+	hello=$(runs "Say hello")
+	fast=$(runs "Mode fast")
+	flow maestro/rotate.yaml
+	[[ $(runs "Say hello") -eq $((hello + 1)) && $(runs "Mode fast") -eq $((fast + 1)) ]] || fail "not one run of each action confirmed across a rotation: $(cat "$work/data/activity.jsonl")"
+fi
 # What is the phone's own: the app starts on the computer opened last, Back to the list; the scale
 # and the app's own theme kept across a restart; the Test tab's timeline tells shares of the time.
 flow -e NAME="$NAME" maestro/look.yaml

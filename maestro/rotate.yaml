@@ -1,0 +1,133 @@
+# What is open over the screen stays through a rotation (A52): a table row's sheet, an action's
+# confirmation, the form of an action's values with the value chosen, and the licences in Settings.
+# Each is turned to landscape and back while open, then carried on; run.sh then finds each action
+# confirmed here once more in the service's activity log, no more. Right after events.yaml, on
+# Overview. Actions confirm rather than unlock on an emulator, which has no screen lock (run.sh
+# leaves this flow out on a real phone); run.sh puts the rotation back as it was.
+appId: io.github.elaizes.elamon.debug
+---
+- tapOn: "Control"
+- extendedWaitUntil:
+    visible: "Live.*"
+    timeout: 10000
+# A table row's sheet: the link's row, held (a tap opens its address).
+- retry:
+    maxRetries: 3
+    commands:
+      - waitForAnimationToEnd
+      - scrollUntilVisible:
+          element: "Local web"
+          timeout: 30000
+      - longPressOn: "Local web"
+      - extendedWaitUntil:
+          visible: "Address"
+          timeout: 10000
+- setOrientation: LANDSCAPE_LEFT
+- extendedWaitUntil:
+    visible: "Address"
+    timeout: 10000
+- takeScreenshot: 50-rotated-row-sheet
+- setOrientation: PORTRAIT
+- extendedWaitUntil:
+    visible: "Address"
+    timeout: 10000
+- back
+- extendedWaitUntil:
+    notVisible: "Address"
+    timeout: 10000
+# An action's confirmation, confirmed once turned back: the action runs once.
+- retry:
+    maxRetries: 3
+    commands:
+      - waitForAnimationToEnd
+      - scrollUntilVisible:
+          element: "Say hello"
+          timeout: 30000
+      - tapOn: "Say hello"
+      - extendedWaitUntil:
+          visible: "Say hello\\?"
+          timeout: 10000
+- setOrientation: LANDSCAPE_LEFT
+- extendedWaitUntil:
+    visible: "Say hello\\?"
+    timeout: 10000
+- takeScreenshot: 51-rotated-confirm
+- setOrientation: PORTRAIT
+- extendedWaitUntil:
+    visible: "Say hello\\?"
+    timeout: 10000
+- tapOn:
+    text: "Say hello"
+    rightOf: "Cancel"
+- extendedWaitUntil:
+    visible: ".*hello from the test service.*"
+    timeout: 15000
+- back
+# The form of an action's values: the choice made stays made.
+- retry:
+    maxRetries: 3
+    commands:
+      - waitForAnimationToEnd
+      - scrollUntilVisible:
+          element: "Mode"
+          timeout: 30000
+      - tapOn: "Mode"
+      - extendedWaitUntil:
+          visible: "Continue"
+          timeout: 10000
+- tapOn: "Fast"
+- extendedWaitUntil:
+    visible:
+      checked: true
+      containsChild: "Fast"
+    timeout: 10000
+- setOrientation: LANDSCAPE_LEFT
+- extendedWaitUntil:
+    visible:
+      checked: true
+      containsChild: "Fast"
+    timeout: 10000
+- takeScreenshot: 52-rotated-form
+- setOrientation: PORTRAIT
+- extendedWaitUntil:
+    visible:
+      checked: true
+      containsChild: "Fast"
+    timeout: 10000
+- tapOn: "Continue"
+# Asked as the button asks ("Mode?"); what it runs with is the value chosen before the turn.
+- extendedWaitUntil:
+    visible: "Mode\\?"
+    timeout: 10000
+- tapOn:
+    text: "Mode"
+    rightOf: "Cancel"
+- extendedWaitUntil:
+    visible: ".*mode fast.*"
+    timeout: 15000
+- back
+# The licences, in Settings.
+- tapOn: "More"
+- tapOn: "Settings"
+- scrollUntilVisible:
+    element: "Licences"
+    timeout: 20000
+- tapOn: "Licences"
+- extendedWaitUntil:
+    visible: "Elamon is free software.*"
+    timeout: 10000
+- setOrientation: LANDSCAPE_LEFT
+- extendedWaitUntil:
+    visible: "Elamon is free software.*"
+    timeout: 10000
+- takeScreenshot: 53-rotated-licences
+- setOrientation: PORTRAIT
+- extendedWaitUntil:
+    visible: "Elamon is free software.*"
+    timeout: 10000
+- tapOn: "Close"
+- back
+- extendedWaitUntil:
+    visible: "Overview"
+    timeout: 10000
+- tapOn: "Overview"

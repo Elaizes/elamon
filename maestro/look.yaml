@@ -42,9 +42,17 @@ appId: io.github.elaizes.elamon.debug
     element: "Own theme"
     timeout: 10000
 - assertVisible: "100% of the phone.s own size.*"
-- swipe:
-    from: "Scale of the app"
-    direction: RIGHT
+# To the slider's end; again if a busy emulator loses the swipe's last move, which leaves it a
+# step short (135%).
+- repeat:
+    times: 3
+    while:
+      notVisible: "140% of the phone.s own size.*"
+    commands:
+      - swipe:
+          from: "Scale of the app"
+          direction: RIGHT
+      - waitForAnimationToEnd
 - extendedWaitUntil:
     visible: "140% of the phone.s own size.*"
     timeout: 10000
