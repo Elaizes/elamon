@@ -216,6 +216,8 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val alpha = if (enabled) 1f else Alpha.DISABLED
 	if (!LocalInGroup.current) {
 		ListGroup(modifier) {
+			// As in a group's row: the spinner in the icon's place, how it ended under the name. The
+			// card may be half a row wide, and a pill beside the name left it a few letters a line.
 			ListRow(
 				label,
 				summary = captionOf(w, s),
@@ -223,7 +225,8 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 				accent = if (w.color != null) accent(w.color) else MaterialTheme.colorScheme.secondary,
 				enabled = takesTap(enabled, running),
 				onClick = run,
-				trailing = outcome(running, result, scope.vm, action),
+				busy = running,
+				below = outcome(running, result, scope.vm, action),
 			)
 		}
 		return
@@ -256,7 +259,7 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 			Spacer(Modifier.width(Space.m))
 			Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
 				Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), maxLines = 2, overflow = TextOverflow.Ellipsis)
-				if (!running) outcome(false, result, scope.vm, action)?.invoke()
+				outcome(running, result, scope.vm, action)?.invoke()
 			}
 		}
 	}
@@ -265,11 +268,14 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 /** Whether a button takes a tap: its action may run and isn't running already, or a second tap would ask again for nothing. */
 internal fun takesTap(enabled: Boolean, running: Boolean): Boolean = enabled && !running
 
-/** What a button shows at its end: a spinner while its action runs, then how the command ended, its output a tap away. */
-private fun outcome(running: Boolean, result: ActionResult?, vm: MachineViewModel, action: Action?): (@Composable () -> Unit)? = when {
-	running -> { { CircularProgressIndicator(Modifier.size(Sizes.iconM), strokeWidth = Sizes.spinnerStroke) } }
-	result != null && action != null -> { { ActionOutcome(result, Modifier.clip(PillShape).clickable(role = Role.Button) { vm.showActionResult(action.id) }) } }
-	else -> null
+/** How a button's action last ended, shown under its name: none while it runs again, the spinner in its icon's place saying so. */
+internal fun shownResult(running: Boolean, result: ActionResult?): ActionResult? = result?.takeUnless { running }
+
+/** What a button shows under its name: how the command ended ([shownResult]), its output a tap away. */
+private fun outcome(running: Boolean, result: ActionResult?, vm: MachineViewModel, action: Action?): (@Composable () -> Unit)? {
+	val r = shownResult(running, result) ?: return null
+	if (action == null) return null
+	return { ActionOutcome(r, Modifier.clip(PillShape).clickable(role = Role.Button) { vm.showActionResult(action.id) }) }
 }
 
 @Composable
