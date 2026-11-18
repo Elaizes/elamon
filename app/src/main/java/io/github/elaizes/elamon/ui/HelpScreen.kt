@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -60,7 +61,7 @@ object Project {
 }
 
 /** The help's parts in the order they show. */
-private enum class HelpItem { Intro, Install, Firewall, Pair, Phone, Guide }
+private enum class HelpItem { Intro, Install, Firewall, Pair, Phone, Events, Guide }
 
 private sealed interface Block {
 	/** A paragraph; [args] fill its placeholders. */
@@ -107,6 +108,14 @@ private val PHONE = listOf(
 	t(R.string.help_phone_own),
 )
 
+/** What the computer tells of itself, where the app shows it, and that notifications are ntfy's. */
+private val EVENTS = listOf(
+	t(R.string.help_events_what),
+	t(R.string.help_events_ntfy),
+	t(R.string.help_events_settings),
+	c("elamond notify \"Backup finished\""),
+)
+
 private val PAIR = listOf(
 	t(R.string.help_pair_run),
 	c("elamond pair"),
@@ -147,6 +156,7 @@ fun HelpScreen(onBack: () -> Unit) {
 					HelpItem.Firewall -> Section(stringResource(R.string.help_firewall), Icons.Default.Lock) { Blocks(FIREWALL) }
 					HelpItem.Pair -> Section(stringResource(R.string.help_pair), ElIcons.Qr) { Blocks(PAIR) }
 					HelpItem.Phone -> Section(stringResource(R.string.help_phone), Icons.Default.Settings) { Blocks(PHONE) }
+					HelpItem.Events -> Section(stringResource(R.string.help_events), Icons.Default.Notifications) { Blocks(EVENTS) }
 					HelpItem.Guide -> {
 						Section(stringResource(R.string.help_guide), Icons.Default.Info) {
 							Text(stringResource(R.string.help_guide_body), style = MaterialTheme.typography.bodyMedium)
