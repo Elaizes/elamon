@@ -715,7 +715,7 @@ The part every client reads:
 | `name` | string | the id | what `elamond clients` and the app's settings page call it |
 | `theme` | `system` \| `light` \| `dark` | `system` | |
 | `pure_black` | bool | `false` | black instead of dark grey in the dark theme |
-| `animations` | bool | `true` | rolling numbers, moving gauges, transitions |
+| `animations` | bool | `true` | whether anything moves: rolling numbers, gauges and bars, pages coming in, highlights and notes; off, all of it is instant (spinners still turn) |
 | `interval_ms` | integer, 250–60 000 | 1000 | how often the client asks for readings; never faster than the service's tick |
 | `fahrenheit` | bool | `false` | temperatures in °F: the service sends them so |
 | `network_bits` | bool | `false` | network rates in bits per second: the service sends them so |
