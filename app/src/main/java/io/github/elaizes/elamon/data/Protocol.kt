@@ -135,6 +135,7 @@ data class Profile(
 	val name: String = "",
 	val theme: String = "system",
 	@SerialName("pure_black") val pureBlack: Boolean = false,
+	/** Whether anything in the app moves, not only numbers and gauges: see [io.github.elaizes.elamon.Prefs.animations]. */
 	val animations: Boolean = true,
 	@SerialName("interval_ms") val intervalMs: Int = DEFAULT_INTERVAL_MS,
 	val fahrenheit: Boolean = false,

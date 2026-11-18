@@ -3,6 +3,9 @@ package io.github.elaizes.elamon.ui
 import android.content.res.Resources
 import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -353,6 +356,8 @@ fun SelectWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val enabled = a.enabled(action, s)
 	val now = s?.v?.text()
 	val label = w.label ?: action?.name.orEmpty()
+	// The highlight moves to the choice taken, or with animations off is there at once.
+	val move: AnimationSpec<Color> = if (LocalPrefs.current.animations) spring() else snap()
 	Section(label, icon(w.icon), modifier, accent = accent(w.color)) {
 		captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 		FlowRow(
@@ -363,7 +368,7 @@ fun SelectWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 		) {
 			for (c in choices) {
 				val on = c.value == now
-				val bg by animateColorAsState(if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh, label = "choice")
+				val bg by animateColorAsState(if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh, move, label = "choice")
 				val fg = (if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = if (enabled) 1f else Alpha.DISABLED)
 				val name = c.label ?: c.value
 				Column(

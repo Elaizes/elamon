@@ -268,7 +268,7 @@
 	<string name="help_pair_code">Or in this app tap the computer under Found on this network, or Add computer and its address, and enter the code. Check that the certificate digits the app shows match the Certificate line on the computer.</string>
 	<string name="help_pair_allow">Then elamond pair asks on the computer: Allow? [y/N]. Answer y if the phone is yours, and keep elamond pair running until the phone is paired.</string>
 	<string name="help_phone">4. On this phone</string>
-	<string name="help_phone_profile">Tabs, widgets, the theme, confirmations and how often readings come are the computer\'s: the profile it gives this phone. Settings names it and where it is changed.</string>
+	<string name="help_phone_profile">Tabs, widgets, the theme, animations (all of them or none), confirmations and how often readings come are the computer\'s: the profile it gives this phone. Settings names it and where it is changed.</string>
 	<string name="help_phone_own">This phone\'s own, under Settings → Display: the app\'s scale, and a theme that stays whatever the computers say. The app opens on the computer you opened last; Back goes to the list.</string>
 	<string name="help_guide">Full guide</string>
 	<string name="help_guide_body">Settings, dashboards, the control panel, roles, backups and troubleshooting are in the full guide, online.</string>

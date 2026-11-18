@@ -6,10 +6,14 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandIn
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.shrinkOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -329,7 +333,12 @@ fun MachineScreen(
 						.then(if (collapsed) Modifier.padding(top = barHeight + Space.s) else Modifier.height(barHeight)),
 					contentAlignment = Alignment.Center,
 				) {
-					AnimatedVisibility(visible = ui != null && state.conn != Conn.Live && !turnedAway) {
+					AnimatedVisibility(
+						visible = ui != null && state.conn != Conn.Live && !turnedAway,
+						// Fading and growing in, as by default; with animations off, there and gone at once.
+						enter = if (prefs.animations) fadeIn() + expandIn() else EnterTransition.None,
+						exit = if (prefs.animations) shrinkOut() + fadeOut() else ExitTransition.None,
+					) {
 						Pill(stringResource(if (state.conn == Conn.Offline) R.string.machine_offline_retrying else R.string.conn_reconnecting), Metric.colors.warn, dot = true)
 					}
 				}

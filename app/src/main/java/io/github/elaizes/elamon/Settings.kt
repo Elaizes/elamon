@@ -35,7 +35,11 @@ data class Prefs(
 	val dynamicColor: Boolean = true,
 	/** Frosted-glass bars and dialogs (Android 12+). */
 	val blur: Boolean = true,
-	/** Rolling numbers, moving gauges, transitions. */
+	/**
+	 * Whether anything moves: numbers rolling, gauges and bars going to their values, screens, tabs
+	 * and pages coming in, the top bar turning to glass, a tab's or a choice's highlight moving, the
+	 * reconnecting note coming and going. Off, each is at once as it ends; a spinner still turns.
+	 */
 	val animations: Boolean = true,
 	val intervalMs: Int = Intervals.DEFAULT_MS,
 	val keepScreenOn: Boolean = false,
