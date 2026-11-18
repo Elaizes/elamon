@@ -77,8 +77,26 @@ import io.github.elaizes.elamon.data.bool
 import io.github.elaizes.elamon.data.number
 import io.github.elaizes.elamon.data.text
 
-/** An action whose open parameters the form asks for before it runs. */
-data class FormRequest(val action: Action, val fixed: JsonObject, val phrase: String, val button: String?, val key: String, val afterAsking: () -> Unit = {})
+/**
+ * An action whose open parameters the form asks for before it runs, and what has been given them so
+ * far: kept with the request, so the form comes back after a rotation as it was left.
+ */
+class FormRequest(val action: Action, val fixed: JsonObject, val phrase: String, val button: String?, val key: String, val afterAsking: () -> Unit = {}) {
+	/** The parameters asked for: those [fixed] leaves open. */
+	val asked: List<Param> = Params.asked(action, fixed)
+
+	/** Each asked parameter's value, as [Params.initial] starts it; null while nothing it takes is given. */
+	val values = mutableStateMapOf<String, JsonElement?>().apply { for (p in asked) put(p.id, Params.initial(p)) }
+
+	/** What is typed into the fields that are typed in, as typed. */
+	val texts = mutableStateMapOf<String, String>().apply { for (p in asked) put(p.id, Params.initial(p)?.text().orEmpty()) }
+
+	/** The values the action runs with: the fixed ones and those given. */
+	fun params(): JsonObject = buildJsonObject {
+		fixed.forEach { (k, v) -> put(k, v) }
+		for (p in asked) values[p.id]?.takeIf { it !is JsonNull }?.let { put(p.id, it) }
+	}
+}
 
 /**
  * Runs the computer's actions from widgets: asks for the parameters a widget doesn't fix, then
@@ -444,13 +462,10 @@ internal fun sliderSteps(min: Double, max: Double, step: Double?): Int =
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ParamForm(req: FormRequest, onDismiss: () -> Unit, onDone: (JsonObject) -> Unit) {
-	val asked = remember(req) { Params.asked(req.action, req.fixed) }
-	val values = remember(req) { mutableStateMapOf<String, JsonElement?>().apply { for (p in asked) put(p.id, Params.initial(p)) } }
-	val texts = remember(req) { mutableStateMapOf<String, String>().apply { for (p in asked) put(p.id, values[p.id]?.text().orEmpty()) } }
-	val params = buildJsonObject {
-		req.fixed.forEach { (k, v) -> put(k, v) }
-		for (p in asked) values[p.id]?.takeIf { it !is JsonNull }?.let { put(p.id, it) }
-	}
+	val asked = req.asked
+	val values = req.values
+	val texts = req.texts
+	val params = req.params()
 	val ok = Params.complete(req.action, params)
 	val title = req.action.name.ifEmpty { req.phrase }
 	GlassDialog(

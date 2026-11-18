@@ -68,6 +68,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -137,15 +138,14 @@ fun MachineScreen(
 	LaunchedEffect(current) { current?.let(vm::show) }
 	var menu by remember { mutableStateOf(false) }
 	var confirmForget by rememberSaveable { mutableStateOf(false) }
-	// Not kept past a process killed mid-request, so the dialog never comes back stuck; the request
-	// itself runs on in pairingScope whatever happens to the screen.
-	var forgetting by remember { mutableStateOf(false) }
+	// A row's sheet, an action's form and the forgetting, kept through a rotation as the confirmation is.
+	val kept: MachineDialogs = viewModel(viewModelStoreOwner = owner)
 	val haze = remember { HazeState() }
 	val snackbar = remember { SnackbarHostState() }
 	val lists = remember { mutableMapOf<String, LazyListState>() }
 	val folds = remember(machine.id) { Folds(Settings.get(ctx), machine.id) }
-	val tables = remember { TableStates() }
-	val form = remember { mutableStateOf<FormRequest?>(null) }
+	val tables = kept.tables
+	val form = kept.form
 
 	// Stream only while the screen can be seen: no data, battery or network use in the background.
 	val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -354,15 +354,15 @@ fun MachineScreen(
 	}
 
 	if (confirmForget) {
+		val forgetting = kept.forgetting
 		GlassDialog(
 			onDismiss = { if (!forgetting) confirmForget = false },
 			title = stringResource(R.string.machine_forget_title, machine.name),
 			text = { Text(stringResource(R.string.machine_forget_body)) },
 			confirm = {
 				TextButton(enabled = !forgetting, onClick = {
-					forgetting = true
 					// The computer asked to unpair this phone, a few seconds at most; forgotten here whatever it says.
-					pairingScope.launch {
+					if (kept.startForgetting()) pairingScope.launch {
 						val store = MachineStore.get(ctx)
 						val token = withContext(Dispatchers.Default) { store.token(machine) }
 						val told = token != null && unpair(machine, token)
@@ -377,6 +377,28 @@ fun MachineScreen(
 			},
 			dismiss = { TextButton(onClick = { confirmForget = false }, enabled = !forgetting) { Text(stringResource(R.string.cancel)) } },
 		)
+	}
+}
+
+/**
+ * What is open over a computer's screen: a table's row sheet (with the tables' searches), the form
+ * of an action's values, and the computer being forgotten. In the screen's own store, so a rotation,
+ * or the app's scale making the activity again, keeps them as it keeps the confirmation ([GuardState])
+ * and the lambdas they hold stay the screen's; not past the process, so nothing comes back stuck.
+ */
+class MachineDialogs : ViewModel() {
+	val tables = TableStates()
+	val form = mutableStateOf<FormRequest?>(null)
+
+	/** The computer is being forgotten: its request runs on in pairingScope, the dialog waits for it. */
+	var forgetting by mutableStateOf(false)
+		private set
+
+	/** Whether forgetting starts now: once, however often Forget is tapped before the dialog knows. */
+	fun startForgetting(): Boolean {
+		if (forgetting) return false
+		forgetting = true
+		return true
 	}
 }
 
