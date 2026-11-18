@@ -119,7 +119,9 @@ carries the computer's Tailscale name and names you give (`names = [...]`) after
 the phone still finds it when they change. Everything is encrypted, a phone is paired only when
 you let it in at the computer, each phone has its own key that the computer can revoke, and the
 service only acts on the computer when told it may, starting and stopping only the units its
-settings name ([security](docs/guide.md#14-security)).
+settings name ([security](docs/guide.md#14-security)). Nothing goes through a server of anyone's,
+with one exception that is yours to make: name an ntfy topic, and the service posts its events to
+that ntfy server, without names of units, disks or the computer unless you ask for them.
 
 ## Technical notes
 
@@ -134,6 +136,10 @@ settings name ([security](docs/guide.md#14-security)).
 - A UPS is read over NUT's network protocol, from upsd or, for an EcoFlow station, nutflow; the
   computer needs no NUT client. With `upst record` running, the history and the timeline also
   cover the time the service didn't run.
+- Events are made by rules of the settings as the service reads the computer, with or without a
+  phone connected, and kept in a file beside its state; each is sent to ntfy by the computer's
+  `curl`, the topic on its input and never among its arguments, and tried again while the network
+  or the server is down.
 - Readings of your own: a command runs without a shell, in a process group the service ends
   with it; a web service is asked through the computer's `curl`, without following redirects; the
   journal is read through `journalctl` as the service's user (the system's in the

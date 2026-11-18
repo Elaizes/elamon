@@ -71,7 +71,7 @@ const HELP: &str = "  --check   only tell whether there is a newer release, and 
   --yes     install it without asking";
 
 const NIX: &str = "this elamond is from the Nix store, and Nix updates it: with the NixOS or Home Manager module, \
-	nix flake update elamon, then rebuild; from a Nix profile, nix profile upgrade --all (guide, section 10)";
+	nix flake update elamon, then rebuild; from a Nix profile, nix profile upgrade --all (guide, section 12)";
 
 pub fn run(args: &[String]) -> Result<(), String> {
 	let (mut check, mut yes) = (false, false);

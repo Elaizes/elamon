@@ -28,6 +28,9 @@ The phone talks to the computer directly: on the same network, or over a VPN bot
 4. **Watch.** The app shows the computer's load, temperatures, memory, processes and more.
 5. **Control, if you want it.** Set `control = true` in `~/.config/elamon/elamond.toml`. The phone
    can then use power, media, links and your own actions ([section 5](#5-the-control-panel)).
+6. **Be told, if you want it.** Name an ntfy topic's file in the settings and the computer sends
+   a notification when a disk fills, a unit fails or a UPS goes to battery
+   ([section 10](#10-events-and-notifications)).
 
 ## Contents
 
@@ -426,6 +429,11 @@ opens the pairing instead, and a computer you forget isn't opened again.
 - **…switch an outlet of the station, or change its charge limit?** At the bottom of its tab,
   *Outlets* and *Station*, once the computer allows it
   ([section 7](#switching-outlets-and-changing-settings)).
+- **…be told when something goes wrong, with the app closed?** Put an ntfy topic in a file, name it
+  under `[notify.<id>]` on the computer, and subscribe to it in the ntfy app
+  ([section 10](#getting-notifications-on-the-phone)). What was told is under Control → Events.
+- **…be told about something of my own?** A rule on any value (`[rules.<id>]`), or
+  `elamond notify "text"` from a script ([section 10](#rules-of-your-own)).
 - **…watch several computers?** Pair each one. The home screen shows them all.
 - **…keep the phone on as a dashboard?** Set `keep_screen_on = true` under
   `[profiles.<id>.android]` on the computer.
@@ -481,6 +489,7 @@ From top to bottom:
 | **Power** | *Lock*, *Sleep*, *Restart*, *Shut down* | what logind allows; the polkit rule for all but *Lock* |
 | **Displays** | the connected monitors, folded to one line; tap one for its port, graphics card, size, best mode, fastest refresh rate, position and year made | shown even with control off |
 | **Journal** | the computer's system journal, warnings first, with search ([section 9](#9-the-journal)) | the `monitor` role or above; for all of it, your user in `systemd-journal` |
+| **Events** | what the rules of the settings told: a disk filling, a unit that failed, a UPS on battery ([section 10](#10-events-and-notifications)) | the `monitor` role or above; settings from 0.9 on |
 | **Activity log** | what phones asked the computer to do ([section 6](#the-activity-log)) | the `monitor` role or above |
 
 The service leaves out what the computer can't do, and what the phone's role may not run. Ending
@@ -1369,20 +1378,22 @@ This section is how the pieces fit together. **Every key, widget and value is in
 |---|---|---|
 | `elamond.toml` | the top-level keys, each with a line on what it does; links, actions, the `default` profile and your shared ones | `elamond setup` or the service's first start, once; then you |
 | `elamond.d/dashboards.toml` | the standard dashboards and the templates they use | the same, once; then you |
+| `elamond.d/events.toml` | `[events]` and the standard rules ([section 10](#10-events-and-notifications)) | the same, once (from 0.9); then you |
 | `elamond.d/*.toml` | your own additions, one topic per file if you like | you |
 | `elamond.d/phones.toml` | a small profile for each paired phone | the service adds and takes out tables as phones pair and unpair; you edit them |
 | `defaults.toml`, `elamond-schema.json` | the settings this version of elamond starts with, and their JSON Schema | the service, at each new version; **not read as settings** |
 
-- **The files are all there is.** Nothing is built in under them: delete the `sensors` dashboard,
-  and it's gone.
+- **The files are all there is.** Nothing is built in under them: delete the `sensors` dashboard
+  or the `disk` rule, and it's gone. (The few keys of `[events]` itself, how many events are kept
+  and the like, are those elamond starts with wherever the files leave them out.)
 - **Reading order.** `elamond.toml` first, then the files in `elamond.d/` by name. A table with an
   id (`[dashboards.overview]`, `[profiles.pixel-9]`, `[links.media]`) that comes again later is
   merged into the earlier one key by key. A list (`widgets`, a profile's `dashboards`, `listen`)
   replaces the earlier one whole.
-- **For editors.** The two starter files begin with `#:schema elamond-schema.json`
+- **For editors.** The starter files begin with `#:schema elamond-schema.json`
   (`../elamond-schema.json` in `elamond.d/`). Editors that read it (taplo, Even Better TOML)
   suggest keys and mark mistakes.
-- **NixOS and Home Manager.** `services.elamond.settings` takes the place of both starter files.
+- **NixOS and Home Manager.** `services.elamond.settings` takes the place of the starter files.
   The module holds the standard setup as defaults, and what you set replaces just that key
   ([below](#nixos-module)). `elamond.d/` stays yours, `phones.toml` with it, so each phone has its
   own profile under Nix too.
@@ -1938,6 +1949,9 @@ do about those marked `!`. To see what the service reads without the app, run `e
 | *Lock* does nothing | Your desktop's locker doesn't react to logind's lock signal ([section 5](#power-the-profile-and-system-units-polkit)). |
 | No tab for the UPS or power station | Settings started before 0.7 have no `ups` dashboard, or the profile's `dashboards` lacks `"ups"` ([section 7](#settings-from-before-07)). `elamond values` ends with the sources the settings have. |
 | A source of your own shows nothing, or `—` | `elamond values ID` says what it reads, or why it can't. A widget shows `ID.error` (with a `when`) while it fails: `HTTP 404`, `timed out after 5 s`, `exited with 7: …`, `token_file may be read by others: chmod 600 it`. A command has no shell, so a pipe belongs in a script of your own; a dashboard of only `when` widgets is hidden until the source has read well once ([section 8](#8-your-own-readings)). |
+| No notification comes | `elamond events` says how sending each event went: `sent` (then look at the phone: the topic subscribed to in the ntfy app, ntfy unrestricted in the battery settings), `not sent: below warning` (the target's `level`), `failed: …` (the topic's file, the server's answer, the network). `elamond check` ends with `Events: … sent on to …`, or says that no `[notify.<id>]` names a topic. Try `elamond notify --level warning "test"` ([section 10](#getting-notifications-on-the-phone)). |
+| A rule tells nothing | `elamond check` counts the rules that are on; settings from before 0.9 have none (`elamond defaults rules`). A change in `elamond.toml` loses to the same key in `elamond.d/events.toml`: make it there, or in a file named after it. A rule tells once as its trouble begins, after its `for`, and not again while it lasts. |
+| Too many notifications | Raise the rule's `for` or `again`, or the target's `level`; turn a rule off with `enabled = false`. More than a target's `burst` an hour come as one. |
 | The journal shows *only this user's own journal* | Your user isn't in the `systemd-journal` group (`elamond setup --check` says so): add it and log in again ([section 9](#reading-the-system-journal)). A phone with `glance` has no journal. |
 | The station says *Unreachable* | The service can't reach the NUT server at the source's `host` and `port`. Is nutflow (or upsd) running: `systemctl status nutflow`? `upsc ups@localhost` reads the station as the service would. The journal says why, in lines that start `nut eco:`: `journalctl --user -u elamond -e`. |
 | The station says *No data* | The NUT server answers, but has nothing from the station: nutflow lost it (out of Bluetooth range, or the EcoFlow app on a phone holds the one connection the station takes), or upsd's driver stopped. `journalctl -u nutflow -e`. Meanwhile the tab keeps its shape, with `—` for each value. |
@@ -1981,6 +1995,13 @@ do about those marked `!`. To see what the service reads without the app, run `e
   user; a phone never writes one. A token for a web service stays in its file (`chmod 600`) and goes
   only in the request to that service: to no phone, the journal or a backup. The journal on the
   phone is for `monitor` and above, and a phone never names a unit in it: only a link's.
+- Events are made only by the rules of the settings and by `elamond notify` run as your user; a
+  phone makes none, and names no rule and no target. A target sends events to the ntfy server its
+  settings name, and nowhere else: this is the one thing the service sends out of the computer by
+  itself, and only once you name a topic. The server reads what passes, so a target sends no
+  unit's, disk's or computer's name unless `names = true`. The topic and a token stay in their
+  files (`chmod 600`): they go to `curl` on its input, never among its arguments, and to no phone,
+  journal or backup. Events on the phone are for `monitor` and above.
 - It never signals itself, its parents or PID 1. With the start time the app sends, it never signals
   a process that took the PID of the one meant.
 - Settings that stop parsing hold control off until they parse again.
