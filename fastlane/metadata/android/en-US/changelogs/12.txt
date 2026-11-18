@@ -1,0 +1,1 @@
+Works with elamond 0.6 and later. With elamond 0.9, the computer tells what happens to it: rules in its settings make events of a disk filling, a unit failing, a low battery or a UPS on battery, the Events page shows them, and the service sends them to an ntfy topic for the ntfy app to notify you. Dialogs stay open when the phone turns; all animations follow the profile.

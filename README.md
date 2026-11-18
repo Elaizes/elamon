@@ -40,7 +40,12 @@ Watching, always:
 - your own readings: a program's output, a web service's answer or a file's contents, each
   shown with its own unit and format in a dashboard of yours;
 - the system journal, warnings first, with search and older lines on request, and the journal of
-  a link's unit from its row.
+  a link's unit from its row;
+- events: rules in the settings tell of a disk filling, a unit that failed, a low battery, a UPS
+  on battery or any value of yours past its limit, once as it begins and once as it ends; the
+  service keeps them, the app lists them, and the service sends them to an [ntfy](https://ntfy.sh)
+  topic, so the ntfy app notifies you with Elamon closed. Which rules, their limits and words,
+  and what is sent (without names, unless you say so) are all settings.
 
 Controlling, once the computer allows it:
 
@@ -104,6 +109,9 @@ app's scale, 80 to 140%, and, if you want one, a theme that stays whatever the p
    ([details](docs/guide.md#8-your-own-readings)); the system journal is on the Control tab
    ([details](docs/guide.md#9-the-journal)).
 
+6. For notifications, name an ntfy topic's file in the settings, `[notify.<id>]`
+   ([details](docs/guide.md#10-events-and-notifications)).
+
 The phone and the computer talk directly, over the local network or a VPN they share: TCP 47823,
 and UDP 5353 for finding the computer by itself. The service can listen on chosen interfaces only
 (`listen = ["tailscale0"]`), and announces itself only on the local network. Its pairing QR code
@@ -111,7 +119,7 @@ carries the computer's Tailscale name and names you give (`names = [...]`) after
 the phone still finds it when they change. Everything is encrypted, a phone is paired only when
 you let it in at the computer, each phone has its own key that the computer can revoke, and the
 service only acts on the computer when told it may, starting and stopping only the units its
-settings name ([security](docs/guide.md#13-security)).
+settings name ([security](docs/guide.md#14-security)).
 
 ## Technical notes
 
@@ -156,7 +164,7 @@ Tests:
 ```sh
 nix develop -c bash -c 'cd elamond && cargo test' # the service, and the protocol fixtures in elamond/fixtures
 nix develop -c ./gradlew :app:testDebugUnitTest    # app, against the same fixtures
-nix flake check                                   # VM tests: the NixOS module, a UPS on a mock station, the sources and the journal
+nix flake check                                   # VM tests: the NixOS module, a UPS on a mock station, the sources and the journal, events
 maestro/run.sh                                    # the app on an emulator only (a real phone: --yes-real-phone), against a throwaway service
 ```
 
@@ -166,8 +174,8 @@ dashboards and profiles: [docs/config.md](docs/config.md).
 ## Where it's going
 
 UPSes and power stations came with 0.7, your own readings and the system journal with 0.8, the
-phone's own scale and theme with 0.8.1. Next, as they're needed: notifications through ntfy;
-controlling monitors under Hyprland, with a home-screen widget and Quick Settings tiles; then a web
+phone's own scale and theme with 0.8.1, events and notifications through ntfy with 0.9. Next, as
+they're needed: controlling monitors under Hyprland, with a home-screen widget and Quick Settings tiles; then a web
 version with an admin page. Not planned: the service for Windows or macOS, app stores (the app is
 the APK in each release).
 
