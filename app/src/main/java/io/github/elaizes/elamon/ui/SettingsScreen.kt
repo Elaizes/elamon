@@ -26,6 +26,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,7 +62,7 @@ fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
 	val p = LocalPrefs.current
 	val haze = remember { HazeState() }
 	val list = rememberLazyListState()
-	var license by remember { mutableStateOf(false) }
+	var license by rememberSaveable { mutableStateOf(false) }
 	val settings = remember { Settings.get(ctx) }
 	val look by settings.look.collectAsStateWithLifecycle()
 	val machines by MachineStore.get(ctx).machines.collectAsStateWithLifecycle()

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -16,6 +17,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -264,12 +266,21 @@ fun ListRow(
 	enabled: Boolean = true,
 	onClick: (() -> Unit)? = null,
 	trailing: (@Composable () -> Unit)? = null,
+	/** A spinner in the icon's place, while what the row started runs. */
+	busy: Boolean = false,
+	/**
+	 * Under the title and summary: how what the row ran ended. Beside the title, in a row half a
+	 * narrow screen wide, it left the title a few letters a line.
+	 */
+	below: (@Composable () -> Unit)? = null,
 ) {
 	RowLayout(
 		title, summary, icon, accent, enabled,
 		modifier = if (onClick != null && enabled) Modifier.clickable(onClick = onClick) else Modifier,
 		trailing = trailing,
 		chevron = onClick != null,
+		busy = busy,
+		below = below,
 	)
 }
 
@@ -281,6 +292,8 @@ fun SwitchRow(title: String, summary: String? = null, checked: Boolean, enabled:
 		modifier = Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
 		trailing = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
 		chevron = false,
+		busy = false,
+		below = null,
 	)
 }
 
@@ -293,6 +306,8 @@ private fun RowLayout(
 	enabled: Boolean,
 	trailing: (@Composable () -> Unit)?,
 	chevron: Boolean,
+	busy: Boolean,
+	below: (@Composable () -> Unit)?,
 	/** What the row does when touched: a click, a toggle, or nothing. */
 	modifier: Modifier = Modifier,
 ) {
@@ -304,13 +319,24 @@ private fun RowLayout(
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		if (icon != null) {
-			IconBadge(icon, accent.copy(alpha = alpha), Sizes.badgeRow)
+			if (busy) {
+				// As wide as the badge, so the title stays where it is.
+				Box(Modifier.size(Sizes.badgeRow), contentAlignment = Alignment.Center) {
+					CircularProgressIndicator(Modifier.size(Sizes.iconM), strokeWidth = Sizes.spinnerStroke)
+				}
+			} else {
+				IconBadge(icon, accent.copy(alpha = alpha), Sizes.badgeRow)
+			}
 			Spacer(Modifier.width(Space.mPlus))
 		}
 		Column(Modifier.weight(1f)) {
 			Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
 			if (summary != null) {
 				Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha))
+			}
+			if (below != null) {
+				Spacer(Modifier.height(Space.xs))
+				below()
 			}
 		}
 		if (trailing != null) {

@@ -268,8 +268,12 @@
 	<string name="help_pair_code">Or in this app tap the computer under Found on this network, or Add computer and its address, and enter the code. Check that the certificate digits the app shows match the Certificate line on the computer.</string>
 	<string name="help_pair_allow">Then elamond pair asks on the computer: Allow? [y/N]. Answer y if the phone is yours, and keep elamond pair running until the phone is paired.</string>
 	<string name="help_phone">4. On this phone</string>
-	<string name="help_phone_profile">Tabs, widgets, the theme, confirmations and how often readings come are the computer\'s: the profile it gives this phone. Settings names it and where it is changed.</string>
+	<string name="help_phone_profile">Tabs, widgets, the theme, animations (all of them or none), confirmations and how often readings come are the computer\'s: the profile it gives this phone. Settings names it and where it is changed.</string>
 	<string name="help_phone_own">This phone\'s own, under Settings → Display: the app\'s scale, and a theme that stays whatever the computers say. The app opens on the computer you opened last; Back goes to the list.</string>
+	<string name="help_events">5. Events and notifications</string>
+	<string name="help_events_what">The computer can tell what happens to it: a disk nearly full, a unit that failed, a laptop\'s battery low, a UPS on battery. Rules in its settings make these events. The Events page, behind Control\'s Events button, lists them with a level to filter by and a search, as does any page the computer\'s settings give a log of events.</string>
+	<string name="help_events_ntfy">Notifications don\'t come from this app, which asks for no permission to show any. The service sends events to an ntfy topic set up in the computer\'s settings, and the ntfy app on this phone shows them, whether Elamon is open or not.</string>
+	<string name="help_events_settings">Which rules there are, their limits and texts, and what is sent are all the computer\'s settings: by default, events from level warning up, without the names of units, disks or the computer. A script makes an event of its own words:</string>
 	<string name="help_guide">Full guide</string>
 	<string name="help_guide_body">Settings, dashboards, the control panel, roles, backups and troubleshooting are in the full guide, online.</string>
 	<string name="help_guide_button">Full guide</string>

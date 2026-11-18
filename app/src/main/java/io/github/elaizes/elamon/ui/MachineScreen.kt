@@ -6,10 +6,14 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandIn
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.shrinkOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -68,6 +72,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -137,15 +142,14 @@ fun MachineScreen(
 	LaunchedEffect(current) { current?.let(vm::show) }
 	var menu by remember { mutableStateOf(false) }
 	var confirmForget by rememberSaveable { mutableStateOf(false) }
-	// Not kept past a process killed mid-request, so the dialog never comes back stuck; the request
-	// itself runs on in pairingScope whatever happens to the screen.
-	var forgetting by remember { mutableStateOf(false) }
+	// A row's sheet, an action's form and the forgetting, kept through a rotation as the confirmation is.
+	val kept: MachineDialogs = viewModel(viewModelStoreOwner = owner)
 	val haze = remember { HazeState() }
 	val snackbar = remember { SnackbarHostState() }
 	val lists = remember { mutableMapOf<String, LazyListState>() }
 	val folds = remember(machine.id) { Folds(Settings.get(ctx), machine.id) }
-	val tables = remember { TableStates() }
-	val form = remember { mutableStateOf<FormRequest?>(null) }
+	val tables = kept.tables
+	val form = kept.form
 
 	// Stream only while the screen can be seen: no data, battery or network use in the background.
 	val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -180,8 +184,6 @@ fun MachineScreen(
 		onDispose { view.keepScreenOn = false }
 	}
 
-	BackHandler(enabled = shownPages.isNotEmpty()) { pages = shownPages.dropLast(1) }
-
 	val name = ui?.service?.name?.ifEmpty { null } ?: machine.name
 	val connStatus = connText(state.conn, want.intervalMs)
 	val updating = stringResource(R.string.conn_updating)
@@ -190,7 +192,11 @@ fun MachineScreen(
 	val statusOf = { d: String? -> if (state.conn == Conn.Live && d != null && !liveOn(d)) updating else connStatus }
 	// Unpaired, another certificate, refused or not understood: the screen is a notice, with no
 	// tabs to switch between and no old numbers coming back.
-	val turnedAway = state.conn in setOf(Conn.Unauthorized, Conn.CertificateChanged, Conn.Refused, Conn.Incompatible)
+	val turnedAway = turnsAway(state.conn)
+	// The page open over the tabs while it is on screen: the bar names it, and Back closes it. Under
+	// a notice the bar is the computer's, and Back leaves it.
+	val page = pageShown(current, shownPages, turnedAway)
+	BackHandler(enabled = page != null) { pages = shownPages.dropLast(1) }
 	val currentList = lists.getOrPut(current ?: "") { LazyListState() }
 	val collapsed = rememberCollapsed(currentList)
 	val haptics = LocalHapticFeedback.current
@@ -303,11 +309,11 @@ fun MachineScreen(
 				}
 
 				GlassTopBar(
-					title = if (current != null && current in shownPages) ui?.dashboard(current)?.title ?: name else name,
+					title = page?.let { ui?.dashboard(it)?.title } ?: name,
 					// No big title on a notice: the bar says whose it is.
 					collapsed = collapsed || ui == null || turnedAway || current == null,
-					onBack = { if (shownPages.isNotEmpty()) pages = shownPages.dropLast(1) else onBack() },
-					subtitle = if (current != null && current in shownPages) name else statusOf(current),
+					onBack = { if (page != null) pages = shownPages.dropLast(1) else onBack() },
+					subtitle = if (page != null) name else statusOf(current),
 					actions = {
 						IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.machine_more)) }
 						DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -329,7 +335,12 @@ fun MachineScreen(
 						.then(if (collapsed) Modifier.padding(top = barHeight + Space.s) else Modifier.height(barHeight)),
 					contentAlignment = Alignment.Center,
 				) {
-					AnimatedVisibility(visible = ui != null && state.conn != Conn.Live && !turnedAway) {
+					AnimatedVisibility(
+						visible = ui != null && state.conn != Conn.Live && !turnedAway,
+						// Fading and growing in, as by default; with animations off, there and gone at once.
+						enter = if (prefs.animations) fadeIn() + expandIn() else EnterTransition.None,
+						exit = if (prefs.animations) shrinkOut() + fadeOut() else ExitTransition.None,
+					) {
 						Pill(stringResource(if (state.conn == Conn.Offline) R.string.machine_offline_retrying else R.string.conn_reconnecting), Metric.colors.warn, dot = true)
 					}
 				}
@@ -354,15 +365,15 @@ fun MachineScreen(
 	}
 
 	if (confirmForget) {
+		val forgetting = kept.forgetting
 		GlassDialog(
 			onDismiss = { if (!forgetting) confirmForget = false },
 			title = stringResource(R.string.machine_forget_title, machine.name),
 			text = { Text(stringResource(R.string.machine_forget_body)) },
 			confirm = {
 				TextButton(enabled = !forgetting, onClick = {
-					forgetting = true
 					// The computer asked to unpair this phone, a few seconds at most; forgotten here whatever it says.
-					pairingScope.launch {
+					if (kept.startForgetting()) pairingScope.launch {
 						val store = MachineStore.get(ctx)
 						val token = withContext(Dispatchers.Default) { store.token(machine) }
 						val told = token != null && unpair(machine, token)
@@ -377,6 +388,28 @@ fun MachineScreen(
 			},
 			dismiss = { TextButton(onClick = { confirmForget = false }, enabled = !forgetting) { Text(stringResource(R.string.cancel)) } },
 		)
+	}
+}
+
+/**
+ * What is open over a computer's screen: a table's row sheet (with the tables' searches), the form
+ * of an action's values, and the computer being forgotten. In the screen's own store, so a rotation,
+ * or the app's scale making the activity again, keeps them as it keeps the confirmation ([GuardState])
+ * and the lambdas they hold stay the screen's; not past the process, so nothing comes back stuck.
+ */
+class MachineDialogs : ViewModel() {
+	val tables = TableStates()
+	val form = mutableStateOf<FormRequest?>(null)
+
+	/** The computer is being forgotten: its request runs on in pairingScope, the dialog waits for it. */
+	var forgetting by mutableStateOf(false)
+		private set
+
+	/** Whether forgetting starts now: once, however often Forget is tapped before the dialog knows. */
+	fun startForgetting(): Boolean {
+		if (forgetting) return false
+		forgetting = true
+		return true
 	}
 }
 
@@ -494,6 +527,18 @@ private fun Tried(hosts: List<String>) {
 		)
 	}
 }
+
+/** Whether the computer turned this phone away (unpaired, another certificate, refused, not understood): its screen is a notice then. */
+internal fun turnsAway(conn: Conn): Boolean = conn in TURNED_AWAY
+
+private val TURNED_AWAY = setOf(Conn.Unauthorized, Conn.CertificateChanged, Conn.Refused, Conn.Incompatible)
+
+/**
+ * The page the top bar names and Back closes: [current], when it is one of the open [pages] and on
+ * screen. Turned away, the screen is the computer's notice whatever page was open: none.
+ */
+internal fun pageShown(current: String?, pages: List<String>, turnedAway: Boolean): String? =
+	current?.takeIf { !turnedAway && it in pages }
 
 @Composable
 private fun connText(conn: Conn, intervalMs: Int): String = when (conn) {

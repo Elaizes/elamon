@@ -1,8 +1,10 @@
 package io.github.elaizes.elamon.ui
 
+import io.github.elaizes.elamon.data.ActionResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ActionWidgetsTest {
@@ -21,5 +23,14 @@ class ActionWidgetsTest {
 		assertFalse(takesTap(enabled = false, running = false))
 		// Tapped again while it runs, it would ask again, and the run would be dropped.
 		assertFalse(takesTap(enabled = true, running = true))
+	}
+
+	@Test
+	fun aButtonShowsHowItEndedOnlyOnceItHas() {
+		val done = ActionResult(exitCode = 0, output = "hello")
+		assertEquals(done, shownResult(running = false, result = done))
+		// Run again: the spinner in the icon's place says so, and the last outcome isn't shown meanwhile.
+		assertNull(shownResult(running = true, result = done))
+		assertNull(shownResult(running = false, result = null))
 	}
 }

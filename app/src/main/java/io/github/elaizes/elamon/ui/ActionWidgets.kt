@@ -3,6 +3,9 @@ package io.github.elaizes.elamon.ui
 import android.content.res.Resources
 import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -77,8 +80,26 @@ import io.github.elaizes.elamon.data.bool
 import io.github.elaizes.elamon.data.number
 import io.github.elaizes.elamon.data.text
 
-/** An action whose open parameters the form asks for before it runs. */
-data class FormRequest(val action: Action, val fixed: JsonObject, val phrase: String, val button: String?, val key: String, val afterAsking: () -> Unit = {})
+/**
+ * An action whose open parameters the form asks for before it runs, and what has been given them so
+ * far: kept with the request, so the form comes back after a rotation as it was left.
+ */
+class FormRequest(val action: Action, val fixed: JsonObject, val phrase: String, val button: String?, val key: String, val afterAsking: () -> Unit = {}) {
+	/** The parameters asked for: those [fixed] leaves open. */
+	val asked: List<Param> = Params.asked(action, fixed)
+
+	/** Each asked parameter's value, as [Params.initial] starts it; null while nothing it takes is given. */
+	val values = mutableStateMapOf<String, JsonElement?>().apply { for (p in asked) put(p.id, Params.initial(p)) }
+
+	/** What is typed into the fields that are typed in, as typed. */
+	val texts = mutableStateMapOf<String, String>().apply { for (p in asked) put(p.id, Params.initial(p)?.text().orEmpty()) }
+
+	/** The values the action runs with: the fixed ones and those given. */
+	fun params(): JsonObject = buildJsonObject {
+		fixed.forEach { (k, v) -> put(k, v) }
+		for (p in asked) values[p.id]?.takeIf { it !is JsonNull }?.let { put(p.id, it) }
+	}
+}
 
 /**
  * Runs the computer's actions from widgets: asks for the parameters a widget doesn't fix, then
@@ -195,6 +216,8 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val alpha = if (enabled) 1f else Alpha.DISABLED
 	if (!LocalInGroup.current) {
 		ListGroup(modifier) {
+			// As in a group's row: the spinner in the icon's place, how it ended under the name. The
+			// card may be half a row wide, and a pill beside the name left it a few letters a line.
 			ListRow(
 				label,
 				summary = captionOf(w, s),
@@ -202,7 +225,8 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 				accent = if (w.color != null) accent(w.color) else MaterialTheme.colorScheme.secondary,
 				enabled = takesTap(enabled, running),
 				onClick = run,
-				trailing = outcome(running, result, scope.vm, action),
+				busy = running,
+				below = outcome(running, result, scope.vm, action),
 			)
 		}
 		return
@@ -235,7 +259,7 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 			Spacer(Modifier.width(Space.m))
 			Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
 				Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), maxLines = 2, overflow = TextOverflow.Ellipsis)
-				if (!running) outcome(false, result, scope.vm, action)?.invoke()
+				outcome(running, result, scope.vm, action)?.invoke()
 			}
 		}
 	}
@@ -244,11 +268,14 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 /** Whether a button takes a tap: its action may run and isn't running already, or a second tap would ask again for nothing. */
 internal fun takesTap(enabled: Boolean, running: Boolean): Boolean = enabled && !running
 
-/** What a button shows at its end: a spinner while its action runs, then how the command ended, its output a tap away. */
-private fun outcome(running: Boolean, result: ActionResult?, vm: MachineViewModel, action: Action?): (@Composable () -> Unit)? = when {
-	running -> { { CircularProgressIndicator(Modifier.size(Sizes.iconM), strokeWidth = Sizes.spinnerStroke) } }
-	result != null && action != null -> { { ActionOutcome(result, Modifier.clip(PillShape).clickable(role = Role.Button) { vm.showActionResult(action.id) }) } }
-	else -> null
+/** How a button's action last ended, shown under its name: none while it runs again, the spinner in its icon's place saying so. */
+internal fun shownResult(running: Boolean, result: ActionResult?): ActionResult? = result?.takeUnless { running }
+
+/** What a button shows under its name: how the command ended ([shownResult]), its output a tap away. */
+private fun outcome(running: Boolean, result: ActionResult?, vm: MachineViewModel, action: Action?): (@Composable () -> Unit)? {
+	val r = shownResult(running, result) ?: return null
+	if (action == null) return null
+	return { ActionOutcome(r, Modifier.clip(PillShape).clickable(role = Role.Button) { vm.showActionResult(action.id) }) }
 }
 
 @Composable
@@ -335,6 +362,8 @@ fun SelectWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val enabled = a.enabled(action, s)
 	val now = s?.v?.text()
 	val label = w.label ?: action?.name.orEmpty()
+	// The highlight moves to the choice taken, or with animations off is there at once.
+	val move: AnimationSpec<Color> = if (LocalPrefs.current.animations) spring() else snap()
 	Section(label, icon(w.icon), modifier, accent = accent(w.color)) {
 		captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 		FlowRow(
@@ -345,7 +374,7 @@ fun SelectWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 		) {
 			for (c in choices) {
 				val on = c.value == now
-				val bg by animateColorAsState(if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh, label = "choice")
+				val bg by animateColorAsState(if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh, move, label = "choice")
 				val fg = (if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = if (enabled) 1f else Alpha.DISABLED)
 				val name = c.label ?: c.value
 				Column(
@@ -444,13 +473,10 @@ internal fun sliderSteps(min: Double, max: Double, step: Double?): Int =
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ParamForm(req: FormRequest, onDismiss: () -> Unit, onDone: (JsonObject) -> Unit) {
-	val asked = remember(req) { Params.asked(req.action, req.fixed) }
-	val values = remember(req) { mutableStateMapOf<String, JsonElement?>().apply { for (p in asked) put(p.id, Params.initial(p)) } }
-	val texts = remember(req) { mutableStateMapOf<String, String>().apply { for (p in asked) put(p.id, values[p.id]?.text().orEmpty()) } }
-	val params = buildJsonObject {
-		req.fixed.forEach { (k, v) -> put(k, v) }
-		for (p in asked) values[p.id]?.takeIf { it !is JsonNull }?.let { put(p.id, it) }
-	}
+	val asked = req.asked
+	val values = req.values
+	val texts = req.texts
+	val params = req.params()
 	val ok = Params.complete(req.action, params)
 	val title = req.action.name.ifEmpty { req.phrase }
 	GlassDialog(

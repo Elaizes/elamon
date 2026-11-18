@@ -63,9 +63,9 @@ import io.github.elaizes.elamon.data.linkUrl
 import io.github.elaizes.elamon.data.text
 
 /**
- * What the tables of a screen keep while it lives: each one's search, and the row whose sheet is
- * open (with its last readings, should it leave the list). The order asked for is the view
- * model's, which the stream is told: it outlives the screen.
+ * What the tables of a screen keep while it lives, a rotation included ([MachineDialogs]): each
+ * one's search, and the row whose sheet is open (with its last readings, should it leave the list).
+ * The order asked for is the view model's, which the stream is told: it outlives the screen.
  */
 class TableStates {
 	private val queries = mutableStateMapOf<String, String>()
