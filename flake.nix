@@ -605,6 +605,115 @@
 				testScript = builtins.readFile ./nix/journal-test.py;
 			};
 
+			# elamond's events on one machine, sent to a mock ntfy on loopback that writes down each
+			# request: a disk filling and emptied, across a restart; a link's unit failing; `elamond
+			# notify`; a UPS on battery and back (NUT's dummy-ups, whose file the test rewrites);
+			# rules changed and turned off by a drop-in; what a target without names sends; and the
+			# topics and the token nowhere but their files and the requests.
+			checks.x86_64-linux.events = nixpkgs.legacyPackages.x86_64-linux.testers.runNixOSTest {
+				name = "elamond-events";
+				nodes.machine = { pkgs, ... }: {
+					imports = [ self.nixosModules.default ];
+					# A name of its own, looked for in what a target without names sends.
+					networking.hostName = "evbench";
+					systemd.services.ntfy-mock = {
+						wantedBy = [ "multi-user.target" ];
+						serviceConfig = {
+							StateDirectory = "ntfy-mock";
+							ExecStart = pkgs.writers.writePython3 "ntfy-mock" { flakeIgnore = [ "E501" ]; } (builtins.readFile ./nix/ntfy-mock.py);
+						};
+					};
+					# Two topics and a token, made at boot and so never in the Nix store: alice's alone.
+					systemd.services.ntfy-secrets = {
+						wantedBy = [ "multi-user.target" ];
+						before = [ "user@1000.service" ];
+						path = [ pkgs.coreutils ];
+						serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+						script = ''
+							umask 077
+							install -d -o alice -g users -m 700 /home/alice/.config /home/alice/.config/elamon
+							cd /home/alice/.config/elamon
+							test -s ntfy.topic || echo "topic-marker-$(head -c 10 /dev/urandom | base32 | tr -d =)" > ntfy.topic
+							test -s ntfy-named.topic || echo "topic-named-$(head -c 10 /dev/urandom | base32 | tr -d =)" > ntfy-named.topic
+							test -s ntfy.token || echo "tk_$(head -c 15 /dev/urandom | base32)" > ntfy.token
+							chown alice:users ntfy.topic ntfy-named.topic ntfy.token
+							chmod 600 ntfy.topic ntfy-named.topic ntfy.token
+						'';
+					};
+					# A small ext4 the service lists as a disk (it leaves tmpfs out), there before it starts.
+					systemd.services.scratch-disk = {
+						wantedBy = [ "multi-user.target" ];
+						before = [ "user@1000.service" ];
+						path = [ pkgs.coreutils pkgs.e2fsprogs pkgs.util-linux ];
+						serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+						script = ''
+							mkdir -p /var/lib/scratch /srv/scratch
+							test -e /var/lib/scratch/disk.img || { truncate -s 32M /var/lib/scratch/disk.img && mkfs.ext4 -q -F -m 0 /var/lib/scratch/disk.img; }
+							mountpoint -q /srv/scratch || mount -o loop /var/lib/scratch/disk.img /srv/scratch
+						'';
+					};
+					# A link's unit, which fails as it starts.
+					systemd.services.ledger-sync = {
+						description = "A unit that fails";
+						serviceConfig.ExecStart = "${pkgs.coreutils}/bin/false";
+					};
+					# A UPS on upsd that NUT's dummy-ups serves from a file, which the test rewrites to take
+					# it on battery and back: nutflow's mock station fails its grid on a schedule of its own.
+					systemd.services.cellar-ups-file = {
+						wantedBy = [ "multi-user.target" ];
+						before = [ "upsdrv.service" "upsd.service" ];
+						path = [ pkgs.coreutils ];
+						serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+						script = ''
+							mkdir -p /var/lib/cellar-ups
+							printf '%s\n' 'device.mfr: Example' 'device.model: Bench 1500' 'ups.mfr: Example' 'ups.model: Bench 1500' \
+								'ups.status: OL' 'battery.charge: 100' 'battery.runtime: 3600' 'ups.load: 20' > /var/lib/cellar-ups/cellarups.dev
+						'';
+					};
+					power.ups = {
+						enable = true;
+						mode = "standalone";
+						# Nothing shuts the machine down for what the UPS says.
+						upsmon.enable = false;
+						upsd.listen = [ { address = "127.0.0.1"; } ];
+						ups.cellarups = {
+							driver = "dummy-ups";
+							port = "/var/lib/cellar-ups/cellarups.dev";
+							description = "A UPS the test switches";
+						};
+					};
+					systemd.services.upsd.before = [ "user@1000.service" ];
+					services.elamond = {
+						enable = true;
+						users = [ "alice" ];
+						settings = {
+							# Links' units read every 5 seconds while no phone looks; the disk rule after 3.
+							events.background = 5;
+							events.notify.length = 60;
+							# Room for every request the test makes, for each target ([events.target]'s).
+							events.target.burst = 100;
+							rules.disk.for = 3;
+							rules.boot.enabled = true;
+							notify.mock = {
+								url = "http://127.0.0.1:8090";
+								topic_file = "/home/alice/.config/elamon/ntfy.topic";
+							};
+							notify.named = {
+								url = "http://127.0.0.1:8090";
+								topic_file = "/home/alice/.config/elamon/ntfy-named.topic";
+								token_file = "/home/alice/.config/elamon/ntfy.token";
+								names = true;
+							};
+							links.ledger = { name = "Ledger"; url = "http://{host}:8099"; unit = "ledger-sync.service"; scope = "system"; };
+							sources.cellar = { kind = "nut"; ups = "cellarups"; host = "127.0.0.1"; background_ms = 1000; };
+						};
+					};
+					users.users.alice = { isNormalUser = true; uid = 1000; linger = true; };
+					environment.systemPackages = [ pkgs.curl pkgs.jq pkgs.procps pkgs.util-linux ];
+				};
+				testScript = builtins.readFile ./nix/events-test.py;
+			};
+
 			devShells.x86_64-linux = {
 				default = dev.mkShell {
 					packages = [
