@@ -87,7 +87,8 @@ Usage:
   elamond defaults                     print the settings elamond starts with (defaults.toml)
   elamond defaults --diff              where your settings differ from those, and what changed in
                                        them since the version before (defaults.toml.old)
-  elamond defaults TABLE               one table of them to copy: dashboards.ups, profiles.default
+  elamond defaults TABLE               one table of them to copy: dashboards.ups, profiles.default,
+                                       rules.disk; or all the rules (rules), all of [events] (events)
   elamond values [SOURCE]              list the values this computer has now, and the collections;
                                        with SOURCE, that source's values (a UPS's, a command's, a web
                                        service's or a file's), read there and then, or why it

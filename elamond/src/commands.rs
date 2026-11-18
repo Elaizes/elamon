@@ -284,7 +284,7 @@ fn without_header(text: &str) -> &str {
 
 /// The tables with ids, in the order `elamond defaults --diff` lists them: as the starter file
 /// has them, then those it has only as examples.
-pub const SECTIONS: [&str; 5] = ["profiles", "dashboards", "templates", "links", "actions"];
+pub const SECTIONS: [&str; 8] = ["profiles", "dashboards", "templates", "links", "actions", "rules", "notify", "events"];
 
 /// How a part of the settings differs from the same part of others.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -440,6 +440,12 @@ fn defaults_diff(place: &Place, version: &str) -> Result<String, String> {
 /// with, as TOML to copy into the settings, its lists of tables and comments with it.
 fn defaults_table(name: &str) -> Result<String, String> {
 	let doc: toml_edit::DocumentMut = DEFAULTS.parse().map_err(|e| format!("the defaults don't parse: {e}"))?;
+	// A whole part of them, by its name alone: `rules`, every rule; `events`, all of `[events]`.
+	if let Some(whole) = SECTIONS.iter().find(|s| **s == name).and_then(|s| doc.get(s)).filter(|i| i.as_table().is_some_and(|t| !t.is_empty())) {
+		let mut out = toml_edit::DocumentMut::new();
+		out.insert(name, whole.clone());
+		return Ok(out.to_string());
+	}
 	let found = name.split_once('.').filter(|(s, _)| SECTIONS.contains(s)).and_then(|(section, id)| {
 		let s = doc.get(section)?.as_table()?;
 		Some((section, s.key(id)?.clone(), s.get(id)?.clone()))
@@ -451,7 +457,7 @@ fn defaults_table(name: &str) -> Result<String, String> {
 				all.extend(t.iter().map(|(id, _)| format!("{section}.{id}")));
 			}
 		}
-		return Err(format!("no table \"{name}\" in the defaults; they have {}", all.join(", ")));
+		return Err(format!("no table \"{name}\" in the defaults; they have {}; and rules and events, each whole", all.join(", ")));
 	};
 	// Its own comment, not the heading of the part of the file it is in.
 	if let Some(t) = item.as_table_mut() {
@@ -617,6 +623,22 @@ mod tests {
 			out.contains("What changed in the defaults since elamond 0.6.0 (defaults.toml.old):\n  changed  dashboards.sensors   widgets\n  removed  dashboards.extra\n\nCopy a table to start from: elamond defaults dashboards.sensors\n"),
 			"{out}"
 		);
+		fs::remove_dir_all(dir).unwrap();
+	}
+
+	/// What the settings change of the rules, the targets and `[events]` shows like the rest.
+	#[test]
+	fn the_diff_tells_of_rules_targets_and_events() {
+		let dir = std::env::temp_dir().join(format!("elamond-diff-events-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
+		let place = Place { dir: dir.clone(), named: None };
+		fs::create_dir_all(place.dropins()).unwrap();
+		fs::write(place.main(), DEFAULTS.replace("[rules.boot]\nenabled = false", "[rules.boot]\nenabled = true")).unwrap();
+		let mine = "[rules.disk]\nabove = 80\ntext = \"{name} is filling\"\n[rules.mine]\nvalue = \"cpu.usage\"\nabove = 99\n[notify.phone]\ntopic_file = \"/x\"\n[events]\nkeep = 50\n[events.target]\nurl = \"https://ntfy.example.net\"\npriority = { warning = 3 }\n";
+		fs::write(place.dropins().join("mine.toml"), mine).unwrap();
+		let out = defaults_diff(&place, "0.9.0").unwrap();
+		for line in ["changed  rules.boot", "enabled", "changed  rules.disk", "above, text", "added    rules.mine", "added    notify.phone", "events.keep", "changed  events.target", "priority, url"] {
+			assert!(out.contains(line), "{line}: {out}");
+		}
 		fs::remove_dir_all(dir).unwrap();
 	}
 
