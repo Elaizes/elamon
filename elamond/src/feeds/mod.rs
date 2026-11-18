@@ -7,7 +7,7 @@
 
 pub mod cli;
 mod parse;
-mod read;
+pub(crate) mod read;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
@@ -48,7 +48,7 @@ impl Failure {
 }
 
 /// A value as a source's: no unit, its format by what it is.
-fn scalar(v: V) -> Scalar {
+pub(crate) fn scalar(v: V) -> Scalar {
 	let format = match v {
 		V::Int(_) | V::Float(_) => "number",
 		V::Text(_) => "text",

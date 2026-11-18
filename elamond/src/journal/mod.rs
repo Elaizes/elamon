@@ -36,6 +36,8 @@ pub enum Key {
 	System,
 	User,
 	Unit { name: String, user: bool },
+	/// Not a journal: the service's own events (`crate::events`), shown as a journal's lines are.
+	Events,
 }
 
 impl Key {
@@ -45,6 +47,7 @@ impl Key {
 		match w.scope.as_deref().unwrap_or("system") {
 			"system" => Some(Key::System),
 			"user" => Some(Key::User),
+			"events" => Some(Key::Events),
 			"unit" => {
 				let name = w.unit.as_deref().filter(|u| !u.is_empty())?;
 				let link = config.links.values().find(|l| l.unit.as_deref() == Some(name))?;
@@ -57,7 +60,7 @@ impl Key {
 	/// journalctl's arguments that choose it.
 	fn args(&self) -> Vec<String> {
 		match self {
-			Key::System => Vec::new(),
+			Key::System | Key::Events => Vec::new(),
 			Key::User => vec!["--user".into()],
 			Key::Unit { name, user } => [user.then(|| "--user".to_string()), Some("-u".into()), Some(name.clone())].into_iter().flatten().collect(),
 		}
@@ -73,6 +76,7 @@ impl Key {
 		match self {
 			Key::System => "the system journal".into(),
 			Key::User => "the user's journal".into(),
+			Key::Events => "the events".into(),
 			Key::Unit { name, .. } => format!("{name}'s journal"),
 		}
 	}
@@ -370,6 +374,11 @@ pub struct Tail {
 impl Tail {
 	pub fn buffer(&self) -> MutexGuard<'_, Buffer> {
 		self.buffer.lock().unwrap_or_else(|p| p.into_inner())
+	}
+
+	/// A tail of lines kept elsewhere, no journalctl behind them: the events'.
+	pub fn of(buffer: Arc<Mutex<Buffer>>) -> Tail {
+		Tail { buffer, task: None }
 	}
 
 	/// A tail without a journalctl, its lines put in by hand: the fixtures'.

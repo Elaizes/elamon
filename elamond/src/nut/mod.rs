@@ -25,6 +25,7 @@ use upst_core::{fmt as nut_fmt, Event, Link, Ups};
 use crate::access::Role;
 use crate::actions::Spec;
 use crate::consts::{limit, timeout};
+use crate::events::rules::Heard;
 use crate::format;
 pub use crate::history::timeline::Supply;
 use crate::history::timeline::{Change, Timeline};
@@ -140,6 +141,9 @@ pub struct Station {
 	too_many: bool,
 	/// Every address it has had, with its format.
 	known: BTreeMap<String, &'static str>,
+	/// Where what happens to it is told, for the rules of the settings (`crate::events`): of a
+	/// source the service runs, not of one read for `elamond values`.
+	heard: Option<Arc<Mutex<Vec<Heard>>>>,
 	/// Every outlet it has had, by number, with its fields as last told.
 	outlets: BTreeMap<u32, BTreeMap<&'static str, V>>,
 	/// What upsd last said the station offers, kept while it can't be reached; and what it said of
@@ -198,6 +202,7 @@ impl Station {
 			vars: BTreeSet::new(),
 			too_many: false,
 			known,
+			heard: None,
 			outlets: BTreeMap::new(),
 			meta: None,
 			infos: BTreeMap::new(),
@@ -383,10 +388,20 @@ impl Station {
 		Some(now)
 	}
 
-	/// Writes in the journal what happened to the power, the battery's charge and the link.
+	/// Writes in the journal what happened to the power, the battery's charge and the link, and
+	/// tells the rules everything that happened: what of it is an event is theirs to say. What
+	/// the recorder's journal tells of the time before isn't told them (`say_as` alone).
 	fn say(&self, events: &[Event]) {
 		for e in events {
 			self.say_as(e, "");
+		}
+		let Some(heard) = &self.heard else { return };
+		let mut heard = heard.lock().unwrap_or_else(|p| p.into_inner());
+		for e in events {
+			// The rules take them every tick: more than these waiting, and nothing does.
+			if heard.len() < limit::NUT_HEARD_MAX {
+				heard.push(Heard { source: self.id.clone(), code: e.code().to_string(), text: e.to_string(), t: upst_core::unix(e.at) as u64 * 1000 });
+			}
 		}
 	}
 
@@ -473,6 +488,46 @@ struct Running {
 	task: tokio::task::JoinHandle<()>,
 }
 
+/// The codes of upst-core's events (`Event::code`), which a rule of kind `ups` goes by: what
+/// `elamond check` holds a rule's `codes` and `ends` against, to warn of one misspelt. A list for
+/// that hint alone: a rule on a code that isn't here is read all the same.
+pub const CODES: [&str; 32] = [
+	"power.started_on_battery",
+	"power.lost",
+	"power.restored",
+	"power.left_battery",
+	"power.bypass",
+	"power.bypass.ended",
+	"battery.low",
+	"battery.low.cleared",
+	"battery.replace",
+	"battery.replace.cleared",
+	"battery.calibration.started",
+	"battery.calibration.ended",
+	"load.overload",
+	"load.overload.cleared",
+	"output.off",
+	"output.on",
+	"input.trim",
+	"input.boost",
+	"ups.forced_shutdown",
+	"ups.alarm",
+	"ups.alarm.raised",
+	"ups.alarm.cleared",
+	"ups.self_test",
+	"driver.lost",
+	"driver.back",
+	"data.stale",
+	"data.fresh",
+	"upsd.lost",
+	"upsd.unreachable",
+	"upsd.back",
+	"status.flag.set",
+	"status.flag.cleared",
+];
+/// The upst-core they are of.
+pub const CODES_OF: &str = "0.1";
+
 /// Every source of the settings, each read by a poller of its own.
 #[derive(Default)]
 pub struct Runtime {
@@ -483,6 +538,8 @@ pub struct Runtime {
 struct Inner {
 	/// Where the sources' tasks run, once the service has started them, and the history they keep.
 	handle: Option<(tokio::runtime::Handle, Arc<Store>)>,
+	/// What the sources said since the rules last asked.
+	heard: Arc<Mutex<Vec<Heard>>>,
 	sources: BTreeMap<String, Running>,
 }
 
@@ -496,6 +553,13 @@ impl Runtime {
 
 	fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
 		self.inner.lock().unwrap_or_else(|p| p.into_inner())
+	}
+
+	/// What the sources said since this was last asked, oldest first.
+	pub fn heard(&self) -> Vec<Heard> {
+		let heard = self.lock().heard.clone();
+		let mut heard = heard.lock().unwrap_or_else(|p| p.into_inner());
+		std::mem::take(&mut *heard)
 	}
 
 	/// Takes newly read settings: a source taken out of them, or changed as `restarts` says, is
@@ -517,7 +581,7 @@ impl Runtime {
 		});
 		for (id, src) in &config.sources {
 			if !inner.sources.contains_key(id) {
-				match spawn(&handle, &store, id, src) {
+				match spawn(&handle, &store, id, src, inner.heard.clone()) {
 					Ok(r) => {
 						inner.sources.insert(id.clone(), r);
 					}
@@ -615,10 +679,11 @@ fn restarts(old: &NutSource, new: &NutSource) -> bool {
 }
 
 /// A poller for `src`, and the task that takes in what it reports.
-fn spawn(handle: &tokio::runtime::Handle, store: &Arc<Store>, id: &str, src: &NutSource) -> std::io::Result<Running> {
+fn spawn(handle: &tokio::runtime::Handle, store: &Arc<Store>, id: &str, src: &NutSource, heard: Arc<Mutex<Vec<Heard>>>) -> std::io::Result<Running> {
 	let (poller, updates) = poller(src)?;
 	let timeline = Timeline::load(&store.dir().join(crate::history::timeline::DIR), id, store.last_seen(id));
 	let mut station = Station::keeping(id, src, timeline);
+	station.heard = Some(heard);
 	let snapshot = Arc::new(Mutex::new(Arc::new(station.snapshot(SystemTime::now()))));
 	let (demand, wanted) = watch::channel(Demand::Background);
 	let (retune, retuned) = watch::channel(src.clone());

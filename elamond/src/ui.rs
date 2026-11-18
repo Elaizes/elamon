@@ -526,6 +526,10 @@ impl Ctx<'_> {
 		if kind == "media" || kind == "log" {
 			need = need.max(Role::Monitor);
 		}
+		// The events name units, disks and sources: for the role the settings give them.
+		if kind == "log" && w.scope.as_deref() == Some("events") {
+			need = need.max(self.config.events.role);
+		}
 		if self.view.role < need {
 			return None;
 		}

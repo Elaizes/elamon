@@ -45,6 +45,11 @@ pub async fn log(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>,
 	let Some((w, journal)) = found.and_then(|w| Some((w, Key::of(&w.def, &hub.config())?))) else { return error(ErrorCode::NoSuchWidget) };
 	let own = w.def.level.as_deref().and_then(priority_of).unwrap_or(INFO);
 	let filter = Filter::new(asked.priority.unwrap_or(own), asked.search.as_deref());
+	// The service's own events are in its memory: no journalctl to run.
+	if journal == Key::Events {
+		let (lines, before) = hub.events.page(before, &filter, limit::LOG_PAGE);
+		return json_response(serde_json::to_string(&Value::Object(answer(&widget, &lines, before))).unwrap_or_default());
+	}
 	// A few at a time; the rest wait their turn.
 	let Ok(_turn) = hub.journal.pages.acquire().await else { return error(ErrorCode::Failed) };
 	match tokio::time::timeout(timeout::JOURNAL_PAGE, page(&hub.journal.program, &journal, before, &filter)).await {

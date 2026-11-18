@@ -151,6 +151,8 @@ pub struct Hub {
 	pub feeds: crate::feeds::Runtime,
 	/// The journals the streams' `log`s follow, and the pages of older lines asked for.
 	pub journal: crate::journal::Journal,
+	/// The events the rules and `elamond notify` make: kept, shown by `log`s and sent on.
+	pub events: Arc<crate::events::Events>,
 	pub interval: Duration,
 	/// Swapped whole when the settings files change; see `config()`.
 	config: RwLock<Arc<store::Config>>,
@@ -256,6 +258,7 @@ impl Hub {
 			nut: crate::nut::Runtime::default(),
 			feeds: crate::feeds::Runtime::default(),
 			journal: crate::journal::Journal::default(),
+			events: Arc::new(crate::events::Events::load(&dir, config.clone())),
 			interval,
 			config: RwLock::new(config),
 			config_gen: AtomicU64::new(0),
@@ -478,6 +481,7 @@ impl Hub {
 		if let Ok(mut c) = self.config.write() {
 			*c = Arc::new(new);
 		}
+		self.events.apply(self.config());
 		// `names` reach the phones with the rest of the settings, in the same `ui`.
 		if names_changed {
 			let reach = self.reach.lock().unwrap_or_else(|p| p.into_inner());

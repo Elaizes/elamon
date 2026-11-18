@@ -6,11 +6,13 @@ use std::io::{self, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
-use crate::settings::{DASHBOARDS, DEFAULTS, STARTER};
+use crate::settings::{DASHBOARDS, DEFAULTS, EVENTS, STARTER};
 use crate::store::{self, Place};
 
 /// The standard dashboards' drop-in, which the starter comes with.
 pub const DASHBOARDS_FILE: &str = "dashboards.toml";
+/// And the one of `[events]` and the rules.
+pub const EVENTS_FILE: &str = "events.toml";
 /// The JSON Schema of the settings, beside them for editors (`#:schema` in the starter files).
 pub const SCHEMA_FILE: &str = "elamond-schema.json";
 /// The settings elamond starts with, beside the settings, for reference; and the version before's.
@@ -75,8 +77,14 @@ pub fn starter_dashboards() -> String {
 	format!("#:schema ../{SCHEMA_FILE}\n{DASHBOARDS}")
 }
 
+/// elamond.d/events.toml as the starter writes it.
+pub fn starter_events() -> String {
+	format!("#:schema ../{SCHEMA_FILE}\n{EVENTS}")
+}
+
 /// Writes the settings elamond starts with where there are none: the starter as the main file
-/// `main`, and the standard dashboards as elamond.d/dashboards.toml beside it unless that is there.
+/// `main`, and the standard dashboards and the rules as elamond.d/dashboards.toml and
+/// elamond.d/events.toml beside it, each unless it is there.
 /// Each begins with a `#:schema` line naming the JSON Schema beside them, for editors; never written
 /// over a file, and only their owner's to read.
 pub fn write_starter(main: &Path) -> io::Result<()> {
@@ -89,10 +97,13 @@ pub fn write_starter(main: &Path) -> io::Result<()> {
 	new(main, format!("#:schema {SCHEMA_FILE}\n{STARTER}"))?;
 	let dropins = dir.join(store::DROPIN_DIR);
 	fs::create_dir_all(&dropins)?;
-	match new(&dropins.join(DASHBOARDS_FILE), starter_dashboards()) {
-		Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
-		other => other,
+	for (file, text) in [(DASHBOARDS_FILE, starter_dashboards()), (EVENTS_FILE, starter_events())] {
+		match new(&dropins.join(file), text) {
+			Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+			other => other?,
+		}
 	}
+	Ok(())
 }
 
 // ---- defaults.toml ------------------------------------------------------------------------

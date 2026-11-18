@@ -10,6 +10,7 @@ mod commands;
 mod consts;
 mod control;
 mod errors;
+mod events;
 mod feeds;
 #[cfg(test)]
 mod fixtures;
@@ -92,6 +93,12 @@ Usage:
                                        service's or a file's), read there and then, or why it
                                        couldn't; a UPS's with its commands and settings, and whether
                                        the source allows them
+  elamond notify [--level LEVEL] [--title TITLE] TEXT
+                                       make an event of TEXT (info, warning or critical): kept
+                                       with the rules' events, shown in the app and sent to the
+                                       targets under [notify] as theirs are. TEXT goes as it is
+                                       to every target, those that send no names too
+  elamond events [-n COUNT]            the last events, each with how sending it went
   elamond setup                        install the service for this user (systemd user unit, starter
                                        settings) and print what needs root: lingering, the firewall,
                                        the polkit rule (--print: only show it; --no-start)
@@ -142,6 +149,8 @@ fn main() {
 		"schema" => commands::schema(),
 		"defaults" => commands::defaults(&args[1..]),
 		"values" => commands::values(&args[1..]),
+		"notify" => events::cli::notify(&args[1..]),
+		"events" => events::cli::events(&args[1..]),
 		"setup" => setup::run(&args[1..]),
 		"update" => update::run(&args[1..]),
 		"-V" | "--version" | "version" => {
@@ -265,6 +274,8 @@ fn serve() -> Result<(), String> {
 	hub.nut.start(runtime.handle().clone(), &hub.config(), hub.long.clone());
 	// Each command, web service and file a source reads, by a task of its own.
 	hub.feeds.start(runtime.handle().clone(), &hub.config());
+	// The events sent on to the targets of the settings.
+	hub.events.start(runtime.handle(), &name);
 	let stopping = hub.clone();
 	{
 		let hub = hub.clone();
@@ -524,17 +535,33 @@ fn collect_loop(
 	// The sources timelines show, worked out with it.
 	let mut timelines = std::collections::BTreeSet::new();
 	let mut slow_said: Option<std::time::Instant> = None;
+	// The rules of the settings, what they need read that nothing else does (and the settings
+	// that was worked out for), when it was last read for them, and `elamond notify`'s last events.
+	let mut engine = events::rules::Engine::load(&hub.dir);
+	let mut rule_needs: (Option<u64>, events::def::Needs) = (None, Default::default());
+	let mut background: Option<std::time::Instant> = None;
+	let mut notified = std::collections::VecDeque::new();
+	let boot = events::rules::boot_id();
 	loop {
 		let started = std::time::Instant::now();
 		let wanted = hub.wanted();
-		let need = wanted.unwrap_or_default();
+		let mut need = wanted.unwrap_or_default();
+		let config = hub.config();
+		if rule_needs.0 != Some(hub.config_gen()) {
+			rule_needs = (Some(hub.config_gen()), events::def::Needs::of(&config));
+		}
+		// A link's unit or a GPU that only a rule looks at is read every `background` seconds.
+		if (rule_needs.1.links || rule_needs.1.gpus) && background.is_none_or(|at| at.elapsed() >= Duration::from_secs(config.events.background)) {
+			background = Some(started);
+			need.links |= rule_needs.1.links;
+			need.gpus |= rule_needs.1.gpus;
+		}
 		let mut reading = collector.read(wanted.is_some(), need);
 		let mut got = extras.apply(&hub, &rt, wanted.is_some(), need, &mut reading.sample);
 		// GPU names improve once NVML has been read, so the facts are read again now and then.
 		if reading.cards_changed || seq % u64::from(every.info) == 1 % u64::from(every.info) {
 			info = collector.info(&id, &name, hub.interval, history_len);
 		}
-		let config = hub.config();
 		let activity = hub.activity.newest(limit::ACTIVITY_MAX);
 		let mut values = values::read(&values::Reading {
 			sample: &reading.sample,
@@ -565,9 +592,18 @@ fn collect_loop(
 		// Upsd is asked often for a source while a client shows its values, less while its history is
 		// kept. A command, web service or file is read only while a client shows it, a graph tracks it
 		// or its history is kept.
-		let heads = hub.wanted_heads();
+		// The same of one a rule looks at.
+		let mut heads = hub.wanted_heads();
 		hub.nut.set_demand(&heads, &tracked.1, &timelines);
+		heads.extend(rule_needs.1.heads.iter().cloned());
 		hub.feeds.set_demand(&heads, &tracked.1);
+		// What the rules make of this reading and of what the UPS sources said since the last,
+		// and what `elamond notify` left.
+		for draft in engine.tick(&config, &values, &hub.nut.heard(), &hub.name, boot.as_deref()) {
+			hub.events.record(draft, &config);
+		}
+		engine.save();
+		hub.events.take_notified(&config, &mut notified);
 		if let Ok(mut h) = hub.history.lock() {
 			h.push(&values, &tracked.1);
 		}

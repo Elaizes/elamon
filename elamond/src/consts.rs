@@ -243,6 +243,8 @@ pub mod limit {
 	/// `ui` documents kept built at once (one for each role, profile, kind of client and set of
 	/// widget types asked for); beyond these the least lately asked for is forgotten.
 	pub const UIS_KEPT: usize = 64;
+	/// What the UPS sources said that waits for the rules, which take it every tick.
+	pub const NUT_HEARD_MAX: usize = 1000;
 	/// A UPS source's variables made values at most; any more are left out, said once.
 	pub const NUT_VARS_MAX: usize = 256;
 	/// Changes of a UPS source's power kept at most, in memory and in its timeline's file (which may hold

@@ -1,5 +1,5 @@
 {
-  "version": "2690b678f7a61f84",
+  "version": "1b8e53ee4d0e3000",
   "service": {
     "id": "0123456789abcdef0123456789abcdef",
     "name": "fixture",
@@ -437,6 +437,7 @@
           ]
         },
         { "id": "control/journal", "type": "button", "span": 4, "label": "Journal", "icon": "terminal", "open": "journal" },
+        { "id": "control/events", "type": "button", "span": 4, "label": "Events", "icon": "terminal", "open": "events" },
         { "id": "control/activity", "type": "button", "span": 4, "label": "Activity log", "icon": "clock", "open": "activity" }
       ]
     },
@@ -814,6 +815,23 @@
           "label": "System journal",
           "scope": "system",
           "level": "warning",
+          "lines": 200,
+          "search": true
+        }
+      ]
+    },
+    {
+      "id": "events",
+      "title": "Events",
+      "icon": "terminal",
+      "widgets": [
+        {
+          "id": "events/events",
+          "type": "log",
+          "span": 4,
+          "label": "Events",
+          "scope": "events",
+          "level": "info",
           "lines": 200,
           "search": true
         }

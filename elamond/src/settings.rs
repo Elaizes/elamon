@@ -20,8 +20,10 @@ use crate::values;
 /// elamond.toml, then elamond.d/dashboards.toml, the standard dashboards and their templates.
 pub const STARTER: &str = include_str!("starter.toml");
 pub const DASHBOARDS: &str = include_str!("dashboards.toml");
-/// The two as one file of settings schema 3: `elamond defaults`, defaults.toml beside the settings.
-pub const DEFAULTS: &str = concat!(include_str!("starter.toml"), "\n", include_str!("dashboards.toml"));
+/// And elamond.d/events.toml: `[events]` and the rules.
+pub const EVENTS: &str = crate::events::def::DEFAULTS;
+/// The three as one file of settings schema 3: `elamond defaults`, defaults.toml beside the settings.
+pub const DEFAULTS: &str = concat!(include_str!("starter.toml"), "\n", include_str!("dashboards.toml"), "\n", include_str!("events.toml"));
 /// What mistakes in them are said to be in.
 pub const DEFAULTS_NAME: &str = "built-in defaults";
 /// The settings schema this elamond reads: `schema = 3`, a whole file.
@@ -45,7 +47,7 @@ pub const GRACES: [&str; 3] = ["every_time", "1m", "5m"];
 pub const HEIGHTS: [&str; 3] = ["small", "medium", "large"];
 pub const SCOPES: [&str; 2] = ["user", "system"];
 /// Which journal a `log` shows, and the levels it may show from, the least first.
-pub const LOG_SCOPES: [&str; 3] = ["system", "user", "unit"];
+pub const LOG_SCOPES: [&str; 4] = ["system", "user", "unit", "events"];
 pub const LOG_LEVELS: [&str; 6] = ["debug", "info", "notice", "warning", "error", "critical"];
 /// What a timeline's legend tells of each state: how long, what share of the known time, or both.
 pub const LEGENDS: [&str; 3] = ["duration", "percent", "both"];
@@ -93,6 +95,12 @@ pub struct Config {
 	pub feeds: BTreeMap<String, Feed>,
 	/// `[history]`: how long the hourly history is kept.
 	pub history: HistoryDef,
+	/// `[events]`: how events are kept and shown, and what a rule or a target leaves out.
+	pub events: crate::events::def::EventsDef,
+	/// `[rules.<id>]`: what makes an event.
+	pub rules: BTreeMap<String, crate::events::def::Rule>,
+	/// `[notify.<id>]`: the ntfy topics events are sent on to.
+	pub notify: BTreeMap<String, crate::events::def::Target>,
 	/// Where each profile's table is: the file that set it last, and the line of its
 	/// `[profiles.<id>]` there. Filled in as the files are read, not a key of theirs.
 	#[serde(skip)]
@@ -602,6 +610,9 @@ impl Config {
 			sources: BTreeMap::new(),
 			feeds: BTreeMap::new(),
 			history: HistoryDef::default(),
+			events: crate::events::def::EventsDef::starting(),
+			rules: BTreeMap::new(),
+			notify: BTreeMap::new(),
 			profile_sources: BTreeMap::new(),
 		}
 	}
@@ -850,6 +861,10 @@ pub fn read_merged(sources: &[Source]) -> Result<(Config, Map<String, Value>), V
 	if !bad.is_empty() {
 		return Err(bad.into_iter().map(|(p, m)| at(&p, m)).collect());
 	}
+	// What `[events]`, a rule or a target leaves out, from events.toml and the tables that say it.
+	if let Value::Object(o) = &mut merged {
+		crate::events::def::fill(o);
+	}
 	// `sources` keeps the UPSes; the other kinds are taken out to `feeds`.
 	let mut feeds = Map::new();
 	if let Some(Value::Object(s)) = merged.get_mut("sources") {
@@ -892,33 +907,34 @@ pub fn warnings(c: &Config) -> Vec<String> {
 	}
 	for (id, s) in &c.sources {
 		if let Some(p) = &s.password_file {
-			out.extend(secret_file_warning(id, "password_file", p, "its station's commands and settings fail until it is"));
+			out.extend(secret_file_warning(&format!("sources.{id}.password_file"), p, "its station's commands and settings fail until it is"));
 		}
 	}
 	for (id, f) in &c.feeds {
 		if let Some(p) = &f.token_file {
-			out.extend(secret_file_warning(id, "token_file", p, "its reads fail until it is"));
+			out.extend(secret_file_warning(&format!("sources.{id}.token_file"), p, "its reads fail until it is"));
 		}
 	}
+	crate::events::def::warnings(c, &mut out);
 	out
 }
 
-/// What is wrong with a source's password or token file (its `key`) as `elamond check` finds it,
+/// What is wrong with a password, token or topic file (`key`, its place in the settings) as `elamond check` finds it,
 /// without reading it: one that isn't there, can't be read, may be read by others, or would be
 /// read as settings; `then`, what follows. A warning, not a mistake: the Nix build checks the
 /// settings where the file isn't.
-fn secret_file_warning(id: &str, key: &str, p: &std::path::Path, then: &str) -> Vec<String> {
+pub fn secret_file_warning(key: &str, p: &std::path::Path, then: &str) -> Vec<String> {
 	use std::os::unix::fs::PermissionsExt;
 	let mut out = Vec::new();
 	let shown = p.display();
 	match std::fs::File::open(p).and_then(|f| f.metadata()) {
-		Err(e) => out.push(format!("sources.{id}.{key} {shown} can't be read ({e}): {then}")),
-		Ok(m) if m.permissions().mode() & 0o077 != 0 => out.push(format!("sources.{id}.{key} {shown} may be read by others: chmod 600 it; {then}")),
+		Err(e) => out.push(format!("{key} {shown} can't be read ({e}): {then}")),
+		Ok(m) if m.permissions().mode() & 0o077 != 0 => out.push(format!("{key} {shown} may be read by others: chmod 600 it; {then}")),
 		Ok(_) => {}
 	}
 	let dropin = p.parent().and_then(std::path::Path::file_name).is_some_and(|d| d == crate::store::DROPIN_DIR);
 	if dropin && p.extension().is_some_and(|e| e == "toml") {
-		out.push(format!("sources.{id}.{key} {shown} is read as settings, being a .toml in elamond.d/: keep it elsewhere"));
+		out.push(format!("{key} {shown} is read as settings, being a .toml in elamond.d/: keep it elsewhere"));
 	}
 	out
 }
@@ -1076,13 +1092,17 @@ fn color() -> Ty {
 	Ty::Enum("colour", &COLORS)
 }
 
+fn event_level() -> Ty {
+	Ty::Enum("level of an event", &crate::events::def::LEVELS)
+}
+
 fn role() -> Ty {
 	Ty::Enum("role", &ROLES)
 }
 
 /// The records the settings are made of, by name.
-pub const RECORDS: [&str; 21] = [
-	"settings", "history", "source_nut", "source_command", "source_http", "source_file", "outlet", "link", "action", "param", "profile", "unlock", "android", "web",
+pub const RECORDS: [&str; 27] = [
+	"settings", "history", "events", "events_notify", "rule", "also", "target", "target_defaults", "source_nut", "source_command", "source_http", "source_file", "outlet", "link", "action", "param", "profile", "unlock", "android", "web",
 	"dashboard", "item", "column", "expand", "bar", "sort", "row_action",
 ];
 
@@ -1149,6 +1169,84 @@ pub fn record(name: &str) -> Vec<Key> {
 			k("templates", id_map(Ty::Widget)),
 			k("sources", id_map(Ty::Source)),
 			k("history", Ty::Rec("history")),
+			k("events", Ty::Rec("events")),
+			k("rules", id_map(Ty::Rec("rule"))),
+			k("notify", id_map(Ty::Rec("target"))),
+		],
+		"events" => vec![
+			k("keep", Ty::Int(10, 100_000)),
+			k("keep_days", Ty::Int(1, 3650)),
+			k("role", role()),
+			k("background", Ty::Int(5, 3600)),
+			k("notify", Ty::Rec("events_notify")),
+			k("rule", Ty::Rec("rule")),
+			k("target", Ty::Rec("target_defaults")),
+		],
+		"events_notify" => vec![
+			k("level", event_level()),
+			k("rule", Ty::Id),
+			k("code", Ty::Str),
+			k("length", Ty::Int(1, 4000)),
+			k("burst", Ty::Int(1, 1000)),
+			k("per", Ty::Int(1, 86_400)),
+		],
+		"rule" => {
+			let mut keys = vec![
+				k("enabled", Ty::Bool),
+				k("kind", Ty::Enum("kind of rule", &crate::events::def::KINDS)),
+				k("level", event_level()),
+				k("for", Ty::Int(0, 86_400)),
+				k("clear_for", Ty::Int(0, 86_400)),
+				k("clear", Ty::Num),
+				k("again", Ty::Int(0, 604_800)),
+				k("recovered", Ty::Bool),
+				k("recovered_level", event_level()),
+				k("ends_always", Ty::Bool),
+				k("code", Ty::Str),
+				k("text", Ty::Str),
+				k("plain", Ty::Str),
+				k("recovered_text", Ty::Str),
+				k("recovered_plain", Ty::Str),
+				k("also", Ty::Rec("also")),
+				k("source", Ty::Id),
+				k("codes", list(Ty::Str)),
+				k("ends", list(Ty::Str)),
+				k("priority", Ty::Int(1, 5)),
+				k("tags", list(Ty::Str)),
+			];
+			keys.extend(record("also"));
+			keys
+		}
+		"also" => vec![
+			k("value", Ty::Str),
+			k("when", Ty::Enum("level", &crate::events::def::WHEN)),
+			k("above", Ty::Num),
+			k("below", Ty::Num),
+			k("equals", Ty::Scalar),
+			k("not", Ty::Scalar),
+		],
+		"target" | "target_defaults" => vec![
+			k("enabled", Ty::Bool),
+			k("url", Ty::Str),
+			Key { name: "topic_file", ty: Ty::Str, required: name == "target" },
+			k("token_file", Ty::Str),
+			k("level", event_level()),
+			k("names", Ty::Bool),
+			k("rules", list(Ty::Id)),
+			k("title", Ty::Str),
+			k("title_names", Ty::Str),
+			k("message", Ty::Str),
+			k("priority", map(Ty::Int(1, 5))),
+			k("tags", map(list(Ty::Str))),
+			k("timeout", Ty::Int(1, 120)),
+			k("retries", Ty::Int(0, 100)),
+			k("retry", Ty::Int(1, 3600)),
+			k("retry_max", Ty::Int(1, 86_400)),
+			k("queue", Ty::Int(1, 1000)),
+			k("expire", Ty::Int(1, 604_800)),
+			k("burst", Ty::Int(1, 10_000)),
+			k("per", Ty::Int(1, 604_800)),
+			k("more", Ty::Str),
 		],
 		"history" => vec![k("keep", Ty::Any(vec![Ty::Enum("word", &["all"]), Ty::Int(30, i64::MAX)]))],
 		"source_command" => [req("kind", Ty::Enum("source kind", &["command"])), req("command", list(Ty::Str))].into_iter().chain(feed_keys()).collect(),
@@ -1755,6 +1853,7 @@ fn semantics(c: &Config) -> Found {
 		check_text(&d.title, &join(&path, "title"), scope, &mut push);
 		check_widgets(c, &d.widgets, &join(&path, "widgets"), scope, &mut push);
 	}
+	crate::events::def::check(c, &mut push);
 	out
 }
 
@@ -1809,7 +1908,7 @@ fn check_feed(id: &str, f: &Feed, push: &mut impl FnMut(String, String)) {
 
 /// Whether `url` is one a source asks: `http://` or `https://`, a host, no spaces, and no user or
 /// password in it. What is wrong never repeats the URL, which may hold them.
-fn url_shape(url: &str) -> Result<(), &'static str> {
+pub fn url_shape(url: &str) -> Result<(), &'static str> {
 	let rest = url.split_once("://").map_or(url, |(_, r)| r);
 	let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
 	if authority.contains('@') {
@@ -3204,6 +3303,14 @@ label = "{item.nmae}"
 		}
 		for k in record("settings") {
 			want("top-level key", k.name.into(), named(k.name));
+		}
+		for r in ["events", "events_notify", "rule", "target"] {
+			for k in record(r) {
+				want(r, k.name.into(), named(k.name));
+			}
+		}
+		for rule in Config::default().rules.keys() {
+			want("standard rule", rule.clone(), named(rule));
 		}
 		for k in record("profile").iter().chain(&record("unlock")).chain(&record("android")) {
 			let ok = named(k.name) || doc.contains(&format!("`unlock.{}`", k.name));

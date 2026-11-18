@@ -1,0 +1,199 @@
+# ---- Events and notifications ---------------------------------------------------------------
+# What the service tells of the computer as it happens: a rule that turns makes an event, events
+# are kept in events.jsonl beside the service's state and shown by a `log` of scope = "events",
+# and each target under [notify] sends them on to an ntfy topic. Everything here is settings:
+# take a rule out and it is gone, change a number and it is the new one. Every key is in
+# docs/config.md#events-and-notifications.
+
+[events]
+# Events kept at most, and for how many days.
+keep = 1000
+keep_days = 30
+# The least role that sees them: they name units, disks and sources.
+role = "monitor"
+# Seconds between reads of what only a rule needs while no phone shows it: links' units and,
+# for a rule on a GPU's values, the GPU (which wakes a sleeping NVIDIA card).
+background = 30
+
+# `elamond notify`: the level without --level, what its events are called, the characters of
+# text taken, and how many events it may make in `per` seconds (the rest are dropped).
+[events.notify]
+level = "info"
+rule = "notify"
+code = "notify"
+length = 500
+burst = 10
+per = 60
+
+# What a rule's keys are when the rule leaves them out.
+[events.rule]
+enabled = true
+kind = "value"
+level = "warning"
+# Seconds the trouble must last before its event, and the calm before the event of its end.
+for = 0
+clear_for = 0
+# How far back past `above` or `below` a number must go to count as calm.
+clear = 0
+# Seconds after an event of one thing before another of the same is made.
+again = 0
+# Whether the end of the trouble is an event too, and its level.
+recovered = true
+recovered_level = "info"
+ends_always = false
+# With names (units, disks, sources, the computer), and without, as a target with names = false
+# sends it.
+text = "{rule}: {value}"
+plain = "{rule}"
+recovered_text = "{rule}: back to normal after {duration}"
+recovered_plain = "{rule}: back to normal after {duration}"
+
+# A target: an ntfy topic the events are sent on to, which the ntfy app on a phone shows. The
+# topic is the first line of a file only you can read (chmod 600): whoever knows it reads what
+# is sent.
+# [notify.phone]
+# topic_file = "/home/you/.config/elamon/ntfy.topic"
+
+# What a target's keys are when the target leaves them out.
+[events.target]
+enabled = true
+url = "https://ntfy.sh"
+# The least level sent (the end of a trouble goes by the level of its start), and whether with
+# names: without, the server of the topic learns no unit's, disk's or computer's name.
+level = "warning"
+names = false
+# The rules sent, by id; every rule when empty.
+rules = []
+title = "Elamon"
+title_names = "{computer}"
+message = "{text}"
+# ntfy's priorities, 1 (min) to 5 (max), and its tags, by level; `recovered` is a trouble's end.
+priority = { info = 2, warning = 4, critical = 5, recovered = 2 }
+tags = { info = [], warning = ["warning"], critical = ["rotating_light"], recovered = ["white_check_mark"] }
+# Seconds a request may take; how often one that failed is tried again, the first time after
+# `retry` seconds and then twice as long each time, up to `retry_max`.
+timeout = 10
+retries = 5
+retry = 10
+retry_max = 300
+# Events waiting at most, and the seconds after which one is no longer worth sending.
+queue = 50
+expire = 1800
+# Notifications in `per` seconds at most; the rest are told as one, `more`.
+burst = 20
+per = 3600
+more = "… and {count} more events"
+
+# ---- Rules ------------------------------------------------------------------------------------
+
+# A filesystem nearly full.
+[rules.disk]
+value = "disk.*.percent"
+above = 90
+clear = 2
+for = 60
+code = "disk.full"
+text = "Disk {name} is {value} full"
+plain = "A disk is {value} full"
+recovered_text = "Disk {name} has room again: {value} full"
+recovered_plain = "The disk has room again"
+
+# The CPU as hot as its sensor calls critical.
+[rules.cpu-temp]
+value = "cpu.temp"
+when = "critical"
+for = 30
+clear_for = 30
+code = "cpu.hot"
+text = "The CPU is at {value}"
+plain = "The CPU is at {value}"
+recovered_text = "The CPU has cooled to {value}"
+recovered_plain = "The CPU has cooled to {value}"
+
+# The same of a GPU. Off: reading an NVIDIA card's values wakes it, every `background` seconds.
+[rules.gpu-temp]
+enabled = false
+value = "gpu.*.temp"
+when = "critical"
+for = 30
+clear_for = 30
+code = "gpu.hot"
+text = "GPU {name} is at {value}"
+plain = "A GPU is at {value}"
+recovered_text = "GPU {name} has cooled to {value}"
+recovered_plain = "The GPU has cooled to {value}"
+
+# A unit of a link that failed.
+[rules.unit]
+value = "link.*.unit_state"
+equals = "failed"
+code = "unit.failed"
+text = "The unit of {name} failed"
+plain = "A unit failed"
+recovered_text = "The unit of {name} is {value} again"
+recovered_plain = "The unit runs again"
+
+# The laptop's battery low, on battery.
+[rules.battery]
+value = "battery.percent"
+when = "critical"
+also = { value = "power.on_ac", equals = false }
+code = "battery.low"
+text = "The battery is at {value}"
+plain = "The battery is at {value}"
+recovered_text = "The battery is at {value}, or charging"
+recovered_plain = "The battery is at {value}, or charging"
+
+# The power profile turned to power-saver.
+[rules.power-saver]
+enabled = false
+value = "power.profile"
+equals = "power-saver"
+level = "info"
+code = "power.saver"
+text = "The power profile is power-saver"
+plain = "The power profile is power-saver"
+recovered_text = "The power profile is {value}"
+recovered_plain = "The power profile is {value}"
+
+# The computer started (the service after a boot, not after a restart of its own).
+[rules.boot]
+enabled = false
+kind = "boot"
+level = "info"
+code = "system.boot"
+text = "{computer} started"
+plain = "The computer started"
+
+# A UPS or power station on battery, by what upst-core says of it: every source of kind nut,
+# or the one a `source` key names by its id.
+[rules.ups-battery]
+kind = "ups"
+codes = ["power.lost", "power.started_on_battery"]
+ends = ["power.restored", "power.left_battery"]
+text = "{source} is on battery"
+plain = "The UPS is on battery"
+recovered_text = "{source}: the power is back after {duration}"
+recovered_plain = "The power is back after {duration}"
+
+[rules.ups-low]
+kind = "ups"
+codes = ["battery.low"]
+ends = ["battery.low.cleared"]
+level = "critical"
+text = "{source}: the battery is low"
+plain = "The UPS's battery is low"
+recovered_text = "{source}: the battery is no longer low"
+recovered_plain = "The UPS's battery is no longer low"
+
+# upsd gone: nothing is known of the station meanwhile. Its return is told only after its loss
+# was (ends_always = true tells it whenever it comes).
+[rules.ups-link]
+kind = "ups"
+codes = ["upsd.lost", "upsd.unreachable"]
+ends = ["upsd.back"]
+for = 60
+text = "{source}: upsd doesn't answer"
+plain = "The UPS's server doesn't answer"
+recovered_text = "{source}: upsd answers again after {duration}"
+recovered_plain = "The UPS's server answers again after {duration}"

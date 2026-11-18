@@ -395,7 +395,7 @@ impl Run {
 		let config = self.hub.config();
 		let on = self.dashboard.as_deref().and_then(|d| self.ui.dashboard(d));
 		let hub = &self.hub;
-		self.logs.show(on.map(|d| journal::on_screen(d, &config)).unwrap_or_default(), |key| hub.journal.tail(key));
+		self.logs.show(on.map(|d| journal::on_screen(d, &config)).unwrap_or_default(), |key| if *key == journal::Key::Events { hub.events.tail() } else { hub.journal.tail(key) });
 	}
 
 	/// What `POST /api/v1/stream/{id}` asked for, checked there, from the next line on.

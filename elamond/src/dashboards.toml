@@ -534,6 +534,15 @@ span = 4
 role = "monitor"
 
 [[dashboards.control.widgets]]
+id = "events"
+type = "button"
+label = "Events"
+icon = "terminal"
+open = "events"
+span = 4
+role = "monitor"
+
+[[dashboards.control.widgets]]
 id = "activity"
 type = "button"
 label = "Activity log"
@@ -849,6 +858,20 @@ type = "log"
 scope = "system"
 level = "warning"
 label = "System journal"
+span = 4
+
+# What the rules of the settings and `elamond notify` told, which Control's Events button opens.
+[dashboards.events]
+title = "Events"
+icon = "terminal"
+role = "monitor"
+
+[[dashboards.events.widgets]]
+id = "events"
+type = "log"
+scope = "events"
+level = "info"
+label = "Events"
 span = 4
 
 # A link's unit's journal, one for each link with a unit, which its row in Control's Links table

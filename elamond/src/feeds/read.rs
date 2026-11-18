@@ -81,13 +81,13 @@ fn over() -> Failure {
 }
 
 /// An error as the system says it, without its number.
-fn said(e: &io::Error) -> String {
+pub(crate) fn said(e: &io::Error) -> String {
 	let s = e.to_string();
 	s.split(" (os error").next().unwrap_or(&s).to_string()
 }
 
 /// The first line of what was written to stderr, if any.
-fn first_line(err: &[u8]) -> Option<String> {
+pub(crate) fn first_line(err: &[u8]) -> Option<String> {
 	String::from_utf8_lossy(err).lines().map(str::trim).find(|l| !l.is_empty()).map(str::to_string)
 }
 
@@ -95,18 +95,18 @@ fn first_line(err: &[u8]) -> Option<String> {
 
 /// What a process gave: its stdout, the start of its stderr, and how it ended: `None` when it was
 /// killed at the timeout or as it wrote too much.
-struct Ran {
-	out: Vec<u8>,
-	err: Vec<u8>,
-	status: Option<ExitStatus>,
-	over: bool,
+pub(crate) struct Ran {
+	pub(crate) out: Vec<u8>,
+	pub(crate) err: Vec<u8>,
+	pub(crate) status: Option<ExitStatus>,
+	pub(crate) over: bool,
 }
 
 /// Runs `program` with `args` in a process group of its own, `input` written to its stdin (then
 /// closed), or nothing there. Its stdout is read up to `out_max` bytes, its stderr up to
 /// `limit::FEED_STDERR_MAX`. At `limit`, or as its stdout goes over, the group is killed; once the
 /// process ends, the group is killed too, what it wrote still read from the pipes.
-async fn run(program: &str, args: &[String], input: Option<&[u8]>, limit: Duration, out_max: usize) -> io::Result<Ran> {
+pub(crate) async fn run(program: &str, args: &[String], input: Option<&[u8]>, limit: Duration, out_max: usize) -> io::Result<Ran> {
 	let mut child = tokio::process::Command::new(program)
 		.args(args)
 		.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
@@ -193,19 +193,29 @@ pub struct Token(String);
 impl Token {
 	/// The first line of the file at `path`, trimmed: a regular file only its owner may read.
 	pub fn read(path: &Path) -> Result<Token, Failure> {
-		let cant = |e: &io::Error| Failure::with("can't read token_file", said(e));
-		let file = open_regular(path).map_err(|e| cant(&e))?.ok_or_else(|| Failure::new("token_file isn't a regular file"))?;
+		Token::read_as(path, "token_file")
+	}
+
+	/// The same of the file the key `key` names: a topic's is kept as a token is.
+	pub fn read_as(path: &Path, key: &str) -> Result<Token, Failure> {
+		let cant = |e: &io::Error| Failure::with(format!("can't read {key}"), said(e));
+		let file = open_regular(path).map_err(|e| cant(&e))?.ok_or_else(|| Failure::new(format!("{key} isn't a regular file")))?;
 		let mode = file.metadata().map_err(|e| cant(&e))?.permissions().mode();
 		if mode & 0o077 != 0 {
-			return Err(Failure::new("token_file may be read by others: chmod 600 it"));
+			return Err(Failure::new(format!("{key} may be read by others: chmod 600 it")));
 		}
 		let mut text = String::new();
 		file.take(limit::TOKEN_FILE_MAX).read_to_string(&mut text).map_err(|e| cant(&e))?;
 		let first = text.lines().next().unwrap_or("").trim();
 		if first.is_empty() {
-			return Err(Failure::new("token_file is empty"));
+			return Err(Failure::new(format!("{key} is empty")));
 		}
 		Ok(Token(first.to_string()))
+	}
+
+	/// The secret itself, for the one place it is written to: what curl reads on its stdin.
+	pub(crate) fn secret(&self) -> &str {
+		&self.0
 	}
 
 	/// The line curl reads its header from: `Authorization: Bearer <token>`, or `<header>: <token>`.
@@ -217,7 +227,7 @@ impl Token {
 	}
 
 	/// Whether `text` holds the token.
-	fn in_text(&self, text: &str) -> bool {
+	pub(crate) fn in_text(&self, text: &str) -> bool {
 		text.contains(&self.0)
 	}
 }

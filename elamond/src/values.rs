@@ -678,7 +678,7 @@ impl Values {
 		Some(AddressDef { pattern: "", unit, format, role })
 	}
 
-	fn put(&mut self, address: String, v: Option<V>) {
+	pub(crate) fn put(&mut self, address: String, v: Option<V>) {
 		let Some(v) = v else { return };
 		let def = address_def(&address).unwrap_or(AddressDef { pattern: "", unit: "", format: "text", role: Role::Glance });
 		let limits = default_limits(&address, def.unit);

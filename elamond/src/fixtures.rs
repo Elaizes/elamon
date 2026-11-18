@@ -1073,3 +1073,117 @@ fn subscribe_log() {
 	let logs: Vec<&str> = crate::journal::on_screen(ui.dashboard("sources").unwrap(), &config).into_iter().map(|(w, _)| w.id.as_str()).collect();
 	assert_eq!(logs, ["sources/journal", "sources/app_log"]);
 }
+
+// ---- 0.9: events ------------------------------------------------------------------------------
+
+/// The settings 0.9/ui-events.json and the fixtures beside it describe.
+const UI_EVENTS: &str = include_str!("../fixtures/0.9/ui-events.toml");
+
+/// The fixture's events: what its rules make of the readings its comments list, and `elamond
+/// notify`'s, kept as the service keeps them, in a folder of the test's own.
+fn events_kept(config: &std::sync::Arc<crate::settings::Config>) -> (std::sync::Arc<crate::events::Events>, std::path::PathBuf) {
+	use crate::events::rules::{Engine, Heard};
+	use crate::events::{Draft, Events, Phase};
+	use crate::values::{Values, V};
+	let dir = std::env::temp_dir().join(format!("elamond-fixture-events-{}", data_encoding::HEXLOWER.encode(&crate::store::random_bytes::<6>())));
+	std::fs::create_dir_all(&dir).unwrap();
+	let t = sample().t;
+	let reading = |ago: u64, disk: f64, unit: &str, queue: i64| {
+		let mut v = Values { t: t - ago * 1000, ..Default::default() };
+		v.put("disk.data.percent".into(), Some(V::Float(disk)));
+		v.put("link.web.unit_state".into(), Some(V::Text(unit.into())));
+		v.scalars.insert("queue.length".into(), crate::feeds::scalar(V::Int(queue)));
+		v
+	};
+	let said = |ago: u64, code: &str, text: &str| Heard { source: "eco".into(), code: code.into(), text: text.into(), t: t - ago * 1000 };
+	let kept = std::sync::Arc::new(Events::load(&dir, config.clone()));
+	let mut engine = Engine::load(&dir);
+	let mut tick = |values: Values, heard: &[Heard]| {
+		for draft in engine.tick(config, &values, heard, "fixture", None) {
+			kept.record(draft, config);
+		}
+	};
+	tick(reading(600, 93.0, "active", 3), &[]);
+	tick(reading(540, 93.0, "active", 3), &[]);
+	tick(reading(300, 93.0, "failed", 3), &[]);
+	tick(reading(200, 93.0, "failed", 3), &[said(200, "power.lost", "Power lost, on battery")]);
+	let def = &config.events.notify;
+	kept.record(
+		Draft {
+			t: t - 120_000,
+			level: def.level,
+			of: def.level,
+			rule: def.rule.clone(),
+			code: def.code.clone(),
+			phase: Phase::Once,
+			text: "The backup is done".into(),
+			plain: "The backup is done".into(),
+			title: Some("Backup".into()),
+			priority: None,
+			tags: None,
+		},
+		config,
+	);
+	tick(reading(100, 93.0, "failed", 250), &[]);
+	tick(reading(60, 80.0, "failed", 250), &[said(60, "power.restored", "Power restored after 2 min 20 s")]);
+	tick(reading(1, 80.0, "failed", 2), &[]);
+	(kept, dir)
+}
+
+/// What the service makes of 0.9/ui-events.toml is the fixtures beside it: the `ui`, the events
+/// as they are kept, the dashboard's first `data` line, a page of older lines, and what ntfy is sent.
+#[test]
+fn events_whole() {
+	use crate::events::{ntfy, Outgoing};
+	use crate::journal::{priority_of, Filter, Key, Logs};
+	let config = std::sync::Arc::new(crate::settings::read_sources(&[crate::settings::Source::new("ui-events.toml", UI_EVENTS)]).unwrap());
+	let values = values(&config);
+	let ui = ui_for(&config, &values, Role::Admin, "owner");
+	check_compact("0.9/ui-events", &ui.doc);
+	// `glance` has no such widget; nor has a client that draws no `log`, which gets a text.
+	let glance = ui_for(&config, &values, Role::Glance, "owner");
+	assert!(glance.dashboards.iter().flat_map(|d| d.all_widgets()).all(|w| w.kind != "log"));
+
+	let (kept, dir) = events_kept(&config);
+	check_text("0.9/events.jsonl", &std::fs::read_to_string(dir.join(crate::events::FILE)).unwrap());
+
+	let dashboard = ui.dashboard("events").unwrap();
+	let on = crate::journal::on_screen(dashboard, &config);
+	assert_eq!(on.iter().map(|(w, k)| (w.id.as_str(), k)).collect::<Vec<_>>(), [("events/events", &Key::Events)]);
+	let sorts = std::collections::HashMap::new();
+	let mut logs = Logs::default();
+	logs.show(on, |_| kept.tail());
+	let mut line = crate::states::data(sample().t, dashboard, None, &sources_states(&values, &ui, &sorts), None);
+	logs.put(&mut line);
+	let fourth = line["widgets"]["events/events"]["lines"][3]["c"].as_u64().unwrap();
+	check_compact("0.9/stream-events", &Value::Object(line));
+
+	let w = dashboard.widgets.iter().find(|w| w.id == "events/events").unwrap();
+	let filter = Filter::new(priority_of(w.def.level.as_deref().unwrap()).unwrap(), None);
+	let (lines, before) = kept.page(Some(fourth), &filter, crate::consts::limit::LOG_PAGE);
+	check_compact("0.9/log-events", &Value::Object(crate::journal::api::answer(&w.id, &lines, before)));
+
+	// What the target sends of each, and what it would with names: the request's body.
+	let phone = &config.notify["phone"];
+	let named = crate::events::def::Target { names: true, ..phone.clone() };
+	let mut events = kept.newest(usize::MAX);
+	events.reverse();
+	let rule_of = |id: &str| config.rules.get(id);
+	let sent: Vec<Value> = events
+		.iter()
+		.map(|(e, _)| {
+			let start = e.phase == crate::events::Phase::Start;
+			let o = Outgoing { event: e.clone(), priority: rule_of(&e.rule).and_then(|r| r.priority).filter(|_| start), tags: rule_of(&e.rule).and_then(|r| r.tags.clone()).filter(|_| start) };
+			let body = |t: &crate::events::def::Target| {
+				if e.of < t.level {
+					return Value::Null;
+				}
+				let (title, message, priority, tags) = ntfy::shaped(&o, t, "fixture");
+				serde_json::from_str(&ntfy::body("<the topic>", &title, &message, priority, &tags)).unwrap()
+			};
+			serde_json::json!({ "n": e.n, "phone": body(phone), "with_names": body(&named) })
+		})
+		.collect();
+	check_compact("0.9/ntfy", &Value::Array(sent));
+	std::fs::remove_dir_all(dir).unwrap();
+}
