@@ -9,11 +9,21 @@ appId: io.github.elaizes.elamon.debug
     direction: RIGHT
     timeout: 10000
 - tapOn: "Control"
+# Centred and still before the tap: on a screen that moves every second, a tap at the edge has hit
+# the action beside the group (E19).
 - scrollUntilVisible:
     element: "Monitors"
     timeout: 30000
-    speed: 70
+    speed: 40
+    centerElement: true
+- waitForAnimationToEnd
 - tapOn: "Monitors"
+- runFlow:
+    when:
+      visible: "Continue"
+    commands:
+      - tapOn: "Cancel"
+      - tapOn: "Monitors"
 - scrollUntilVisible:
     element: "DP-1 brightness"
     timeout: 20000
