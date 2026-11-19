@@ -73,6 +73,7 @@ import io.github.elaizes.elamon.data.Action
 import io.github.elaizes.elamon.data.ActionResult
 import io.github.elaizes.elamon.data.Param
 import io.github.elaizes.elamon.data.Params
+import io.github.elaizes.elamon.data.Typed
 import io.github.elaizes.elamon.data.UiDoc
 import io.github.elaizes.elamon.data.Widget
 import io.github.elaizes.elamon.data.WidgetState
@@ -167,6 +168,7 @@ class ActionLauncher(
 			unlock = action.unlock,
 			grace = grace,
 			typed = Params.typedText(action, params),
+			typedKind = Params.typedKind(action, params) ?: Typed.Command,
 		)
 	}
 

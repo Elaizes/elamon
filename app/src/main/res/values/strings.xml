@@ -181,7 +181,7 @@
 	<string name="err_not_permitted">The computer didn\'t allow that</string>
 	<string name="err_not_found">It\'s gone</string>
 	<string name="err_no_such_process">That process has already ended</string>
-	<string name="err_no_such_action">That action is no longer in the computer\'s settings</string>
+	<string name="err_no_such_action">The computer no longer offers that action, or can\'t do it now</string>
 	<string name="err_no_art">The player has no cover for this track</string>
 	<string name="err_unknown_signal">The computer doesn\'t know that signal</string>
 	<string name="err_storage">The computer couldn\'t save it</string>
@@ -297,6 +297,11 @@
 	<!-- 0.7: the long history and a station's commands -->
 	<string name="err_no_such_widget">That graph or timeline is no longer in what this computer shows this phone</string>
 	<string name="err_confirm_required">The computer asks for this command to be typed in before it runs</string>
+	<!-- The same, when the computer said what is to be typed: a command, or a monitor's name (the last one showing a picture). -->
+	<string name="err_confirm_required_text">The computer asks for “%1$s” to be typed in first. Try again to type it.</string>
+	<!-- 0.10: a monitor's action that failed, by what the computer said. -->
+	<string name="err_not_applied">The monitor didn\'t change in time. Check it at the computer, or try again.</string>
+	<string name="err_waiting_for_a_screen">It turns on once a screen wakes up: no screen shows a picture now.</string>
 	<!-- The chips over a graph or timeline: its own span, live ("10 min", "24 h"), then the long ranges. -->
 	<string name="range_seconds">%1$d s</string>
 	<string name="range_minutes">%1$d min</string>
@@ -326,6 +331,14 @@
 	<string name="typed_title">Type the command to run it</string>
 	<string name="typed_body">Type “%1$s” to run it.</string>
 	<string name="typed_field">Command</string>
+	<!-- 0.10: turning off, or putting to sleep, the last monitor that shows a picture: its name typed, not the value. -->
+	<string name="typed_monitor_title">Type the monitor\'s name</string>
+	<string name="typed_monitor_body">No other screen shows a picture now. Type “%1$s” to go on.</string>
+	<string name="typed_monitor_field">Monitor</string>
+	<!-- A text to type that is neither a command nor a monitor's name, from a newer service. -->
+	<string name="typed_other_title">Type the text to go on</string>
+	<string name="typed_other_body">Type “%1$s” to go on.</string>
+	<string name="typed_other_field">Text</string>
 	<string name="control_held_off_body">Someone at the computer held control off for every phone. To let phones act again, run there:</string>
 	<string name="control_unreadable_body">The service\'s settings files stopped parsing, so it keeps control off until they read again. To see what is wrong, run on the computer:</string>
 	<string name="widget_unknown">This app can\'t show a “%1$s” yet. Update Elamon to see it.</string>

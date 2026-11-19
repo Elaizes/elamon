@@ -4,6 +4,7 @@ import android.app.KeyguardManager
 import android.content.Context
 import android.os.Build
 import android.os.SystemClock
+import androidx.annotation.StringRes
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -35,6 +36,7 @@ import io.github.elaizes.elamon.UnlockMemory
 import io.github.elaizes.elamon.authenticators
 import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.data.Params
+import io.github.elaizes.elamon.data.Typed
 import io.github.elaizes.elamon.data.withoutControls
 import io.github.elaizes.elamon.gate
 
@@ -56,9 +58,23 @@ data class Ask(
 	val unlock: Boolean = false,
 	/** How long an unlock covers later actions: the profile's `unlock.grace`. */
 	val grace: UnlockGrace = UnlockGrace.EveryTime,
-	/** The text to type, exactly, before it runs (a station's command that cuts power): it takes the confirmation's place and the request carries it. */
+	/**
+	 * The text to type, exactly, before it runs (a station's command that cuts power, the name of the
+	 * last monitor showing a picture): it takes the confirmation's place and the request carries it.
+	 */
 	val typed: String? = null,
+	/** What [typed] is, for the words that ask for it. */
+	val typedKind: Typed = Typed.Command,
 )
+
+/** The confirmation's title, the line that asks to type, and the field's label, for what is typed. */
+private class TypedWords(@StringRes val title: Int, @StringRes val body: Int, @StringRes val field: Int)
+
+private fun typedWords(kind: Typed): TypedWords = when (kind) {
+	Typed.Command -> TypedWords(R.string.typed_title, R.string.typed_body, R.string.typed_field)
+	Typed.MonitorName -> TypedWords(R.string.typed_monitor_title, R.string.typed_monitor_body, R.string.typed_monitor_field)
+	Typed.Other -> TypedWords(R.string.typed_other_title, R.string.typed_other_body, R.string.typed_other_field)
+}
 
 /** An action waiting for the unlock prompt or the confirmation. */
 data class Pending(val ask: Ask, val action: () -> Unit, val afterAsking: () -> Unit, val noLockScreen: Boolean = false) {
@@ -190,9 +206,10 @@ val LocalGuard = staticCompositionLocalOf<Guard> { error("no Guard") }
 fun GuardDialog(guard: Guard) {
 	val p = guard.state.confirming ?: return
 	val ask = p.ask
+	val words = typedWords(ask.typedKind)
 	GlassDialog(
 		onDismiss = guard::dismissed,
-		title = if (ask.typed != null) stringResource(R.string.typed_title) else ask.question,
+		title = if (ask.typed != null) stringResource(words.title) else ask.question,
 		icon = ask.icon?.let { icon(it) },
 		text = if (ask.body == null && !p.noLockScreen && ask.typed == null) null else {
 			{
@@ -200,13 +217,13 @@ fun GuardDialog(guard: Guard) {
 					if (ask.typed != null) Text(ask.question)
 					ask.body?.let { Text(it) }
 					if (ask.typed != null) {
-						Text(stringResource(R.string.typed_body, ask.typed))
+						Text(stringResource(words.body, ask.typed))
 						OutlinedTextField(
 							value = guard.state.typed,
 							onValueChange = { guard.state.typed = it },
-							label = { Text(stringResource(R.string.typed_field)) },
+							label = { Text(stringResource(words.field)) },
 							singleLine = true,
-							// A command as the station names it: no word the keyboard would rather have.
+							// A command as the station names it, a monitor as Hyprland does: no word the keyboard would rather have.
 							keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii),
 						)
 					}
