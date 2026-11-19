@@ -34,15 +34,27 @@ export function previewUi(ui, own) {
 }
 
 /**
- * The dashboards a preview may show: the preview's tabs and dashboards, those the drafts have
- * tables for, the page's own tabs; each once, with its title where one is known.
+ * The id in the settings of a dashboard in `ui`: one made `for_each` is there once for each item,
+ * as `<id>.<item>` (a settings id has no dot), and the preview is asked for by its own id.
+ * @param {string} id
+ */
+export function settingsId(id) {
+	const dot = id.indexOf('.');
+	return dot > 0 ? id.slice(0, dot) : id;
+}
+
+/**
+ * The dashboards a preview may show, by their ids in the settings (never an item's of a
+ * `for_each`): the preview's tabs and dashboards, those the drafts have tables for, the page's own
+ * tabs; each once, with its title where one is known.
  * @param {Ui | null} ui @param {string[]} texts @param {Ui | null} own @returns {{ id: string, title: string }[]}
  */
 export function dashboardChoices(ui, texts, own) {
 	/** @type {Map<string, string>} */
 	const out = new Map();
 	const titles = new Map([...(own?.dashboards || []), ...(ui?.dashboards || [])].map((d) => [d.id, d.title]));
-	const add = (/** @type {string} */ id) => {
+	const add = (/** @type {string} */ shown) => {
+		const id = shown ? settingsId(shown) : '';
 		if (id && !out.has(id)) out.set(id, titles.get(id) || id);
 	};
 	for (const id of ui?.tabs || []) add(id);
@@ -120,13 +132,15 @@ export function openPreview(env, files, openMistake) {
 			if (closed || my !== seq) return;
 			const ui = previewUi(answer?.ui, own);
 			last = ui;
-			const key = `${dashboard} ${ui.version}`;
+			// A `for_each` dashboard is shown by its first item's: the one the data is of.
+			const shown = typeof answer?.data?.dashboard === 'string' && answer.data.dashboard ? answer.data.dashboard : dashboard;
+			const key = `${shown} ${ui.version}`;
 			if (!view || key !== drawnFor) {
 				view?.destroy();
 				view = null;
 				clear(stage);
 				try {
-					view = dashboardView(ui, dashboard, { preview: true });
+					view = dashboardView(ui, shown, { preview: true });
 					stage.append(view.el);
 					drawnFor = key;
 				} catch (e) {

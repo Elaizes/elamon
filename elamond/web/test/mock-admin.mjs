@@ -220,9 +220,12 @@ export function adminPanel(method, sub, b, q) {
 				if (bad.length) return no(422, 'bad_settings', { mistakes: bad });
 			}
 			const answer = fx('0.11/admin-preview.json').response;
-			if (!answer.ui.dashboards.some((d) => d.id === b.dashboard)) return no(404, 'no_such_dashboard');
+			// A dashboard with `for_each` is shown by its first item's, as the service does.
+			const shown = answer.ui.dashboards.find((d) => d.id === b.dashboard) || answer.ui.dashboards.find((d) => d.id.startsWith(`${b.dashboard}.`));
+			if (!shown) return no(404, 'no_such_dashboard');
+			answer.data.dashboard = shown.id;
 			answer.data.t = Date.now();
-			answer.data.widgets['mine/w0'].v = Math.round(Math.random() * 1000) / 10;
+			for (const s of Object.values(answer.data.widgets)) if (typeof s.v === 'number') s.v = Math.round(Math.random() * 1000) / 10;
 			return ok(answer);
 		}
 		case 'GET activity':

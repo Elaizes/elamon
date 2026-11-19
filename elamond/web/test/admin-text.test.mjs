@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { lineCount, offsetOfLine, endOfLine, lineAt, sizeText, fingerprint, groupCode, draftDashboards } from '../js/admin/text.js';
-import { previewUi, dashboardChoices } from '../js/admin/preview.js';
+import { previewUi, dashboardChoices, settingsId } from '../js/admin/preview.js';
 
 test("a text's lines, as the editor numbers them", () => {
 	const t = 'a\nbc\n\nd';
@@ -64,4 +65,17 @@ test("a preview's ui, filled in from the page's own; the dashboards it may show"
 	]);
 	assert.deepEqual(dashboardChoices(null, ['[dashboards.extra]'], own)[0], { id: 'extra', title: 'extra' });
 	assert.deepEqual(dashboardChoices(null, [], null), []);
+});
+
+test('a for_each dashboard is offered by its id in the settings, never by its items', () => {
+	const fixture = JSON.parse(readFileSync(new URL('../../fixtures/0.11/admin-preview.json', import.meta.url), 'utf8'));
+	const ui = previewUi(fixture.response.ui, null);
+	assert.ok(ui.dashboards.some((d) => d.id === 'gpu.nvidia'), 'the fixture shows a for_each item');
+	const ids = dashboardChoices(ui, [], null).map((c) => c.id);
+	assert.ok(ids.includes('gpu'));
+	assert.ok(!ids.some((id) => id.includes('.')), ids.join());
+	assert.equal(new Set(ids).size, ids.length);
+	assert.deepEqual(dashboardChoices(previewUi({ tabs: ['ups.eco', 'ups.home'] }, null), [], null), [{ id: 'ups', title: 'ups' }]);
+	assert.equal(settingsId('unit_log.example'), 'unit_log');
+	assert.equal(settingsId('cpu'), 'cpu');
 });
