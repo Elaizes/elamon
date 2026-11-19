@@ -28,10 +28,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.graphics.drawable.toDrawable
 import androidx.fragment.app.FragmentActivity
+import androidx.glance.appwidget.updateAll
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import io.github.elaizes.elamon.data.PairLink
 import io.github.elaizes.elamon.data.PairTarget
 import io.github.elaizes.elamon.data.Machine as Paired
@@ -54,6 +56,7 @@ import io.github.elaizes.elamon.ui.appColorScheme
 import io.github.elaizes.elamon.ui.forgetUnlock
 import io.github.elaizes.elamon.ui.isDark
 import io.github.elaizes.elamon.ui.scaledConfiguration
+import io.github.elaizes.elamon.widget.ElamonWidget
 
 sealed interface Screen {
 	data object Home : Screen
@@ -174,6 +177,8 @@ class MainActivity : FragmentActivity() {
 			val look by settings.look.collectAsStateWithLifecycle()
 			// Another scale: made again at it, as after a turn of the phone.
 			LaunchedEffect(look.scale) { if (look.scale != madeAt) recreate() }
+			// The home-screen widgets at the app's look and scale too: their own drawing may have ended.
+			LaunchedEffect(look) { Outside.scope.launch { runCatching { ElamonWidget().updateAll(applicationContext) } } }
 			val prefs = prefsFor(nav.top, paired, profiles, look.theme)
 			ElamonTheme(prefs) {
 				CompositionLocalProvider(LocalGuard provides guard) {

@@ -55,6 +55,8 @@ enum class Fetch {
 data class WidgetShown(
 	val lines: List<WidgetLine> = emptyList(),
 	val readAt: Long = 0,
+	/** When it was last tried, read or not (the phone's clock); 0 never: what decides whether it is due. */
+	val triedAt: Long = 0,
 	val fetch: Fetch = Fetch.None,
 	/** The dashboard's title. */
 	val title: String? = null,
@@ -63,8 +65,8 @@ data class WidgetShown(
 	/** How often it is read in the background, as the profile asks. */
 	val minutes: Int = DEFAULT_WIDGET_MINUTES,
 ) {
-	/** As it is, after a try that found [fetch]: what was read before stays, to be shown as old. */
-	fun tried(fetch: Fetch): WidgetShown = copy(fetch = fetch)
+	/** As it is, after a try at [at] that found [fetch]: what was read before stays, to be shown as old. */
+	fun tried(fetch: Fetch, at: Long = System.currentTimeMillis()): WidgetShown = copy(fetch = fetch, triedAt = at)
 }
 
 private const val TEMP = "temp"

@@ -45,7 +45,9 @@ class WidgetWorker(context: Context, params: WorkerParameters) : CoroutineWorker
 		widgets.reading(id, true)
 		ElamonWidget().updateAll(ctx)
 		try {
-			widgets.put(id, read(ctx, machine, widgets.get(id), fresh = inputData.getBoolean(KEY_FRESH, false)))
+			val shown = read(ctx, machine, widgets.get(id), fresh = inputData.getBoolean(KEY_FRESH, false))
+			// Forgotten while it was read: nothing of it is kept.
+			if (MachineStore.get(ctx).get(id) != null) widgets.put(id, shown)
 		} finally {
 			widgets.reading(id, false)
 		}
@@ -76,10 +78,11 @@ class WidgetWorker(context: Context, params: WorkerParameters) : CoroutineWorker
 			val profile = ui.profile
 			val base = had.copy(profile = profile.id, minutes = widgetMinutes(profile.android.widgetMinutes))
 			val dashboard = widgetDashboard(ui)
-			if (line == null || dashboard == null) return base.copy(fetch = Fetch.NoDashboard, lines = emptyList(), readAt = 0, title = null)
+			if (line == null || dashboard == null) return base.copy(fetch = Fetch.NoDashboard, lines = emptyList(), readAt = 0, title = null, triedAt = System.currentTimeMillis())
 			base.copy(
 				lines = widgetLines(ui, dashboard, line.widgets),
 				readAt = System.currentTimeMillis(),
+				triedAt = System.currentTimeMillis(),
 				fetch = Fetch.Ok,
 				title = ui.dashboard(dashboard)?.title,
 			)
@@ -153,12 +156,15 @@ object WidgetWork {
 		}
 	}
 
-	/** Reads [machine] for its widgets at once, its `ui` fresh from it: a tap, or a widget just added. */
-	fun now(context: Context, machine: String) {
+	/**
+	 * Reads [machine] for its widgets at once, its `ui` fresh from it: a tap, or a widget just added;
+	 * a reading already on its way is started again with [policy] REPLACE, left to go on with KEEP.
+	 */
+	fun now(context: Context, machine: String, policy: ExistingWorkPolicy = ExistingWorkPolicy.REPLACE) {
 		val request = OneTimeWorkRequestBuilder<WidgetWorker>()
 			.setInputData(workDataOf(WidgetWorker.KEY_MACHINE to machine, WidgetWorker.KEY_FRESH to true))
 			.build()
-		WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(NOW + machine, ExistingWorkPolicy.REPLACE, request)
+		WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(NOW + machine, policy, request)
 	}
 
 	/**
@@ -169,12 +175,16 @@ object WidgetWork {
 		val widgets = WidgetStore.get(context)
 		for (id in shownMachines(context)) {
 			val s = widgets.get(id)
-			if (stale(s, now)) now(context, id)
+			// One on its way already (a tap, a widget just set) is left to finish.
+			if (stale(s, now)) now(context, id, ExistingWorkPolicy.KEEP)
 		}
 	}
 
-	/** Whether what [s] shows is older than its pace, or nothing was read yet. */
-	fun stale(s: WidgetShown, now: Long): Boolean = s.readAt == 0L || now - s.readAt >= TimeUnit.MINUTES.toMillis(s.minutes.toLong())
+	/** Whether [s] was last tried longer ago than its pace, or never: read or not, so a computer out of reach isn't asked at every turn. */
+	fun stale(s: WidgetShown, now: Long): Boolean {
+		val last = maxOf(s.readAt, s.triedAt)
+		return last == 0L || now - last >= TimeUnit.MINUTES.toMillis(s.minutes.toLong())
+	}
 }
 
 /**
