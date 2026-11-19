@@ -68,6 +68,7 @@ pub fn displays(cards: &[Card]) -> Vec<Display> {
 				mode,
 				preferred: edid.as_ref().and_then(|e| e.preferred.clone()),
 				max_refresh: l.and_then(|l| l.max_refresh).or(edid.as_ref().and_then(|e| e.max_refresh)),
+				controls: None,
 			});
 		}
 	}

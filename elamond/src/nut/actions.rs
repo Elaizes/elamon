@@ -143,7 +143,7 @@ impl Station {
 		let cmds: Vec<&CmdInfo> = meta.cmds.iter().filter(|c| allows(&self.src.commands, &c.name)).collect();
 		if !cmds.is_empty() {
 			let choices = cmds.iter().map(|c| (c.name.clone(), self.command_label(c))).collect();
-			let typed = cmds.iter().filter(|c| typed(&self.src, &c.name)).map(|c| c.name.clone()).collect();
+			let typed = cmds.iter().filter(|c| typed(&self.src, &c.name)).map(|c| (c.name.clone(), c.name.clone())).collect();
 			let param = Param { id: "cmd".into(), label: "Command".into(), kind: ParamKind::Choice(choices), optional: false, default: None, typed };
 			out.push(spec(format!("nut.command.{}", self.id), name, "power", &self.src, param));
 		}
@@ -159,7 +159,7 @@ impl Station {
 				continue;
 			};
 			let named = info.desc.as_deref().map(str::trim).filter(|d| !d.is_empty()).unwrap_or(var);
-			let param = Param { id: "value".into(), label: "Value".into(), kind, optional: false, default: None, typed: Vec::new() };
+			let param = Param { id: "value".into(), label: "Value".into(), kind, optional: false, default: None, typed: BTreeMap::new() };
 			out.push(spec(format!("nut.set.{}.{var}", self.id), named, "control", &self.src, param));
 		}
 		for var in unoffered {
@@ -197,10 +197,10 @@ pub fn offered(spec: &Spec, params: &serde_json::Map<String, Value>) -> Result<(
 pub fn typed_in(spec: &Spec, params: &BTreeMap<String, Value>, text: Option<&str>) -> Result<(), (ErrorCode, String)> {
 	for p in &spec.params {
 		if let Some(Value::String(v)) = params.get(&p.id)
-			&& p.typed.contains(v)
-			&& text != Some(v.as_str())
+			&& let Some(t) = p.typed.get(v)
+			&& text != Some(t.as_str())
 		{
-			return Err((ErrorCode::ConfirmRequired, v.clone()));
+			return Err((ErrorCode::ConfirmRequired, t.clone()));
 		}
 	}
 	Ok(())
@@ -358,7 +358,7 @@ pub mod tests {
 	fn a_command_not_offered_is_refused_before_its_parameters_and_a_typed_one_without_its_text() {
 		let eco = src("[sources.eco]\nkind = \"nut\"\nups = \"ups\"\noutlets.\"1\".critical = true\n");
 		let choices = vec![("outlet.1.load.off".to_string(), "Off".to_string()), ("outlet.1.load.on".to_string(), "On".to_string())];
-		let param = Param { id: "cmd".into(), label: "Command".into(), kind: ParamKind::Choice(choices), optional: false, default: None, typed: vec!["outlet.1.load.off".into()] };
+		let param = Param { id: "cmd".into(), label: "Command".into(), kind: ParamKind::Choice(choices), optional: false, default: None, typed: [("outlet.1.load.off".to_string(), "outlet.1.load.off".to_string())].into() };
 		let spec = spec("nut.command.eco".into(), "Eco", "power", &eco, param);
 		let given = |v: Value| v.as_object().unwrap().clone();
 		assert_eq!(offered(&spec, &given(serde_json::json!({ "cmd": "load.off" }))), Err((ErrorCode::NotAllowed, "cmd".into())));

@@ -222,7 +222,7 @@ impl Sources {
 		let head = a.split('.').next().unwrap_or("");
 		match head {
 			"gpu" => self.gpus = true,
-			"displays" => self.displays = true,
+			"displays" | "display" => self.displays = true,
 			"volume" => self.volume = true,
 			"link" => self.links = true,
 			// Not one of the computer's: a source's.
@@ -830,7 +830,9 @@ pub fn build(input: &Input) -> Ui {
 	// The tabs, the header, then what their widgets open, each once; then the dashboards of the
 	// rows of their tables, and what those open.
 	let tab_ids: Vec<String> = profile.dashboards.iter().flat_map(|d| ctx.expand(d)).collect();
-	let mut queue: VecDeque<String> = tab_ids.iter().cloned().chain(header_id.clone()).collect();
+	// An Android client's home-screen widget, tiles and card show dashboards of their own.
+	let outside: Vec<String> = if input.kind == "android" { profile.android_dashboards().map(String::from).collect() } else { Vec::new() };
+	let mut queue: VecDeque<String> = tab_ids.iter().cloned().chain(header_id.clone()).chain(outside).collect();
 	let mut later: VecDeque<String> = VecDeque::new();
 	let mut seen = HashSet::new();
 	let mut dashboards: Vec<Dashboard> = Vec::new();
@@ -966,6 +968,12 @@ fn profile_json(p: &Profile, kind: &str, tick_ms: u64) -> Obj {
 			for (k, v) in &p.android {
 				a.put(k, *v);
 			}
+			for (k, d) in [("widget", &p.widget), ("tiles", &p.tiles), ("card", &p.card)] {
+				a.opt(k, Some(d.as_str()).filter(|d| !d.is_empty()));
+			}
+			if !p.widget.is_empty() {
+				a.put("widget_minutes", p.widget_minutes);
+			}
 			o.put("android", a);
 		}
 	}
@@ -987,8 +995,8 @@ fn param_json(p: &actions::Param) -> Obj {
 					ch.put("value", v.as_str());
 					ch.put("label", l.as_str());
 					// Typed in to run: the client asks for exactly this.
-					if p.typed.contains(v) {
-						ch.put("confirm_text", v.as_str());
+					if let Some(t) = p.typed.get(v) {
+						ch.put("confirm_text", t.as_str());
 					}
 					Value::Object(ch)
 				})

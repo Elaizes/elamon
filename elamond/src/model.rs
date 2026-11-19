@@ -207,6 +207,23 @@ pub struct Display {
 	pub preferred: Option<Mode>,
 	pub max_refresh: Option<f32>,
 	pub position: Option<[u32; 2]>,
+	/// What Hyprland says of it, where the service acts on monitors through it.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub controls: Option<Controls>,
+}
+
+/// A monitor as Hyprland has it, and its brightness.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Controls {
+	/// In use (not disabled).
+	pub enabled: bool,
+	/// Its picture on (DPMS).
+	pub dpms: bool,
+	/// An output without a screen.
+	pub headless: bool,
+	pub scale: f64,
+	/// Percent, where it is read.
+	pub brightness: Option<f64>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]

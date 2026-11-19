@@ -185,11 +185,11 @@ pub async fn action(
 			crate::nut::actions::offered(&spec, &req.params).map_err(refused)?;
 		}
 		let params = actions::check_params(&spec, &req.params).map_err(|p| Refusal { code: ErrorCode::BadParam, message: Some(p) })?;
+		crate::nut::actions::typed_in(&spec, &params, req.confirm_text.as_deref()).map_err(refused)?;
 		if station {
-			crate::nut::actions::typed_in(&spec, &params, req.confirm_text.as_deref()).map_err(refused)?;
 			crate::nut::actions::still_allowed(&config, who.role, &spec.id, &params, req.confirm_text.as_deref()).map_err(|(code, message)| Refusal { code, message })?;
 		}
-		let result = run_spec(&hub, &who, &spec, &params, &config).await;
+		let result = run_spec(&hub, &who, &spec, &params, req.confirm_text.as_deref(), &config).await;
 		hub.refresh_soon();
 		result
 	})
@@ -216,6 +216,15 @@ fn what_of(id: &str, spec: Option<&Spec>, params: &Map<String, Value>, config: &
 		Some(crate::nut::actions::Target::Command { source }) => return format!("nut {source} {}", p("cmd")).trim_end().to_string(),
 		Some(crate::nut::actions::Target::Set { source, var }) => return format!("nut {source} {var} {}", p("value")).trim_end().to_string(),
 		None => {}
+	}
+	if let Some((what, name)) = crate::displays::target(id) {
+		use crate::displays::What;
+		return match (what, params.get("level")) {
+			(What::Brightness, Some(level)) => format!("display brightness {name} {} %", word(level)),
+			(What::Brightness, None) => format!("display brightness {name}"),
+			(What::Output, _) => format!("display output {name} {}", p("state")).trim_end().to_string(),
+			(What::Dpms, _) => format!("display dpms {name} {}", p("state")).trim_end().to_string(),
+		};
 	}
 	if let Some(op) = id.strip_prefix("unit.") {
 		let link = p("link");
@@ -260,9 +269,19 @@ fn what_of(id: &str, spec: Option<&Spec>, params: &Map<String, Value>, config: &
 }
 
 /// Runs an action whose parameters `params` were checked.
-async fn run_spec(hub: &Hub, who: &Caller, spec: &Spec, params: &BTreeMap<String, Value>, config: &crate::settings::Config) -> Result<Acted, Refusal> {
+async fn run_spec(hub: &Hub, who: &Caller, spec: &Spec, params: &BTreeMap<String, Value>, confirm_text: Option<&str>, config: &crate::settings::Config) -> Result<Acted, Refusal> {
 	let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
 	let id = spec.id.as_str();
+	if spec.kind == "display" {
+		let result = hub.displays.act(&hub.bus, id, params, confirm_text).await;
+		if result.is_ok() {
+			eprintln!("control: {} asked for {}", who.name, what_of(id, Some(spec), &params.clone().into_iter().collect(), config));
+		}
+		return match result {
+			Ok(()) => Ok(Acted { response: Json(json!({ "ok": true, "output": "done" })).into_response(), note: Some("done".into()) }),
+			Err((code, message)) => Err(Refusal { code, message }),
+		};
+	}
 	if spec.kind == "nut" {
 		let source = match crate::nut::actions::target(id) {
 			Some(crate::nut::actions::Target::Command { source } | crate::nut::actions::Target::Set { source, .. }) => source,
@@ -689,6 +708,13 @@ fn program_dirs() -> Vec<std::path::PathBuf> {
 	}
 	dirs.extend(["/nix/var/nix/profiles/default/bin", "/run/current-system/sw/bin", "/usr/local/bin", "/usr/bin", "/bin"].map(Into::into));
 	dirs
+}
+
+/// The program `name` on the service's PATH, else where programs live (`program_dirs`).
+pub(crate) fn find_program(name: &str) -> Option<std::path::PathBuf> {
+	let mut dirs: Vec<std::path::PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+	dirs.extend(program_dirs());
+	locate(name, &dirs)
 }
 
 /// The program `name` in the first of `dirs` that has it.

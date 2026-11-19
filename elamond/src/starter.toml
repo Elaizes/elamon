@@ -50,6 +50,16 @@ default_profile = "default"
 # params.level = { choices = ["10%", "50%", "100%"], labels = { "10%" = "Dim", "50%" = "Half", "100%" = "Full" }, default = "50%" }
 # role = "operate"
 
+# Monitors under Hyprland, on Control: on or off, DPMS, brightness (docs/config.md, Monitors).
+[displays]
+role = "operate"
+every = 2
+wait = 5
+headless = false
+panel_min = 5
+brightness_step = 5
+ddc_every = 60
+
 # ---- Profiles: how phones look and behave ---------------------------------------------------
 # Each paired phone has a profile of its own in elamond.d/phones.toml, which uses this one (or
 # the one `elamond pair --profile` names): change one phone there, or every phone here.
@@ -72,3 +82,9 @@ dynamic_color = true
 blur = true
 haptics = true
 keep_screen_on = false
+# Dashboards the app shows on its home-screen widget (read every `widget_minutes`), as its
+# Quick Settings tiles and on the computer's card; "" for none.
+widget = ""
+widget_minutes = 30
+tiles = ""
+card = ""

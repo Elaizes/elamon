@@ -9,6 +9,7 @@ mod collect;
 mod commands;
 mod consts;
 mod control;
+mod displays;
 mod errors;
 mod events;
 mod feeds;
@@ -273,6 +274,7 @@ fn serve() -> Result<(), String> {
 	history::disk::spawn_writer(hub.long.clone()).map_err(|e| e.to_string())?;
 	// Each UPS source's poller, its updates taken in by a task.
 	hub.nut.start(runtime.handle().clone(), &hub.config(), hub.long.clone());
+	hub.displays.start();
 	// Each command, web service and file a source reads, by a task of its own.
 	hub.feeds.start(runtime.handle().clone(), &hub.config());
 	// The events sent on to the targets of the settings.
@@ -558,6 +560,12 @@ fn collect_loop(
 			need.gpus |= rule_needs.1.gpus;
 		}
 		let mut reading = collector.read(wanted.is_some(), need);
+		// Hyprland's word on the monitors, from its own thread: read while a client shows them.
+		hub.displays.want(need.displays);
+		let seen = hub.displays.seen();
+		if need.displays {
+			displays::merge(&mut reading.sample.displays, &seen, &config.displays);
+		}
 		let mut got = extras.apply(&hub, &rt, wanted.is_some(), need, &mut reading.sample);
 		// GPU names improve once NVML has been read, so the facts are read again now and then.
 		if reading.cards_changed || seq % u64::from(every.info) == 1 % u64::from(every.info) {
@@ -576,6 +584,7 @@ fn collect_loop(
 		let snapshots = hub.nut.snapshots();
 		nut::put(&mut values, &config, &snapshots);
 		got.caps.nut = nut::actions::of_sources(&config, &snapshots);
+		got.caps.displays = displays::specs(&seen, &config.displays);
 		// The commands, web services and files as their tasks last read them.
 		feeds::put(&mut values, &config, &hub.feeds.snapshots());
 		let shape = server::shape_of(&values, &got.caps);
@@ -628,6 +637,7 @@ fn collect_loop(
 			(got.caps.units, "units"),
 			(got.caps.media, "media"),
 			(collector.has_cards(), "displays"),
+			(seen.instance.is_some(), "display_control"),
 			(collector.nvml(), "nvml"),
 		]
 		.into_iter()

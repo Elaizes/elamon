@@ -97,6 +97,8 @@ pub struct Config {
 	pub feeds: BTreeMap<String, Feed>,
 	/// `[history]`: how long the hourly history is kept.
 	pub history: HistoryDef,
+	/// `[displays]`: the monitors' actions, through Hyprland, logind and DDC.
+	pub displays: DisplaysDef,
 	/// `[events]`: how events are kept and shown, and what a rule or a target leaves out.
 	pub events: crate::events::def::EventsDef,
 	/// `[rules.<id>]`: what makes an event.
@@ -114,6 +116,34 @@ pub struct Config {
 pub struct Whence {
 	pub file: String,
 	pub line: usize,
+}
+
+/// `[displays]`: who may act on the monitors, how often their state and brightness are read while a
+/// client shows them, and the brightness a slider offers. The starter file says each of these;
+/// settings from before 0.10, without the table, get the same.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct DisplaysDef {
+	/// The least role that may turn a monitor on or off, its picture, or its brightness.
+	pub role: Role,
+	/// Seconds between Hyprland's word on the monitors while a client shows them.
+	pub every: u64,
+	/// Seconds a monitor's action waits for Hyprland to show it done.
+	pub wait: u64,
+	/// Whether outputs without a screen (a stream's, Hyprland's fallback) are shown and acted on.
+	pub headless: bool,
+	/// The least brightness of a laptop's panel a slider offers, in percent.
+	pub panel_min: u64,
+	/// A brightness slider's step, in percent.
+	pub brightness_step: u64,
+	/// Seconds between readings of an external monitor's brightness (DDC) while a client shows it.
+	pub ddc_every: u64,
+}
+
+impl Default for DisplaysDef {
+	fn default() -> Self {
+		DisplaysDef { role: Role::Operate, every: 2, wait: 5, headless: false, panel_min: 5, brightness_step: 5, ddc_every: 60 }
+	}
 }
 
 /// `[history]`.
@@ -375,8 +405,28 @@ pub struct ProfileDef {
 	pub unlock: Option<UnlockDef>,
 	pub dashboards: Option<Vec<String>>,
 	pub header: Option<String>,
-	pub android: Option<BTreeMap<String, bool>>,
+	pub android: Option<AndroidDef>,
 	pub web: Option<Map<String, Value>>,
+}
+
+/// `[profiles.<id>.android]`: the app's switches, and the dashboards its home-screen widget, its
+/// Quick Settings tiles and the computer's card on its home screen show.
+#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(default)]
+pub struct AndroidDef {
+	pub widget: Option<String>,
+	pub widget_minutes: Option<u64>,
+	pub tiles: Option<String>,
+	pub card: Option<String>,
+	#[serde(flatten)]
+	pub flags: BTreeMap<String, bool>,
+}
+
+impl AndroidDef {
+	/// The dashboards it names, by key: `widget`, `tiles`, `card`.
+	pub fn dashboards(&self) -> [(&'static str, Option<&str>); 3] {
+		[("widget", self.widget.as_deref()), ("tiles", self.tiles.as_deref()), ("card", self.card.as_deref())]
+	}
 }
 
 #[derive(Deserialize, Debug, Clone, Default, PartialEq)]
@@ -405,11 +455,26 @@ pub struct Profile {
 	/// The dashboard shown as chips under the computer's name; none when empty.
 	pub header: String,
 	pub android: BTreeMap<String, bool>,
+	/// The dashboards of the app's home-screen widget, its tiles and the computer's card; none when empty.
+	pub widget: String,
+	pub tiles: String,
+	pub card: String,
+	/// How often the app reads the home-screen widget's dashboard in the background, in minutes.
+	pub widget_minutes: u64,
 	pub web: Map<String, Value>,
 }
 
-/// The keys of `[profiles.<id>.android]` and their defaults.
+impl Profile {
+	/// The dashboards of the Android part, those it names: `widget`, `tiles`, `card`.
+	pub fn android_dashboards(&self) -> impl Iterator<Item = &str> {
+		[self.widget.as_str(), self.tiles.as_str(), self.card.as_str()].into_iter().filter(|d| !d.is_empty())
+	}
+}
+
+/// The switches of `[profiles.<id>.android]` and their defaults.
 pub const ANDROID: [(&str, bool); 4] = [("dynamic_color", true), ("blur", true), ("haptics", true), ("keep_screen_on", false)];
+/// `widget_minutes` unless a profile says: how often the home-screen widget is read.
+pub const WIDGET_MINUTES: u64 = 30;
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct Dashboard {
@@ -612,6 +677,7 @@ impl Config {
 			sources: BTreeMap::new(),
 			feeds: BTreeMap::new(),
 			history: HistoryDef::default(),
+			displays: DisplaysDef::default(),
 			events: crate::events::def::EventsDef::starting(),
 			rules: BTreeMap::new(),
 			notify: BTreeMap::new(),
@@ -645,6 +711,10 @@ impl Config {
 			dashboards: ["overview", "processes", "sensors", "control"].map(String::from).to_vec(),
 			header: "header".into(),
 			android: ANDROID.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+			widget: String::new(),
+			tiles: String::new(),
+			card: String::new(),
+			widget_minutes: WIDGET_MINUTES,
 			web: Map::new(),
 		};
 		for p in chain.iter().rev() {
@@ -671,8 +741,16 @@ impl Config {
 			if let Some(h) = &p.header {
 				out.header = h.clone();
 			}
-			for (k, v) in p.android.iter().flatten() {
-				out.android.insert(k.clone(), *v);
+			if let Some(a) = &p.android {
+				for (k, v) in &a.flags {
+					out.android.insert(k.clone(), *v);
+				}
+				for (to, from) in [(&mut out.widget, &a.widget), (&mut out.tiles, &a.tiles), (&mut out.card, &a.card)] {
+					if let Some(d) = from {
+						*to = d.clone();
+					}
+				}
+				out.widget_minutes = a.widget_minutes.unwrap_or(out.widget_minutes);
 			}
 			for (k, v) in p.web.iter().flatten() {
 				out.web.insert(k.clone(), v.clone());
@@ -687,7 +765,7 @@ impl Config {
 
 	/// Whether `id` is an action: a built-in one or one the settings add.
 	pub fn has_action(&self, id: &str) -> bool {
-		self.actions.contains_key(id) || actions::BUILT_IN.iter().any(|b| b.0 == id) || self.station_param(id).is_some()
+		self.actions.contains_key(id) || actions::BUILT_IN.iter().any(|b| b.0 == id) || self.station_param(id).is_some() || crate::displays::target(id).is_some()
 	}
 
 	/// The one parameter of a station's action of one of the sources (`nut.command.eco`: `cmd`,
@@ -706,6 +784,13 @@ impl Config {
 	pub fn param_kinds(&self, action: &str) -> Option<Vec<(String, &'static str)>> {
 		if let Some(a) = self.actions.get(action) {
 			return Some(actions::settings_spec(action, a).params.iter().map(|p| (p.id.clone(), p.kind.name())).collect());
+		}
+		// A monitor's: whether there is that monitor only Hyprland says.
+		if let Some((what, _)) = crate::displays::target(action) {
+			return Some(vec![match what {
+				crate::displays::What::Brightness => ("level".to_string(), "range"),
+				_ => ("state".to_string(), "choice"),
+			}]);
 		}
 		// A station's: its kind is the station's to say.
 		if let Some(p) = self.station_param(action) {
@@ -1103,8 +1188,8 @@ fn role() -> Ty {
 }
 
 /// The records the settings are made of, by name.
-pub const RECORDS: [&str; 27] = [
-	"settings", "history", "events", "events_notify", "rule", "also", "target", "target_defaults", "source_nut", "source_command", "source_http", "source_file", "outlet", "link", "action", "param", "profile", "unlock", "android", "web",
+pub const RECORDS: [&str; 28] = [
+	"settings", "history", "displays", "events", "events_notify", "rule", "also", "target", "target_defaults", "source_nut", "source_command", "source_http", "source_file", "outlet", "link", "action", "param", "profile", "unlock", "android", "web",
 	"dashboard", "item", "column", "expand", "bar", "sort", "row_action",
 ];
 
@@ -1172,6 +1257,7 @@ pub fn record(name: &str) -> Vec<Key> {
 			k("sources", id_map(Ty::Source)),
 			k("history", Ty::Rec("history")),
 			k("events", Ty::Rec("events")),
+			k("displays", Ty::Rec("displays")),
 			k("rules", id_map(Ty::Rec("rule"))),
 			k("notify", id_map(Ty::Rec("target"))),
 		],
@@ -1253,6 +1339,15 @@ pub fn record(name: &str) -> Vec<Key> {
 			k("more", Ty::Str),
 		],
 		"history" => vec![k("keep", Ty::Any(vec![Ty::Enum("word", &["all"]), Ty::Int(30, i64::MAX)]))],
+		"displays" => vec![
+			k("role", Ty::Enum("role", &ACTION_ROLES)),
+			k("every", Ty::Int(1, 60)),
+			k("wait", Ty::Int(1, 30)),
+			k("headless", Ty::Bool),
+			k("panel_min", Ty::Int(0, 100)),
+			k("brightness_step", Ty::Int(1, 50)),
+			k("ddc_every", Ty::Int(10, 3600)),
+		],
 		"source_command" => [req("kind", Ty::Enum("source kind", &["command"])), req("command", list(Ty::Str))].into_iter().chain(feed_keys()).collect(),
 		"source_http" => [req("kind", Ty::Enum("source kind", &["http"])), req("url", Ty::Str), k("token_file", Ty::Str), k("header", Ty::Str)]
 			.into_iter()
@@ -1315,7 +1410,11 @@ pub fn record(name: &str) -> Vec<Key> {
 			k("web", Ty::Rec("web")),
 		],
 		"unlock" => vec![k("for", list(Ty::Enum("action kind", &actions::KINDS))), k("grace", Ty::Enum("grace", &GRACES))],
-		"android" => ANDROID.iter().map(|(n, _)| k(n, Ty::Bool)).collect(),
+		"android" => ANDROID
+			.iter()
+			.map(|(n, _)| k(n, Ty::Bool))
+			.chain([k("widget", Ty::Str), k("widget_minutes", Ty::Int(15, 1440)), k("tiles", Ty::Str), k("card", Ty::Str)])
+			.collect(),
 		"web" => vec![],
 		"dashboard" => {
 			vec![req("title", Ty::Text), k("icon", icon()), k("role", role()), k("for_each", Ty::Str), k("widgets", list(Ty::Widget))]
@@ -1838,6 +1937,13 @@ fn semantics(c: &Config) -> Found {
 		{
 			push(join(&path, "header"), format!("no dashboard \"{h}\"{}", did_you_mean(h, c.dashboards.keys().map(String::as_str))));
 		}
+		for (key, d) in p.android.as_ref().map(AndroidDef::dashboards).into_iter().flatten() {
+			if let Some(d) = d.filter(|d| !d.is_empty())
+				&& c.dashboard_of(d).is_none()
+			{
+				push(join(&join(&path, "android"), key), format!("no dashboard \"{d}\"{}", did_you_mean(d, c.dashboards.keys().map(String::as_str))));
+			}
+		}
 	}
 	for id in c.templates.keys() {
 		if let Err(e) = template_chain(id, &c.templates) {
@@ -2322,7 +2428,7 @@ fn check_action_use(c: &Config, action: &str, w: &Widget, kind: &str, path: &str
 		return;
 	}
 	let kinds = c.param_kinds(action).unwrap_or_default();
-	let spec = c.actions.get(action).map(|a| actions::settings_spec(action, a));
+	let spec = c.actions.get(action).map(|a| actions::settings_spec(action, a)).or_else(|| crate::displays::target(action).filter(|(w, _)| *w != crate::displays::What::Brightness).map(|_| crate::displays::on_off_spec(action)));
 	// A station's parameter takes what the station has, which isn't known here.
 	let station = c.station_param(action).is_some();
 	if let Some(param) = &w.param {

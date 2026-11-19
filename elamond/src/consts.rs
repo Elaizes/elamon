@@ -89,6 +89,12 @@ pub mod cadence {
 	/// A `journalctl` that follows the journal for a `log` and ends is started again no sooner than
 	/// this after it last started, while a client shows the log.
 	pub const JOURNAL_RESTART: Duration = Duration::from_secs(10);
+	/// How often Hyprland is looked for again while none is found, and how long the monitors are
+	/// still read after the last client that showed them.
+	pub const HYPRLAND_LOOK: Duration = Duration::from_secs(30);
+	pub const DISPLAYS_LINGER: Duration = Duration::from_secs(3);
+	/// How often a monitor's action looks whether Hyprland did it.
+	pub const DISPLAYS_VERIFY: Duration = Duration::from_millis(200);
 	/// How far back a timeline reaches unless its `range` says, in seconds: a day.
 	pub const TIMELINE_RANGE: u64 = 86_400;
 	/// What of a recorder's journal a source starts from, as if it had read it, in seconds: its
@@ -191,6 +197,10 @@ pub mod timeout {
 	/// As the service stops, what still runs on a thread of the blocking pool gets this long to end:
 	/// a source's file read that hangs is left there, not waited for.
 	pub const RUNTIME_STOP: Duration = Duration::from_secs(3);
+	/// A call of `hyprctl`, which answers at once unless Hyprland hangs.
+	pub const HYPRCTL: Duration = Duration::from_secs(3);
+	/// A call of `ddcutil`, which waits on the monitor's I²C bus.
+	pub const DDCUTIL: Duration = Duration::from_secs(10);
 	/// A `journalctl` that follows the journal has printed the journal's last lines once it has
 	/// said nothing for `JOURNAL_QUIET` since it began printing, or printed them all, or run for
 	/// `JOURNAL_START`: from then on its `log`s have a state.

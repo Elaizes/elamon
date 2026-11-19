@@ -272,6 +272,36 @@ impl Bus {
 		Ok(sessions.into_iter().filter(|s| s.1 == uid).map(|s| s.4).collect())
 	}
 
+	/// Sets a backlight's brightness through logind, which lets the user of a session with a seat do
+	/// it: on the user's graphical session (its `Display`), else the first of theirs logind takes it
+	/// for. The service runs outside any session; logind looks at the caller's user only.
+	pub async fn set_brightness(&self, subsystem: &str, name: &str, raw: u32) -> Result<(), String> {
+		let c = self.conn(Scope::System).await?;
+		let uid = std::fs::metadata("/proc/self").map(|m| m.uid()).map_err(err)?;
+		let p = self.logind().await?;
+		let mut sessions = Vec::new();
+		if let Ok(user) = p.call::<_, _, OwnedObjectPath>("GetUser", &(uid,)).await
+			&& let Ok(u) = Self::proxy(&c, "org.freedesktop.login1", user.as_str(), "org.freedesktop.login1.User").await
+			&& let Ok((_, display)) = u.get_property::<(String, OwnedObjectPath)>("Display").await
+			&& display.as_str() != "/"
+		{
+			sessions.push(display);
+		}
+		sessions.extend(self.own_sessions().await?);
+		if sessions.is_empty() {
+			return Err(reason::NO_SESSION.into());
+		}
+		let mut last = String::new();
+		for path in sessions {
+			let s = Self::proxy(&c, "org.freedesktop.login1", path.as_str(), "org.freedesktop.login1.Session").await?;
+			match s.call::<_, _, ()>("SetBrightness", &(subsystem, name, raw)).await {
+				Ok(()) => return Ok(()),
+				Err(e) => last = self.failed(Scope::System, e),
+			}
+		}
+		Err(last)
+	}
+
 	/// Locks every session of this user; the desktop's locker reacts to logind's Lock signal.
 	async fn lock(&self) -> Result<(), String> {
 		let c = self.conn(Scope::System).await?;

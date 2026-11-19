@@ -892,6 +892,7 @@ fn check(init: &dyn InitSystem) -> Result<(), String> {
 	items.push(check_polkit(&user, &settings));
 	items.extend(check_buses());
 	items.push(check_nvml());
+	items.extend(crate::displays::Displays::new().check().into_iter().map(|(ok, line)| Item::new(if ok { Mark::Ok } else { Mark::Absent }, line)));
 	items.push(journal_item(&user, crate::update::which("journalctl").is_some(), crate::journal::system_readable()));
 
 	print!("{}", format_items(&items));

@@ -211,6 +211,7 @@ pub fn sample() -> Sample {
 			preferred: Some(mode(1920, 1080, 60.0)),
 			max_refresh: Some(180.0),
 			position: Some([1920, 0]),
+			controls: None,
 		}],
 		links: vec![link()],
 	}
@@ -1186,4 +1187,134 @@ fn events_whole() {
 		.collect();
 	check_compact("0.9/ntfy", &Value::Array(sent));
 	std::fs::remove_dir_all(dir).unwrap();
+}
+
+// ---- 0.10: monitors, and what the app shows outside itself --------------------------------------
+
+/// The settings 0.10/ui-displays.json and the fixtures beside it describe.
+const UI_DISPLAYS: &str = include_str!("../fixtures/0.10/ui-displays.toml");
+
+/// What Hyprland says in the fixture: the panel disabled, DP-1 the one screen showing a picture,
+/// a stream's output without a screen.
+pub fn displays_seen() -> crate::displays::Seen {
+	use crate::displays::hypr::Output;
+	use crate::displays::light::{Level, Way};
+	let out = |json: &str| serde_json::from_str::<Output>(json).unwrap();
+	crate::displays::Seen {
+		instance: Some("fixture".into()),
+		why: None,
+		outputs: vec![
+			out(r#"{ "name": "eDP-1", "disabled": true, "width": 1920, "height": 1080, "refreshRate": 144.149, "x": 0, "y": 0, "scale": 1, "hardwareDetails": { "backend": "drm" } }"#),
+			out(r#"{ "name": "DP-1", "width": 1920, "height": 1080, "refreshRate": 179.999, "x": 1920, "y": 0, "scale": 1, "hardwareDetails": { "backend": "drm" } }"#),
+			out(r#"{ "name": "stream", "width": 1920, "height": 1080, "refreshRate": 60, "x": 3840, "y": 0, "scale": 1, "hardwareDetails": { "backend": "headless" } }"#),
+		],
+		light: std::collections::BTreeMap::from([
+			("eDP-1".to_string(), (Way::Backlight("intel_backlight".into()), Some(Level { raw: 48000, max: 96000 }))),
+			("DP-1".to_string(), (Way::Ddc(14), Some(Level { raw: 60, max: 100 }))),
+		]),
+	}
+}
+
+/// The fixture's values with what Hyprland says on its monitors: the sample's DP-1 and a panel.
+fn displays_values(config: &crate::settings::Config) -> crate::values::Values {
+	let (mut sample, info, media, procs, log) = (sample_for(config), info(), media(), processes(), log());
+	let panel = Display {
+		connector: "eDP-1".into(),
+		gpu: "0000:00:02.0".into(),
+		connected: true,
+		active: false,
+		dpms: some("On"),
+		internal: true,
+		vendor: some("Some panel maker"),
+		model: some("Some panel"),
+		year: Some(2023),
+		width_mm: Some(344),
+		height_mm: Some(194),
+		mode: None,
+		preferred: Some(mode(1920, 1080, 144.0)),
+		max_refresh: Some(144.0),
+		position: None,
+		controls: None,
+	};
+	sample.displays.insert(0, panel);
+	crate::displays::merge(&mut sample.displays, &displays_seen(), &config.displays);
+	crate::values::read(&crate::values::Reading { sample: &sample, info: &info, media: Some(&media), processes: Some(&procs), activity: &log, actions: &config.actions })
+}
+
+fn displays_ui(config: &crate::settings::Config, values: &crate::values::Values, role: Role) -> crate::ui::Ui {
+	let info = info();
+	let caps = crate::actions::Caps { displays: crate::displays::specs(&displays_seen(), &config.displays), ..crate::actions::Caps::all(&values.power_profiles) };
+	let mut features = FEATURES.to_vec();
+	features.push("display_control");
+	features.sort();
+	crate::ui::build(&crate::ui::Input {
+		config,
+		values,
+		caps: &caps,
+		service: crate::ui::Service {
+			id: info.id,
+			name: info.name,
+			version: info.service_version.into(),
+			interval_ms: info.interval_ms,
+			history_seconds: info.history_seconds,
+			features: features_of(&features, config.control),
+			endpoints: endpoints(),
+		},
+		control: crate::ui::Control { enabled: true, off_reason: None },
+		role,
+		profile: "owner",
+		kind: "android",
+		draws: None,
+	})
+}
+
+/// What the service makes of 0.10/ui-displays.toml: the `ui`, Control's data line, the snapshot
+/// of the home-screen widget's dashboard, and the answers to the monitors' actions.
+#[test]
+fn displays_whole() {
+	use crate::errors::reason;
+	let config = crate::settings::read_sources(&[crate::settings::Source::new("ui-displays.toml", UI_DISPLAYS)]).unwrap();
+	let values = displays_values(&config);
+	let ui = displays_ui(&config, &values, Role::Admin);
+	check_compact("0.10/ui-displays", &ui.doc);
+	let sorts = std::collections::HashMap::new();
+	let states = sources_states(&values, &ui, &sorts);
+	let control = ui.dashboard("control").unwrap();
+	check_compact("0.10/stream-displays", &Value::Object(crate::states::data(sample().t, control, None, &states, None)));
+	let mut snapshot = crate::states::data(sample().t, ui.dashboard("phone").unwrap(), None, &states, None);
+	snapshot.remove("type");
+	check_compact("0.10/snapshot-widget", &Value::Object(snapshot));
+
+	// A monitor's action that is done, and those that aren't: the bodies, by case.
+	let refused = |status: u16, code: ErrorCode, message: Option<&str>| {
+		let mut body = serde_json::json!({ "error": code.as_str() });
+		if let Some(m) = message {
+			body["message"] = m.into();
+		}
+		serde_json::json!({ "status": status, "body": body })
+	};
+	let answers = serde_json::json!({
+		"done": { "status": 200, "body": { "ok": true, "output": "done" } },
+		"confirm_required": refused(403, ErrorCode::ConfirmRequired, Some("DP-1")),
+		"not_applied": refused(502, ErrorCode::Failed, Some(reason::NOT_APPLIED)),
+		"waiting_for_a_screen": refused(502, ErrorCode::Failed, Some(reason::WAITING_FOR_A_SCREEN)),
+		"gone": refused(404, ErrorCode::NoSuchAction, None),
+		"not_allowed": refused(403, ErrorCode::NotAllowed, None),
+	});
+	check_compact("0.10/actions-displays", &answers);
+
+	// The typed request turns DP-1 off; without its text, or with another, it doesn't.
+	let read = |name: &str| std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join(name)).unwrap();
+	let request: crate::control::ActionRequest = serde_json::from_slice(&read("0.10/action-display-typed.json")).unwrap();
+	let spec = ui.actions.iter().find(|s| s.id == "display.output.DP-1").unwrap();
+	let params = crate::actions::check_params(spec, &request.params).unwrap();
+	crate::nut::actions::typed_in(spec, &params, request.confirm_text.as_deref()).unwrap();
+	assert_eq!(crate::nut::actions::typed_in(spec, &params, None), Err((ErrorCode::ConfirmRequired, "DP-1".into())));
+	assert_eq!(crate::nut::actions::typed_in(spec, &params, Some("off")), Err((ErrorCode::ConfirmRequired, "DP-1".into())));
+	// The panel, off already, is turned on with no text; a client of `monitor` has none of these.
+	let panel = ui.actions.iter().find(|s| s.id == "display.output.eDP-1").unwrap();
+	assert!(panel.params[0].typed.is_empty());
+	let monitor = displays_ui(&config, &values, Role::Monitor);
+	assert!(monitor.actions.iter().all(|s| s.kind != "display"));
+	assert!(monitor.dashboard("tiles").is_none_or(|d| d.all_widgets().iter().all(|w| w.kind != "toggle" && w.kind != "button")));
 }

@@ -149,6 +149,8 @@ pub struct Hub {
 	pub nut: crate::nut::Runtime,
 	/// The `command`, `http` and `file` sources, each read by a task of its own while it is needed.
 	pub feeds: crate::feeds::Runtime,
+	/// The monitors as Hyprland has them, read by a thread of its own while they are shown, and their actions.
+	pub displays: Arc<crate::displays::Displays>,
 	/// The journals the streams' `log`s follow, and the pages of older lines asked for.
 	pub journal: crate::journal::Journal,
 	/// The events the rules and `elamond notify` make: kept, shown by `log`s and sent on.
@@ -257,6 +259,11 @@ impl Hub {
 			long: Arc::new(long),
 			nut: crate::nut::Runtime::default(),
 			feeds: crate::feeds::Runtime::default(),
+			displays: Arc::new({
+				let d = crate::displays::Displays::new();
+				d.apply(&config.displays);
+				d
+			}),
 			journal: crate::journal::Journal::default(),
 			events: Arc::new(crate::events::Events::load(&dir, config.clone())),
 			interval,
@@ -476,6 +483,7 @@ impl Hub {
 		self.long.set_keep(new.history.keep);
 		self.nut.apply(&new);
 		self.feeds.apply(&new);
+		self.displays.apply(&new.displays);
 		let control = new.control;
 		let names_changed = old.names != new.names;
 		if let Ok(mut c) = self.config.write() {
@@ -2298,7 +2306,7 @@ dashboards = ["overview", "control"]
 		let mut fewer = config.clone();
 		fewer.sources.get_mut("rack").unwrap().commands = vec!["beeper.*".into()];
 		hub.set_config(fewer);
-		assert!(tx.borrow().caps.nut.iter().any(|s| s.params[0].typed.contains(&"load.off".to_string())), "{:?}", tx.borrow().caps.nut);
+		assert!(tx.borrow().caps.nut.iter().any(|s| s.params[0].typed.contains_key("load.off")), "{:?}", tx.borrow().caps.nut);
 		let (status, v) = call(&hub, "POST", "/api/v1/actions/nut.command.rack", "admin", r#"{"params":{"cmd":"load.off"},"confirm_text":"load.off"}"#).await;
 		assert_eq!((status.as_u16(), v["error"].as_str(), v["message"].as_str()), (403, Some("not_allowed"), Some("cmd")), "{v}");
 		hub.nut.stop().await;

@@ -524,6 +524,22 @@ expand = [
   { field = "year", label = "Made", format = "integer" },
 ]
 
+# Each monitor turned on or off, its picture (DPMS) and its brightness, where the service acts on them
+# (Hyprland, `[displays]`): a widget whose action isn't offered is left out, and the group with none.
+# Turning off the last monitor that shows a picture asks for its name.
+[[dashboards.control.widgets]]
+id = "display_controls"
+type = "group"
+label = "Monitors"
+icon = "monitor"
+collapsed = true
+for_each = "displays"
+widgets = [
+  { id = "output", type = "toggle", label = "{item.connector}", caption = "{item.name}", value = "display.{item}.output", action = "display.output.{item.connector}", param = "state", on = "on", off = "off", span = 2 },
+  { id = "dpms", type = "toggle", label = "DPMS", value = "display.{item}.dpms", action = "display.dpms.{item.connector}", param = "state", on = "on", off = "off", span = 2 },
+  { id = "brightness", type = "slider", label = "{item.connector} brightness", value = "display.{item}.brightness", action = "display.brightness.{item.connector}", param = "level", span = 4 },
+]
+
 [[dashboards.control.widgets]]
 id = "journal"
 type = "button"

@@ -182,7 +182,7 @@ mod tests {
 		let main = fs::read_to_string(place.main()).unwrap();
 		let dashboards = fs::read_to_string(place.dropins().join(DASHBOARDS_FILE)).unwrap();
 		assert!(main.starts_with("#:schema elamond-schema.json\n") && dashboards.starts_with("#:schema ../elamond-schema.json\n"));
-		assert!(main.lines().count() < 80 && !main.contains("[dashboards.") && !main.contains("[templates."), "{main}");
+		assert!(main.lines().count() < 100 && !main.contains("[dashboards.") && !main.contains("[templates."), "{main}");
 		// Read as the service reads them, they are the settings elamond starts with, whole.
 		let files: Vec<_> = place.files();
 		let read = crate::settings::read_files(&files).unwrap();

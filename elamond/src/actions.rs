@@ -11,7 +11,7 @@ use crate::settings::{self, Config};
 
 /// What kind of thing an action does: what a profile's `unlock.for` names, in the order an unlock
 /// covers them (an unlock for one covers those after it).
-pub const KINDS: [&str; 7] = ["power", "nut", "signal", "actions", "units", "profile", "media"];
+pub const KINDS: [&str; 8] = ["power", "nut", "signal", "actions", "units", "display", "profile", "media"];
 
 /// A parameter's kind, and what it takes.
 #[derive(Clone, Debug, PartialEq)]
@@ -47,9 +47,10 @@ pub struct Param {
 	/// May be left out, with no default.
 	pub optional: bool,
 	pub default: Option<Value>,
-	/// The choices that are typed in to run: a station's commands that cut the computer's power or
-	/// a whole station's load, whose `confirm_text` is the value itself.
-	pub typed: Vec<String>,
+	/// The choices that are typed in to run, each with the text to type: a station's commands that
+	/// cut the computer's power or its whole load (the command itself), a monitor turned off while
+	/// no other screen shows a picture (its name).
+	pub typed: BTreeMap<String, String>,
 }
 
 /// An action as a client may be offered it.
@@ -85,6 +86,8 @@ pub struct Caps {
 	pub volume: bool,
 	/// The UPS sources' actions, as far as their stations have told what they offer.
 	pub nut: Vec<Spec>,
+	/// The monitors' actions, as Hyprland shows them.
+	pub displays: Vec<Spec>,
 }
 
 impl Caps {
@@ -96,7 +99,7 @@ impl Caps {
 
 	/// Everything, as the fixtures have it.
 	pub fn all(power_profiles: &[String]) -> Caps {
-		Caps { poweroff: true, reboot: true, suspend: true, lock: true, power_profiles: power_profiles.to_vec(), units: true, media: true, volume: true, nut: Vec::new() }
+		Caps { poweroff: true, reboot: true, suspend: true, lock: true, power_profiles: power_profiles.to_vec(), units: true, media: true, volume: true, nut: Vec::new(), displays: Vec::new() }
 	}
 }
 
@@ -131,7 +134,7 @@ pub fn label_of(value: &str) -> String {
 }
 
 fn param(id: &str, label: &str, kind: ParamKind, optional: bool) -> Param {
-	Param { id: id.into(), label: label.into(), kind, optional, default: None, typed: Vec::new() }
+	Param { id: id.into(), label: label.into(), kind, optional, default: None, typed: BTreeMap::new() }
 }
 
 /// A built-in action's parameters, with the choices the computer and settings give.
@@ -207,7 +210,7 @@ pub fn settings_spec(id: &str, a: &settings::Action) -> Spec {
 			} else {
 				ParamKind::Bool
 			};
-			Param { id: pid.clone(), label: p.label.clone().unwrap_or_else(|| label_of(pid)), kind, optional: false, default: p.default.clone(), typed: Vec::new() }
+			Param { id: pid.clone(), label: p.label.clone().unwrap_or_else(|| label_of(pid)), kind, optional: false, default: p.default.clone(), typed: BTreeMap::new() }
 		})
 		.collect();
 	Spec {
@@ -235,7 +238,7 @@ pub fn available(config: &Config, caps: &Caps) -> Vec<Spec> {
 		unlock: false,
 		params: built_in_params(id, config, caps),
 	});
-	built_in.chain(caps.nut.iter().cloned()).chain(config.actions.iter().map(|(id, a)| settings_spec(id, a))).collect()
+	built_in.chain(caps.nut.iter().cloned()).chain(caps.displays.iter().cloned()).chain(config.actions.iter().map(|(id, a)| settings_spec(id, a))).collect()
 }
 
 /// Whether `x` is on a step of `step` from `min` (to a millionth of a step).

@@ -195,7 +195,8 @@ fn a_station_s_actions_are_what_it_offers_as_far_as_its_source_allows() {
 			("outlet.2.load.cycle", "outlet.2.load.cycle"),
 		]
 	);
-	assert_eq!(command.params[0].typed, ["outlet.1.load.off", "load.off"]);
+	assert_eq!(command.params[0].typed.keys().collect::<Vec<_>>(), ["load.off", "outlet.1.load.off"]);
+	assert!(command.params[0].typed.iter().all(|(v, t)| v == t));
 	// A setting once upsd has described it: a list of values, or a range; neither isn't offered,
 	// which the journal says once.
 	let info = |kind: &[&str], values: &[&str], ranges: &[(&str, &str)]| VarInfo {

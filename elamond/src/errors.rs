@@ -134,6 +134,10 @@ pub mod reason {
 	pub const TIMED_OUT: &str = "timed_out";
 	/// upsd took a station's command or setting but can't say whether the station did it.
 	pub const NOT_CONFIRMED: &str = "accepted by upsd but not confirmed by the station";
+	/// Hyprland didn't show a monitor's action done in `[displays] wait` seconds.
+	pub const NOT_APPLIED: &str = "not_applied";
+	/// A monitor turned on while no screen is awake: Hyprland applies it once one is.
+	pub const WAITING_FOR_A_SCREEN: &str = "waiting_for_a_screen";
 }
 
 #[cfg(test)]

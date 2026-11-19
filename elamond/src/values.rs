@@ -118,6 +118,9 @@ pub const ADDRESSES: &[AddressDef] = &[
 	a("system.uptime", "s", "duration"),
 	a("system.boot_time", "s", "time"),
 	m("displays.summary", "", "text"),
+	m("display.<key>.output", "", "text"),
+	m("display.<key>.dpms", "", "text"),
+	m("display.<key>.brightness", "%", "percent"),
 ];
 
 /// A field of a collection's items: its name, unit and format.
@@ -250,6 +253,10 @@ pub const COLLECTIONS: &[CollectionDef] = &[
 			("preferred", "", "text"),
 			("max_refresh", "Hz", "number"),
 			("position", "", "text"),
+			("enabled", "", "bool"),
+			("headless", "", "bool"),
+			("scale", "", "number"),
+			("brightness", "%", "percent"),
 		],
 		level_field: None,
 	},
@@ -1145,6 +1152,14 @@ fn read_displays(v: &mut Values, s: &Sample) {
 		let name = [d.vendor.as_deref(), d.model.as_deref()].into_iter().flatten().filter(|s| !s.trim().is_empty()).collect::<Vec<_>>().join(" ");
 		let state = if !d.connected {
 			"Disconnected"
+		} else if let Some(c) = &d.controls {
+			if !c.enabled {
+				"Off"
+			} else if !c.dpms {
+				"Standby"
+			} else {
+				"On"
+			}
 		} else if d.active {
 			"On"
 		} else if matches!(d.dpms.as_deref(), Some("Standby") | Some("Suspend")) {
@@ -1174,6 +1189,16 @@ fn read_displays(v: &mut Values, s: &Sample) {
 		item.set("preferred", d.preferred.as_ref().map(|m| text(mode_text(m))));
 		item.set("max_refresh", d.max_refresh.map(float));
 		item.set("position", d.position.filter(|_| d.mode.is_some()).map(|p| text(format!("{}, {}", p[0], p[1]))));
+		if let Some(c) = &d.controls {
+			let word = |on: bool| text(if on { "on" } else { "off" });
+			item.set("enabled", Some(V::Bool(c.enabled)));
+			item.set("headless", Some(V::Bool(c.headless)));
+			item.set("scale", Some(float(c.scale)));
+			item.set("brightness", c.brightness.map(float));
+			v.put(format!("display.{}.output", item.key), Some(word(c.enabled)));
+			v.put(format!("display.{}.dpms", item.key), c.enabled.then(|| word(c.dpms)));
+			v.put(format!("display.{}.brightness", item.key), c.brightness.map(float));
+		}
 		items.push(item);
 	}
 	let connected = s.displays.iter().filter(|d| d.connected).count();
