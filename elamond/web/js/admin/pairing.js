@@ -22,8 +22,8 @@ export function mountPairing(main, env) {
 	let tick = 0;
 	/** What is drawn: the form, or a code (by the code and its links, so it is drawn again only when they change). */
 	let shown = '';
-	/** The ask drawn, by its id. */
-	let askShown = '';
+	/** The ask drawn, by its id ('' for none yet: the waiting card); null when neither is drawn. @type {string | null} */
+	let askShown = null;
 	/** @type {AdminClients | null} */
 	let meta = null;
 	/** The role a code is for when none is asked for: the settings' `default_role`, where they say it. @type {string | null} */
@@ -98,7 +98,7 @@ export function mountPairing(main, env) {
 	// ---------------------------------------------------------------- the form
 	function drawForm() {
 		shown = 'form';
-		askShown = '';
+		askShown = null;
 		clear(box);
 		const m = /** @type {AdminClients} */ (meta);
 		const roleNames = /** @type {Record<string, string>} */ (S.admin.roleNames);
@@ -154,7 +154,7 @@ export function mountPairing(main, env) {
 	/** @param {Pending} p @param {string} key */
 	function drawPending(p, key) {
 		shown = key;
-		askShown = '';
+		askShown = null;
 		after = '';
 		clear(box);
 		countEl = h('span', { class: 'mono' });
@@ -220,11 +220,11 @@ export function mountPairing(main, env) {
 				await env.call('pairing/answer', { ask: a.id, allow, take: !!offer && offer.input.checked && allow });
 				env.ctx.toast(fill(allow ? T.letIn : T.turnedAway, a.name));
 				after = fill(allow ? T.letIn : T.turnedAway, a.name);
-				askShown = '';
+				askShown = null;
 				show(await env.call('pairing'));
 			} catch (e) {
 				env.fail(e);
-				askShown = '';
+				askShown = null;
 				if (pending) drawAsk(pending);
 			}
 		};

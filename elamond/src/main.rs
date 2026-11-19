@@ -915,7 +915,9 @@ fn pair(args: &[String]) -> Result<(), String> {
 	let hosts = offered.hosts();
 	// The page's address, the code in its fragment (which a browser never sends): for a phone's
 	// browser to scan instead of the app.
-	let page = offered.addrs.first().or(offered.names.first()).filter(|_| config.web.page).map(|h| {
+	// By the real certificate's name when there is a good one: the browser then doesn't warn.
+	let real = config.web.cert_name.clone().filter(|_| webcert::check(&config.web).is_some_and(|(ok, _)| ok));
+	let page = real.as_ref().or(offered.addrs.first()).or(offered.names.first()).filter(|_| config.web.page).map(|h| {
 		let host = if h.contains(':') { format!("[{h}]") } else { h.clone() };
 		format!("https://{host}:{}/", config.port)
 	});

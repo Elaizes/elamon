@@ -1,6 +1,7 @@
 package io.github.elaizes.elamon.ui
 
 import android.app.Application
+import android.content.res.Resources
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -104,11 +105,8 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
 import io.github.elaizes.elamon.ActionsState
 import io.github.elaizes.elamon.Conn
 import io.github.elaizes.elamon.EditorState
@@ -125,12 +123,12 @@ import io.github.elaizes.elamon.data.Dashboard
 import io.github.elaizes.elamon.data.Drafts
 import io.github.elaizes.elamon.data.EditorDescription
 import io.github.elaizes.elamon.data.EditorFrom
-import io.github.elaizes.elamon.data.EditorKey
 import io.github.elaizes.elamon.data.Grid
 import io.github.elaizes.elamon.data.Machine
 import io.github.elaizes.elamon.data.Mistake
 import io.github.elaizes.elamon.data.WIDGETS
 import io.github.elaizes.elamon.data.MistakeAt
+import io.github.elaizes.elamon.data.PROFILE_ANDROID
 import io.github.elaizes.elamon.data.Widget
 import io.github.elaizes.elamon.data.isSettingsId
 import io.github.elaizes.elamon.data.mistakeAt
@@ -241,7 +239,6 @@ fun EditorScreen(
 		dashboard == null -> stringResource(R.string.editor_new_title)
 		else -> stringResource(R.string.editor_menu_edit)
 	}
-	val lower = editing?.let { lowerFiles(desc, it) }.orEmpty()
 	val env = desc?.let { d -> FormEnv(d) { path -> sheetAt = keyOf(path) } }
 
 	CompositionLocalProvider(LocalHaze provides haze) {
@@ -255,8 +252,8 @@ fun EditorScreen(
 						}
 					}
 					desc == null || env == null || editing == null -> Box(Modifier.fillMaxSize())
-					board != null -> BoardEditor(state, desc, board, env, machineVm, machineState, machine.id, name, lower, vm::hist, onOpen = { sheetAt = keyOf(it) }, onMove = { from, to -> vm.change { Drafts.move(it, emptyList(), from, to) } }, onTakeTheirs = { vm.dropMine() }, onSaveMine = save)
-					else -> TabsEditor(state, desc, editing as Editing.Tabs, env, lower, onKey = { k, v -> vm.change { d -> Drafts.withKey(d, k, v) } }, onAndroid = { k, v ->
+					board != null -> BoardEditor(state, desc, board, env, machineVm, machineState, machine.id, name, vm::hist, onOpen = { sheetAt = keyOf(it) }, onMove = { from, to -> vm.change { Drafts.move(it, emptyList(), from, to) } }, onTakeTheirs = { vm.dropMine() }, onSaveMine = save)
+					else -> TabsEditor(state, desc, editing as Editing.Tabs, env, onKey = { k, v -> vm.change { d -> Drafts.withKey(d, k, v) } }, onAndroid = { k, v ->
 						vm.change { d -> Drafts.withKey(d, ANDROID, Drafts.withKey(d[ANDROID] as? JsonObject ?: JsonObject(emptyMap()), k, v)) }
 					}, onProfile = { vm.editTabs(it) }, onTakeTheirs = { vm.dropMine() }, onSaveMine = save)
 				}
@@ -353,7 +350,7 @@ fun EditorScreen(
 		)
 	}
 	if (keysOpen && desc != null && env != null && board != null) {
-		DashboardKeysSheet(state, desc, board.id, env, lower, onKey = { k, v -> vm.change { Drafts.withKey(it, k, v) } }, onDismiss = { keysOpen = false })
+		DashboardKeysSheet(state, desc, board.id, env, onKey = { k, v -> vm.change { Drafts.withKey(it, k, v) } }, onDismiss = { keysOpen = false })
 	}
 
 	if (leaving) {
@@ -399,28 +396,12 @@ fun EditorScreen(
 private const val REVERT = "revert"
 private const val DELETE = "delete"
 private const val RELOAD = "reload"
-private const val ANDROID = "android"
-private const val TYPE = "type"
+private const val ANDROID = PROFILE_ANDROID
+private const val TYPE = EditorDescription.TYPE
+private const val ICON = "icon"
 
-/**
- * The files below the editor's own that set what [editing] opens: what they set can be changed,
- * not taken out (the files merge key by key).
- */
-private fun lowerFiles(desc: EditorDescription?, editing: Editing): List<EditorFrom> {
-	desc ?: return emptyList()
-	val from = when (editing) {
-		is Editing.Board -> desc.dashboard(editing.id)?.from
-		is Editing.Tabs -> desc.profile(editing.profile)?.from
-	}
-	return from.orEmpty().filter { it.file != desc.file }
-}
-
-/** The keys of [base] (what the computer has) a lower file may have set, named by their files; none without one. */
-private fun fixedBy(lower: List<EditorFrom>, base: JsonObject): (String) -> String? {
-	if (lower.isEmpty()) return { null }
-	val files = lower.map { it.file }.distinct().joinToString(", ")
-	return { key -> files.takeIf { key in base } }
-}
+/** Where [f] says, as a line names it; a file in the Nix store said to be one. */
+private fun whereOf(res: Resources, f: EditorFrom): String = if (f.nix) res.getString(R.string.editor_from_nix, f.where) else f.where
 
 /** What the computer found wrong in the dashboard [board]: by widget place, its keys and the dashboard's own, and the rest. */
 private class BoardMistakes(all: List<Mistake>, private val board: String) {
@@ -568,7 +549,6 @@ private fun BoardEditor(
 	machineState: MachineState,
 	machineId: String,
 	name: String,
-	lower: List<EditorFrom>,
 	/** The preview's graphs' and sparks' points, by widget id. */
 	hist: (String) -> Hist?,
 	onOpen: (List<Int>) -> Unit,
@@ -591,7 +571,8 @@ private fun BoardEditor(
 	val scope = if (ui != null && shownDash != null) {
 		// Drawn as on the computer's screen, but nothing in it runs: every touch opens the widget's sheet instead.
 		val launcher = ActionLauncher(LocalGuard.current, { _, _, _, _ -> }, ui, name, res, tap = {}, form = form, running = ActionsState())
-		val shownState = MachineState(conn = Conn.Live, host = machineState.host, ui = ui, data = line?.let { mapOf(shownDash.id to it) }.orEmpty(), receivedAt = view.receivedAt, logs = view.logs)
+		// A preview that couldn't be asked for again is old, as a stream's numbers are while it reconnects.
+		val shownState = MachineState(conn = if (view.stale) Conn.Reconnecting else Conn.Live, host = machineState.host, ui = ui, data = line?.let { mapOf(shownDash.id to it) }.orEmpty(), receivedAt = view.receivedAt, logs = view.logs)
 		DashScope(machineId, ui, shownDash.id, line?.widgets.orEmpty(), machineVm, shownState, name, open = {}, actions = launcher, folds = folds, tables = tables, sorts = emptyMap(), logs = emptyMap(), hist = hist)
 	} else null
 	val haptics = LocalHapticFeedback.current
@@ -635,6 +616,7 @@ private fun BoardEditor(
 	) {
 		EditorNotes(state, desc, mistakes.elsewhere, onTakeTheirs, onSaveMine)
 		Mistakes(mistakes.ofKeys.values.flatten())
+		if (view?.stale == true) Pill(stringResource(R.string.editor_preview_stale), Metric.colors.warn, dot = true)
 		state.previewNote?.let { Text(it.text(res), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 		val widgets = Drafts.widgets(state.draft)
 		if (widgets.isEmpty()) {
@@ -693,7 +675,7 @@ private fun EditCell(
 		drag.target == i -> MaterialTheme.colorScheme.primary
 		else -> null
 	}
-	val label = listOfNotNull(desc.typeLabel(w), w["label"].text()?.ifBlank { null }).joinToString(" · ")
+	val label = desc.titleOf(w)
 	val shadow = with(LocalDensity.current) { LIFT_SHADOW.toPx() }
 	Box(
 		modifier
@@ -787,7 +769,8 @@ private const val HANDLE_ALPHA = 0.85f
 @Composable
 private fun Hidden(w: JsonObject, desc: EditorDescription) {
 	val typeLabel = desc.typeLabel(w)
-	Section(w["label"].text()?.ifBlank { null } ?: typeLabel, icon(w["icon"].text()), accent = MaterialTheme.colorScheme.secondary) {
+	// Its own label and icon, else its template's.
+	Section(desc.valueOf(w, EditorDescription.LABEL).text()?.ifBlank { null } ?: typeLabel, icon(desc.valueOf(w, ICON).text()), accent = MaterialTheme.colorScheme.secondary) {
 		Text(stringResource(R.string.editor_not_shown, typeLabel), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		// Room for the handle beside the title.
 		Spacer(Modifier.height(Space.xs))
@@ -826,10 +809,10 @@ private fun WidgetSheet(
 				val parent = Drafts.widget(state.draft, path.dropLast(1))
 				TextButton(onClick = { onOpen(path.dropLast(1)) }) {
 					Icon(Icons.AutoMirrored.Filled.ArrowBack, null, Modifier.size(Sizes.iconM))
-					Text(stringResource(R.string.editor_back_to, parent?.let { listOfNotNull(desc.typeLabel(it), it["label"].text()).joinToString(" · ") }.orEmpty()), Modifier.padding(start = Space.xs))
+					Text(stringResource(R.string.editor_back_to, parent?.let(desc::titleOf).orEmpty()), Modifier.padding(start = Space.xs))
 				}
 			}
-			Text(listOfNotNull(desc.typeLabel(w), w["label"].text()?.ifBlank { null }).joinToString(" · "), style = MaterialTheme.typography.titleLarge)
+			Text(desc.titleOf(w), style = MaterialTheme.typography.titleLarge)
 			Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 				OutlinedButton(onClick = { onMove(-1) }, enabled = i > 0) {
 					Icon(Icons.Default.KeyboardArrowUp, null, Modifier.size(Sizes.iconM))
@@ -859,13 +842,15 @@ private fun DashboardKeysSheet(
 	desc: EditorDescription,
 	board: String,
 	env: FormEnv,
-	lower: List<EditorFrom>,
 	onKey: (String, JsonElement?) -> Unit,
 	onDismiss: () -> Unit,
 ) {
 	val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 	val mistakes = BoardMistakes(state.allMistakes, board).ofKeys
 	val known = desc.dashboard(board)
+	val res = resources()
+	// What a file below the editor's sets, as the computer says key by key: changed here, not taken out.
+	val fixed = { key: String -> known?.fixed(key)?.let { whereOf(res, it) } }
 	ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
 		Column(
 			Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(start = Space.xl, end = Space.xl, bottom = Space.xxl),
@@ -875,25 +860,29 @@ private fun DashboardKeysSheet(
 			Text(stringResource(R.string.editor_dashboard_id, board), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			known?.from?.takeIf { it.isNotEmpty() }?.let { from ->
 				Text(
-					stringResource(R.string.editor_set_in, from.joinToString(", ") { f -> f.line?.let { l -> "${f.file}:$l" } ?: f.file }),
+					stringResource(R.string.editor_set_in, from.joinToString(", ") { whereOf(res, it) }),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 			}
 			// The widgets are the grid's to edit.
-			ObjectFields(desc.dashboard.keys, state.draft, onKey, env, emptyList(), mistakes, fixedBy(lower, state.base), skip = setOf(WIDGETS))
+			ObjectFields(desc.dashboard.keys, state.draft, onKey, env, emptyList(), mistakes, fixed, skip = setOf(WIDGETS))
 		}
 	}
 }
 
-/** The tabs of a profile: whose, which dashboards in which order, the header, and the dashboards of the phone's widget, tiles and card. */
+/**
+ * The tabs of a profile: whose, and the keys of its the editor writes as the description has them
+ * (which dashboards in which order, the header), then those of its `android` (the dashboards of the
+ * phone's widget, tiles and card). Nothing of it is fixed: what the editor doesn't write of a
+ * profile, the other files say.
+ */
 @Composable
 private fun TabsEditor(
 	state: EditorState,
 	desc: EditorDescription,
 	tabs: Editing.Tabs,
 	env: FormEnv,
-	lower: List<EditorFrom>,
 	onKey: (String, JsonElement?) -> Unit,
 	onAndroid: (String, JsonElement?) -> Unit,
 	onProfile: (String) -> Unit,
@@ -903,13 +892,10 @@ private fun TabsEditor(
 	val profile = desc.profile(tabs.profile)
 	val placed = state.allMistakes.map { it to mistakeAt(it.path) }
 	val ofKey = placed.mapNotNull { (m, a) -> (a as? MistakeAt.InProfile)?.takeIf { it.profile == tabs.profile }?.let { (it.key ?: "") to m.message } }.groupBy({ it.first }, { it.second })
+	val ofAndroid = ofKey.filterKeys { it.startsWith("$ANDROID.") }.mapKeys { it.key.removePrefix("$ANDROID.") }
 	val elsewhere = placed.filter { (_, a) -> (a as? MistakeAt.InProfile)?.profile != tabs.profile }.map { it.first }
-	val fixed = fixedBy(lower, state.base)
-	val android = state.draft[ANDROID] as? JsonObject ?: JsonObject(emptyMap())
-	val baseAndroid = state.base[ANDROID] as? JsonObject ?: JsonObject(emptyMap())
-	val fixedAndroid = fixedBy(lower, baseAndroid)
+	val android = state.draft[ANDROID] as? JsonObject
 	var picking by rememberSaveable { mutableStateOf(false) }
-	val dashboardRef = { key: String, label: String, hint: String? -> EditorKey(key = key, kind = "ref", to = "dashboard", label = label, hint = hint) }
 	Column(
 		Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(editorPadding()),
 		verticalArrangement = Arrangement.spacedBy(Space.l),
@@ -927,22 +913,13 @@ private fun TabsEditor(
 				Text(pluralStringResource(R.plurals.editor_profile_clients, p.clients.size, p.clients.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			}
 		}
-		val list = EditorKey(key = "dashboards", kind = "list", label = stringResource(R.string.editor_tabs), of = buildJsonObject {
-			put("kind", JsonPrimitive("ref"))
-			put("to", JsonPrimitive("dashboard"))
-		})
-		KeyField(list, state.draft["dashboards"], { onKey("dashboards", it) }, env, ofKey["dashboards"].orEmpty(), fixed("dashboards"))
-		KeyField(dashboardRef("header", stringResource(R.string.editor_header), stringResource(R.string.editor_header_hint)), state.draft["header"], { onKey("header", it) }, env, ofKey["header"].orEmpty(), fixed("header"))
-		Text(stringResource(R.string.editor_android), style = MaterialTheme.typography.titleMedium)
-		for ((key, label) in listOf(WIDGET to R.string.editor_android_widget, TILES to R.string.editor_android_tiles, CARD to R.string.editor_android_card)) {
-			KeyField(dashboardRef(key, stringResource(label), null), android[key], { onAndroid(key, it) }, env, ofKey["$ANDROID.$key"].orEmpty(), fixedAndroid(key))
-		}
-		// What else the profile's table holds, as the computer has it: kept, as JSON.
-		for (k in state.draft.keys - setOf("dashboards", "header", ANDROID)) {
-			KeyField(EditorKey(key = k), state.draft[k], { onKey(k, it) }, env, ofKey[k].orEmpty(), fixed(k))
-		}
-		for (k in android.keys - setOf(WIDGET, TILES, CARD)) {
-			KeyField(EditorKey(key = "$ANDROID.$k"), android[k], { onAndroid(k, it) }, env, ofKey["$ANDROID.$k"].orEmpty(), fixedAndroid(k))
+		// Its keys as the description has them; what else the computer has in it, kept, as JSON. An
+		// `android` that isn't a table is one of those.
+		ObjectFields(desc.profileKeys, state.draft, onKey, env, emptyList(), ofKey, skip = if (android != null) setOf(ANDROID) else emptySet())
+		if (android != null || desc.androidKeys.isNotEmpty()) {
+			Text(stringResource(R.string.editor_android), style = MaterialTheme.typography.titleMedium)
+			Mistakes(ofKey[ANDROID].orEmpty())
+			ObjectFields(desc.androidKeys, android ?: JsonObject(emptyMap()), onAndroid, env, emptyList(), ofAndroid)
 		}
 	}
 	if (picking) {
@@ -954,10 +931,6 @@ private fun TabsEditor(
 		)
 	}
 }
-
-private const val WIDGET = "widget"
-private const val TILES = "tiles"
-private const val CARD = "card"
 
 /** A new dashboard: its id, its title, empty or a copy of another, and whether this phone's tabs get it. */
 @Composable

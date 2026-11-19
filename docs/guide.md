@@ -740,7 +740,7 @@ does, and more:
 | `monitor` | everything: also processes with their commands and users, monitors, links, media and the activity log, a UPS's driver and serial numbers | nothing |
 | `operate` | everything | links' units, media and the volume, the power profile, the actions from the settings, and a station's commands and settings when its source says `role = "operate"` |
 | `admin` | everything | all of that, plus shutting down, restarting, sleeping, locking, ending processes, actions with `role = "admin"`, and a station's commands and settings |
-| `owner` | everything | all of that, plus the settings themselves: the web page's admin panel and the dashboard editor, in the page and the app ([section 12](#12-the-admin-panel)). These need no `control = true`; `elamond control off` stops them |
+| `owner` | everything | all of that, plus the settings themselves: the web page's admin panel and the dashboard editor, in the page and the app ([section 12](#12-the-admin-panel)). Writing a settings file needs `control = true`, as anything that may run a command does; the dashboard editor, which writes no command, doesn't; `elamond control off` stops both |
 
 The role filters on the computer. A widget, a table or a whole dashboard that a role may not see
 isn't sent to that phone at all, and neither are actions it may not run. A dashboard's or widget's
@@ -1530,6 +1530,10 @@ is the same kind of link.
   you revoke it.
 - The cookie belongs to the address you opened the page at. The same computer at another address,
   or by a name, is another site to the browser, and pairs there on its own. Keep to one address.
+- The cookie is this computer's own (its name carries the service's id), so the pages of two
+  computers at one address on other ports don't log each other out. Like any cookie, the browser
+  also sends it to other HTTPS sites on that same name and address (on any port): keep the page on
+  a name that serves nothing else you don't trust.
 - **⋮ → Forget this browser** unpairs it at once and clears the cookie. At the computer,
   `elamond clients` lists a browser by its name, with `web 0.11.0` as its app, and
   `elamond revoke ID` unpairs it.
@@ -1649,6 +1653,9 @@ What guards it:
 - Nothing is saved that `elamond check` wouldn't pass, and the file as it was is kept.
 - Every change is in the activity log, under the client that made it
   ([section 6](#the-activity-log)).
+- A settings file (which may add a command) is written from the page only while the settings have
+  `control = true`, as actions run only then; the dashboard editor writes no command and needs no
+  `control`.
 - `elamond control off` at the computer stops every write at once, and only the computer lets go of
   it.
 - `[web]` turns any part off ([section 11](#turning-it-off)).
@@ -2286,7 +2293,9 @@ match. Pairings stay: the phones keep their keys, roles and profiles and don't p
 
 **From 0.10 to 0.11,** the settings and pairings carry over as they are, and paired phones stay
 `admin`. The service now also serves its web page on its port ([section 11](#11-in-a-browser));
-`[web] page = false` turns it off. An app of 0.10.1 works with it as before.
+`[web] page = false` turns it off. An app of 0.10.1 works with it as before. Going back to elamond
+0.10.1 after giving a client the role `owner`: give it `admin` first (`elamond clients role ID admin`),
+as 0.10.1 doesn't know `owner` and won't read the list of paired clients with it.
 
 **From 0.6.1 to 0.6.2,** the settings and pairings carry over as they are. Elamon 0.6.2 updates only
 from 0.6.1: from an older version, update to 0.6.1 first, as its guide says, since 0.6.2 no longer

@@ -138,7 +138,6 @@ private val EDITING = listOf(
 	t(R.string.help_editor_who),
 	t(R.string.help_editor_how),
 	t(R.string.help_editor_save),
-	c("~/.config/elamon/elamond.d/zz-editor.toml"),
 	t(R.string.help_editor_back),
 	t(R.string.help_editor_web),
 	c("https://COMPUTER:$DEFAULT_PORT/"),

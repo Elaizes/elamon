@@ -532,7 +532,7 @@ private fun WidgetsControl(value: JsonElement?, onChange: (JsonElement?) -> Unit
 				onDown = if (i < list.lastIndex) ({ onChange(JsonArray(list.toMutableList().apply { add(i + 1, removeAt(i)) })) }) else null,
 				onRemove = { onChange(JsonArray(list.filterIndexed { j, _ -> j != i })) },
 			) {
-				val title = o?.let { listOfNotNull(env.desc.typeLabel(it), it["label"].text()).joinToString(" · ") } ?: asText(w)
+				val title = o?.let(env.desc::titleOf) ?: asText(w)
 				Text(
 					title,
 					style = MaterialTheme.typography.bodyLarge,

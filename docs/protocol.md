@@ -1089,8 +1089,11 @@ holds), and so is one refused for its role.
 
 Writing the settings (`file/save`, `file/restore`, `file/rename`, `file/delete` and the editor's
 writes) is refused with 403 `writes_off` while `[web] write = false` or `elamond control off` holds (its
-`message` says which: `settings` or `held_off`); changing clients and pairing from the page, while
-`elamond control off` holds. Only the person at
+`message` says which: `settings` or `held_off`); writing a settings file (which may add a command)
+also while the settings have `control = false` (`message` `control`), the dashboard editor's writes
+(which can't) not; changing clients and pairing from the page, while `elamond control off` holds.
+No client changes one whose role is above its own, nor sees, answers or replaces a pairing code for
+a role above its own; `all`, which `elamond clients` takes, the API doesn't (400 `bad_param`). Only the person at
 the computer lets go of `elamond control off`.
 
 `ui` tells a client what of this it may use: `admin` in `service.features` when its role reaches
@@ -1292,7 +1295,7 @@ A key is `{ "key", "kind", "label", "hint" }` and, by its kind, more:
 | `kind` | what it holds | more |
 |---|---|---|
 | `string`, `text` | a string; `text` may hold values (`{cpu.usage}`) | |
-| `id` | an id: 1–32 of `a-z`, `0-9`, `_`, `-` | |
+| `id` | an id: 1–32 of `a-z`, `0-9`, `_`, `-`, starting with a letter or a digit | |
 | `address` | a value's address, one of `values` (or of a `for_each` item) | |
 | `ref` | the id of something there is | `to`: `action`, `dashboard`, `collection`, `link` or `source` |
 | `bool` | true or false | |
@@ -1305,7 +1308,8 @@ A key is `{ "key", "kind", "label", "hint" }` and, by its kind, more:
 | `widgets` | a list of widgets (a `group`'s) | |
 | `any` | any one of `of` | `of`: a list of keys without their `key` |
 
-each with `required: true` when it must be there and `default` when the service fills it in. Every
+each with `required: true` when it must be there (a key's default, where it has one, is in
+[config.md](config.md#widgets); a type's width is its `span`). Every
 widget takes the keys of `common` and those of its type; a dashboard, those of `dashboard.keys`; the
 editor's part of a profile, those of `profile_keys` and, under `android`, `android_keys`. A widget
 with `use` starts from that template of `templates` (as the settings merge them), its type among it. A
@@ -1320,7 +1324,7 @@ leave out; `editor` says the editor's file overrides it, `own` that only the edi
 - `POST /api/v1/admin/editor/dashboard` `{ "id": "mine", "dashboard": { "title": "Mine", "icon": "gauge", "widgets": [ … ] }, "base": "<hash of the editor's file>" }`
 - `POST /api/v1/admin/editor/profile` `{ "id": "pixel-9", "profile": { "dashboards": ["mine", "cpu"], "header": "header", "android": { "widget": "phone", "tiles": "tiles", "card": "" } }, "base" }`
 - `POST /api/v1/admin/editor/revert` `{ "dashboard": "cpu", "base" }` or `{ "profile": "pixel-9", "base" }` — takes the editor's table out: back to what the other files say
-- `POST /api/v1/admin/editor/delete` `{ "dashboard": "mine", "base" }` — a dashboard only the editor's file has, and its place among the editor's tabs
+- `POST /api/v1/admin/editor/delete` `{ "dashboard": "mine", "base" }` — a dashboard only the editor's file has, and where the editor's profiles name it (their tabs; their header or Android dashboard, which the other files then say again); 404 for one the editor's file hasn't, 400 for one another file has too
 
 each answered as a save is: `{ "ok": true, "hash", "backup", "generation" }`, 409
 `changed_on_disk` (the editor's file changed since `hash`: another editor wrote), 422 `bad_settings`
@@ -1334,7 +1338,10 @@ drop-in is): a button, switch, choice or row runs an action the settings have, b
 editor writes no actions, sources, links, rules or targets. The dashboard is written whole
 (`[dashboards.<id>]` with every key it has, `widgets` the whole list): since the files merge key by
 key, what is on screen is what the settings then say. A key a file below the editor's sets can be
-changed but not taken out: 422 with the file and line that set it.
+changed but not taken out: 422 with the file and line that set it. A profile's body sets the keys it has and
+takes out those that are `null` (back to what the other files say), and leaves the rest as the
+editor's file had them; one whose value is what the other files say already is taken out too: the
+profile keeps following them (and the profile it `use`s).
 
 ## Errors
 

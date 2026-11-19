@@ -4,7 +4,10 @@ import kotlin.math.max
 import kotlin.math.min
 import io.github.elaizes.elamon.data.DEFAULT_HISTORY_SECONDS
 import io.github.elaizes.elamon.data.DEFAULT_INTERVAL_MS
+import io.github.elaizes.elamon.data.DataLine
 import io.github.elaizes.elamon.data.HistoryEntry
+import io.github.elaizes.elamon.data.UiDoc
+import io.github.elaizes.elamon.data.Widget
 
 /** Points of one series, oldest first: [t] on the service's clock in milliseconds, [v] NaN where a value was missing. */
 interface Points {
@@ -183,3 +186,28 @@ class Hist(val seriesCount: Int, windowMs: Long = DEFAULT_HISTORY_SECONDS * 1000
 		private const val INITIAL_CAPACITY = 64
 	}
 }
+
+/**
+ * The points of the graphs and sparks of [line]'s dashboard in [ui], as a stream keeps them: each
+ * one's [Hist] in [hists] (made, or made anew for another count of series), its window (a graph's
+ * range, else as far back as the service keeps) and [stepMs], then the line's history and values
+ * taken. [taken] is told each widget and the values it took, for what more the caller keeps of them.
+ */
+fun takeHists(hists: MutableMap<String, Hist>, ui: UiDoc, line: DataLine, stepMs: Long, taken: (Widget, List<Double?>) -> Unit = { _, _ -> }) {
+	val dash = ui.dashboard(line.dashboard) ?: return
+	for (w in allWidgets(dash.widgets)) {
+		val graph = w.type == "graph"
+		if (!graph && !(w.type == "value" && w.spark == true)) continue
+		val count = if (graph) w.series?.size?.coerceAtLeast(1) ?: 1 else 1
+		val window = ((if (graph) w.range else null)?.takeIf { it > 0 } ?: ui.service.historySeconds) * MS_PER_SECOND
+		val h = hists[w.id]?.takeIf { it.seriesCount == count } ?: Hist(count, window).also { hists[w.id] = it }
+		h.windowMs = window
+		h.stepHintMs = stepMs
+		val s = line.widgets[w.id]
+		val values = if (graph) s?.numbers.orEmpty() else listOf(s?.number)
+		h.take(line.t, values, line.history?.get(w.id))
+		taken(w, values)
+	}
+}
+
+private const val MS_PER_SECOND = 1000L

@@ -70,27 +70,50 @@ class ProtocolContractTest {
 		"0.10/stream-displays" to StreamLine.serializer(),
 		"0.10/snapshot-widget" to DataLine.serializer(),
 		"0.10/action-display-typed" to ActionRequest.serializer(),
+		// And what 0.11 adds that the app reads: the editor's description among them.
+		"0.11/hello" to Hello.serializer(),
+		"0.11/ui-owner" to UiDoc.serializer(),
+		"0.11/editor" to EditorDescription.serializer(),
 	)
 
 	/** The folders of fixtures under [dir], "" for itself. */
-	private val folders = listOf("", "0.7/", "0.8/", "0.8.1/", "0.10/")
+	private val folders = listOf("", "0.7/", "0.8/", "0.8.1/", "0.10/", "0.11/")
 
 	/** Fixtures that aren't a body the app decodes, and the test that reads them. */
 	private val checkedElsewhere = mapOf(
 		"errors" to "ErrorsTest: every error code and its status",
 		"formats" to "FormatTest: every case the service formats",
 		"0.10/actions-displays" to "MonitorsTest: the answers to a monitor's action, by case",
+		"0.11/admin-preview" to "EditorTest: the preview's request as the app writes it, its answer read as a ui and a data line",
+		"0.11/editor-dashboard" to "EditorTest: a dashboard's write as the app sends it, and a mistake in it",
+		"0.11/editor-profile" to "EditorTest: a profile's write and Back to the files as the app sends them",
+		"0.11/admin-save" to "EditorTest: the mistakes of a write the settings don't take",
+		// The admin panel's, which is the web page's alone: the app asks for none of these.
+		"0.11/admin-check" to "the web page's admin panel; elamond's own tests",
+		"0.11/admin-clients" to "the web page's admin panel; elamond's own tests",
+		"0.11/admin-file" to "the web page's admin panel; elamond's own tests",
+		"0.11/admin-pairing" to "the web page's admin panel; elamond's own tests",
+		"0.11/admin-settings" to "the web page's admin panel; elamond's own tests",
+		"0.11/admin-state" to "the web page's admin panel; elamond's own tests",
+		"0.11/pair-web" to "pairing a browser; elamond's own tests",
 	)
 
 	/** Objects keyed by ids rather than by field names: their values are checked together, as a list's items are. */
 	private val maps = setOf(
 		"stream-data.widgets", "stream-data.history", "stream-data-detail.widgets", "stream-data-detail.history", "0.7/stream-ups.widgets",
 		"0.8/stream-sources.widgets", "0.8/stream-log-next.widgets", "0.8/subscribe-log.log", "0.10/stream-displays.widgets",
-		"0.10/snapshot-widget.widgets",
+		"0.10/snapshot-widget.widgets", "0.11/editor.templates", "0.11/editor.records", "0.11/editor.dashboards[].below",
 	)
 
 	/** A group's widgets are widgets: what they have, the dashboards' widgets are checked for. */
 	private val asTheirParents = setOf("ui.dashboards[].widgets[].widgets", "0.7/ui-ups.dashboards[].widgets[].widgets")
+
+	/**
+	 * The editor's description's keys, wherever they are, are one shape: checked all together in
+	 * [theEditorsKeysAreOneShape], as a dashboard's `below` is with its `from`.
+	 */
+	private val editorKeyLists = listOf("dashboard.keys", "profile_keys", "android_keys", "common", "types[].keys", "records[]", "dashboards[].below[]")
+		.map { "0.11/editor.$it" }.toSet()
 
 	/** Fixtures only checked one way, that the app reads them: another fixture of the same shape has every field. */
 	private val readOnly = mapOf(
@@ -107,6 +130,15 @@ class ProtocolContractTest {
 		"0.10/stream-displays" to "its fields count as stream-data's (alsoSent)",
 		"0.10/snapshot-widget" to "a data line without its type: its fields count as stream-data's (alsoSent)",
 		"0.10/action-display-typed" to "its fields count as action-request's (alsoSent)",
+		"0.11/ui-owner" to "a web client's ui, read strictly all the same; ui has every field of a ui document",
+	)
+
+	/**
+	 * What a fixture has that only another kind of client gets, as "fixture.path", to the reason: left
+	 * out before the app reads it.
+	 */
+	private val otherClients = mapOf(
+		"0.11/ui-owner.profile.web" to "the profile's part for a web client; the app, an android client, gets android instead",
 	)
 
 	/**
@@ -114,9 +146,11 @@ class ProtocolContractTest {
 	 * lacks them until the service writes it again at 0.7: a timeline's keys and state, `ranges`,
 	 * a choice's and a request's `confirm_text`; and so of 0.8: a log's keys and state, a row action's
 	 * `open`, a stream's `log`; and of 0.8.1: a timeline's `legend`; and of 0.10: the android profile's
-	 * `widget`, `widget_minutes`, `tiles` and `card`.
+	 * `widget`, `widget_minutes`, `tiles` and `card`; and of 0.11: hello's `fingerprint`.
 	 */
 	private val alsoSent = mapOf(
+		"hello" to listOf("0.11/hello"),
+		"0.8/hello" to listOf("0.11/hello"),
 		"ui" to listOf("0.7/ui-ups", "0.8/ui-sources", "0.8.1/ui-legend", "0.10/ui-displays"),
 		"stream-data" to listOf("0.7/stream-ups", "0.8/stream-sources", "0.8/stream-log-next", "0.10/stream-displays", "0.10/snapshot-widget"),
 		"action-request" to listOf("0.7/action-request-typed", "0.10/action-display-typed"),
@@ -165,7 +199,7 @@ class ProtocolContractTest {
 
 	/** Keys in [app] that [sent] lacks, through objects, and all the items of lists (and [maps]) together. */
 	private fun missing(app: JsonElement, sent: JsonElement, path: String, out: MutableList<String>) {
-		if (path in asTheirParents) return
+		if (path in asTheirParents || path in editorKeyLists) return
 		when {
 			app is JsonObject && sent is JsonObject && path in maps -> {
 				val a = union(app.values) ?: return
@@ -185,7 +219,7 @@ class ProtocolContractTest {
 	}
 
 	private fun <T> roundTrip(name: String, serializer: KSerializer<T>): List<String> {
-		val raw = fixture(name)
+		val raw = otherClients.keys.filter { it.startsWith("$name.") }.fold(fixture(name)) { e, path -> drop(e, path.removePrefix("$name.")) }
 		val decoded = try {
 			strict.decodeFromJsonElement(serializer, raw)
 		} catch (e: SerializationException) {
@@ -352,8 +386,10 @@ class ProtocolContractTest {
 		else -> e
 	}
 
-	private fun dropping(name: String, path: String): JsonElement {
-		// "dashboards[].widgets[].id": into the lists, then the field of each item.
+	private fun dropping(name: String, path: String): JsonElement = drop(fixture(name), path)
+
+	/** [e] without what [path] names: "dashboards[].widgets[].id", into the lists, then the field of each item. */
+	private fun drop(e: JsonElement, path: String): JsonElement {
 		fun go(e: JsonElement, parts: List<String>): JsonElement {
 			val part = parts.first()
 			val key = part.removeSuffix("[]")
@@ -363,7 +399,7 @@ class ProtocolContractTest {
 			val next = if (part.endsWith("[]")) JsonArray((child as JsonArray).map { go(it, parts.drop(1)) }) else go(child, parts.drop(1))
 			return JsonObject(obj + (key to next))
 		}
-		return go(fixture(name), path.split('.'))
+		return go(e, path.split('.'))
 	}
 
 	@Test
@@ -671,6 +707,52 @@ class ProtocolContractTest {
 		val want = sent.filtered(app, level = "error", search = "timeout").filtered(journal, level = journal.level)
 		val change = assertIs<Tell.Change>(tell(sent, want, ui, Limits.streamReadTimeoutMs(1000))).change
 		assertEquals(fixture("0.8/subscribe-log"), ProtocolJson.encodeToJsonElement(Subscribe.serializer(), change))
+	}
+
+	// ---- elamond 0.11 ------------------------------------------------------------------------------
+
+	@Test
+	fun theEditorsKeysAreOneShape() {
+		// A dashboard's keys, a profile's, android's, every widget's, a type's, a record's, and the items
+		// and alternatives of each: what the app reads of a key, some key of the description has.
+		val raw = fixture("0.11/editor").jsonObject
+		fun withItems(k: JsonElement): List<JsonElement> = listOf(k) + when (val of = k.jsonObject["of"]) {
+			is JsonObject -> withItems(of)
+			is JsonArray -> of.flatMap(::withItems)
+			else -> emptyList()
+		}
+		val lists = listOf(raw.getValue("dashboard").jsonObject.getValue("keys"), raw.getValue("profile_keys"), raw.getValue("android_keys"), raw.getValue("common")) +
+			raw.getValue("types").jsonArray.map { it.jsonObject.getValue("keys") } + raw.getValue("records").jsonObject.values
+		val keys = lists.flatMap { it.jsonArray }.flatMap(::withItems)
+		for (k in keys) strict.decodeFromJsonElement(EditorKey.serializer(), k)
+		val read = everything.encodeToJsonElement(EditorKey.serializer(), EditorKey()).jsonObject.keys
+		// `default`, what the service fills in while a key isn't set, the protocol has; elamond 0.11 says it of no key yet.
+		assertEquals(setOf("default"), read - keys.flatMap { it.jsonObject.keys }.toSet(), "the app reads it, no key of the description has it")
+		// A dashboard's below: where a file below the editor's sets a key, as its from says where the files set it, Nix's among them.
+		val dashboards = raw.getValue("dashboards").jsonArray.map { it.jsonObject }
+		val whence = dashboards.flatMap { d -> d.getValue("from").jsonArray + d.getValue("below").jsonObject.values }
+		for (w in whence) strict.decodeFromJsonElement(EditorFrom.serializer(), w)
+		assertEquals(emptySet(), everything.encodeToJsonElement(EditorFrom.serializer(), EditorFrom()).jsonObject.keys - whence.flatMap { it.jsonObject.keys }.toSet())
+		assertTrue(dashboards.any { it.getValue("below").jsonObject.isNotEmpty() })
+	}
+
+	@Test
+	fun theHelloOf011SaysItsCertificate() {
+		val hello = ProtocolJson.decodeFromJsonElement(Hello.serializer(), fixture("0.11/hello"))
+		assertEquals("0.11.0", hello.version)
+		assertEquals(64, hello.fingerprint!!.length)
+		// Before 0.11, none.
+		assertNull(ProtocolJson.decodeFromJsonElement(Hello.serializer(), fixture("0.8/hello")).fingerprint)
+	}
+
+	@Test
+	fun anOwnersUiAsDescribed() {
+		// A ui for the role owner reads as any other: the role as it comes, and the admin panel's and the editor's features.
+		val ui = strict.decodeFromJsonElement(UiDoc.serializer(), drop(fixture("0.11/ui-owner"), "profile.web"))
+		assertEquals("owner", ui.role)
+		assertTrue(ui.service.features.containsAll(listOf("admin", "editor")))
+		val types = ui.dashboards.flatMap { allWidgets(it.widgets) }.map { it.type }.toSet()
+		assertTrue(types.all { it in WIDGET_TYPES }, "types the app doesn't draw: ${types - WIDGET_TYPES.toSet()}")
 	}
 
 	// ---- elamond 0.10 ------------------------------------------------------------------------------

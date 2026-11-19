@@ -1,5 +1,8 @@
 package io.github.elaizes.elamon.data
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -30,6 +33,10 @@ data class EditorDescription(
 	/** The asking phone's own profile. */
 	val profile: String? = null,
 	val dashboard: EditorDashboardKeys = EditorDashboardKeys(),
+	/** The keys of the editor's part of a profile (its tabs, its header), but `android`. */
+	@SerialName("profile_keys") val profileKeys: List<EditorKey> = emptyList(),
+	/** The keys of a profile's `android` the editor writes: the dashboards shown outside the app. */
+	@SerialName("android_keys") val androidKeys: List<EditorKey> = emptyList(),
 	/** The keys every widget takes. */
 	val common: List<EditorKey> = emptyList(),
 	val types: List<EditorType> = emptyList(),
@@ -42,30 +49,74 @@ data class EditorDescription(
 	val sources: List<EditorSource> = emptyList(),
 	val dashboards: List<EditorDashboard> = emptyList(),
 	val profiles: List<EditorProfile> = emptyList(),
+	/** The settings' widget templates as they merge them, by id: the keys a widget with `use` starts from, its type among them. */
+	val templates: Map<String, JsonObject> = emptyMap(),
 ) {
 	fun type(type: String?): EditorType? = types.find { it.type == type }
 	fun dashboard(id: String?): EditorDashboard? = dashboards.find { it.id == id }
 	fun profile(id: String?): EditorProfile? = profiles.find { it.id == id }
 
-	/** The keys [widget] takes: the common ones, then those of its type, each once. */
-	fun keysOf(widget: JsonObject): List<EditorKey> {
-		val own = type(widget["type"].text())?.keys.orEmpty()
+	/**
+	 * What [widget]'s template gives it, as the service applies one: the keys of the template its
+	 * `use` names, and of the one that one uses, and so on, the nearer winning (`use` and `with` not
+	 * among them). Empty without one, or for a template there isn't.
+	 */
+	fun templateOf(widget: JsonObject): JsonObject {
+		val chain = mutableListOf<JsonObject>()
 		val seen = HashSet<String>()
-		return (common + own).filter { seen.add(it.key) }
+		var id = widget[USE].text()
+		// A loop the settings would refuse ends where it comes round.
+		while (id != null && seen.add(id)) {
+			val t = templates[id] ?: break
+			chain += t
+			id = t[USE].text()
+		}
+		val out = LinkedHashMap<String, JsonElement>()
+		for (t in chain.asReversed()) for ((k, v) in t) if (k != USE && k != WITH) out[k] = v
+		return JsonObject(out)
 	}
 
-	/** How many of four columns [widget] takes: its own `span`, else its type's, else two. */
-	fun spanOf(widget: JsonObject): Int =
-		(widget["span"] as? JsonPrimitive)?.takeIf { !it.isString }?.intOrNull ?: type(widget["type"].text())?.span ?: DEFAULT_SPAN
+	/** [key] of [widget] as it stands: its own, else its template's. */
+	fun valueOf(widget: JsonObject, key: String): JsonElement? = widget[key] ?: templateOf(widget)[key]
+
+	/** [widget]'s type: its own, else its template's. */
+	fun typeOf(widget: JsonObject): String? = valueOf(widget, TYPE).text()
+
+	/**
+	 * The keys [widget] takes: the common ones, then those of its type, each once. What its template
+	 * sets is what a key is while the widget doesn't set it.
+	 */
+	fun keysOf(widget: JsonObject): List<EditorKey> {
+		val template = templateOf(widget)
+		val own = type(typeOf(widget))?.keys.orEmpty()
+		val seen = HashSet<String>()
+		return (common + own).filter { seen.add(it.key) }.map { k -> template[k.key]?.let { k.copy(default = it) } ?: k }
+	}
+
+	/** How many of four columns [widget] takes: its own `span`, else its template's, else its type's, else two. */
+	fun spanOf(widget: JsonObject): Int = wholeOf(valueOf(widget, SPAN)) ?: type(typeOf(widget))?.span ?: DEFAULT_SPAN
 
 	/** What a widget is called in the forms: its type's label, else the type as written. */
 	fun typeLabel(widget: JsonObject): String {
-		val t = widget["type"].text().orEmpty()
+		val t = typeOf(widget).orEmpty()
 		return type(t)?.label?.ifBlank { null } ?: t
 	}
 
+	/** [widget] in a line: its type's label, then its own (or its template's) `label`. */
+	fun titleOf(widget: JsonObject): String =
+		listOfNotNull(typeLabel(widget).ifBlank { null }, valueOf(widget, LABEL).text()?.ifBlank { null }).joinToString(" · ")
+
 	companion object {
 		const val DEFAULT_SPAN = 2
+		const val TYPE = "type"
+		const val LABEL = "label"
+		const val SPAN = "span"
+
+		/** The key that names a widget's template, and the one that fills its placeholders. */
+		const val USE = "use"
+		const val WITH = "with"
+
+		private fun wholeOf(v: JsonElement?): Int? = (v as? JsonPrimitive)?.takeIf { !it.isString }?.intOrNull
 	}
 }
 
@@ -127,9 +178,9 @@ data class EditorType(
 	fun newWidget(): JsonObject = example?.takeIf { it["type"] != null } ?: JsonObject(mapOf("type" to JsonPrimitive(type)) + example.orEmpty())
 }
 
-/** A value there is, and its reading now as text. */
+/** A value there is, and its reading now as text; its unit and format, which the picker leaves to [now]. */
 @Serializable
-data class EditorValue(val address: String, val now: String? = null)
+data class EditorValue(val address: String, val now: String? = null, val unit: String? = null, val format: String? = null)
 
 @Serializable
 data class EditorCollection(val name: String, val fields: List<String> = emptyList())
@@ -145,7 +196,15 @@ data class EditorSource(val id: String, val kind: String = "")
 
 /** A file of the settings and the line of it that set something. */
 @Serializable
-data class EditorFrom(val file: String = "", val line: Int? = null)
+data class EditorFrom(
+	val file: String = "",
+	val line: Int? = null,
+	/** The file is in the Nix store: made by the Nix settings, not written by hand. */
+	val nix: Boolean = false,
+) {
+	/** As a line names it: `file:line`, or the file alone. */
+	val where: String get() = line?.let { "$file:$it" } ?: file
+}
 
 @Serializable
 data class EditorDashboard(
@@ -155,11 +214,19 @@ data class EditorDashboard(
 	val def: JsonObject = JsonObject(emptyMap()),
 	/** The files that set it, lowest first. */
 	val from: List<EditorFrom> = emptyList(),
+	/**
+	 * The keys of it the files below the editor's set, and where: what the editor writes may change
+	 * them, not leave them out (the files merge key by key).
+	 */
+	val below: Map<String, EditorFrom> = emptyMap(),
 	/** The editor's file overrides it. */
 	val editor: Boolean = false,
 	/** Only the editor's file has it. */
 	val own: Boolean = false,
-)
+) {
+	/** Where a file below the editor's sets [key] of it, its file's being in the Nix store as [from] says; null where none does. */
+	fun fixed(key: String): EditorFrom? = below[key]?.let { b -> b.copy(nix = b.nix || from.any { it.file == b.file && it.nix }) }
+}
 
 @Serializable
 data class EditorProfile(
@@ -240,8 +307,8 @@ fun mistakesOf(e: ElamondException): List<Mistake> {
 /** The key that holds a dashboard's or a group's widgets. */
 const val WIDGETS = "widgets"
 
-/** An id the settings take for a dashboard or a widget: 1–32 of a-z, 0-9, `_` and `-`. */
-private val ID = Regex("[a-z0-9_-]{1,32}")
+/** An id the settings take for a dashboard or a widget: 1–32 of a-z, 0-9, `_` and `-`, starting with a letter or a digit. */
+private val ID = Regex("[a-z0-9][a-z0-9_-]{0,31}")
 
 fun isSettingsId(s: String): Boolean = ID.matches(s)
 
@@ -314,23 +381,17 @@ object Drafts {
 	fun setKey(dashboard: JsonObject, path: List<Int>, key: String, value: JsonElement?): JsonObject =
 		change(dashboard, path) { withKey(it, key, value) }
 
-	/** The widget at [path] [span] columns wide; its type's own width again with null. */
-	fun span(dashboard: JsonObject, path: List<Int>, span: Int?): JsonObject =
-		setKey(dashboard, path, SPAN, span?.let { JsonPrimitive(it.coerceIn(1, Grid.COLUMNS)) })
-
 	/** The keys of [widget] the description has no form for: kept as they are, offered as JSON text. */
 	fun unknownKeys(widget: JsonObject, known: List<EditorKey>): List<String> {
 		val names = known.map { it.key }.toSet()
 		return widget.keys.filter { it !in names }
 	}
-
-	const val SPAN = "span"
 }
 
 /**
  * Which widgets of the preview's [dashboard] each of [draft]'s widgets became, in order. A widget is
- * `<dashboard>/<its id>`, or by its place without one, and `<…>.<item>` for each item of a
- * `for_each`; one the preview hasn't (not shown, as its `when` or the role decides) became none.
+ * `<dashboard>/<its id>`, or `<dashboard>/<its place>` without one, and `<…>.<item>` for each item
+ * of a `for_each`; one the preview hasn't (not shown, as its `when` or the role decides) became none.
  * Where no id matches at all and there are as many of each, they are taken place by place.
  */
 fun previewOf(draft: List<JsonElement>, dashboard: Dashboard?): List<List<Widget>> {
@@ -338,11 +399,10 @@ fun previewOf(draft: List<JsonElement>, dashboard: Dashboard?): List<List<Widget
 	val prefix = dashboard?.id.orEmpty() + "/"
 	val taken = HashSet<String>()
 	val byId = draft.mapIndexed { i, raw ->
-		val own = ((raw as? JsonObject)?.get("id") as? JsonPrimitive)?.takeIf { it.isString }?.content
-		val names = if (own != null) listOf(own) else listOf(i.toString(), "w$i")
+		val name = ((raw as? JsonObject)?.get("id") as? JsonPrimitive)?.takeIf { it.isString }?.content ?: i.toString()
 		shown.filter { w ->
 			val tail = w.id.removePrefix(prefix).takeIf { w.id.startsWith(prefix) } ?: return@filter false
-			w.id !in taken && names.any { n -> tail == n || tail.startsWith("$n.") }
+			w.id !in taken && (tail == name || tail.startsWith("$name."))
 		}.also { found -> taken += found.map { it.id } }
 	}
 	if (byId.all { it.isEmpty() } && shown.size == draft.size) return shown.map { listOf(it) }
@@ -367,11 +427,35 @@ fun dashboardBody(id: String, dashboard: JsonObject, hash: String?): JsonObject 
 	put("base", base(hash))
 }
 
-/** `POST /api/v1/admin/editor/profile`: the profile [id]'s tabs, header and Android dashboards. */
+/** `POST /api/v1/admin/editor/profile`: of the profile [id]'s tabs, header and Android dashboards, those in [profile] ([profileChanges]). */
 fun profileBody(id: String, profile: JsonObject, hash: String?): JsonObject = buildJsonObject {
 	put("id", id)
 	put("profile", profile)
 	put("base", base(hash))
+}
+
+/** The key of a profile that holds its tabs, and the table that holds the dashboards shown outside the app. */
+const val PROFILE_TABS = "dashboards"
+const val PROFILE_ANDROID = "android"
+
+/**
+ * What a profile's write sends of [draft], the profile's part as changed here from [base], as it was
+ * read: the keys changed alone, each of `android`'s on its own, one taken out as null (back to what
+ * the other files say). What the profile only has from elsewhere (another file, the defaults) is
+ * never written into the editor's file.
+ */
+fun profileChanges(base: JsonObject, draft: JsonObject): JsonObject {
+	fun changed(b: JsonObject, d: JsonObject, skip: String?): Map<String, JsonElement> =
+		(d.keys + b.keys).filter { it != skip && d[it] != b[it] }.associateWith { d[it] ?: JsonNull }
+	val out = LinkedHashMap(changed(base, draft, PROFILE_ANDROID))
+	val b = base[PROFILE_ANDROID] as? JsonObject
+	val d = draft[PROFILE_ANDROID] as? JsonObject
+	when {
+		b != null && d != null -> changed(b, d, null).takeIf { it.isNotEmpty() }?.let { out[PROFILE_ANDROID] = JsonObject(it) }
+		// Not a table on one side: as any other key.
+		base[PROFILE_ANDROID] != draft[PROFILE_ANDROID] -> out[PROFILE_ANDROID] = draft[PROFILE_ANDROID] ?: JsonNull
+	}
+	return JsonObject(out)
 }
 
 /** What the editor's write of [table] (`dashboard` or `profile`) [id] is undone or taken out by: `…/revert`, `…/delete`. */
@@ -396,29 +480,47 @@ fun previewBody(dashboards: Map<String, JsonObject>, profiles: Map<String, JsonO
 	put("widgets", WIDGET_TYPES.joinToString(","))
 }
 
-/** The service's own description of what the editor may offer. */
-suspend fun ElamondClient.editor(): EditorDescription = get(EDITOR_PATH)
+/** The service's own description of what the editor may offer ([readEditor]). */
+suspend fun ElamondClient.editor(): EditorDescription {
+	val raw = get<JsonObject>(EDITOR_PATH)
+	return withContext(Dispatchers.Default) { readEditor(raw) }
+}
+
+/**
+ * The editor's description as the app reads it: whole, where it reads whole. Where it doesn't (an
+ * entry a newer service sends that the app can't read, or a broken one), what does read is kept: of
+ * each list or table of it, the entries that read alone, a type, a value or a dashboard that doesn't
+ * left out; of the rest, each part that reads. The editor opens with what there is.
+ */
+fun readEditor(raw: JsonObject): EditorDescription {
+	fun read(o: JsonObject): EditorDescription? = runCatching { ProtocolJson.decodeFromJsonElement(EditorDescription.serializer(), o) }.getOrNull()
+	read(raw)?.let { return it }
+	val kept = raw.entries.mapNotNull { (k, v) ->
+		val alone = { x: JsonElement -> JsonObject(mapOf(k to x)) }
+		val left = when {
+			read(alone(v)) != null -> v
+			v is JsonArray -> JsonArray(v.filter { read(alone(JsonArray(listOf(it)))) != null })
+			v is JsonObject -> JsonObject(v.filter { (id, x) -> read(alone(JsonObject(mapOf(id to x)))) != null })
+			else -> null
+		}
+		// What still doesn't read (not a list nor a table where one goes) is as if it weren't sent.
+		left?.takeIf { read(alone(it)) != null }?.let { k to it }
+	}.toMap()
+	return decodeChecked(EditorDescription.serializer(), JsonObject(kept).toString())
+}
 
 /** A write of the editor: [body] to [path]; its answer, or what refused it thrown, its mistakes and hash in its [ElamondException.body]. */
 suspend fun ElamondClient.editorWrite(path: String, body: JsonObject): EditorSaved =
 	decode(request("POST", path, body.toString(), finishOnCancel = true))
 
-/**
- * What the computer would show with [body]'s drafts: the `ui` and a reading. A `ui` that leaves out
- * what the app keeps of the computer ([fallback]'s service, its control and profile) gets them from
- * there.
- */
-suspend fun ElamondClient.preview(body: JsonObject, fallback: UiDoc?): Preview {
-	val answer = decode<JsonObject>(request("POST", ADMIN_PREVIEW_PATH, body.toString()))
-	return previewFrom(answer, fallback)
-}
+/** What the computer would show with [body]'s drafts: the `ui` and a reading. */
+suspend fun ElamondClient.preview(body: JsonObject): Preview =
+	previewFrom(decode<JsonObject>(request("POST", ADMIN_PREVIEW_PATH, body.toString())))
 
-/** [answer] of a preview read as the app reads a `ui` and a data line; see [preview]. */
-fun previewFrom(answer: JsonObject, fallback: UiDoc?): Preview {
+/** [answer] of a preview read as the app reads a `ui` (its service, control and profile its own) and a data line. */
+fun previewFrom(answer: JsonObject): Preview {
 	val raw = answer["ui"] as? JsonObject ?: throw ElamondException(ElamondException.Kind.Protocol, "no ui")
-	val kept = fallback?.let { ProtocolJson.encodeToJsonElement(UiDoc.serializer(), it) as JsonObject }
-	val filled = if (kept == null) raw else JsonObject(raw + listOf("service", "control", "profile").filter { it !in raw }.mapNotNull { k -> kept[k]?.let { k to it } })
-	val ui = decodeChecked(UiDoc.serializer(), filled.toString())
+	val ui = decodeChecked(UiDoc.serializer(), raw.toString())
 	val line = (answer["data"] as? JsonObject)?.let { d ->
 		runCatching { ProtocolJson.decodeFromJsonElement(DataLine.serializer(), d) }.getOrNull()
 	}

@@ -103,7 +103,7 @@ class EditorTest {
 		val raw = fixture("editor")
 		val types = raw.getValue("types").jsonArray
 		val sparkle = obj("""{"type":"sparkle","label":"Sparkle","keys":[{"key":"glitter","kind":"stardust","label":"Glitter","hint":"","weight":3}],"later":true}""")
-		val newer = JsonObject(raw + ("types" to JsonArray(types + sparkle)) + ("templates" to JsonArray(emptyList())))
+		val newer = JsonObject(raw + ("types" to JsonArray(types + sparkle)) + ("macros" to JsonArray(emptyList())))
 		val d = description(newer)
 		val t = d.type("sparkle")!!
 		assertNull(t.example)
@@ -122,6 +122,154 @@ class EditorTest {
 	}
 
 	@Test
+	fun whatTheFilesBelowSetIsFixed() {
+		val d = description()
+		// The stock overview: its title, icon and widgets set in elamond.toml, key by key; nothing else of it is.
+		val overview = d.dashboard("overview")!!
+		assertEquals(setOf("title", "icon", "widgets"), overview.below.keys)
+		assertEquals(EditorFrom("elamond.toml", 143), overview.fixed("title"))
+		assertEquals("elamond.toml:143", overview.fixed("title")!!.where)
+		assertNull(overview.fixed("role"))
+		assertTrue(overview.from.none { it.nix })
+		// Only the keys below says: one the editor's file sets alone isn't, whatever other file sets the dashboard.
+		val mine = EditorDashboard(
+			id = "mine",
+			def = obj("""{"title":"Mine","icon":"gauge","widgets":[]}"""),
+			from = listOf(EditorFrom("/nix/store/0000-elamond.toml", 3, nix = true), EditorFrom("elamond.d/zz-editor.toml", 1)),
+			below = mapOf("title" to EditorFrom("/nix/store/0000-elamond.toml", 4)),
+			editor = true,
+		)
+		assertNull(mine.fixed("icon"))
+		// Where it is set, the file's being in the Nix store as from says.
+		assertEquals(EditorFrom("/nix/store/0000-elamond.toml", 4, nix = true), mine.fixed("title"))
+		assertEquals("elamond.d/zz-editor.toml", EditorFrom("elamond.d/zz-editor.toml").where)
+	}
+
+	@Test
+	fun aProfilesFormIsTheDescriptions() {
+		val d = description()
+		// The editor's part of a profile: its tabs and header, then, under android, the dashboards shown outside the app.
+		assertEquals(listOf("dashboards", "header"), d.profileKeys.map { it.key })
+		assertEquals("list", d.profileKeys[0].kind)
+		assertEquals("dashboard", d.profileKeys[0].item!!.to)
+		assertEquals("dashboard", d.profileKeys[1].to)
+		assertEquals(listOf("widget", "tiles", "card"), d.androidKeys.map { it.key })
+		assertTrue(d.androidKeys.all { it.kind == "ref" && it.to == "dashboard" && it.label!!.isNotBlank() && !it.hint.isNullOrBlank() })
+		// Every key a profile's def has, the description has a form for.
+		for (p in d.profiles) {
+			assertEquals(p.def.keys - PROFILE_ANDROID, d.profileKeys.map { it.key }.toSet(), p.id)
+			assertEquals(p.def.getValue(PROFILE_ANDROID).jsonObject.keys, d.androidKeys.map { it.key }.toSet(), p.id)
+		}
+	}
+
+	@Test
+	fun aProfileWriteSendsWhatChangedAlone() {
+		val def = description().profile("default")!!.def
+		val android = def.getValue(PROFILE_ANDROID).jsonObject
+		assertEquals(obj("{}"), profileChanges(def, def))
+		// A tab added ("add it to my tabs"): the tabs alone, not the header nor the Android dashboards the profile has from the files.
+		val tabs = Drafts.withKey(def, PROFILE_TABS, JsonArray(def.getValue(PROFILE_TABS).jsonArray + JsonPrimitive("mine")))
+		assertEquals(
+			obj("""{"id":"default","profile":{"dashboards":["overview","ups","processes","sensors","control","mine"]},"base":"h"}"""),
+			profileBody("default", profileChanges(def, tabs), "h"),
+		)
+		// One of android's: that one alone, in android.
+		val widget = Drafts.withKey(def, PROFILE_ANDROID, Drafts.withKey(android, "widget", JsonPrimitive("phone")))
+		assertEquals(obj("""{"android":{"widget":"phone"}}"""), profileChanges(def, widget))
+		// Taken out: null, back to what the other files say.
+		assertEquals(obj("""{"header":null}"""), profileChanges(def, Drafts.withKey(def, "header", null)))
+		assertEquals(obj("""{"android":{"card":null}}"""), profileChanges(def, Drafts.withKey(def, PROFILE_ANDROID, Drafts.withKey(android, "card", null))))
+		// Changed, and changed back: nothing of it.
+		val back = Drafts.withKey(widget, PROFILE_ANDROID, android)
+		assertEquals(obj("""{"dashboards":["overview"]}"""), profileChanges(def, Drafts.withKey(back, PROFILE_TABS, JsonArray(listOf(JsonPrimitive("overview"))))))
+		// The fixture's write, of a profile that had none of it: all of it.
+		val p = fixture("editor-profile").getValue("request").jsonObject
+		assertEquals(p, profileBody("pixel-9", profileChanges(obj("{}"), p.getValue("profile").jsonObject), "9a8b7c6d5e4f3021"))
+	}
+
+	@Test
+	fun aWidgetWithUseStartsFromItsTemplate() {
+		val d = description()
+		// The stock Sensors and CPU dashboards: tables made of the service's templates, with no type of their own.
+		val processor = Drafts.widgets(d.dashboard("sensors")!!.def).map { it.jsonObject }.first { it["id"]!!.jsonPrimitive.content == "cpu" }
+		assertEquals("sensor_table", processor["use"]!!.jsonPrimitive.content)
+		assertNull(processor["type"])
+		assertEquals("table", d.typeOf(processor))
+		assertEquals(d.type("table")!!.span, d.spanOf(processor))
+		assertEquals("Table · Processor", d.titleOf(processor))
+		// The table's keys, what the template sets of them what they are while the widget doesn't.
+		val keys = d.keysOf(processor)
+		assertEquals(d.common.map { it.key } + d.type("table")!!.keys.map { it.key }, keys.map { it.key })
+		assertEquals(d.templates.getValue("sensor_table")["columns"], keys.first { it.key == "columns" }.default)
+		assertEquals(d.type("table")!!.keys.first { it.key == "limit" }.default, keys.first { it.key == "limit" }.default)
+		val top = Drafts.widgets(d.dashboard("cpu")!!.def).map { it.jsonObject }.first { it["use"]?.jsonPrimitive?.content == "top_processes" }
+		assertEquals("table", d.typeOf(top))
+		assertEquals("Table · Top processes", d.titleOf(top))
+		assertEquals("processes", d.valueOf(top, "icon")!!.jsonPrimitive.content)
+		// A template that uses another: the nearer wins, `use` and `with` aren't keys of the widget;
+		// a loop ends where it comes round; a template there isn't gives nothing.
+		val chained = EditorDescription(
+			common = d.common,
+			types = d.types,
+			templates = mapOf(
+				"base" to obj("""{"type":"graph","range":300,"label":"{name}","span":2}"""),
+				"mine" to obj("""{"use":"base","with":{"name":"x"},"range":60}"""),
+				"a" to obj("""{"use":"b","label":"A"}"""),
+				"b" to obj("""{"use":"a","type":"gauge"}"""),
+			),
+		)
+		val w = obj("""{"use":"mine","with":{"name":"CPU"}}""")
+		assertEquals(obj("""{"type":"graph","range":60,"label":"{name}","span":2}"""), chained.templateOf(w))
+		assertEquals("graph", chained.typeOf(w))
+		assertEquals(2, chained.spanOf(w))
+		assertEquals(3, chained.spanOf(obj("""{"use":"mine","span":3}""")))
+		assertEquals(JsonPrimitive(60), chained.keysOf(w).first { it.key == "range" }.default)
+		assertEquals("gauge", chained.typeOf(obj("""{"use":"a"}""")))
+		assertEquals("A", chained.valueOf(obj("""{"use":"a"}"""), "label")!!.jsonPrimitive.content)
+		assertEquals(obj("{}"), chained.templateOf(obj("""{"use":"none"}""")))
+		assertEquals(EditorDescription.DEFAULT_SPAN, chained.spanOf(obj("""{"use":"none"}""")))
+		// Its own type and keys win.
+		assertEquals("value", chained.typeOf(obj("""{"use":"mine","type":"value"}""")))
+		assertEquals("Graph · Mine", chained.titleOf(obj("""{"use":"mine","label":"Mine"}""")))
+	}
+
+	@Test
+	fun aBrokenEntryCostsItselfAlone() {
+		val raw = fixture("editor")
+		val whole = readEditor(raw)
+		assertEquals(description(raw), whole)
+		// A type, a value, a dashboard and a template the app can't read, a record broken, and a part
+		// of the wrong shape: each left out, the rest as it came.
+		fun plus(key: String, extra: JsonElement) = key to JsonArray(raw.getValue(key).jsonArray + extra)
+		val broken = JsonObject(
+			raw + listOf(
+				plus("types", obj("""{"label":"No type"}""")),
+				plus("values", obj("""{"now":"12 %"}""")),
+				plus("dashboards", obj("""{"id":"odd","from":"elamond.toml"}""")),
+				"templates" to JsonObject(raw.getValue("templates").jsonObject + ("odd" to JsonPrimitive("not a table"))),
+				"records" to JsonObject(raw.getValue("records").jsonObject + ("odd" to JsonPrimitive(3))),
+				"writable" to obj("""{"yes":true}"""),
+			),
+		)
+		// Read whole, it doesn't.
+		assertTrue(runCatching { ProtocolJson.decodeFromJsonElement(EditorDescription.serializer(), broken) }.isFailure)
+		val d = readEditor(broken)
+		assertEquals(whole.types, d.types)
+		assertEquals(whole.values, d.values)
+		assertEquals(whole.dashboards, d.dashboards)
+		assertEquals(whole.templates, d.templates)
+		assertEquals(whole.records, d.records)
+		assertEquals(whole.profiles, d.profiles)
+		assertEquals(whole.file, d.file)
+		// The part that didn't read: as if it weren't sent.
+		assertTrue(d.writable)
+		// A key of a dashboard that doesn't read: that part gone, not the description.
+		val keys = JsonObject(raw + ("dashboard" to obj("""{"keys":"not a list"}""")))
+		assertEquals(EditorDashboardKeys(), readEditor(keys).dashboard)
+		assertEquals(whole.common, readEditor(keys).common)
+	}
+
+	@Test
 	fun addingMovingAndWidth() {
 		val d = description()
 		var draft = obj("""{"title":"Mine","widgets":[{"type":"value","label":"Uptime","value":"system.uptime"}]}""")
@@ -137,11 +285,10 @@ class EditorTest {
 		assertEquals(listOf("value", "gauge", "button"), Drafts.widgets(draft).map { it.jsonObject["type"]!!.jsonPrimitive.content })
 		// Out of range: nothing moves.
 		assertEquals(draft, Drafts.move(draft, emptyList(), 7, 0))
-		// A width of its own, kept within the grid; its type's again without.
-		draft = Drafts.span(draft, listOf(1), 4)
+		// A width of its own; its type's again without.
+		draft = Drafts.setKey(draft, listOf(1), "span", JsonPrimitive(4))
 		assertEquals(4, d.spanOf(Drafts.widget(draft, listOf(1))!!))
-		assertEquals(4, Drafts.widget(Drafts.span(draft, listOf(1), 9), listOf(1))!!["span"]!!.jsonPrimitive.content.toInt())
-		draft = Drafts.span(draft, listOf(1), null)
+		draft = Drafts.setKey(draft, listOf(1), "span", null)
 		assertNull(Drafts.widget(draft, listOf(1))!!["span"])
 		assertEquals(d.type("gauge")!!.span, d.spanOf(Drafts.widget(draft, listOf(1))!!))
 		// Taken out.
@@ -168,7 +315,7 @@ class EditorTest {
 		draft = Drafts.add(draft, group, d.type("gauge")!!.newWidget())
 		draft = Drafts.move(draft, group, 1, 0)
 		draft = Drafts.setKey(draft, group + 0, "label", JsonPrimitive("Inner"))
-		draft = Drafts.span(draft, group + 1, 1)
+		draft = Drafts.setKey(draft, group + 1, "span", JsonPrimitive(1))
 		assertEquals(1, Drafts.widgets(draft).size)
 		val inner = Drafts.widgets(Drafts.widget(draft, group)!!)
 		assertEquals(listOf("Inner", first), inner.map { it.jsonObject["label"]!!.jsonPrimitive.content })
@@ -206,7 +353,7 @@ class EditorTest {
 			  {"type":"sparkle","shine":"bright"}]}""",
 		)
 		var draft = Drafts.setKey(def, listOf(0), "label", JsonPrimitive("Processor"))
-		draft = Drafts.span(draft, listOf(0), 1)
+		draft = Drafts.setKey(draft, listOf(0), "span", JsonPrimitive(1))
 		draft = Drafts.add(draft, emptyList(), d.type("value")!!.newWidget())
 		draft = Drafts.move(draft, emptyList(), 2, 0)
 		val sent = dashboardBody("mine", draft, d.hash).toString()
@@ -278,37 +425,41 @@ class EditorTest {
 		// An editor's file that isn't there yet: no hash, said as null.
 		assertEquals(JsonNull, dashboardBody("mine", obj("{}"), null)["base"])
 		assertEquals(obj("""{"dashboard":"mine","base":"x"}"""), tableBody("dashboard", "mine", "x"))
-		// A preview: the draft as the editor's write would send it, its dashboard, the types the app draws.
+		// A preview: the draft as the editor's write would send it and its dashboard, as the service's tests send them.
 		val preview = fixture("admin-preview").getValue("request").jsonObject
-		val draft = preview.getValue("editor").jsonObject.getValue("dashboards").jsonObject.getValue("mine").jsonObject
-		val body = previewBody(mapOf("mine" to draft), emptyMap(), "mine")
-		assertEquals(JsonObject(preview - "widgets"), JsonObject(body - "widgets"))
-		// The same types, in the app's order.
-		assertEquals(preview.getValue("widgets").jsonPrimitive.content.split(",").toSet(), body.getValue("widgets").jsonPrimitive.content.split(",").toSet())
-		val withTabs = previewBody(mapOf("mine" to draft), mapOf("pixel-9" to p.getValue("profile").jsonObject), "mine")
+		val draft = preview.getValue("editor").jsonObject.getValue("dashboards").jsonObject.getValue("draft").jsonObject
+		val body = previewBody(mapOf("draft" to draft), emptyMap(), "draft")
+		assertEquals(preview, JsonObject(body - "widgets"))
+		// And the types the app draws, as it asks for its `ui`.
+		assertEquals(WIDGET_TYPES.joinToString(","), body.getValue("widgets").jsonPrimitive.content)
+		val withTabs = previewBody(mapOf("draft" to draft), mapOf("pixel-9" to p.getValue("profile").jsonObject), "draft")
 		assertEquals(setOf("dashboards", "profiles"), withTabs.getValue("editor").jsonObject.keys)
 	}
 
 	@Test
 	fun thePreviewIsReadAsTheUi() {
-		val answer = fixture("admin-preview").getValue("response").jsonObject
-		// The fixture's ui leaves out what the app keeps of the computer: taken from the ui kept.
-		val kept = ProtocolJson.decodeFromString(UiDoc.serializer(), File(dir, "ui.json").readText())
-		val p = previewFrom(answer, kept)
+		val preview = fixture("admin-preview")
+		val p = previewFrom(preview.getValue("response").jsonObject)
+		// The ui the asking client would get with the draft: the computer, its control and the profile its own.
 		assertEquals("owner", p.ui.role)
-		assertEquals(kept.service, p.ui.service)
-		assertEquals(kept.profile.id, p.ui.profile.id)
-		val mine = p.ui.dashboard("mine")!!
-		assertEquals("gauge", mine.widgets.single().type)
+		assertEquals("0.11.0", p.ui.service.version)
+		assertTrue("editor" in p.ui.service.features)
+		assertTrue(p.ui.control.enabled)
+		assertEquals("default", p.ui.profile.id)
+		// The draft's dashboard among the tabs, its widgets by place.
+		assertTrue("draft" in p.ui.tabs)
+		val shown = p.ui.dashboard("draft")!!
+		assertEquals(listOf("draft/0"), shown.widgets.map { it.id })
+		assertEquals("gauge", shown.widgets.single().type)
 		val line = p.line!!
-		assertEquals("mine", line.dashboard)
-		assertEquals(12.5, line.widgets.getValue("mine/w0").number)
+		assertEquals("draft", line.dashboard)
+		assertEquals(12.5, line.widgets.getValue("draft/0").number)
 		// Each widget of the draft and what the preview drew of it.
-		val draft = Drafts.widgets(fixture("admin-preview").getValue("request").jsonObject.getValue("editor").jsonObject.getValue("dashboards").jsonObject.getValue("mine").jsonObject)
-		assertEquals(listOf(listOf("mine/w0")), previewOf(draft, mine).map { cell -> cell.map { it.id } })
-		// Without a ui kept, one that says nothing of the computer isn't one.
-		val e = runCatching { previewFrom(answer, null) }.exceptionOrNull()
-		assertIs<ElamondException>(e)
+		val draft = Drafts.widgets(preview.getValue("request").jsonObject.getValue("editor").jsonObject.getValue("dashboards").jsonObject.getValue("draft").jsonObject)
+		assertEquals(listOf(listOf("draft/0")), previewOf(draft, shown).map { cell -> cell.map { it.id } })
+		// An answer without a ui, or one that isn't a ui, isn't a preview.
+		assertIs<ElamondException>(runCatching { previewFrom(obj("""{"data":{}}""")) }.exceptionOrNull())
+		assertIs<ElamondException>(runCatching { previewFrom(obj("""{"ui":{"dashboards":[]}}""")) }.exceptionOrNull())
 	}
 
 	@Test
@@ -334,8 +485,9 @@ class EditorTest {
 
 	@Test
 	fun idsAsTheSettingsTakeThem() {
-		for (ok in listOf("mine", "a", "disk_2", "my-tab", "x".repeat(32))) assertTrue(isSettingsId(ok), ok)
-		for (bad in listOf("", "Mine", "my tab", "a.b", "x".repeat(33), "ü")) assertTrue(!isSettingsId(bad), bad)
+		for (ok in listOf("mine", "a", "7", "2nd", "disk_2", "my-tab", "a_", "b-", "x".repeat(32))) assertTrue(isSettingsId(ok), ok)
+		// It starts with a letter or a digit.
+		for (bad in listOf("", "Mine", "my tab", "a.b", "x".repeat(33), "ü", "_x", "-x", "_", "-")) assertTrue(!isSettingsId(bad), bad)
 	}
 
 	@Test

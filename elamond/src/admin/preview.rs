@@ -75,8 +75,13 @@ fn settings_with(hub: &Hub, files: &[FileDraft], editor: Option<&super::editor::
 	Ok(config)
 }
 
+/// Reading the settings and building `ui` take a while: done off the runtime's workers.
 pub async fn preview(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Extension(app): Extension<ClientApp>, Json(req): Json<PreviewRequest>) -> Response {
-	let mut config = match settings_with(&hub, &req.files, req.editor.as_ref()) {
+	tokio::task::spawn_blocking(move || preview_now(&hub, &who, &app, req)).await.unwrap_or_else(|e| error_with(ErrorCode::Failed, e.to_string()))
+}
+
+fn preview_now(hub: &Arc<Hub>, who: &Caller, app: &ClientApp, req: PreviewRequest) -> Response {
+	let mut config = match settings_with(hub, &req.files, req.editor.as_ref()) {
 		Ok(c) => c,
 		Err(r) => return r,
 	};
@@ -112,7 +117,7 @@ pub async fn preview(State(hub): State<Arc<Hub>>, Extension(who): Extension<Call
 	let Some(dashboard) = crate::server::dashboard_in(&built, asked.as_deref()) else {
 		return error(ErrorCode::NoSuchDashboard);
 	};
-	let mut data = crate::server::data_of(&hub, &built, dashboard, &who, &frame, &HashMap::new(), true);
+	let mut data = crate::server::data_of(hub, &built, dashboard, who, &frame, &HashMap::new(), true);
 	data.remove("type");
 	match serde_json::to_value(&data) {
 		Ok(data) => Json(json!({ "ui": built.doc, "data": data })).into_response(),
