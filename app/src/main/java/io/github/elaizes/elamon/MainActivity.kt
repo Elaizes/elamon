@@ -159,8 +159,10 @@ class MainActivity : FragmentActivity() {
 		if (savedInstanceState == null) {
 			// A link the task was started by, brought back from recents, was taken up when it came.
 			val link = intent?.takeIf { it.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY == 0 }
-			// Started afresh: on the computer opened last, Home under it; a link to pair comes first.
-			startScreen(settings.lastMachine(), store.machines.value, link = link?.data != null)?.let(nav::push)
+			// Started afresh: on the computer a widget opened, or the one opened last, Home under it; a
+			// link to pair comes first.
+			val asked = link?.getStringExtra(EXTRA_MACHINE)?.takeIf { id -> store.machines.value.any { it.id == id } }
+			startScreen(asked ?: settings.lastMachine(), store.machines.value, link = asked == null && link?.data != null)?.let(nav::push)
 			handle(link)
 		}
 		val start = prefsFor(nav.top, store.machines.value, cache.profiles.value, settings.look.value.theme)
@@ -258,11 +260,21 @@ class MainActivity : FragmentActivity() {
 		if (!isChangingConfigurations) forgetUnlock()
 	}
 
+	companion object {
+		/** The computer to open, by its id: the home-screen widget's. */
+		const val EXTRA_MACHINE = "io.github.elaizes.elamon.MACHINE"
+	}
+
 	/**
 	 * elamon://pair?… from the QR code that `elamond pair` prints. Any web page can open one too,
 	 * so it only ever shows the pairing screen, once, and waits for the user there.
 	 */
 	private fun handle(intent: Intent?) {
+		// A widget's computer: its screen, over what was open, or back to it where it is open already.
+		intent?.getStringExtra(EXTRA_MACHINE)?.let { id ->
+			if (MachineStore.get(this).get(id) != null) nav.show(Screen.Machine(id))
+			return
+		}
 		val uri = intent?.data ?: return
 		when (val link = PairTarget.fromUri(uri)) {
 			null -> {}

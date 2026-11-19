@@ -7,4 +7,12 @@
 		<item name="android:statusBarColor">@android:color/transparent</item>
 		<item name="android:navigationBarColor">@android:color/transparent</item>
 	</style>
+
+	<!-- Over whatever was on screen: what asks before a tile's action, and which computer a widget shows. -->
+	<style name="Theme.Elamon.Translucent">
+		<item name="android:windowIsTranslucent">true</item>
+		<item name="android:windowBackground">@android:color/transparent</item>
+		<item name="android:backgroundDimEnabled">false</item>
+		<item name="android:windowAnimationStyle">@null</item>
+	</style>
 </resources>

@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:tools="http://schemas.android.com/tools">
 
 	<uses-permission android:name="android.permission.INTERNET" />
 	<!-- To hear of the phone's network changing (Wi-Fi, mobile data, a VPN), and look for a computer again at once. -->
 	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+	<!-- WorkManager, for the home-screen widget's readings, asks for it to run work in the foreground:
+	     the app runs none, and shows no notification. -->
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove" />
 
 	<!-- Pairing tokens stay on this phone: no cloud backup, no device-to-device transfer. -->
 	<application
@@ -31,6 +35,29 @@
 				<category android:name="android.intent.category.DEFAULT" />
 				<category android:name="android.intent.category.BROWSABLE" />
 				<data android:scheme="elamon" android:host="pair" />
+			</intent-filter>
+		</activity>
+
+		<!-- The home-screen widget: a computer's readings, as its profile's widget dashboard names them. -->
+		<receiver
+			android:name=".widget.ElamonWidgetReceiver"
+			android:exported="true"
+			android:label="@string/widget_label">
+			<intent-filter>
+				<action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+			</intent-filter>
+			<meta-data
+				android:name="android.appwidget.provider"
+				android:resource="@xml/elamon_widget_info" />
+		</receiver>
+		<!-- Which computer a widget shows, asked as it is added where several are paired. -->
+		<activity
+			android:name=".widget.WidgetSetupActivity"
+			android:excludeFromRecents="true"
+			android:exported="true"
+			android:theme="@style/Theme.Elamon.Translucent">
+			<intent-filter>
+				<action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
 			</intent-filter>
 		</activity>
 	</application>

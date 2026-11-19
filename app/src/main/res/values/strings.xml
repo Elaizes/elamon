@@ -403,4 +403,25 @@
 	<string name="log_level_warning">Warning</string>
 	<string name="log_level_error">Error</string>
 	<string name="log_level_critical">Critical</string>
+	<!-- 0.10: the home-screen widget. Its name in the list of widgets, and what it says there. -->
+	<string name="widget_label">Elamon computer</string>
+	<string name="widget_description">A computer\'s readings, as its profile\'s widget dashboard names them</string>
+	<!-- Beside the computer's name: being read now; offline or not read since the time given ("Offline · 14:02"). -->
+	<string name="widget_reading">Updating…</string>
+	<string name="widget_offline_at">Offline · %1$s</string>
+	<string name="widget_failed">Couldn\'t read</string>
+	<string name="widget_failed_at">Couldn\'t read · %1$s</string>
+	<!-- In place of the readings. -->
+	<string name="widget_no_computer">Pair a computer in Elamon to see its readings here.</string>
+	<!-- %1$s: the profile's id, as the computer's settings name it. -->
+	<string name="widget_no_dashboard">To choose what shows here, set widget in [profiles.%1$s.android] in this computer\'s settings.</string>
+	<string name="widget_first_reading">Reading…</string>
+	<string name="widget_nothing">Nothing to show on %1$s yet.</string>
+	<string name="widget_unpaired">This phone isn\'t paired with it anymore. Open Elamon to pair again.</string>
+	<string name="widget_outdated">This computer\'s Elamon service and this app need the same protocol. Update the older one.</string>
+	<string name="widget_no_connection">No connection to %1$s yet. Tap to try again.</string>
+	<!-- Adding the widget with several computers paired: which one it shows. -->
+	<string name="widget_choose_title">Show which computer?</string>
+	<string name="widget_choose_now">Shown now</string>
+	<string name="widget_choose_profile">Profile “%1$s”</string>
 </resources>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The home-screen widget (widget/ElamonWidget.kt). Read by WorkManager, never by the home screen's
+     own timer; which computer it shows is asked as it is added, where there are several. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+	android:configure="io.github.elaizes.elamon.widget.WidgetSetupActivity"
+	android:initialLayout="@layout/glance_default_loading_layout"
+	android:minWidth="110dp"
+	android:minHeight="110dp"
+	android:minResizeWidth="110dp"
+	android:minResizeHeight="70dp"
+	android:resizeMode="horizontal|vertical"
+	android:updatePeriodMillis="0"
+	android:widgetCategory="home_screen" />

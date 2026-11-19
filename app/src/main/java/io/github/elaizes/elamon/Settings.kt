@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import io.github.elaizes.elamon.data.Profile
 import io.github.elaizes.elamon.data.UiCache
+import io.github.elaizes.elamon.widget.WidgetStore
+import io.github.elaizes.elamon.widget.machinesChanged
 
 enum class ThemeMode(val key: String) {
 	System("system"),
@@ -201,6 +203,35 @@ class Settings private constructor(context: Context) {
 		if (lastMachine() != machine) state.edit { putString(LAST, machine) }
 	}
 
+	/** The computer the home-screen widget [appWidgetId] was set to show; null for none chosen (one computer isn't asked for). */
+	fun widgetMachine(appWidgetId: Int): String? = state.getString("$WIDGET$appWidgetId", null)
+
+	fun setWidgetMachine(appWidgetId: Int, machine: String) {
+		state.edit { putString("$WIDGET$appWidgetId", machine) }
+		_widgets.update { it + 1 }
+	}
+
+	private val _widgets = MutableStateFlow(0)
+
+	/** Counts the widgets set to another computer, for what draws them to read [widgetMachine] again. */
+	val widgets: StateFlow<Int> = _widgets.asStateFlow()
+
+	/** Widgets taken off the home screen: what they were set to goes with them. */
+	fun forgetWidgets(appWidgetIds: IntArray) = state.edit { for (id in appWidgetIds) remove("$WIDGET$id") }
+
+	/** The computer the Quick Settings tiles act on, as chosen in the settings; null for none chosen (the first paired). */
+	fun tilesMachine(): String? = state.getString(TILES, null)
+
+	fun setTilesMachine(machine: String) {
+		state.edit { putString(TILES, machine) }
+		_tiles.value = machine
+	}
+
+	private val _tiles = MutableStateFlow(tilesMachine())
+
+	/** [tilesMachine], as the settings screen shows it. */
+	val tiles: StateFlow<String?> = _tiles.asStateFlow()
+
 	/** A computer forgotten: what was kept of its screen goes too, and the app no longer starts on it. */
 	fun forget(machine: String) = state.edit {
 		for (k in state.all.keys) if (k.startsWith("$FOLDED$machine/") || k == "$TAB$machine") remove(k)
@@ -212,6 +243,8 @@ class Settings private constructor(context: Context) {
 		private const val FOLDED = "folded/"
 		private const val TAB = "tab/"
 		private const val LAST = "last_machine"
+		private const val WIDGET = "widget/"
+		private const val TILES = "tiles_machine"
 		private const val SCALE = "scale"
 		private const val OWN = "own_theme"
 		private const val OWN_THEME = "own_theme/mode"
@@ -231,6 +264,8 @@ class Settings private constructor(context: Context) {
 fun forgetKept(context: Context, id: String) {
 	UiCache.get(context).remove(id)
 	Settings.get(context).forget(id)
+	WidgetStore.get(context).remove(id)
+	machinesChanged(context)
 }
 
 /** The entry a pairing that [replaces] one, of the computer [paired], leaves behind: none when it is the same. */
