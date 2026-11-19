@@ -7,6 +7,7 @@ import { applyTheme } from './theme.js';
 import { mountPair, mountMachine, DRAWS } from './panels.js';
 import { mountAdmin } from './admin/index.js';
 import { mountEditor } from './editor/index.js';
+import { pairCode, hashParts, once, generations } from './route.js';
 
 /** The API this page speaks. */
 const API = 2;
@@ -18,6 +19,7 @@ let ui = null;
 let hello = null;
 /** @type {() => void} */
 let teardown = () => {};
+const routes = generations();
 
 /** @type {import('./types.js').Ctx} */
 const ctx = {
@@ -58,35 +60,44 @@ function toast(text, level = 'normal') {
 	setTimeout(() => t.remove(), level === 'normal' ? 4000 : 8000);
 }
 
-/** Draws what the address asks for. */
+/**
+ * Draws what the address asks for. Routes overlap (Back twice fast, two refusals at once each
+ * going to pairing): one that finds a newer one started after it waited draws nothing, so only the
+ * newest mounts, and what it mounted is torn down once.
+ */
 async function route() {
-	teardown();
+	const run = routes.next();
+	const old = teardown;
 	teardown = () => {};
+	old();
 	clear(root);
 	const hash = location.hash;
 	// A code in the address is taken and dropped from it, so it stays out of the history.
-	const code = /^#pair=(\d{6})$/.exec(hash);
+	const code = pairCode(hash);
 	if (code) history.replaceState(null, '', location.pathname);
 	try {
 		if (!hello) hello = await api('/api/v1/hello');
+		if (routes.stale(run)) return;
 		if (hello && hello.api !== API) {
 			root.append(h('p', { class: 'note critical' }, fill(S.core.tooOld, API, hello.api)));
 			return;
 		}
 		await reloadUi();
+		if (routes.stale(run)) return;
 	} catch (e) {
+		if (routes.stale(run)) return;
 		root.append(h('p', { class: 'note critical' }, S.core.unreachable), h('button', { onclick: () => route() }, S.core.retry));
 		return;
 	}
 	document.title = hello ? `${hello.name} · ${S.core.title}` : S.core.title;
 	if (!ui) {
-		teardown = mountPair(root, ctx, code ? code[1] : null);
+		teardown = once(mountPair(root, ctx, code));
 		return;
 	}
-	const parts = (code ? '' : hash).replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
-	if (parts[0] === 'admin' && ctx.has('admin')) teardown = mountAdmin(root, ctx, parts.slice(1));
-	else if (parts[0] === 'edit' && ctx.has('editor')) teardown = mountEditor(root, ctx, parts[1] ?? null);
-	else teardown = mountMachine(root, ctx, parts[0] === 'tab' ? (parts[1] ?? null) : null);
+	const parts = code ? [] : hashParts(hash);
+	if (parts[0] === 'admin' && ctx.has('admin')) teardown = once(mountAdmin(root, ctx, parts.slice(1)));
+	else if (parts[0] === 'edit' && ctx.has('editor')) teardown = once(mountEditor(root, ctx, parts[1] ?? null));
+	else teardown = once(mountMachine(root, ctx, parts[0] === 'tab' ? (parts[1] ?? null) : null));
 }
 
 window.addEventListener('hashchange', () => route());
