@@ -206,13 +206,14 @@ sealed interface MistakeAt {
 	data object Elsewhere : MistakeAt
 }
 
-private val PATH_PART = Regex("""([^.\[\]]+)|\[(\d+)]""")
+/** A part of a settings path: a quoted key (one not of letters, digits, `_` and `-` alone, `"ups.eco"`), a bare key, a place `[2]`. */
+private val PATH_PART = Regex(""""([^"]*)"|([^.\[\]"]+)|\[(\d+)]""")
 
 /** Where [path] (`dashboards.mine.widgets[1].max`) points, in the editor's terms. */
 fun mistakeAt(path: String?): MistakeAt {
 	if (path.isNullOrBlank()) return MistakeAt.Elsewhere
 	// Names as strings, places as numbers.
-	val parts: List<Any> = PATH_PART.findAll(path).map { m -> m.groupValues[2].toIntOrNull() ?: m.groupValues[1] }.toList()
+	val parts: List<Any> = PATH_PART.findAll(path).map { m -> m.groupValues[3].toIntOrNull() ?: m.groupValues[1].ifEmpty { m.groupValues[2] } }.toList()
 	val table = parts.getOrNull(0) as? String
 	val id = parts.getOrNull(1) as? String ?: return MistakeAt.Elsewhere
 	return when (table) {

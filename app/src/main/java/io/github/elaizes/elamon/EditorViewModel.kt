@@ -128,7 +128,7 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 	private var kept: UiDoc? = null
 	private var client: ElamondClient? = null
 
-	private data class PreviewAsk(val dashboard: String, val page: String, val draft: JsonObject)
+	private data class PreviewAsk(val dashboard: String, val draft: JsonObject)
 
 	init {
 		viewModelScope.launch {
@@ -249,7 +249,7 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 			asked.value = null
 			return
 		}
-		asked.value = PreviewAsk(b.id, b.page, s.draft)
+		asked.value = PreviewAsk(b.id, s.draft)
 	}
 
 	/**
@@ -279,10 +279,9 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 
 	/** Asks for one preview of [a]; false when asking again won't change the answer. */
 	private suspend fun previewOnce(a: PreviewAsk): Boolean {
-		// A page of a `for_each` dashboard is asked for as it was on screen.
-		val page = a.page.takeIf { it == a.dashboard || it.startsWith(a.dashboard + ".") } ?: a.dashboard
 		return try {
-			val p = client().preview(previewBody(mapOf(a.dashboard to a.draft), emptyMap(), page), kept)
+			// Asked for by its id in the settings, as the computer takes it.
+			val p = client().preview(previewBody(mapOf(a.dashboard to a.draft), emptyMap(), a.dashboard), kept)
 			p.line?.let { takeHists(p.ui, it) }
 			val logs = p.line?.let { line -> logsOf(p.ui, line) }.orEmpty()
 			_state.update { it.copy(preview = PreviewView(p, logs, System.currentTimeMillis()), previewNote = null, previewMistakes = emptyList()) }
@@ -295,8 +294,12 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 			when {
 				// The last preview that worked stays, the mistakes beside it.
 				ex?.code == "bad_settings" -> _state.update { it.copy(previewMistakes = mistakesOf(ex), previewNote = Message.Res(R.string.editor_preview_mistakes)) }
-				// Nothing the role sees in it yet: an empty dashboard.
-				ex?.code == "no_such_dashboard" -> _state.update { it.copy(preview = null, previewNote = Message.Res(R.string.editor_preview_empty)) }
+				// Nothing the role sees in it yet (an empty dashboard), or one made for each item of a
+				// collection, which the computer has under its items' ids alone.
+				ex?.code == "no_such_dashboard" -> {
+					val each = a.draft["for_each"] != null
+					_state.update { it.copy(preview = null, previewNote = Message.Res(if (each) R.string.editor_preview_for_each else R.string.editor_preview_empty)) }
+				}
 				else -> _state.update { it.copy(previewNote = messageFor(e)) }
 			}
 			// Refused: not again until something changes.

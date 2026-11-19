@@ -26,51 +26,75 @@ class EditorTest {
 
 	private fun obj(text: String): JsonObject = Json.parseToJsonElement(text).jsonObject
 
+	/** Every key of [keys], and those their items and alternatives are, all the way down. */
+	private fun allKeys(keys: List<EditorKey>): List<EditorKey> = keys.flatMap { k -> listOf(k) + allKeys(listOfNotNull(k.item) + k.alternatives) }
+
 	@Test
 	fun theDescriptionAsSent() {
+		// elamond's own, from its tests: no editor's file yet, so no hash.
 		val d = description()
 		assertEquals("elamond.d/zz-editor.toml", d.file)
-		assertEquals("8877665544332211", d.hash)
-		assertEquals("pixel-9", d.profile)
+		assertNull(d.hash)
 		assertTrue(d.writable)
-		// A dashboard's keys, the common ones, each type's with its example.
-		assertEquals(listOf("title", "icon", "role", "for_each", "widgets"), d.dashboard.keys.map { it.key })
-		assertTrue(d.dashboard.keys.first().required)
+		assertEquals("default", d.profile)
+		// A dashboard's keys: its title must be there; its widgets are a list of widgets.
+		val title = d.dashboard.keys.first { it.key == "title" }
+		assertTrue(title.required)
+		assertEquals("widgets", d.dashboard.keys.first { it.key == "widgets" }.kind)
+		// Every widget's keys: its width among them, 1 to 4; its type is no key of the form.
 		val span = d.common.first { it.key == "span" }
 		assertEquals("int", span.kind)
 		assertEquals(1.0, span.min)
 		assertEquals(4.0, span.max)
-		assertTrue("gauge" in d.common.first { it.key == "type" }.choiceValues)
-		val gauge = d.type("gauge")!!
-		assertEquals("Gauge", gauge.name)
-		assertEquals(2, gauge.span)
-		assertEquals("cpu.usage", gauge.example!!["value"]!!.jsonPrimitive.content)
-		// `of`: a key for a list's or a map's item, keys for an any.
+		assertTrue(d.common.none { it.key == "type" })
+		assertEquals("dashboard", d.common.first { it.key == "open" }.to)
+		// Every type the app draws, each with its label, width and an example of itself.
+		assertTrue(d.types.map { it.type }.containsAll(WIDGET_TYPES), "${WIDGET_TYPES - d.types.map { it.type }.toSet()}")
+		for (t in d.types) {
+			assertTrue(t.name.isNotBlank(), t.type)
+			assertTrue((t.span ?: 0) in 1..Grid.COLUMNS, t.type)
+			assertEquals(t.type, t.newWidget()["type"]!!.jsonPrimitive.content)
+		}
+		assertEquals(Grid.COLUMNS, d.spanOf(obj("""{"type":"graph"}""")))
+		assertEquals(2, d.spanOf(obj("""{"type":"gauge"}""")))
+		assertEquals(1, d.spanOf(obj("""{"type":"graph","span":1}""")))
+		// The kinds of keys: each read, `of` and `record` where their kind has them, every record named described.
+		val keys = allKeys(d.dashboard.keys + d.common + d.types.flatMap { it.keys } + d.records.values.flatten())
+		assertTrue(keys.all { it.kind.isNotEmpty() })
+		val kinds = keys.map { it.kind }.toSet()
+		assertTrue(kinds.containsAll(listOf("string", "text", "id", "address", "ref", "bool", "int", "number", "scalar", "enum", "format", "list", "map", "record", "widgets", "any")), "$kinds")
+		for (k in keys) {
+			when (k.kind) {
+				"list", "map" -> assertTrue(k.item != null, "${k.key} has no item")
+				"any" -> assertTrue(k.alternatives.isNotEmpty(), "${k.key} is one of nothing")
+				"record" -> assertTrue(k.record in d.records, "${k.key}: no record ${k.record}")
+				"ref" -> assertTrue(k.to != null, "${k.key} names nothing")
+				"enum" -> assertTrue(k.choiceValues.isNotEmpty(), "${k.key} has no choices")
+			}
+		}
 		val values = d.type("graph")!!.keys.first { it.key == "values" }
 		assertEquals("address", values.item!!.kind)
-		val max = gauge.keys.first { it.key == "max" }
-		assertEquals(listOf("number", "address"), max.alternatives.map { it.kind })
-		assertEquals("dashboard", d.common.first { it.key == "open" }.to)
 		assertEquals("column", d.type("table")!!.keys.first { it.key == "columns" }.item!!.record)
-		assertEquals(listOf("field", "label", "format", "unit", "bar", "grow", "map"), d.records.getValue("column").map { it.key })
-		// What there is to pick from.
-		assertEquals("12 %", d.values.first { it.address == "cpu.usage" }.now)
-		assertEquals(listOf("disks", "processes"), d.collections.map { it.name })
-		assertEquals("Server mode", d.actions.first { it.id == "mode" }.name)
-		assertEquals("music", d.links.single().id)
-		assertEquals("nut", d.sources.single().kind)
+		assertEquals("action", d.type("button")!!.keys.first { it.key == "action" }.to)
+		assertEquals("widgets", d.type("group")!!.keys.first { it.key == "widgets" }.kind)
+		assertTrue(d.records.getValue("column").any { it.key == "field" })
+		// What there is to pick from, with its reading now.
+		assertTrue(d.values.isNotEmpty())
+		assertTrue(d.values.all { it.address.isNotEmpty() })
+		assertTrue(d.values.any { !it.now.isNullOrEmpty() })
+		assertTrue(d.collections.any { it.name == "disks" && it.fields.isNotEmpty() })
+		assertTrue(d.actions.any { it.id == "power.poweroff" && it.name.isNotEmpty() && it.kind == "power" })
 		// The dashboards as the settings merge them, and whose file has them.
-		val mine = d.dashboard("mine")!!
-		assertTrue(mine.editor && mine.own)
-		assertEquals("elamond.d/zz-editor.toml", mine.from.single().file)
-		assertEquals("Uptime", Drafts.widget(mine.def, listOf(0))!!["label"]!!.jsonPrimitive.content)
 		val overview = d.dashboard("overview")!!
+		assertTrue(Drafts.widgets(overview.def).isNotEmpty())
+		assertEquals("elamond.toml", overview.from.first().file)
 		assertTrue(!overview.editor && !overview.own)
-		assertEquals(3, overview.from.single().line)
-		val profile = d.profile("pixel-9")!!
-		assertEquals(listOf("overview", "mine"), profile.def["dashboards"]!!.jsonArray.map { it.jsonPrimitive.content })
-		assertEquals(listOf("0123abcd"), profile.clients)
-		assertTrue(profile.editor)
+		assertEquals("collection", d.dashboard.keys.first { it.key == "for_each" }.to)
+		// The profiles: their tabs, header and Android dashboards, and who has them.
+		val own = d.profile(d.profile)!!
+		assertTrue(own.def["dashboards"]!!.jsonArray.isNotEmpty())
+		assertTrue(own.def["android"] is JsonObject)
+		assertTrue(own.clients.isNotEmpty())
 	}
 
 	@Test
@@ -87,10 +111,10 @@ class EditorTest {
 		val glitter = t.keys.single()
 		assertEquals("stardust", glitter.kind)
 		assertEquals("Glitter", glitter.name)
-		// A widget of it takes the common keys and its own; one the description doesn't know of is kept apart.
+		// A widget of it takes the common keys and its own; those the description doesn't know of are kept apart.
 		val w = obj("""{"type":"sparkle","glitter":{"a":1},"shine":"bright"}""")
 		assertEquals(d.common.map { it.key } + "glitter", d.keysOf(w).map { it.key })
-		assertEquals(listOf("shine"), Drafts.unknownKeys(w, d.keysOf(w)))
+		assertEquals(listOf("type", "shine"), Drafts.unknownKeys(w, d.keysOf(w)))
 		// No width of its own: two columns.
 		assertEquals(EditorDescription.DEFAULT_SPAN, d.spanOf(w))
 		// A key the app can't read at all is still a key, of a kind no form knows.
@@ -100,7 +124,7 @@ class EditorTest {
 	@Test
 	fun addingMovingAndWidth() {
 		val d = description()
-		var draft = d.dashboard("mine")!!.def
+		var draft = obj("""{"title":"Mine","widgets":[{"type":"value","label":"Uptime","value":"system.uptime"}]}""")
 		// An added widget is its type's example.
 		draft = Drafts.add(draft, emptyList(), d.type("gauge")!!.newWidget())
 		assertEquals(d.type("gauge")!!.example, Drafts.widget(draft, listOf(1)))
@@ -119,21 +143,27 @@ class EditorTest {
 		assertEquals(4, Drafts.widget(Drafts.span(draft, listOf(1), 9), listOf(1))!!["span"]!!.jsonPrimitive.content.toInt())
 		draft = Drafts.span(draft, listOf(1), null)
 		assertNull(Drafts.widget(draft, listOf(1))!!["span"])
-		assertEquals(2, d.spanOf(Drafts.widget(draft, listOf(1))!!))
-		assertEquals(4, d.spanOf(obj("""{"type":"graph"}""")))
+		assertEquals(d.type("gauge")!!.span, d.spanOf(Drafts.widget(draft, listOf(1))!!))
 		// Taken out.
 		draft = Drafts.remove(draft, listOf(0))
 		assertEquals(listOf("gauge", "button"), Drafts.widgets(draft).map { it.jsonObject["type"]!!.jsonPrimitive.content })
 		// The dashboard's own keys are as they were.
 		assertEquals("Mine", draft["title"]!!.jsonPrimitive.content)
+		// A dashboard the computer has, changed: what it had stays.
+		val overview = d.dashboard("overview")!!.def
+		val changed = Drafts.move(Drafts.add(overview, emptyList(), d.type("text")!!.newWidget()), emptyList(), Drafts.widgets(overview).size, 0)
+		assertEquals(overview.keys, changed.keys)
+		assertEquals(Drafts.widgets(overview), Drafts.widgets(changed).drop(1))
 	}
 
 	@Test
 	fun aGroupsChildren() {
 		val d = description()
-		var draft = Drafts.add(obj("""{"title":"G","widgets":[]}"""), emptyList(), d.type("group")!!.newWidget())
+		val example = d.type("group")!!.newWidget()
+		val first = Drafts.widgets(example).first().jsonObject["label"]!!.jsonPrimitive.content
+		var draft = Drafts.add(obj("""{"title":"G","widgets":[]}"""), emptyList(), example)
 		val group = listOf(0)
-		assertEquals("Load", Drafts.widget(draft, group + 0)!!["label"]!!.jsonPrimitive.content)
+		assertEquals(first, Drafts.widget(draft, group + 0)!!["label"]!!.jsonPrimitive.content)
 		// Added into the group, moved there, changed there: the dashboard's own list stays one group.
 		draft = Drafts.add(draft, group, d.type("gauge")!!.newWidget())
 		draft = Drafts.move(draft, group, 1, 0)
@@ -141,11 +171,11 @@ class EditorTest {
 		draft = Drafts.span(draft, group + 1, 1)
 		assertEquals(1, Drafts.widgets(draft).size)
 		val inner = Drafts.widgets(Drafts.widget(draft, group)!!)
-		assertEquals(listOf("Inner", "Load"), inner.map { it.jsonObject["label"]!!.jsonPrimitive.content })
+		assertEquals(listOf("Inner", first), inner.map { it.jsonObject["label"]!!.jsonPrimitive.content })
 		assertEquals("gauge", inner[0].jsonObject["type"]!!.jsonPrimitive.content)
 		assertEquals(1, inner[1].jsonObject["span"]!!.jsonPrimitive.content.toInt())
 		draft = Drafts.remove(draft, group + 0)
-		assertEquals(listOf("Load"), Drafts.widgets(Drafts.widget(draft, group)!!).map { it.jsonObject["label"]!!.jsonPrimitive.content })
+		assertEquals(listOf(first), Drafts.widgets(Drafts.widget(draft, group)!!).map { it.jsonObject["label"]!!.jsonPrimitive.content })
 		// A place with nothing there changes nothing.
 		assertEquals(draft, Drafts.setKey(draft, listOf(5, 0), "label", JsonPrimitive("x")))
 		assertNull(Drafts.widget(draft, listOf(0, 3)))
@@ -204,6 +234,9 @@ class EditorTest {
 		assertEquals(MistakeAt.InProfile("pixel-9", "android.widget"), mistakeAt("profiles.pixel-9.android.widget"))
 		assertEquals(MistakeAt.InProfile("pixel-9", "dashboards"), mistakeAt("profiles.pixel-9.dashboards[1]"))
 		assertEquals(MistakeAt.InProfile("pixel-9", null), mistakeAt("profiles.pixel-9"))
+		// A key not of letters, digits, _ and - alone comes quoted.
+		assertEquals(MistakeAt.InProfile("my.phone", "android.widget"), mistakeAt("profiles.\"my.phone\".android.widget"))
+		assertEquals(MistakeAt.InDashboard("mine", listOf(0), "map"), mistakeAt("dashboards.mine.widgets[0].map.\"on.ac\""))
 		assertEquals(MistakeAt.Elsewhere, mistakeAt("port"))
 		assertEquals(MistakeAt.Elsewhere, mistakeAt("dashboards"))
 		assertEquals(MistakeAt.Elsewhere, mistakeAt(null))

@@ -1,0 +1,71 @@
+# The dashboard editor (elamond 0.11), with the role owner run.sh gave the phone (elamond clients
+# role all owner) after look.yaml, the computer's screen open: Edit dashboard on the Test tab draws
+# it as it looks, from the computer's preview; a gauge is added from its example, moved one place
+# earlier (before Rack power) in its sheet, and saved, which asks first on an emulator without a
+# screen lock (a phone with one unlocks instead). The tab shows the gauge then; run.sh finds it in
+# the editor's file, elamond.d/zz-editor.toml, between Test load and Rack power.
+appId: io.github.elaizes.elamon.debug
+---
+- extendedWaitUntil:
+    visible: "This phone's role: Owner.*"
+    timeout: 30000
+- tapOn: "Test"
+- extendedWaitUntil:
+    visible: "Test load"
+    timeout: 10000
+- tapOn: "More"
+- tapOn: "Edit dashboard"
+# Each widget can be tapped for its sheet, by its type and label.
+- extendedWaitUntil:
+    visible: "Value · Test load"
+    timeout: 20000
+- waitForAnimationToEnd
+- takeScreenshot: 80-editor
+- tapOn: "Add widget"
+- extendedWaitUntil:
+    visible: "Add a widget"
+    timeout: 10000
+- takeScreenshot: 81-editor-add
+- tapOn: "Gauge"
+- extendedWaitUntil:
+    visible: "Added Gauge"
+    timeout: 10000
+# Last in the dashboard, as its example has it.
+- scrollUntilVisible:
+    element: "Gauge · CPU"
+    timeout: 20000
+- tapOn: "Gauge · CPU"
+- extendedWaitUntil:
+    visible: "Move earlier"
+    timeout: 10000
+- takeScreenshot: 82-editor-sheet
+- tapOn: "Move earlier"
+- waitForAnimationToEnd
+# The sheet closes; the dashboard is still unsaved.
+- back
+- extendedWaitUntil:
+    notVisible: "Move earlier"
+    timeout: 10000
+- takeScreenshot: 83-editor-moved
+- tapOn: "Save"
+# Writing the computer's settings unlocks the phone first, whatever the profile asks; an emulator
+# without a screen lock asks instead.
+- extendedWaitUntil:
+    visible: "Write this to the computer.s settings\\?"
+    timeout: 10000
+- tapOn:
+    text: "Save"
+    rightOf: "Cancel"
+- extendedWaitUntil:
+    visible: "Saved"
+    timeout: 20000
+- takeScreenshot: 84-editor-saved
+# Nothing unsaved: Back leaves the editor without asking, to the tab as the computer shows it now.
+- back
+- extendedWaitUntil:
+    visible: "Test load"
+    timeout: 10000
+- scrollUntilVisible:
+    element: "CPU"
+    timeout: 30000
+- takeScreenshot: 85-edited-tab
