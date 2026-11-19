@@ -6,15 +6,15 @@ import { classifyDiff, diffCounts } from '../js/admin/diff.js';
 const check = JSON.parse(readFileSync(new URL('../../fixtures/0.11/admin-check.json', import.meta.url), 'utf8'));
 
 test("the fixture's diff: each line's kind and its numbers on disk and in the draft", () => {
+	// A new drop-in: every line put in, numbered in the draft alone.
 	const lines = classifyDiff(check.sound.response.diff);
-	assert.deepEqual(lines, [
-		{ kind: 'hunk', text: '@@ -1,3 +1,3 @@', old: null, new: null },
-		{ kind: 'same', text: '[dashboards.mine]', old: 1, new: 1 },
-		{ kind: 'same', text: 'title = "Mine"', old: 2, new: 2 },
-		{ kind: 'del', text: 'widgets = [{ type = "value", value = "cpu.usage" }]', old: 3, new: null },
-		{ kind: 'add', text: 'widgets = [{ type = "gauge", value = "cpu.usage", max = 100 }]', old: null, new: 3 },
-	]);
-	assert.deepEqual(diffCounts(lines), { added: 1, removed: 1 });
+	assert.deepEqual(lines[0], { kind: 'hunk', text: '@@ -0,0 +1,5 @@', old: null, new: null });
+	assert.deepEqual(
+		lines.slice(1).map((l) => [l.kind, l.old, l.new]),
+		[1, 2, 3, 4, 5].map((n) => ['add', null, n]),
+	);
+	assert.equal(lines[1].text, '[dashboards.mine]');
+	assert.deepEqual(diffCounts(lines), { added: 5, removed: 0 });
 });
 
 test('headers before a hunk, a second hunk, a trimmed empty context line, no newline at the end', () => {
