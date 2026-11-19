@@ -98,17 +98,18 @@ test('where a dashboard comes from, and which of its keys can\'t be taken out', 
 	assert.deepEqual(origins(desc, file).at(-1), { kind: 'file', file: last.file, line: last.line });
 	assert.deepEqual(origins(desc, { from: [{ file: desc.file, line: 5 }] }), [{ kind: 'editor', file: desc.file, line: 5 }]);
 	assert.deepEqual(origins(desc, { from: [] }), [{ kind: 'defaults', file: '', line: null }]);
-	assert.equal(origins(desc, { from: [{ file: '/nix/store/abc-elamond.toml', line: 9 }] })[0].kind, 'nix');
-	const below = keysFromBelow(desc, file);
-	assert.deepEqual([...below.keys].sort(), Object.keys(file.def).filter((k) => k !== 'widgets').sort());
-	assert.equal(below.where, `${last.file}:${last.line}`);
-	assert.equal(below.sure, true);
-	const own = { id: 'mine', def: { title: 'Mine', icon: 'gauge' }, from: [{ file: desc.file, line: 5 }], editor: true, own: true };
-	assert.equal(keysFromBelow(desc, own).keys.size, 0, 'the editor\'s own: everything can go');
-	const both = keysFromBelow(desc, { ...file, editor: true, from: [...file.from, { file: desc.file, line: 20 }] });
-	assert.equal(both.sure, false, 'the editor overrides it: any key might be from below');
-	assert.equal(both.where, `${last.file}:${last.line}`);
-	assert.equal(keysFromBelow(desc, null).keys.size, 0);
+	// The Nix store as the description marks it, not by a guess at the path.
+	assert.equal(origins(desc, { from: [{ file: 'elamond.toml', line: 9, nix: true }] })[0].kind, 'nix');
+	assert.equal(origins(desc, file).some((o) => o.kind === 'nix'), file.from.some((w) => w.nix === true));
+	// The keys below, as `below` says, each with its file and line.
+	const below = keysFromBelow(file);
+	assert.deepEqual([...below.keys()].sort(), Object.keys(file.below).sort());
+	const title = file.below.title;
+	assert.equal(below.get('title'), `${title.file}:${title.line}`);
+	const own = { id: 'mine', def: { title: 'Mine', icon: 'gauge' }, from: [{ file: desc.file, line: 5 }], below: {}, editor: true, own: true };
+	assert.equal(keysFromBelow(own).size, 0, "the editor's own: everything can go");
+	assert.equal(keysFromBelow({ ...file, below: undefined }).size, 0, 'nothing said, nothing held');
+	assert.equal(keysFromBelow(null).size, 0);
 });
 
 test('a mistake\'s path names the widget and key', () => {

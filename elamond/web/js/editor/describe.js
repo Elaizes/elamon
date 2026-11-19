@@ -15,7 +15,8 @@ import { S, fill } from '../strings.js';
  *
  * @typedef {{ file: string, line?: number | null, nix?: boolean }} Whence
  *
- * @typedef {{ id: string, title?: string, def: Record<string, any>, from?: Whence[], editor?: boolean, own?: boolean }} EditorDashboard
+ * @typedef {{ id: string, title?: string, def: Record<string, any>, from?: Whence[], below?: Record<string, Whence>, editor?: boolean,
+ *   own?: boolean }} EditorDashboard
  *
  * @typedef {{ id: string, name?: string, def: Record<string, any>, from?: Whence[], editor?: boolean, clients?: string[] }} EditorProfile
  *
@@ -240,7 +241,7 @@ export function whichOf(key, v) {
 
 /**
  * Where a dashboard or profile comes from, lowest first: the built-in defaults (no file), a file
- * and line, the Nix store, the editor's own file.
+ * and line, one in the Nix store (as the description marks it, `nix`), the editor's own file.
  * @param {Editor} d @param {{ from?: Whence[] }} entry
  * @returns {{ kind: 'defaults' | 'nix' | 'editor' | 'file', file: string, line: number | null }[]}
  */
@@ -252,7 +253,7 @@ export function origins(d, entry) {
 		const line = typeof w.line === 'number' ? w.line : null;
 		if (!file) return { kind: 'defaults', file, line };
 		if (file === d.file) return { kind: 'editor', file, line };
-		if (w.nix === true || file.startsWith('/nix/store/')) return { kind: 'nix', file, line };
+		if (w.nix === true) return { kind: 'nix', file, line };
 		return { kind: 'file', file, line };
 	});
 }
@@ -265,20 +266,20 @@ export function fromWords(o) {
 }
 
 /**
- * The dashboard keys a file below the editor's sets, which the editor can change but not take out
- * (the files merge key by key). `sure` is false when the editor's file sets the dashboard too: the
- * description doesn't say which of its keys come from below, so each might.
- * @param {Editor} d @param {EditorDashboard | null} entry
- * @returns {{ keys: Set<string>, where: string, sure: boolean }}
+ * The keys of a dashboard a file below the editor's sets, as the description says (`below`), each
+ * with where: the editor can change them, not take them out (the files merge key by key). None for
+ * a dashboard not there yet; a profile has none (a key left out of its write stays as the files say).
+ * @param {EditorDashboard | null} entry @returns {Map<string, string>} key → `file:line`
  */
-export function keysFromBelow(d, entry) {
-	if (!entry || entry.own) return { keys: new Set(), where: '', sure: true };
-	const below = origins(d, entry).filter((o) => o.kind !== 'editor');
-	if (!below.length) return { keys: new Set(), where: '', sure: true };
-	const keys = new Set(Object.keys(entry.def || {}).filter((k) => k !== WIDGETS));
-	const o = below[below.length - 1];
-	const where = o.kind === 'defaults' ? '' : o.line != null ? `${o.file}:${o.line}` : o.file;
-	return { keys, where, sure: !entry.editor };
+export function keysFromBelow(entry) {
+	/** @type {Map<string, string>} */
+	const out = new Map();
+	const below = entry && entry.below && typeof entry.below === 'object' ? entry.below : {};
+	for (const [key, w] of Object.entries(below)) {
+		const file = w && typeof w.file === 'string' ? w.file : '';
+		out.set(key, file && w && typeof w.line === 'number' ? `${file}:${w.line}` : file);
+	}
+	return out;
 }
 
 /**

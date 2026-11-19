@@ -407,7 +407,7 @@ class Editor {
 		clear(el);
 		const keys = this.desc.dashboard.keys.filter((k) => k.kind !== 'widgets');
 		const known = new Set(this.desc.dashboard.keys.map((k) => k.key));
-		const fc = { desc: this.desc, changed: () => { this.renderTitle(); this.changed(false); }, below: keysFromBelow(this.desc, this.isNew ? null : this.entry), mistakes: this.mistakes.dash };
+		const fc = { desc: this.desc, changed: () => { this.renderTitle(); this.changed(false); }, below: keysFromBelow(this.isNew ? null : this.entry), mistakes: this.mistakes.dash };
 		const v = this.dash.value;
 		el.append(
 			h('summary', null, h('h2', { id: 'ed-keys-title' }, S.editor.dashboardKeys)),

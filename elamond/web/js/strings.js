@@ -739,7 +739,6 @@ export const S = {
 		unsetShort: 'Clear',
 		cantUnset: 'A file below the editor\'s sets it: it can be changed, not taken out',
 		fromBelow: 'Set in {0}: it can be changed here, not taken out.',
-		mayBeFromBelow: 'If {0} sets it, it can be changed here, not taken out.',
 		theDefaults: 'the defaults',
 		byDefault: 'By default: {0}',
 		on: 'on',

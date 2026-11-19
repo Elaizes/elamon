@@ -9,9 +9,9 @@ import { isId } from './draft.js';
 
 /**
  * What every field is handed: the description, the mistakes the service found by key, the keys a
- * lower file sets (which can't be taken out), and what to do after a change.
+ * lower file sets with where (they can be changed, not taken out), and what to do after a change.
  * @typedef {{ desc: import('./describe.js').Editor, changed: () => void, mistakes?: Map<string, string[]>,
- *   below?: { keys: Set<string>, where: string, sure: boolean }, addInto?: () => void }} FormCtx
+ *   below?: Map<string, string>, addInto?: () => void }} FormCtx
  */
 
 let seq = 0;
@@ -45,7 +45,7 @@ export function keyField(fc, key, obj) {
 		const id = nextId();
 		const has = Object.prototype.hasOwnProperty.call(obj, name);
 		const value = obj[name];
-		const fromBelow = !!fc.below && fc.below.keys.has(name);
+		const fromBelow = !!fc.below && fc.below.has(name);
 		/** @param {unknown} v */
 		const set = (v) => {
 			if (isEmpty(v) && !key.required && !fromBelow) delete obj[name];
@@ -70,7 +70,7 @@ export function keyField(fc, key, obj) {
 					class: 'quiet ed-unset',
 					title: fromBelow ? S.editor.cantUnset : S.editor.unset,
 					'aria-label': fill(S.editor.unsetKey, label),
-					disabled: fromBelow && fc.below && fc.below.sure,
+					disabled: fromBelow,
 					onclick: () => {
 						delete obj[name];
 						fc.changed();
@@ -87,10 +87,7 @@ export function keyField(fc, key, obj) {
 			.filter(Boolean)
 			.join(' · ');
 		if (hint) el.append(h('p', { class: 'ed-hint muted' }, hint));
-		if (fromBelow && fc.below) {
-			const where = fc.below.where || S.editor.theDefaults;
-			el.append(h('p', { class: 'ed-hint ed-below' }, fill(fc.below.sure ? S.editor.fromBelow : S.editor.mayBeFromBelow, where)));
-		}
+		if (fromBelow && fc.below) el.append(h('p', { class: 'ed-hint ed-below' }, fill(S.editor.fromBelow, fc.below.get(name) || S.editor.theDefaults)));
 		markField(el, fc.mistakes ? fc.mistakes.get(name) || [] : []);
 	};
 	draw();
@@ -113,7 +110,7 @@ export function markField(el, mistakes) {
  */
 export function otherField(fc, name, obj) {
 	const id = nextId();
-	const fromBelow = !!fc.below && fc.below.keys.has(name);
+	const fromBelow = !!fc.below && fc.below.has(name);
 	const el = h(
 		'div',
 		{ class: 'ed-field ed-other', 'data-key': name },
@@ -128,7 +125,7 @@ export function otherField(fc, name, obj) {
 					class: 'quiet ed-unset',
 					title: fromBelow ? S.editor.cantUnset : S.editor.unset,
 					'aria-label': fill(S.editor.unsetKey, name),
-					disabled: fromBelow && fc.below && fc.below.sure,
+					disabled: fromBelow,
 					onclick: () => {
 						delete obj[name];
 						fc.changed();
