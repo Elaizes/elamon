@@ -7,6 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -48,6 +49,35 @@ class ErrorsTest {
 	}
 
 	@Test
+	fun theAdminApisAnswers() {
+		// elamond/fixtures/0.11/admin-save.json: the answers to writing the settings, by case.
+		val dir = File(System.getProperty("elamon.fixtures") ?: error("elamon.fixtures isn't set; run the tests through Gradle"))
+		val cases = Json.parseToJsonElement(File(dir, "0.11/admin-save.json").readText()).jsonObject
+		val kinds = mapOf(
+			"changed_on_disk" to Kind.Conflict,
+			"bad_settings" to Kind.BadRequest,
+			"read_only" to Kind.Forbidden,
+			"writes_off" to Kind.Forbidden,
+			"bad_name" to Kind.BadRequest,
+			"not_allowed" to Kind.NotAllowed,
+			"admin_off" to Kind.Forbidden,
+			"at_computer" to Kind.Forbidden,
+		)
+		for ((name, kind) in kinds) {
+			val case = cases.getValue(name).jsonObject
+			val e = ElamondException.fromResponse(case.getValue("status").jsonPrimitive.int, case.getValue("body").toString())
+			assertEquals(kind, e.kind, name)
+			assertEquals(name, e.code)
+			// What else the answer carries stays with it: the mistakes, the file's hash now.
+			assertEquals<JsonElement?>(case.getValue("body"), e.body, name)
+		}
+		// A read-only file's answer says why in its message; the words are the app's.
+		assertEquals(Message.Res(R.string.err_read_only), messageFor(ElamondException.fromResponse(403, cases.getValue("read_only").jsonObject.getValue("body").toString())))
+		// Plain text, as for a body over the limit: no body to keep.
+		assertEquals(null, ElamondException.fromResponse(413, "too large").body)
+	}
+
+	@Test
 	fun answerKeepsCodeAndStatus() {
 		val e = answer(404, "no_such_process")
 		assertEquals("no_such_process", e.code)
@@ -80,6 +110,15 @@ class ErrorsTest {
 			(400 to "bad_sort") to R.string.err_bad_sort,
 			(404 to "no_such_widget") to R.string.err_no_such_widget,
 			(403 to "confirm_required") to R.string.err_confirm_required,
+			// elamond 0.11: the admin API and the dashboard editor.
+			(403 to "bad_origin") to R.string.err_bad_origin,
+			(403 to "admin_off") to R.string.err_admin_off,
+			(403 to "writes_off") to R.string.err_writes_off,
+			(403 to "read_only") to R.string.err_read_only,
+			(403 to "at_computer") to R.string.err_at_computer,
+			(400 to "bad_name") to R.string.err_bad_name,
+			(409 to "changed_on_disk") to R.string.err_changed_on_disk,
+			(422 to "bad_settings") to R.string.err_bad_settings,
 		)
 		for ((sent, id) in expected) {
 			assertEquals(Message.Res(id), messageFor(answer(sent.first, sent.second)), sent.second)

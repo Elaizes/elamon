@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
@@ -61,7 +62,7 @@ object Project {
 }
 
 /** The help's parts in the order they show. */
-private enum class HelpItem { Intro, Install, Firewall, Pair, Phone, Outside, Events, Guide }
+private enum class HelpItem { Intro, Install, Firewall, Pair, Phone, Outside, Events, Editing, Guide }
 
 private sealed interface Block {
 	/** A paragraph; [args] fill its placeholders. */
@@ -129,6 +130,20 @@ private val EVENTS = listOf(
 	c("elamond notify \"Backup finished\""),
 )
 
+/**
+ * The dashboard editor (elamond 0.11): who has it, how a dashboard is changed, unlocking before saving,
+ * the file the computer writes, Back to the files, and the web page for the rest of the admin panel.
+ */
+private val EDITING = listOf(
+	t(R.string.help_editor_who),
+	t(R.string.help_editor_how),
+	t(R.string.help_editor_save),
+	c("~/.config/elamon/elamond.d/zz-editor.toml"),
+	t(R.string.help_editor_back),
+	t(R.string.help_editor_web),
+	c("https://COMPUTER:$DEFAULT_PORT/"),
+)
+
 private val PAIR = listOf(
 	t(R.string.help_pair_run),
 	c("elamond pair"),
@@ -171,6 +186,7 @@ fun HelpScreen(onBack: () -> Unit) {
 					HelpItem.Phone -> Section(stringResource(R.string.help_phone), Icons.Default.Settings) { Blocks(PHONE) }
 					HelpItem.Outside -> Section(stringResource(R.string.help_outside), ElIcons.Control) { Blocks(OUTSIDE) }
 					HelpItem.Events -> Section(stringResource(R.string.help_events), Icons.Default.Notifications) { Blocks(EVENTS) }
+					HelpItem.Editing -> Section(stringResource(R.string.help_editor), Icons.Default.Edit) { Blocks(EDITING) }
 					HelpItem.Guide -> {
 						Section(stringResource(R.string.help_guide), Icons.Default.Info) {
 							Text(stringResource(R.string.help_guide_body), style = MaterialTheme.typography.bodyMedium)

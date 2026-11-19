@@ -3,7 +3,8 @@
 # elamond/target/release on 127.0.0.1 (the emulator reaches it as 10.0.2.2), installs the debug APK
 # (io.github.elaizes.elamon.debug, beside the real app and never in its place), pairs, walks every
 # screen and the settings' own dashboard with an action's choice, makes the phone a glance one and an
-# admin again with elamond clients role, switches its profile and back, changes the phone's own
+# admin again with elamond clients role, switches its profile and back, makes it an owner to edit
+# the settings' own dashboard in the app (and back to the files) and an admin again, changes the phone's own
 # profile in elamond.d/phones.toml with its screen open, pairs it again (it keeps that profile), and
 # forgets the computer in the app (the computer unpairs it, keeping its table) and pairs once more,
 # given that table by name, and leaves the screenshots in $OUT. The test's own settings are a
@@ -337,6 +338,28 @@ fi
 # and the app's own theme kept across a restart; the Test tab's timeline tells shares of the time.
 flow -e NAME="$NAME" maestro/look.yaml
 (run_elamond values greet) | grep -q 'greet\.word.*hello' || fail "elamond values greet doesn't read the command: $( (run_elamond values greet) )"
+# The dashboard editor (0.11), the computer's to give to the role owner alone: the phone made one,
+# the Test tab edited in the app and saved, found in the editor's file as edited (a gauge between
+# Test load and Rack power), then back to the files; an admin again, no editor in the menu. Not on
+# a real phone, where writing the settings unlocks it instead of asking.
+if [[ "$real_phone" != true ]]; then
+	editor_file=$work/cfg/elamond.d/zz-editor.toml
+	line_of() { grep -n -x -m 1 "$1" "$editor_file" | cut -d: -f1 || true; }
+	(run_elamond clients role all owner)
+	flow -e NAME="$NAME" maestro/editor.yaml
+	[[ -f "$editor_file" ]] || fail "the editor wrote no $editor_file"
+	grep -qx '\[dashboards\.test\]' "$editor_file" || fail "the editor's file has no [dashboards.test]: $(cat "$editor_file")"
+	load=$(line_of 'id = "load"')
+	gauge=$(line_of 'type = "gauge"')
+	power=$(line_of 'id = "power"')
+	[[ -n "$load" && -n "$gauge" && -n "$power" ]] && (( load < gauge && gauge < power )) || fail "the gauge isn't between Test load and Rack power in the editor's file: $(cat "$editor_file")"
+	grep -q "\"what\":\"editor: dashboard test (4 widgets)\"" "$work/data/activity.jsonl" || fail "the activity log has no editor: dashboard test (4 widgets)"
+	flow maestro/editor-revert.yaml
+	! grep -qx '\[dashboards\.test\]' "$editor_file" || fail "Back to the files left [dashboards.test] in the editor's file: $(cat "$editor_file")"
+	grep -q "\"what\":\"editor: dashboard test back to the files\"" "$work/data/activity.jsonl" || fail "the activity log has no editor: dashboard test back to the files"
+	(run_elamond clients role all admin)
+	flow maestro/editor-admin.yaml
+fi
 # The flow leaves the tab: the service's journalctl ends with the last stream that showed it.
 for _ in $(seq 20); do pgrep -P "$service" -x journalctl > /dev/null || break; sleep 0.5; done
 ! pgrep -P "$service" -x journalctl > /dev/null || fail "the service's journalctl still runs with nobody looking at the journal"

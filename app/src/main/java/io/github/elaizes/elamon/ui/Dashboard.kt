@@ -78,6 +78,8 @@ class DashScope(
 	val sorts: Map<String, String>,
 	/** The logs filtered otherwise than by their own level, as the stream was asked, by the log's id. */
 	val logs: Map<String, LogFilter>,
+	/** The points of a graph or spark, by its id: the stream's, or (the editor's preview) the preview's own. */
+	val hist: (String) -> Hist? = vm::hist,
 ) {
 	fun state(w: Widget): WidgetState? = states[w.id]
 }
@@ -264,7 +266,7 @@ private fun ValueTile(scope: DashScope, w: Widget, modifier: Modifier) {
 		val color = levelColor(s?.level, s?.blend, figureGood(w.format))
 		Figure(w, s, color ?: MaterialTheme.colorScheme.onSurface, large = true)
 		if (w.spark == true) {
-			val h = scope.vm.hist(w.id)
+			val h = scope.hist(w.id)
 			Sparkline(
 				h?.points(0) ?: NoPoints(scope.ui.service.historySeconds * MS_PER_SECOND),
 				color ?: accent,
@@ -388,7 +390,7 @@ private fun GraphWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val s = scope.state(w)
 	val accent = accent(w.color)
 	val series = w.series?.takeIf { it.isNotEmpty() } ?: listOf(Series())
-	val h: Hist? = scope.vm.hist(w.id)
+	val h: Hist? = scope.hist(w.id)
 	val window = (w.range?.takeIf { it > 0 } ?: scope.ui.service.historySeconds) * MS_PER_SECOND
 	val colors = series.map { accent(it.color ?: w.color) }
 	val now = s?.numbers.orEmpty()

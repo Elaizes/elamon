@@ -27,6 +27,7 @@ import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.serializer
@@ -41,6 +42,11 @@ class ElamondException(
 	val status: Int = 0,
 	/** What the service said beside its code: the parameter of a `bad_param`, what `failed`. */
 	val detail: String? = null,
+	/**
+	 * The error answer whole, where it was a JSON object: what else it carries beside its code, like
+	 * the `mistakes` of a `bad_settings` or the `hash` of a `changed_on_disk` (elamond 0.11).
+	 */
+	val body: JsonObject? = null,
 ) : IOException(message, cause) {
 	enum class Kind {
 		Unreachable, Unauthorized, WrongCode, NoPairing, CertificateChanged, NotElamond, Protocol, ControlDisabled, NotPermitted,
@@ -69,12 +75,14 @@ class ElamondException(
 				status == 403 -> Kind.Forbidden
 				status == 404 -> Kind.NotFound
 				status == 400 -> Kind.BadRequest
+				// Settings that wouldn't read with a change (bad_settings): the request was read, and refused.
+				status == 422 -> Kind.BadRequest
 				error == "failed" || status >= 500 -> Kind.Failed
 				else -> Kind.Protocol
 			}
 			// A failed command carries the computer's own words; anything else is known by its code.
 			val text = if (error == "failed") message else error ?: "HTTP $status"
-			return ElamondException(kind, text, code = error, status = status, detail = message)
+			return ElamondException(kind, text, code = error, status = status, detail = message, body = obj)
 		}
 	}
 }

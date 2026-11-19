@@ -1,0 +1,19 @@
+# The role admin again (run.sh: elamond clients role all admin), the computer's screen open: the
+# computer offers the dashboard editor to the role owner alone, so its menu has none of it.
+appId: io.github.elaizes.elamon.debug
+---
+- extendedWaitUntil:
+    visible: "This phone's role: Admin.*"
+    timeout: 30000
+- tapOn: "More"
+- extendedWaitUntil:
+    visible: "Settings"
+    timeout: 10000
+- assertNotVisible: "Edit dashboard"
+- assertNotVisible: "New dashboard"
+- assertNotVisible: "Edit tabs"
+- takeScreenshot: 88-admin-no-editor
+- back
+- extendedWaitUntil:
+    notVisible: "Forget computer"
+    timeout: 10000
