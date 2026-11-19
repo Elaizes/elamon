@@ -302,7 +302,7 @@ const admin = {
 	'POST preview': () => fx('0.11/admin-preview.json').response,
 	'GET activity': () => ({ entries: [] }),
 	'GET events': () => ({ events: [] }),
-	'GET values': () => ({ sources: [] }),
+	'GET values': () => ({ sources: [], values: [] }),
 };
 
 // The dashboard editor, kept as it is written: the description changes with each write, a `base` that

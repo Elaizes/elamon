@@ -161,22 +161,6 @@ export function plain(v) {
 	return String(v);
 }
 
-/**
- * A table of objects whose keys aren't known ahead: `first` keys first, then the rest as they come.
- * @param {Record<string, unknown>[]} items @param {string[]} [first]
- */
-export function objectsTable(items, first = []) {
-	/** @type {string[]} */
-	const keys = [];
-	for (const k of first) if (items.some((i) => i && k in i)) keys.push(k);
-	for (const i of items) for (const k of Object.keys(i || {})) if (!keys.includes(k)) keys.push(k);
-	return table(
-		keys,
-		items.map((i) => keys.map((k) => plain(i ? i[k] : null))),
-		'adm-objects',
-	);
-}
-
 /** A file and line that opens the files editor there. @param {string} file @param {number | null | undefined} line */
 export function whereLink(file, line) {
 	return h('a', { class: 'mono adm-where', href: fileHref(file, line ?? null) }, line ? `${file}:${line}` : file);

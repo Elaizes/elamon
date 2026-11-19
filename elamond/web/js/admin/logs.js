@@ -2,9 +2,12 @@
 // events (`admin/events`), the sources and their values (`admin/values`, `?source=`).
 import { h, append } from '../dom.js';
 import { S, fill } from '../strings.js';
-import { loadInto, head, button, card, chip, table, objectsTable, plain } from './ui.js';
+import { loadInto, head, button, card, chip, table, plain } from './ui.js';
 import { dateTimeMs } from './time.js';
 import { LIST_LIMIT } from './consts.js';
+
+/** The source the monitors are asked for by (`elamond values displays`), where the computer has them. */
+const DISPLAYS = 'displays';
 
 /** @type {import('./index.js').Mount} */
 export function mountActivity(main, env) {
@@ -62,43 +65,33 @@ export function mountEvents(main, env) {
 export function mountSources(main, env, rest) {
 	const T = S.admin.sources;
 	const id = rest.length ? rest.join('/') : null;
+	const link = (/** @type {unknown} */ sid) => h('a', { class: 'mono', href: `#/admin/sources/${encodeURIComponent(String(sid))}` }, plain(sid));
 	if (!id) {
 		loadInto(main, env, () => env.call('values'), (value, reload) => {
-			const sources = /** @type {any[]} */ (value?.sources || []);
+			const sources = /** @type {{ id: string, kind: string }[]} */ (Array.isArray(value?.sources) ? value.sources : []);
+			const values = /** @type {{ address: string, now?: string | null }[]} */ (Array.isArray(value?.values) ? value.values : []);
+			// The monitors are asked for as a source too, where the computer has them.
+			const rows = env.ctx.has('displays') && !sources.some((s) => s.id === DISPLAYS) ? [...sources, { id: DISPLAYS, kind: DISPLAYS }] : sources;
 			main.append(
 				head(S.admin.nav.sources, button(S.admin.refresh, reload)),
 				h('p', { class: 'muted' }, T.intro),
-				sources.length
-					? table(
-							[T.id, T.kind],
-							sources.map((s) => [h('a', { class: 'mono', href: `#/admin/sources/${encodeURIComponent(String(s.id))}` }, plain(s.id)), plain(s.kind)]),
-						)
-					: h('p', { class: 'note' }, T.none),
+				rows.length ? table([T.id, T.kind], rows.map((s) => [link(s.id), plain(s.kind)])) : h('p', { class: 'note' }, T.none),
+				card(T.values, values.length ? table([T.address, T.now], values.map((v) => [h('span', { class: 'mono' }, plain(v.address)), plain(v.now)]), 'adm-log') : h('p', { class: 'muted' }, T.noValues)),
 			);
 		});
 		return () => {};
 	}
 	loadInto(main, env, () => env.call(`values?source=${encodeURIComponent(id)}`), (value, reload) => {
 		const v = value || {};
+		const lines = Array.isArray(v.lines) ? v.lines.map(plain) : [];
 		append(
 			main,
 			head(fill(T.title, plain(v.id ?? id)), h('a', { class: 'button quiet', href: '#/admin/sources' }, T.all), button(S.admin.refresh, reload)),
 			h('p', { class: 'muted' }, fill(T.kindIs, plain(v.kind))),
-			v.error ? h('p', { class: 'note critical' }, plain(v.error)) : null,
-			card(T.values, list(v.values, ['address', 'text'], T.noValues)),
-			v.commands != null ? card(T.commands, list(v.commands, ['command', 'name'], T.noCommands)) : null,
-			v.settings != null ? card(T.settings, list(v.settings, ['variable', 'name', 'value'], T.noSettings)) : null,
+			v.error ? h('p', { class: 'note critical', role: 'alert' }, fill(T.failed, plain(v.error))) : null,
+			// As `elamond values <id>` prints it: its own columns, so as it is, in monospace.
+			card(fill(T.printed, plain(v.id ?? id)), lines.length ? h('pre', { class: 'adm-pre mono' }, lines.join('\n')) : h('p', { class: 'muted' }, T.noLines)),
 		);
 	});
 	return () => {};
-}
-
-/**
- * A list the service gives whose items' shape isn't fixed: objects as a table, anything else a line each.
- * @param {unknown} items @param {string[]} first @param {string} none
- */
-function list(items, first, none) {
-	if (!Array.isArray(items) || !items.length) return h('p', { class: 'muted' }, none);
-	if (items.every((i) => i && typeof i === 'object' && !Array.isArray(i))) return objectsTable(items, first);
-	return h('ul', { class: 'adm-plain-list mono' }, ...items.map((i) => h('li', null, plain(i))));
 }

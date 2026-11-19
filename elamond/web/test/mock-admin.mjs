@@ -237,22 +237,33 @@ export function adminPanel(method, sub, b, q) {
 		case 'GET events':
 			return ok({ events: readFileSync(join(fixtures, '0.9/events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).reverse() });
 		case 'GET values': {
+			// As the service answers: the sources and the values now; with `source`, what
+			// `elamond values <id>` prints, line by line, or why it couldn't.
 			const source = q.get('source');
-			if (!source) return ok({ sources: [{ id: 'eco', kind: 'nut' }, { id: 'app', kind: 'http' }] });
+			if (!source)
+				return ok({
+					sources: [{ id: 'app', kind: 'http' }, { id: 'eco', kind: 'nut' }],
+					values: [
+						{ address: 'cpu.usage', now: '12 %', unit: '%', format: 'percent' },
+						{ address: 'ups.eco.battery.charge', now: '100 %', unit: '%', format: 'percent' },
+						{ address: 'ups.eco.input.voltage', now: '230 V', unit: 'V', format: 'number' },
+					],
+				});
 			if (source === 'eco')
 				return ok({
 					id: 'eco',
 					kind: 'nut',
-					values: [
-						{ address: 'ups.eco.battery.charge', text: '100 %', role: 'glance' },
-						{ address: 'ups.eco.input.voltage', text: '230 V', role: 'glance' },
-						{ address: 'ups.eco.ups.status', text: 'OL', role: 'monitor' },
+					lines: [
+						'ups.eco (nut, eco@192.0.2.40:3493)',
+						'  battery.charge      100 %     ups.eco.battery.charge',
+						'  input.voltage       230 V     ups.eco.input.voltage',
+						'  ups.status          OL        ups.eco.ups.status',
+						'commands: outlet.2.load.off (allowed), beeper.disable',
 					],
 					error: null,
-					commands: [{ command: 'outlet.2.load.off', allowed: true }, { command: 'beeper.disable', allowed: false }],
-					settings: [{ variable: 'battery.charge.max', value: '90', range: '50-100', allowed: true }],
 				});
-			if (source === 'app') return ok({ id: 'app', kind: 'http', values: [], error: 'connection refused (192.0.2.40:8080)', commands: [], settings: [] });
+			if (source === 'app') return ok({ id: 'app', kind: 'http', lines: [], error: 'connection refused (192.0.2.40:8080)' });
+			if (source === 'displays') return ok({ id: 'displays', kind: 'displays', lines: ['DP-1  2560x1440 @ 180 Hz  on', 'HDMI-A-1  1920x1080 @ 60 Hz  off'], error: null });
 			return no(404, 'not_found');
 		}
 	}
