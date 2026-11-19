@@ -20,9 +20,10 @@
  *   you: { id: string, role: string }
  * }} AdminState
  *
- * @typedef {{ files: string[], settings: Record<string, unknown>, whence: Record<string, [number, number]>,
+ * `settings` is null while the files don't parse; `mistakes` then says why.
+ * @typedef {{ files: string[], settings: Record<string, unknown> | null, whence: Record<string, [number, number]>,
  *   changes: { kind: 'added' | 'changed' | 'removed' | string, path: string, file?: string | null, line?: number | null }[],
- *   warnings: string[] }} AdminSettings
+ *   warnings: string[], mistakes?: Mistake[] }} AdminSettings
  *
  * @typedef {{ id: string, name: string, role: string, profile: string | null, own_profile: string | null, kind: 'web' | 'android' | string,
  *   app: string | null, address: string | null, seen: number | null, created: number | null, from: string | null, added: string[], you: boolean }} Client

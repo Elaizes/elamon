@@ -167,6 +167,30 @@ export function whereLink(file, line) {
 }
 
 /**
+ * The settings' mistakes, each its file:line, the path it names and what is wrong, opening the
+ * files editor at that line. @param {import('./types.js').Mistake[] | null | undefined} mistakes
+ */
+export function mistakeLinks(mistakes) {
+	return h(
+		'ul',
+		{ class: 'adm-mistakes' },
+		...(mistakes || []).map((m) =>
+			h(
+				'li',
+				null,
+				h(
+					'a',
+					{ class: 'adm-mistake', href: fileHref(m.file, m.line ?? null) },
+					h('span', { class: 'mono adm-where' }, m.line ? `${m.file}:${m.line}` : m.file),
+					m.path ? h('span', { class: 'mono adm-path' }, m.path) : null,
+					h('span', { class: 'adm-msg' }, m.message),
+				),
+			),
+		),
+	);
+}
+
+/**
  * A diff (the service's `diff` lines): each line with its numbers on disk and in the draft, added
  * and taken away coloured. `onLine`, when given, makes a line with a number in the draft go there.
  * @param {string[]} lines @param {((line: number) => void) | null} [onLine]

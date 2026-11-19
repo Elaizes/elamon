@@ -357,6 +357,7 @@ export const S = {
 			},
 			warnings: 'Warnings (elamond check)',
 			noWarnings: 'None.',
+			unsound: "The settings files don't parse: the service runs with those it read before, with control off, until these are put right. Choose one to open its file there.",
 		},
 		clients: {
 			count: '{0} paired clients.',

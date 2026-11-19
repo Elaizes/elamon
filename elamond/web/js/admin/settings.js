@@ -3,7 +3,7 @@
 // defaults; the warnings of `elamond check`.
 import { h, clear } from '../dom.js';
 import { S, fill } from '../strings.js';
-import { loadInto, head, button, card, chip, whereLink, debounce } from './ui.js';
+import { loadInto, head, button, card, chip, whereLink, mistakeLinks, debounce } from './ui.js';
 import { buildTree, filterTree, countNodes, countHits } from './tree.js';
 import { FILTER_DEBOUNCE_MS } from './consts.js';
 
@@ -18,8 +18,10 @@ let lastQuery = '';
 export function mountSettings(main, env) {
 	/** @type {(() => void) & { cancel: () => void } | null} */
 	let later = null;
-	loadInto(main, env, () => env.call('settings'), (st, reload) => {
-		later = draw(main, /** @type {import('./types.js').AdminSettings} */ (st), reload);
+	loadInto(main, env, () => env.call('settings'), (value, reload) => {
+		const st = /** @type {import('./types.js').AdminSettings} */ (value);
+		if (st.settings) later = draw(main, st, reload);
+		else broken(main, st, reload);
 	});
 	return () => later?.cancel();
 }
@@ -57,6 +59,21 @@ function draw(main, st, reload) {
 		warningsCard(st.warnings),
 	);
 	return later;
+}
+
+/**
+ * While the files don't parse there are no settings to show: why, each mistake opening its file
+ * at its line. @param {HTMLElement} main @param {import('./types.js').AdminSettings} st @param {() => void} reload
+ */
+function broken(main, st, reload) {
+	const T = S.admin.settings;
+	const mistakes = Array.isArray(st.mistakes) ? st.mistakes : [];
+	main.append(
+		head(S.admin.nav.settings, button(S.admin.refresh, reload)),
+		h('div', { class: 'note critical', role: 'alert' }, h('p', null, T.unsound), mistakes.length ? mistakeLinks(mistakes) : null),
+		filesLine(st.files),
+		warningsCard(st.warnings),
+	);
 }
 
 /** The files the settings were read from, in order. @param {string[]} files */

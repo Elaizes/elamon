@@ -18,6 +18,8 @@ const ok = (body) => ({ status: 200, body });
 const no = (status, error, more = {}) => ({ status, body: { error, ...more } });
 const ROLES = ['glance', 'monitor', 'operate', 'admin', 'owner'];
 const started = now() - 3 * 3600 - 17 * 60;
+/** `--settings-broken`: the settings files don't parse, as the service then answers `settings`. */
+const BROKEN = process.argv.includes('--settings-broken');
 
 const state = fx('0.11/admin-state.json');
 state.service.started = started;
@@ -171,6 +173,7 @@ export function adminPanel(method, sub, b, q) {
 			state.control = { enabled: false, off_reason: 'held_off', held_off_since: now() };
 			return ok({ enabled: false, off_reason: 'held_off' });
 		case 'GET settings':
+			if (BROKEN) return ok({ files: ['elamond.toml', 'elamond.d/mine.toml'], settings: null, whence: {}, changes: [], warnings: [], mistakes: check.broken.response.mistakes });
 			return ok(fx('0.11/admin-settings.json'));
 		case 'GET file': {
 			const name = q.get('name');

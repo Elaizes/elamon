@@ -7,6 +7,7 @@
 //   --rich         more dashboards: the fixtures' UPS, sources and journal, events and monitors, with
 //                  graphs' histories, a timeline's long range, older journal lines and a cover
 //   --control-off  control held off (`elamond control off`): action widgets drawn disabled
+//   --settings-broken  the settings files don't parse: the admin panel's settings are its mistakes
 //   --pair-wait=MS the person at elamond pair answers after MS (default 1500)
 //   --ui-bump=S    the settings change S seconds after start: open streams get a `ui` line, `ui` a new version
 import { createServer } from 'node:http';
