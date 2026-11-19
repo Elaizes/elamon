@@ -234,6 +234,42 @@ class EditorTest {
 	}
 
 	@Test
+	fun aBrokenEntryCostsItselfAlone() {
+		val raw = fixture("editor")
+		val whole = readEditor(raw)
+		assertEquals(description(raw), whole)
+		// A type, a value, a dashboard and a template the app can't read, a record broken, and a part
+		// of the wrong shape: each left out, the rest as it came.
+		fun plus(key: String, extra: JsonElement) = key to JsonArray(raw.getValue(key).jsonArray + extra)
+		val broken = JsonObject(
+			raw + listOf(
+				plus("types", obj("""{"label":"No type"}""")),
+				plus("values", obj("""{"now":"12 %"}""")),
+				plus("dashboards", obj("""{"id":"odd","from":"elamond.toml"}""")),
+				"templates" to JsonObject(raw.getValue("templates").jsonObject + ("odd" to JsonPrimitive("not a table"))),
+				"records" to JsonObject(raw.getValue("records").jsonObject + ("odd" to JsonPrimitive(3))),
+				"writable" to obj("""{"yes":true}"""),
+			),
+		)
+		// Read whole, it doesn't.
+		assertTrue(runCatching { ProtocolJson.decodeFromJsonElement(EditorDescription.serializer(), broken) }.isFailure)
+		val d = readEditor(broken)
+		assertEquals(whole.types, d.types)
+		assertEquals(whole.values, d.values)
+		assertEquals(whole.dashboards, d.dashboards)
+		assertEquals(whole.templates, d.templates)
+		assertEquals(whole.records, d.records)
+		assertEquals(whole.profiles, d.profiles)
+		assertEquals(whole.file, d.file)
+		// The part that didn't read: as if it weren't sent.
+		assertTrue(d.writable)
+		// A key of a dashboard that doesn't read: that part gone, not the description.
+		val keys = JsonObject(raw + ("dashboard" to obj("""{"keys":"not a list"}""")))
+		assertEquals(EditorDashboardKeys(), readEditor(keys).dashboard)
+		assertEquals(whole.common, readEditor(keys).common)
+	}
+
+	@Test
 	fun addingMovingAndWidth() {
 		val d = description()
 		var draft = obj("""{"title":"Mine","widgets":[{"type":"value","label":"Uptime","value":"system.uptime"}]}""")

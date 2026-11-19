@@ -1,5 +1,7 @@
 package io.github.elaizes.elamon.data
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
@@ -483,8 +485,34 @@ fun previewBody(dashboards: Map<String, JsonObject>, profiles: Map<String, JsonO
 	put("widgets", WIDGET_TYPES.joinToString(","))
 }
 
-/** The service's own description of what the editor may offer. */
-suspend fun ElamondClient.editor(): EditorDescription = get(EDITOR_PATH)
+/** The service's own description of what the editor may offer ([readEditor]). */
+suspend fun ElamondClient.editor(): EditorDescription {
+	val raw = get<JsonObject>(EDITOR_PATH)
+	return withContext(Dispatchers.Default) { readEditor(raw) }
+}
+
+/**
+ * The editor's description as the app reads it: whole, where it reads whole. Where it doesn't (an
+ * entry a newer service sends that the app can't read, or a broken one), what does read is kept: of
+ * each list or table of it, the entries that read alone, a type, a value or a dashboard that doesn't
+ * left out; of the rest, each part that reads. The editor opens with what there is.
+ */
+fun readEditor(raw: JsonObject): EditorDescription {
+	fun read(o: JsonObject): EditorDescription? = runCatching { ProtocolJson.decodeFromJsonElement(EditorDescription.serializer(), o) }.getOrNull()
+	read(raw)?.let { return it }
+	val kept = raw.entries.mapNotNull { (k, v) ->
+		val alone = { x: JsonElement -> JsonObject(mapOf(k to x)) }
+		val left = when {
+			read(alone(v)) != null -> v
+			v is JsonArray -> JsonArray(v.filter { read(alone(JsonArray(listOf(it)))) != null })
+			v is JsonObject -> JsonObject(v.filter { (id, x) -> read(alone(JsonObject(mapOf(id to x)))) != null })
+			else -> null
+		}
+		// What still doesn't read (not a list nor a table where one goes) is as if it weren't sent.
+		left?.takeIf { read(alone(it)) != null }?.let { k to it }
+	}.toMap()
+	return decodeChecked(EditorDescription.serializer(), JsonObject(kept).toString())
+}
 
 /** A write of the editor: [body] to [path]; its answer, or what refused it thrown, its mistakes and hash in its [ElamondException.body]. */
 suspend fun ElamondClient.editorWrite(path: String, body: JsonObject): EditorSaved =
