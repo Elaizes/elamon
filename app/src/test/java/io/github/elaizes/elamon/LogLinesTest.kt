@@ -105,6 +105,19 @@ class LogLinesTest {
 	}
 
 	@Test
+	fun noLinesIsSaidOnlyOnceNoneAreOnTheirWay() {
+		// A108: an empty list of events showed its spinner and "No lines yet" together.
+		val reset = LogLines().take(WidgetState(lines = emptyList(), reset = true), keep = 5)
+		assertTrue(reset.saysEmpty)
+		val asking = reset.asking()
+		assertFalse(asking.saysEmpty)
+		// None older either: now it says so; or the page failed, and it says that too.
+		assertTrue(asking.older(LogPage("w", emptyList(), before = null)).saysEmpty)
+		assertTrue(asking.failed().saysEmpty)
+		assertFalse(reset.take(state(1L..1L), keep = 5).saysEmpty)
+	}
+
+	@Test
 	fun theStartOfTheJournalHidesTheButton() {
 		val end = LogLines().take(state(10L..11L, reset = true), keep = 5).older(LogPage("w", lines(1L..2L), before = null))
 		assertTrue(end.atStart)

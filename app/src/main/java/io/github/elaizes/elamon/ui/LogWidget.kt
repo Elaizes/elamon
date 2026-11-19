@@ -191,7 +191,8 @@ private fun LogList(scope: DashScope, w: Widget, log: LogLines) {
 					}
 				}
 			}
-			if (log.items.isEmpty()) {
+			// While an older page is on its way, its spinner alone says so: lines may yet come.
+			if (log.saysEmpty) {
 				item(key = EMPTY) { Text(stringResource(R.string.log_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 			}
 			items(log.items, key = { it.key }) { item ->
