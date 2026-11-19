@@ -1,0 +1,8 @@
+{
+  "done": { "status": 200, "body": { "ok": true, "output": "done" } },
+  "confirm_required": { "status": 403, "body": { "error": "confirm_required", "message": "DP-1" } },
+  "not_applied": { "status": 502, "body": { "error": "failed", "message": "not_applied" } },
+  "waiting_for_a_screen": { "status": 502, "body": { "error": "failed", "message": "waiting_for_a_screen" } },
+  "gone": { "status": 404, "body": { "error": "no_such_action" } },
+  "not_allowed": { "status": 403, "body": { "error": "not_allowed" } }
+}

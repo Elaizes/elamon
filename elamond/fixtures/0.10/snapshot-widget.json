@@ -1,0 +1,9 @@
+{
+  "widgets": {
+    "phone/battery": { "v": 80.0, "level": "normal" },
+    "phone/temp": { "v": 55.5, "level": "warning", "blend": 0.122 },
+    "phone/monitors": { "text": "2 connected · 1 on", "level": "normal" }
+  },
+  "t": 1700000000123,
+  "dashboard": "phone"
+}

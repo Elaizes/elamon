@@ -205,6 +205,7 @@ The default is what a key left out is; the starter file writes most of them out.
 | `templates` | table of [templates](#templates) | | |
 | `sources` | table of [sources](#sources) | | UPSes and power stations; what commands print, web services answer and files hold |
 | `history` | [table](#the-long-history) | | how long the hourly history is kept |
+| `displays` | [table](#monitors) | | the monitors' actions under Hyprland |
 | `events` | [table](#events-and-notifications) | events.toml's | how events are kept and shown, `elamond notify`, and what a rule or a target leaves out |
 | `rules` | table of [rules](#rules) | | what makes an event |
 | `notify` | table of [targets](#targets-ntfy) | | the ntfy topics events are sent on to |
@@ -697,6 +698,39 @@ A source's actions run one at a time, each answered once the station says it did
 25 seconds at most: an upsd that can't say whether the station did it counts as a failure. The
 activity log has them as `nut eco outlet.2.load.off` and `nut eco experimental.battery.charge.max 90`.
 
+### Monitors
+
+Under Hyprland with Lua settings, which the service finds by itself with `hyprctl` (also as a user
+unit outside the session), each monitor Hyprland shows has three actions of kind `display`, named by
+its output: `display.output.<name>` turns it on or off, `display.dpms.<name>` its picture (DPMS),
+each with one parameter `state`, `on` or `off`; and `display.brightness.<name>` sets its brightness,
+`level` in percent, where it can be read: a laptop's panel through logind (no root needed), an
+external monitor through DDC/CI with the system's `ddcutil`, which needs the user in the `i2c`
+group (the guide says how) and is read only while the monitor shows a picture. Without `hyprctl`,
+a running Hyprland or Lua settings there are none, and `elamond check` says which is missing.
+
+Each `on`/`off` asks before it runs; turning off, or putting to sleep, the one monitor still showing
+a picture has its name typed in on the phone, whatever `confirm_actions`: the service decides
+that as the action comes. A monitor turned on comes back with the mode, position and scale it had,
+which Hyprland keeps for it; a reload of Hyprland puts every monitor back as its own settings say.
+The standard Control has them as the *Monitors* group under *Displays*; `elamond values displays`
+shows what the service sees.
+
+`[displays]`:
+
+| key | type | default | |
+|---|---|---|---|
+| `role` | `operate` \| `admin` | `operate` | the least role that runs them |
+| `every` | integer, 1–60 | 2 | seconds between Hyprland's word on the monitors while a phone shows them; never read without one |
+| `wait` | integer, 1–30 | 5 | seconds an action waits for Hyprland to show it done |
+| `headless` | bool | `false` | show and act on outputs without a screen (a stream's) too; they never count as one showing a picture |
+| `panel_min` | integer, 0–100 | 5 | the least brightness a laptop's panel is set to, in percent |
+| `brightness_step` | integer, 1–50 | 5 | a brightness slider's step, in percent |
+| `ddc_every` | integer, 10–3600 | 60 | seconds between readings of an external monitor's brightness while a phone shows it |
+
+Settings from before 0.10, without `[displays]`, get these. The activity log has them as
+`display output DP-1 off`, `display dpms DP-1 on` and `display brightness eDP-1 40 %`.
+
 ## Profiles
 
 How a client looks and behaves. The app saves none of this: it takes its profile from the computer
@@ -730,7 +764,7 @@ The part every client reads:
 | `fahrenheit` | bool | `false` | temperatures in °F: the service sends them so |
 | `network_bits` | bool | `false` | network rates in bits per second: the service sends them so |
 | `confirm_actions` | bool | `true` | ask before actions that ask (`confirm`); off, only unlocking still asks |
-| `unlock.for` | list of kinds | `["power", "nut", "signal", "actions", "units"]` | action kinds the client unlocks the phone for first: `power`, `nut` (a station's), `signal`, `actions`, `units`, `profile`, `media`; settings written before 0.7 list theirs without `nut`, which a station's actions then don't unlock for until it is added |
+| `unlock.for` | list of kinds | `["power", "nut", "signal", "actions", "units"]` | action kinds the client unlocks the phone for first: `power`, `nut` (a station's), `signal`, `actions`, `units`, `display` (a monitor's), `profile`, `media`; settings written before 0.7 list theirs without `nut`, which a station's actions then don't unlock for until it is added |
 | `unlock.grace` | `every_time` \| `1m` \| `5m` | `every_time` | how long an unlock covers later actions of its kind or a lesser one |
 | `dashboards` | list of dashboard ids | `["overview", "processes", "sensors", "control"]` | the client's tabs, in order; those the client's role can't see are left out |
 | `header` | dashboard id | `header` | widgets shown as small chips under the computer's name on every tab; `""` for none |
@@ -743,8 +777,12 @@ The part every client reads:
 | `blur` | bool | `true` | frosted-glass bars and sheets (Android 12+) |
 | `haptics` | bool | `true` | |
 | `keep_screen_on` | bool | `false` | while a computer's screen is open |
+| `widget` | dashboard id | `""` | what the app's home-screen widget shows: the dashboard's values, gauges, meters, statuses, lists and texts, groups opened out; `""` for nothing, and the widget says to set this |
+| `widget_minutes` | integer, 15–1440 | 30 | how often the app reads the widget's dashboard in the background (Android allows no less than 15); a tap on the widget reads it at once |
+| `tiles` | dashboard id | `""` | the app's four Quick Settings tiles: the dashboard's first four `button`s and `toggle`s, in order, each named and drawn as the widget or its action; a tile with none says so |
+| `card` | dashboard id | `""` | what the computer's card on the app's home screen shows: its values, gauges and meters (a `value` with `spark`, as a small graph) and its buttons and toggles as quick actions; `""`, the first figures of the first tab |
 
-`[profiles.<id>.web]` is for the web page (Elamon 0.8) and takes no keys yet.
+`[profiles.<id>.web]` is for the web page and takes no keys yet.
 
 A `use` chain is followed to its end (a loop is a mistake); `android` and `web` are inherited key by
 key as well. A profile that names a dashboard that doesn't exist is a mistake.
@@ -1022,6 +1060,8 @@ units and formats.
 | `fans.summary` | | `text` | `2 fans · 2400 RPM` (the fastest), `Fans stopped`, or `5 sensors` without fans |
 | `net.up_names` | | `text` | the interfaces that are up, but virtual ones, joined by ` · ` |
 | `displays.summary` | | `text` | `2 connected · 1 on` |
+| `display.<key>.output`, `.dpms` | | `text` | `on` or `off`: the monitor (`key` the connector's: `dp_1`, `edp_1`) as Hyprland has it, its picture only while it is on; where the service acts on monitors (role `monitor`) |
+| `display.<key>.brightness` | % | `percent` | where it can be read ([monitors](#monitors)) |
 
 With `fahrenheit` in the client's profile, temperatures come in °F; with `network_bits`, network
 rates in bit/s.
@@ -1117,7 +1157,7 @@ Lists of things, for `table` and `for_each`, each item with a `key` and fields:
 | `disks` | glance | `device`, `mount`, `fs`, `used`, `available`, `total`, `percent`, `removable` |
 | `disk_io` | glance | `name`, `model`, `read`, `write` |
 | `net` | glance | `name`, `kind` (`wired`, `wireless`, `vpn`, `virtual`), `up`, `addrs`, `rx`, `tx`, `rx_total`, `tx_total`, `speed` |
-| `displays` | monitor | `name` (vendor and model, or the connector), `state` (`On`, `Off`, `Standby`, `Not in use`, `Disconnected`), `connector`, `gpu`, `connected`, `active`, `dpms`, `internal`, `vendor`, `model`, `year`, `size` (`15.6″ · 34 × 19 cm`), `mode` (`1920 × 1080 @ 144 Hz`), `preferred`, `max_refresh`, `position` (`1920, 0`) |
+| `displays` | monitor | `name` (vendor and model, or the connector), `state` (`On`, `Off`, `Standby`, `Not in use`, `Disconnected`), `connector`, `gpu`, `connected`, `active`, `dpms`, `internal`, `vendor`, `model`, `year`, `size` (`15.6″ · 34 × 19 cm`), `mode` (`1920 × 1080 @ 144 Hz`), `preferred`, `max_refresh`, `position` (`1920, 0`); where the service acts on monitors (Hyprland), also `enabled`, `headless` (an output without a screen, with `[displays] headless`), `scale`, `brightness` (%), and `state` as Hyprland has it |
 | `links` | monitor | `id`, `name`, `url`, `unit`, `scope`, `port`, `up`, `local_only`, `unit_state` |
 | `activity` | monitor | `t` (ms), `phone`, `what`, `result`, `message` |
 | `actions` | operate | the actions the settings add (not the built-in ones) that the role may run: `key` (the id), `name`, `icon` |

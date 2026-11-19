@@ -1,0 +1,95 @@
+# The settings of fixtures/0.10: monitors under Hyprland, and the dashboards an Android profile shows
+# outside the app (its home-screen widget, its Quick Settings tiles, the computer's card).
+#
+# What Hyprland says, in the tests (`displays_seen` in src/fixtures.rs):
+#   eDP-1   the laptop's panel, disabled; its backlight at 48000 of 96000 (50 %)
+#   DP-1    on, its picture on; DDC on i2c-14 at 60 of 100: no other screen shows a picture, so
+#           turning it off, or its picture, asks for "DP-1" to be typed
+#   stream  an output without a screen (a stream's): left out, as `headless = false` says
+# DRM tells of eDP-1 and DP-1 as in the 0.6 fixture's sample.
+
+schema = 3
+control = true
+
+[displays]
+role = "operate"
+every = 2
+wait = 5
+headless = false
+panel_min = 5
+brightness_step = 5
+ddc_every = 60
+
+[actions.mode]
+name = "Mode"
+command = ["mode", "{mode}"]
+params.mode = { choices = ["server", "desktop"] }
+icon = "leaf"
+
+[profiles.owner]
+dashboards = ["control"]
+header = ""
+unlock = { for = ["power", "actions"], grace = "every_time" }
+
+[profiles.owner.android]
+widget = "phone"
+widget_minutes = 30
+tiles = "tiles"
+card = "card"
+
+[dashboards.control]
+title = "Control"
+icon = "control"
+
+[[dashboards.control.widgets]]
+id = "displays"
+type = "table"
+source = "displays"
+filter = { connected = true }
+label = "Displays"
+icon = "monitor"
+columns = [
+  { field = "name", grow = true },
+  { field = "state" },
+  { field = "brightness", label = "Brightness" },
+]
+
+[[dashboards.control.widgets]]
+id = "display_controls"
+type = "group"
+label = "Monitors"
+icon = "monitor"
+for_each = "displays"
+widgets = [
+  { id = "output", type = "toggle", label = "{item.connector}", caption = "{item.name}", value = "display.{item}.output", action = "display.output.{item.connector}", param = "state", on = "on", off = "off", span = 2 },
+  { id = "dpms", type = "toggle", label = "DPMS", value = "display.{item}.dpms", action = "display.dpms.{item.connector}", param = "state", on = "on", off = "off", span = 2 },
+  { id = "brightness", type = "slider", label = "{item.connector} brightness", value = "display.{item}.brightness", action = "display.brightness.{item.connector}", param = "level", span = 4 },
+]
+
+# The home-screen widget: values, a status and a list, as the widget draws them.
+[dashboards.phone]
+title = "On the phone"
+widgets = [
+  { id = "battery", type = "gauge", value = "battery.percent", label = "Battery" },
+  { id = "temp", type = "value", value = "cpu.temp", label = "CPU", warning_above = 50 },
+  { id = "monitors", type = "text", text = "{displays.summary}", label = "Monitors" },
+]
+
+# The tiles, in order: a button each for the action's two values, and a switch with a state.
+[dashboards.tiles]
+title = "Tiles"
+widgets = [
+  { id = "server", type = "button", action = "mode", params = { mode = "server" }, label = "Server" },
+  { id = "desktop", type = "button", action = "mode", params = { mode = "desktop" }, label = "Desktop", icon = "laptop" },
+  { id = "saver", type = "toggle", action = "profile.set", param = "profile", on = "power-saver", off = "balanced", value = "power.profile", label = "Power saver" },
+  { id = "panel", type = "toggle", action = "display.output.eDP-1", param = "state", on = "on", off = "off", value = "display.edp_1.output", label = "Panel" },
+]
+
+# The computer's card: figures, one with a small graph, and a quick action.
+[dashboards.card]
+title = "Card"
+widgets = [
+  { id = "cpu", type = "value", value = "cpu.usage", label = "CPU", spark = true },
+  { id = "memory", type = "meter", value = "mem.used", max = "mem.total", label = "Memory" },
+  { id = "lock", type = "button", action = "power.lock", label = "Lock", icon = "lock" },
+]

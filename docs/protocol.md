@@ -23,7 +23,8 @@ tests read them, so the two can't drift apart. Those elamond 0.7 adds are in
 them ([below](#what-came-with-elamond-07)), those 0.8 adds in
 [`elamond/fixtures/0.8`](../elamond/fixtures/0.8) ([below](#what-came-with-elamond-08)), and
 those 0.8.1 adds in [`elamond/fixtures/0.8.1`](../elamond/fixtures/0.8.1)
-([below](#what-came-with-elamond-081)).
+([below](#what-came-with-elamond-081)), and those 0.10 adds in
+[`elamond/fixtures/0.10`](../elamond/fixtures/0.10) ([below](#what-came-with-elamond-010)).
 
 ## Versions and what each side can do
 
@@ -182,6 +183,38 @@ The fixtures 0.8.1 adds are in `elamond/fixtures/0.8.1/`: `ui-legend.toml` (the 
 timelines of the 0.7 fixture station, without `legend` and with each of its values), with what an
 app shows under each in its comments; `ui-legend.json` (its `ui` for an admin `android` client).
 They move up beside the others once the service writes them there and the app reads them.
+
+### What came with elamond 0.10
+
+Monitors turned on and off, their pictures and their brightness, under Hyprland; and dashboards an
+Android profile shows outside the app. The API stays 2 and `widgets` 3: the monitors are acted on
+with the `toggle`s and `slider`s there are, typing a monitor's name is a choice's `confirm_text` as
+a station's command has had since 0.7, and the profile's new keys are ones a client may ignore.
+
+| new | where |
+|---|---|
+| `display_control` in `service.features` | [`ui`](#get-apiv1ui) |
+| actions of kind `display` (`display.output.<name>`, `display.dpms.<name>`, `display.brightness.<name>`); `failed` with `not_applied` or `waiting_for_a_screen` | [monitors](#monitors-kind-display) |
+| the fields `enabled`, `headless`, `scale` and `brightness` of the `displays` collection; the values `display.<key>.output`, `.dpms` and `.brightness` | [config.md](config.md#collections) |
+| `widget`, `widget_minutes`, `tiles` and `card` in the profile's `android`; the dashboards they name in `dashboards` | [profiles](#profiles), [`ui`](#get-apiv1ui) |
+
+What an app of 0.9 or before (back to 0.7) sees of a 0.10 service: the Displays table as before,
+with each monitor's state as Hyprland has it, and the Monitors group of Control: a switch for each
+monitor and one for its picture, and a brightness slider, which it runs as any other; turning off
+the last monitor that shows a picture asks it to type the monitor's name, as it does a station's
+command. It unlocks for a `display` action as for `actions`, as for any kind it doesn't know. The
+profile's dashboards for the app's widget, tiles and card are in its `ui` among the others, and it
+shows none of them. An app of 0.10 with an older service: no `display_control`, so no Monitors
+group; the profile names no dashboards, so its home-screen widget says where to name one, its tiles
+have no action, and the computer's card shows what it did before.
+
+The fixtures 0.10 adds are in `elamond/fixtures/0.10/`: `ui-displays.toml` (the settings: a
+Control with the Displays table and the Monitors group, and a profile whose `android` names a
+widget's, the tiles' and a card's dashboard), with what Hyprland says in its comments;
+`ui-displays.json` (its `ui` for an admin `android` client); `stream-displays.json` (Control's data
+line); `snapshot-widget.json` (`GET /api/v1/snapshot?dashboard=phone&history=0`, the widget's
+dashboard); `action-display-typed.json` (the last screen turned off, its name typed);
+`actions-displays.json` (the answers to a monitor's action, by case).
 
 ## Discovery
 
@@ -369,7 +402,7 @@ Each paired client has a role. They are ordered, each allowing what the one befo
 |---|---|---|
 | `glance` | the basics: CPU, memory, GPUs, temperatures, fans, disks, disk I/O, network, battery, power, the system, UPSes | nothing |
 | `monitor` | everything there is to read: also processes with their commands and users, monitors, links, media with their covers, the activity log, the journal, the events (unless the settings give them to another role), a UPS's driver, serial numbers and versions | nothing |
-| `operate` | | actions of kind `profile`, `units`, `media` and `actions`, and `nut` of a source whose `role` is `operate` |
+| `operate` | | actions of kind `profile`, `units`, `media` and `actions`, and `nut` of a source whose `role` is `operate`, and `display` unless `[displays]` gives them to `admin` |
 | `admin` | | `power`, `signal` and `nut` too |
 
 Any role may ask for a key of its own ([`rekey`](#post-apiv1rekey)), which keeps that role.
@@ -433,7 +466,7 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
 - `service.features` says what this computer can offer at all (whatever the client's role),
   sorted: `control` (`control = true` in the settings), `power` (logind can power off, restart,
   sleep or lock), `power_profiles` (power-profiles-daemon or tuned-ppd), `units` (systemd), `media`
-  (a session bus for MPRIS), `processes`, `displays` (a GPU whose monitors DRM tells of), `nvml` (an
+  (a session bus for MPRIS), `processes`, `displays` (a GPU whose monitors DRM tells of), `display_control` (a Hyprland with Lua settings, which the service acts on the monitors through: [monitors](#monitors-kind-display)), `nvml` (an
   NVIDIA GPU NVML can read), `ups` (the settings have a `nut` [source](config.md#sources), whether
   upsd answers or not). A client ignores those it doesn't know.
 - `service.endpoints`: where the computer is now ([pairing](#where-the-computer-is-endpoints)).
@@ -445,7 +478,8 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
 - `tabs` are the profile's dashboards the role sees, in order (one for each item of a dashboard
   with `for_each`); `dashboards` the tabs, then the header, then the dashboards their widgets
   open, and those theirs open, then those the tables' row actions open
-  ([below](#row-actions-that-open-a-dashboard)), each once and as far as the role sees. A
+  ([below](#row-actions-that-open-a-dashboard)), then, for an `android` client, those the profile's
+  `android` names for the app's home-screen widget, tiles and card (`widget`, `tiles`, `card`), each once and as far as the role sees. A
   dashboard the role sees none of the widgets of isn't there, nor an `open` to a dashboard that
   isn't.
 - `header` is the profile's `header` dashboard, whose widgets a client draws as small chips under
@@ -454,7 +488,7 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
   the action's own, the profile's `confirm_actions` and `unlock.for` already applied. A client asks
   before running an action with `confirm`, unlocks the phone first for one with `unlock` (within the
   profile's `unlock.grace`, an unlock for a kind covers the kinds after it in
-  `power`, `nut`, `signal`, `actions`, `units`, `profile`, `media`), and asks for the values of
+  `power`, `nut`, `signal`, `actions`, `units`, `display`, `profile`, `media`), and asks for the values of
   `params` a widget doesn't fix. A choice with `confirm_text` is asked to be typed in
   ([station actions](#station-actions-kind-nut)). The built-in actions come first, in their order,
   then the [station actions](#station-actions-kind-nut) by source and the command one before the
@@ -850,6 +884,50 @@ gives it to upsd and waits up to 25 seconds for the station to answer:
 
 The password is never in an answer, a state, the activity log or the journal.
 
+### Monitors (kind `display`)
+
+Under Hyprland whose settings are Lua, which the service reaches with `hyprctl` (it finds a
+running one by itself; `service.features` has `display_control` while it does), each output
+Hyprland shows has actions of its own, named by it (`DP-1`, `eDP-1`, `HDMI-A-1`; an output whose
+name has more than `A-Z a-z 0-9 _ . -` has none). Outputs without a screen, a stream's, have none
+unless `[displays] headless` says ([config.md](config.md#monitors)).
+
+| id | parameter | |
+|---|---|---|
+| `display.output.<name>` | `state`: a choice of `on` and `off` | turns the output on or off in Hyprland: off, it is out of the layout and its windows move; on, it comes back with the mode, position, scale and transform it had |
+| `display.dpms.<name>` | `state`: a choice of `on` and `off` | its picture (DPMS), only of an output that is on |
+| `display.brightness.<name>` | `level`: a range in %, on `[displays] brightness_step` | a laptop's panel through logind, from `panel_min` up; an external monitor through DDC/CI, while it shows a picture and answers |
+
+Their least role is `[displays] role` (`operate` unless it says `admin`); turning an output or its
+picture on or off asks before it runs (`confirm`), its brightness doesn't; each unlocks as the
+profile's `unlock.for` says for the kind `display`. Turning off, or putting to sleep, an output
+while no other with a screen shows a picture (on, its picture on) is typed in: the choice `off`
+carries `confirm_text`, the output's name, which the client asks the person to type, and sends:
+
+```json
+{ "params": { "state": "off" }, "confirm_text": "DP-1" }
+```
+
+The service tells it on the monitors as Hyprland has them when the action comes, not as the
+client last saw them, and does one monitor's action at a time: without the name, or with another,
+403 `confirm_required` with the name in `message`. They are checked in this order: an id the
+computer doesn't have now (an output Hyprland doesn't show, gone since the client saw it), 404
+`no_such_action`; the role, 403 `not_allowed`; control, 403 `control_disabled`; the parameters,
+400 `bad_param`; the typed name, 403 `confirm_required`. Then the service waits up to `[displays]
+wait` seconds for Hyprland to show it done:
+
+| the action | answer |
+|---|---|
+| done, or there was nothing to do | 200 `{ "ok": true, "output": "done" }` |
+| Hyprland didn't show it done in time | 502 `failed`, `message` `not_applied` |
+| an output turned on while no screen shows a picture: Hyprland applies a monitor's change with the next picture it draws, so it waits for a screen to wake | 502 `failed`, `message` `waiting_for_a_screen` |
+| logind, `ddcutil` or Hyprland refused | 502 `failed`, `message` their words |
+
+The state of each comes in the `displays` collection (`enabled`, `headless`, `scale`, `brightness`)
+and in the values `display.<key>.output` and `display.<key>.dpms` (`on` or `off`; `dpms` only of
+an output that is on) and `display.<key>.brightness` (%), what a `toggle` or a `slider` shows. A
+reload of Hyprland puts every output back as its settings have it.
+
 ## `GET /api/v1/media/art?player=`
 
 The cover (PNG, JPEG or WebP, 4 MiB at most), when the player has it in a local file; for roles that
@@ -879,7 +957,7 @@ Clients read it as the `activity` collection (role `monitor`). Each entry:
 `action Mode server`, `unit restart nginx.service`, `media play_pause`, `volume 40 %`,
 `phone added: Pixel 9`, `nut eco outlet.2.load.off` (a station's command: the source and the
 command), `nut eco experimental.battery.charge.max 90` (a setting: the source, the variable and
-its value); a station's `message` is `done` or why it failed. Requests that were let
+its value), `display output DP-1 off`, `display dpms DP-1 on`, `display brightness eDP-1 40 %`; a station's `message` is `done` or why it failed. Requests that were let
 through are also in the journal (`journalctl --user -u elamond`).
 
 ## Errors
@@ -901,7 +979,9 @@ Errors are `{ "error": "<code>" }`, some with a `message`, with these statuses (
 neither `level` nor `muted`), `no_track`, `no_session`, `no_system_bus`, `no_session_bus`,
 `no_power_profiles`, `volume_failed`, `mute_failed`, `timed_out`, or the system's own error text
 (D-Bus, a command, `journalctl`, upsd or the station; for a station's command upsd took without
-saying the station did it, `accepted by upsd but not confirmed by the station`). A request whose JSON
+saying the station did it, `accepted by upsd but not confirmed by the station`; for a monitor's,
+`not_applied` when Hyprland didn't show it done in time, `waiting_for_a_screen` when it waits for a
+screen to wake to turn one on). A request whose JSON
 or query the service can't read at all gets a plain-text 400, 415 or 422, and a body over its limit
 (4 KiB for `pair`, `rekey`, `actions` and `stream`) a plain-text 413.
 

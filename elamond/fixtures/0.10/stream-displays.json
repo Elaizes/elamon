@@ -1,0 +1,19 @@
+{
+  "type": "data",
+  "t": 1700000000123,
+  "dashboard": "control",
+  "widgets": {
+    "control/displays": {
+      "rows": [
+        { "key": "edp_1", "f": { "name": "Some panel maker Some panel", "state": "Off", "brightness": 50.0 } },
+        { "key": "dp_1", "f": { "name": "Some vendor Some monitor", "state": "On", "brightness": 60.0 } }
+      ],
+      "total": 2
+    },
+    "control/display_controls/output.edp_1": { "v": "off", "enabled": true },
+    "control/display_controls/brightness.edp_1": { "v": 50.0, "enabled": true },
+    "control/display_controls/output.dp_1": { "v": "on", "enabled": true },
+    "control/display_controls/dpms.dp_1": { "v": "on", "enabled": true },
+    "control/display_controls/brightness.dp_1": { "v": 60.0, "enabled": true }
+  }
+}

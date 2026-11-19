@@ -1,0 +1,356 @@
+{
+  "version": "d44ea9da567c692d",
+  "service": {
+    "id": "0123456789abcdef0123456789abcdef",
+    "name": "fixture",
+    "version": "9.9.9",
+    "interval_ms": 1000,
+    "history_seconds": 600,
+    "features": ["control", "display_control", "displays", "media", "power", "power_profiles", "processes", "units"],
+    "endpoints": ["192.0.2.10", "100.64.0.7", "desk.example.net", "desk.tail0000.ts.net"]
+  },
+  "role": "admin",
+  "control": { "enabled": true, "off_reason": null },
+  "profile": {
+    "id": "owner",
+    "name": "owner",
+    "theme": "system",
+    "pure_black": false,
+    "animations": true,
+    "interval_ms": 1000,
+    "fahrenheit": false,
+    "network_bits": false,
+    "confirm_actions": true,
+    "unlock": { "for": ["power", "actions"], "grace": "every_time" },
+    "android": {
+      "dynamic_color": true,
+      "blur": true,
+      "haptics": true,
+      "keep_screen_on": false,
+      "widget": "phone",
+      "tiles": "tiles",
+      "card": "card",
+      "widget_minutes": 30
+    },
+    "source": { "file": "ui-displays.toml", "line": 29 }
+  },
+  "tabs": ["control"],
+  "header": null,
+  "dashboards": [
+    {
+      "id": "control",
+      "title": "Control",
+      "icon": "control",
+      "widgets": [
+        {
+          "id": "control/displays",
+          "type": "table",
+          "span": 4,
+          "label": "Displays",
+          "icon": "monitor",
+          "source": "displays",
+          "columns": [
+            { "field": "name", "format": "text", "grow": true },
+            { "field": "state", "format": "text" },
+            { "field": "brightness", "label": "Brightness", "unit": "%", "format": "percent" }
+          ],
+          "sorts": [],
+          "search": false,
+          "hide_empty": false
+        },
+        {
+          "id": "control/display_controls",
+          "type": "group",
+          "span": 4,
+          "label": "Monitors",
+          "icon": "monitor",
+          "collapsed": false,
+          "widgets": [
+            {
+              "id": "control/display_controls/output.edp_1",
+              "type": "toggle",
+              "span": 2,
+              "label": "eDP-1",
+              "caption": "Some panel maker Some panel",
+              "action": "display.output.eDP-1",
+              "param": "state",
+              "on": "on",
+              "off": "off"
+            },
+            {
+              "id": "control/display_controls/brightness.edp_1",
+              "type": "slider",
+              "span": 4,
+              "label": "eDP-1 brightness",
+              "action": "display.brightness.eDP-1",
+              "param": "level"
+            },
+            {
+              "id": "control/display_controls/output.dp_1",
+              "type": "toggle",
+              "span": 2,
+              "label": "DP-1",
+              "caption": "Some vendor Some monitor",
+              "action": "display.output.DP-1",
+              "param": "state",
+              "on": "on",
+              "off": "off"
+            },
+            {
+              "id": "control/display_controls/dpms.dp_1",
+              "type": "toggle",
+              "span": 2,
+              "label": "DPMS",
+              "action": "display.dpms.DP-1",
+              "param": "state",
+              "on": "on",
+              "off": "off"
+            },
+            {
+              "id": "control/display_controls/brightness.dp_1",
+              "type": "slider",
+              "span": 4,
+              "label": "DP-1 brightness",
+              "action": "display.brightness.DP-1",
+              "param": "level"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phone",
+      "title": "On the phone",
+      "icon": "overview",
+      "widgets": [
+        { "id": "phone/battery", "type": "gauge", "span": 2, "label": "Battery", "unit": "%", "format": "percent", "min": 0, "max": 100 },
+        { "id": "phone/temp", "type": "value", "span": 2, "label": "CPU", "unit": "°C", "format": "temp" },
+        { "id": "phone/monitors", "type": "text", "span": 4, "label": "Monitors", "level": "normal" }
+      ]
+    },
+    {
+      "id": "tiles",
+      "title": "Tiles",
+      "icon": "overview",
+      "widgets": [
+        { "id": "tiles/server", "type": "button", "span": 2, "label": "Server", "action": "mode", "params": { "mode": "server" } },
+        {
+          "id": "tiles/desktop",
+          "type": "button",
+          "span": 2,
+          "label": "Desktop",
+          "icon": "laptop",
+          "action": "mode",
+          "params": { "mode": "desktop" }
+        },
+        {
+          "id": "tiles/saver",
+          "type": "toggle",
+          "span": 2,
+          "label": "Power saver",
+          "action": "profile.set",
+          "param": "profile",
+          "on": "power-saver",
+          "off": "balanced"
+        },
+        {
+          "id": "tiles/panel",
+          "type": "toggle",
+          "span": 2,
+          "label": "Panel",
+          "action": "display.output.eDP-1",
+          "param": "state",
+          "on": "on",
+          "off": "off"
+        }
+      ]
+    },
+    {
+      "id": "card",
+      "title": "Card",
+      "icon": "overview",
+      "widgets": [
+        { "id": "card/cpu", "type": "value", "span": 2, "label": "CPU", "unit": "%", "format": "percent", "spark": true },
+        { "id": "card/memory", "type": "meter", "span": 2, "label": "Memory", "unit": "B", "format": "bytes", "min": 0 },
+        { "id": "card/lock", "type": "button", "span": 2, "label": "Lock", "icon": "lock", "action": "power.lock" }
+      ]
+    }
+  ],
+  "actions": [
+    { "id": "power.poweroff", "name": "Shut down", "kind": "power", "icon": "power", "confirm": true, "unlock": true, "params": [] },
+    { "id": "power.reboot", "name": "Restart", "kind": "power", "icon": "restart", "confirm": true, "unlock": true, "params": [] },
+    { "id": "power.suspend", "name": "Sleep", "kind": "power", "icon": "moon", "confirm": true, "unlock": true, "params": [] },
+    { "id": "power.lock", "name": "Lock", "kind": "power", "icon": "lock", "confirm": true, "unlock": true, "params": [] },
+    {
+      "id": "profile.set",
+      "name": "Power profile",
+      "kind": "profile",
+      "icon": "bolt",
+      "confirm": false,
+      "unlock": false,
+      "params": [
+        {
+          "id": "profile",
+          "kind": "choice",
+          "label": "Profile",
+          "choices": [
+            { "value": "power-saver", "label": "Power saver" },
+            { "value": "balanced", "label": "Balanced" },
+            { "value": "performance", "label": "Performance" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "process.signal",
+      "name": "Signal",
+      "kind": "signal",
+      "icon": "processes",
+      "confirm": true,
+      "unlock": false,
+      "params": [
+        { "id": "pid", "kind": "integer", "label": "Process" },
+        {
+          "id": "signal",
+          "kind": "choice",
+          "label": "Signal",
+          "choices": [{ "value": "term", "label": "Quit" }, { "value": "kill", "label": "Force kill" }]
+        },
+        { "id": "start", "kind": "integer", "label": "Started", "optional": true }
+      ]
+    },
+    {
+      "id": "media.play_pause",
+      "name": "Play or pause",
+      "kind": "media",
+      "icon": "play",
+      "confirm": false,
+      "unlock": false,
+      "params": [{ "id": "player", "kind": "string", "label": "Player" }]
+    },
+    {
+      "id": "media.next",
+      "name": "Next",
+      "kind": "media",
+      "icon": "next",
+      "confirm": false,
+      "unlock": false,
+      "params": [{ "id": "player", "kind": "string", "label": "Player" }]
+    },
+    {
+      "id": "media.previous",
+      "name": "Previous",
+      "kind": "media",
+      "icon": "previous",
+      "confirm": false,
+      "unlock": false,
+      "params": [{ "id": "player", "kind": "string", "label": "Player" }]
+    },
+    {
+      "id": "media.seek",
+      "name": "Seek",
+      "kind": "media",
+      "icon": "play",
+      "confirm": false,
+      "unlock": false,
+      "params": [
+        { "id": "player", "kind": "string", "label": "Player" },
+        { "id": "position", "kind": "number", "label": "Position", "unit": "s" }
+      ]
+    },
+    {
+      "id": "volume.set",
+      "name": "Volume",
+      "kind": "media",
+      "icon": "volume",
+      "confirm": false,
+      "unlock": false,
+      "params": [
+        { "id": "level", "kind": "range", "label": "Level", "min": 0, "max": 100, "step": 1, "unit": "%", "optional": true },
+        { "id": "muted", "kind": "bool", "label": "Muted", "optional": true }
+      ]
+    },
+    {
+      "id": "display.output.eDP-1",
+      "name": "eDP-1",
+      "kind": "display",
+      "icon": "monitor",
+      "confirm": true,
+      "unlock": false,
+      "params": [
+        {
+          "id": "state",
+          "kind": "choice",
+          "label": "State",
+          "choices": [{ "value": "on", "label": "On" }, { "value": "off", "label": "Off" }]
+        }
+      ]
+    },
+    {
+      "id": "display.brightness.eDP-1",
+      "name": "eDP-1 brightness",
+      "kind": "display",
+      "icon": "monitor",
+      "confirm": false,
+      "unlock": false,
+      "params": [{ "id": "level", "kind": "range", "label": "Brightness", "min": 5, "max": 100, "step": 5, "unit": "%" }]
+    },
+    {
+      "id": "display.output.DP-1",
+      "name": "DP-1",
+      "kind": "display",
+      "icon": "monitor",
+      "confirm": true,
+      "unlock": false,
+      "params": [
+        {
+          "id": "state",
+          "kind": "choice",
+          "label": "State",
+          "choices": [{ "value": "on", "label": "On" }, { "value": "off", "label": "Off", "confirm_text": "DP-1" }]
+        }
+      ]
+    },
+    {
+      "id": "display.dpms.DP-1",
+      "name": "DP-1 DPMS",
+      "kind": "display",
+      "icon": "monitor",
+      "confirm": true,
+      "unlock": false,
+      "params": [
+        {
+          "id": "state",
+          "kind": "choice",
+          "label": "State",
+          "choices": [{ "value": "on", "label": "On" }, { "value": "off", "label": "Off", "confirm_text": "DP-1" }]
+        }
+      ]
+    },
+    {
+      "id": "display.brightness.DP-1",
+      "name": "DP-1 brightness",
+      "kind": "display",
+      "icon": "monitor",
+      "confirm": false,
+      "unlock": false,
+      "params": [{ "id": "level", "kind": "range", "label": "Brightness", "min": 0, "max": 100, "step": 5, "unit": "%" }]
+    },
+    {
+      "id": "mode",
+      "name": "Mode",
+      "kind": "actions",
+      "icon": "leaf",
+      "confirm": true,
+      "unlock": true,
+      "params": [
+        {
+          "id": "mode",
+          "kind": "choice",
+          "label": "Mode",
+          "choices": [{ "value": "server", "label": "Server" }, { "value": "desktop", "label": "Desktop" }]
+        }
+      ]
+    }
+  ]
+}
