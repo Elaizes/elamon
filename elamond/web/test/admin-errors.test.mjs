@@ -19,11 +19,21 @@ test('each code of the admin API has a sentence', () => {
 	assert.equal(errorSentence(from(save.bad_name)), S.admin.errors.codes.bad_name);
 });
 
-test("the service's words where the sentence doesn't hold them", () => {
-	// writes_off held off: the sentence says it.
+test("writes_off says why, by the service's message", () => {
 	assert.equal(errorSentence(from(save.writes_off)), S.admin.errors.writes_off_held);
-	assert.equal(errorSentence(new ApiError(403, 'writes_off', null, {})), S.admin.errors.writes_off);
-	assert.equal(errorSentence(new ApiError(403, 'writes_off', 'web_write', {})), `${S.admin.errors.writes_off} The computer says: web_write`);
+	const off = (/** @type {string | null} */ message) => errorSentence(new ApiError(403, 'writes_off', message, { error: 'writes_off', message }));
+	assert.equal(off('held_off'), S.admin.errors.writes_off_held);
+	assert.equal(off('settings'), S.admin.errors.writes_off_settings);
+	assert.match(off('settings'), /\[web\] write = false/);
+	// control = false refuses files only: the words don't say writes are off altogether.
+	assert.equal(off('control'), S.admin.errors.writes_off_control);
+	assert.match(off('control'), /control = false/);
+	assert.match(off('control'), /editor still writes/);
+	assert.equal(off(null), S.admin.errors.writes_off);
+	assert.equal(off('later_reason'), `${S.admin.errors.writes_off} The computer says: later_reason`);
+});
+
+test("the service's words where the sentence doesn't hold them", () => {
 	// read_only: why, in the sentence.
 	assert.equal(errorSentence(from(save.read_only)), 'This file is read-only: set in Nix: change it in your NixOS or Home Manager configuration.');
 	assert.equal(errorSentence(new ApiError(403, 'read_only', null, {})), 'This file is read-only.');

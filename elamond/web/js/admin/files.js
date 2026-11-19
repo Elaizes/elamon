@@ -51,6 +51,7 @@ function writesNote(st) {
 	const T = S.admin.files;
 	if (st.web && !st.web.write) return h('p', { class: 'note warning' }, T.writesOff);
 	if (st.control && !st.control.enabled && st.control.off_reason === 'held_off') return h('p', { class: 'note warning' }, T.writesHeld);
+	if (st.control && !st.control.enabled && st.control.off_reason === 'settings') return h('p', { class: 'note warning' }, T.writesNoControl);
 	return null;
 }
 

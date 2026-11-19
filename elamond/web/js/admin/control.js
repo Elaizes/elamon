@@ -13,7 +13,7 @@ export function mountControl(main, env) {
 		const c = st.control;
 		const off = h('button', { type: 'button', class: 'danger' }, T.turnOff);
 		off.addEventListener('click', async () => {
-			const ok = await confirmed(env, { title: T.turnOffTitle, body: [T.turnOffText, T.onlyAtComputer], confirm: T.turnOff, danger: true, loud: true });
+			const ok = await confirmed(env, { title: T.turnOffTitle, body: [`${T.turnOffText} ${T.whatHeld}`, T.onlyAtComputer], confirm: T.turnOff, danger: true, loud: true });
 			if (!ok) return;
 			off.disabled = true;
 			try {
@@ -33,15 +33,26 @@ export function mountControl(main, env) {
 				: c.off_reason === 'settings_unreadable'
 					? h('p', null, T.onFixSettings, ' ', h('a', { href: '#/admin/overview' }, S.admin.nav.overview))
 					: h('p', null, T.onAtComputer, ' ', h('code', null, T.onCommand));
+		const held = !c.enabled && c.off_reason === 'held_off';
+		// Writing from here, by why: `[web] write`, control held off (nothing), `control = false`
+		// (files not, the editor's dashboards still); the settings not parsing stops nothing, as
+		// writing is how they are put right.
+		const [writes, writesText] = !st.web?.write
+			? [false, T.writesOffSettings]
+			: held
+				? [false, T.writesHeld]
+				: !c.enabled && c.off_reason === 'settings'
+					? [false, T.writesNoControl]
+					: [true, T.writesOn];
 		main.append(
 			head(S.admin.nav.control, button(S.admin.refresh, reload)),
 			card(
 				null,
 				h('p', { class: 'adm-big' }, onOff(c.enabled), ' ', controlText(c)),
-				h('p', { class: 'muted' }, T.what),
-				c.enabled ? h('div', null, h('p', null, T.turnOffText), h('div', { class: 'adm-row' }, off)) : h('div', { class: 'note warning' }, howOn),
+				h('p', { class: 'muted' }, T.what, held ? ` ${T.whatHeld}` : ''),
+				c.enabled ? h('div', null, h('p', null, T.turnOffText, ' ', T.whatHeld), h('div', { class: 'adm-row' }, off)) : h('div', { class: 'note warning' }, howOn),
 			),
-			card(T.writes, h('p', null, onOff(!!st.web?.write && c.enabled), ' ', st.web?.write ? (c.enabled ? T.writesOn : T.writesHeld) : T.writesOffSettings)),
+			card(T.writes, h('p', null, onOff(writes), ' ', writesText)),
 		);
 	});
 	return () => {};

@@ -18,6 +18,7 @@ import { profileCard } from './profile.js';
 import { widgetForm } from './side.js';
 import { addDialog } from './add.js';
 import { ask } from './ask.js';
+import { errorSentence } from '../admin/errors.js';
 
 /**
  * A dashboard made on `#/edit` and not saved yet, which the editor it goes to takes up.
@@ -57,7 +58,7 @@ async function describe() {
 function words(e) {
 	if (!(e instanceof ApiError)) return S.core.unreachable;
 	const E = /** @type {Record<string, string>} */ (S.editor.errors);
-	if (e.code === 'writes_off') return e.detail === 'held_off' ? E.held_off : E.writes_off;
+	if (e.code === 'writes_off') return errorSentence(e);
 	const known = E[e.code];
 	if (known) return e.detail && e.code !== 'not_allowed' ? `${known} (${e.detail})` : known;
 	return fill(S.editor.errorCode, e.code, e.detail || '');

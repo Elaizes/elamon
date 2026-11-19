@@ -34,10 +34,15 @@ export function errorSentence(e) {
 	/** Whether the sentence already holds the service's words. */
 	let said = false;
 	switch (e.code) {
-		case 'writes_off':
-			sentence = detail === 'held_off' ? E.writes_off_held : E.writes_off;
-			said = detail === 'held_off';
+		case 'writes_off': {
+			// Why, by the service's `message`: `held_off`, `settings` (`[web] write = false`) or
+			// `control` (`control = false`: files only, the editor still writes).
+			/** @type {Record<string, string>} */
+			const why = { held_off: E.writes_off_held, settings: E.writes_off_settings, control: E.writes_off_control };
+			said = !!detail && Object.hasOwn(why, detail);
+			sentence = said ? why[/** @type {string} */ (detail)] : E.writes_off;
 			break;
+		}
 		case 'read_only':
 			sentence = detail ? fill(E.read_only_why, detail) : E.read_only;
 			said = true;
