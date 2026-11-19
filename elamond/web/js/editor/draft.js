@@ -223,6 +223,34 @@ export function allPaths(dash) {
 	return out;
 }
 
+// ---------------------------------------------------------------- writing
+
+/**
+ * Writes one after another, each on the hash of the editor's file the one before it left (the
+ * service answers each with the file's `hash` now), stopping at the first refused. What is had
+ * after: the hash to write on next (the last written, or `base` when none went), the generation,
+ * how many went, and what refused the next, if one did.
+ * @param {((base: string | null) => Promise<any>)[]} steps @param {string | null} base
+ * @returns {Promise<{ hash: string | null, generation: number | null, done: number, error: unknown }>}
+ */
+export async function writeInTurn(steps, base) {
+	let hash = base;
+	/** @type {number | null} */
+	let generation = null;
+	let done = 0;
+	for (const step of steps) {
+		try {
+			const r = await step(hash);
+			if (r && 'hash' in r) hash = r.hash ?? null;
+			if (r && typeof r.generation === 'number') generation = r.generation;
+			done++;
+		} catch (error) {
+			return { hash, generation, done, error };
+		}
+	}
+	return { hash, generation, done, error: null };
+}
+
 // ---------------------------------------------------------------- a profile's tabs
 
 /** @param {DraftProfile} p @param {string} id @param {number} [index] */

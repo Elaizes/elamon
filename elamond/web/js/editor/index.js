@@ -8,7 +8,7 @@ import { S, fill } from '../strings.js';
 import * as state from '../state.js';
 import {
 	draft, isDirty, rebase, clone, stable, widgetAt, addWidget, removeWidget, moveWidget, nudge, setSpan, pathKey, samePath,
-	sortMistakes, isId, addTab, changes, WIDGETS,
+	sortMistakes, isId, addTab, changes, writeInTurn, WIDGETS,
 } from './draft.js';
 import { normalise, isGroup, spanRange, nameOf, exampleOf, origins, fromWords, keysFromBelow } from './describe.js';
 import { keyFields, otherField, markField } from './form.js';
@@ -711,33 +711,39 @@ class Editor {
 		if (this.saving || !this.dirty()) return;
 		this.saving = true;
 		this.renderDirty();
-		/** @type {number | null} */
-		let generation = null;
-		let base = this.desc.hash;
-		try {
-			if (this.isNew || isDirty(this.dash)) {
+		/** @type {((base: string | null) => Promise<any>)[]} */
+		const steps = [];
+		if (this.isNew || isDirty(this.dash)) {
+			steps.push(async (base) => {
 				const r = await api('/api/v1/admin/editor/dashboard', { body: { id: this.id, dashboard: this.dash.value, base } });
-				base = r.hash;
-				generation = r.generation;
 				rebase(this.dash);
 				this.isNew = false;
 				if (made && made.id === this.id) made = null;
-			}
-			for (const [id, d] of this.profiles) {
-				if (!isDirty(d)) continue;
-				this.profileId = this.profileId || id;
-				// Only what was changed here: a key the files set stays theirs.
+				return r;
+			});
+		}
+		for (const [id, d] of this.profiles) {
+			if (!isDirty(d)) continue;
+			// Only what was changed here: a key the files set stays theirs.
+			steps.push(async (base) => {
 				const r = await api('/api/v1/admin/editor/profile', { body: { id, profile: changes(d.start, d.value), base } });
-				base = r.hash;
-				generation = r.generation;
 				rebase(d);
+				return r;
+			});
+		}
+		try {
+			// Each write on the hash the one before left; what went is the base of the next save too,
+			// so a refusal after one went is no "changed meanwhile" the next time.
+			const out = await writeInTurn(steps, this.desc.hash);
+			this.desc.hash = out.hash;
+			if (out.error) {
+				await this.failed(out.error, out.done > 0);
+				return;
 			}
 			this.setMistakes([], 'save');
-			this.say(fill(S.editor.saved, generation ?? '?'), 'normal');
+			this.say(fill(S.editor.saved, out.generation ?? '?'), 'normal');
 			await this.reload(false);
 			this.ctx.reloadUi().catch(() => {});
-		} catch (e) {
-			await this.failed(e, base !== this.desc.hash);
 		} finally {
 			this.saving = false;
 			this.renderDirty();
@@ -768,6 +774,8 @@ class Editor {
 		if (e instanceof ApiError && e.code === 'bad_settings') {
 			this.setMistakes((e.body && e.body.mistakes) || [], 'save');
 			this.say(partly ? `${S.editor.partlySaved} ${S.editor.badSettings}` : S.editor.badSettings, 'critical');
+			// What went is read back (a new dashboard is one there now); the drafts not saved stay.
+			if (partly) await this.reload(false);
 			return;
 		}
 		this.say(partly ? `${S.editor.partlySaved} ${words(e)}` : words(e), 'critical');

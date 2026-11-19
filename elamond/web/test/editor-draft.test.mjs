@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
 	draft, isDirty, rebase, clone, stable, setKey, listAt, widgetAt, addWidget, removeWidget, moveWidget, nudge,
-	setSpan, allPaths, addTab, changes, flow, isId,
+	setSpan, allPaths, addTab, changes, writeInTurn, flow, isId,
 } from '../js/editor/draft.js';
 import { normalise, exampleOf, unknownKeys, spanOf, isGroup } from '../js/editor/describe.js';
 
@@ -202,4 +202,31 @@ test("a profile's write holds what was changed here, never what the files set", 
 test('ids as the settings take them', () => {
 	for (const ok of ['mine', 'a', 'cpu_2', 'x-y', 'a'.repeat(32)]) assert.equal(isId(ok), true, ok);
 	for (const bad of ['', 'Mine', 'a.b', 'a b', 'a'.repeat(33), 3, null]) assert.equal(isId(bad), false, String(bad));
+});
+
+test('writes go one after another, each on the hash the one before left, and the next save on the last', async () => {
+	// The editor's file as the service keeps it: a write on another hash than its own is 409.
+	let file = 'h0';
+	let generation = 3;
+	const service = (/** @type {boolean} */ bad) => async (/** @type {string | null} */ base) => {
+		if (base !== file) throw Object.assign(new Error('changed_on_disk'), { code: 'changed_on_disk' });
+		if (bad) throw Object.assign(new Error('bad_settings'), { code: 'bad_settings' });
+		file = `h${++generation}`;
+		return { ok: true, hash: file, backup: null, generation };
+	};
+	// The dashboard goes, the profile is refused for its mistakes.
+	const first = await writeInTurn([service(false), service(true)], 'h0');
+	assert.equal(first.done, 1);
+	assert.equal(first.error.code, 'bad_settings');
+	assert.equal(first.hash, file, 'the hash the dashboard left');
+	// The profile put right and saved again: on that hash, no false "changed meanwhile".
+	const again = await writeInTurn([service(false)], first.hash);
+	assert.equal(again.error, null);
+	assert.equal(again.done, 1);
+	assert.equal(again.generation, generation);
+	// On the hash before the first write, it would have been refused.
+	const stale = await writeInTurn([service(false)], 'h0');
+	assert.equal(stale.error.code, 'changed_on_disk');
+	assert.equal(stale.hash, 'h0');
+	assert.deepEqual(await writeInTurn([], 'h9'), { hash: 'h9', generation: null, done: 0, error: null });
 });
