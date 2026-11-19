@@ -23,6 +23,8 @@ export function create(w, env) {
 	const show = (s) => {
 		const f = fraction(w, s);
 		value.setAttribute('stroke-dasharray', `${arc * f} ${CIRCUMFERENCE}`);
+		// Nothing to fill: no round cap left as a dot.
+		value.setAttribute('stroke-opacity', f > 0 ? '1' : '0');
 		const t = figureText(w, s);
 		setText(text, t);
 		ring.setAttribute('aria-valuenow', String(Math.round(f * 100)));

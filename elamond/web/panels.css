@@ -172,6 +172,7 @@ pre.code, .code { background: var(--surface-2); padding: 8px 12px; border-radius
 .t-count { margin: 0; font-size: 0.85rem; }
 .t-head, .t-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .t-head { font-size: 0.78rem; padding: 0 4px; }
+.t-head .t-cell { overflow: visible; text-overflow: clip; direction: rtl; }
 .t-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .t-cell { flex: none; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .t-cell.labelled { width: auto; }

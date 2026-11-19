@@ -8,6 +8,7 @@
 //                  graphs' histories, a timeline's long range, older journal lines and a cover
 //   --control-off  control held off (`elamond control off`): action widgets drawn disabled
 //   --pair-wait=MS the person at elamond pair answers after MS (default 1500)
+//   --ui-bump=S    the settings change S seconds after start: open streams get a `ui` line, `ui` a new version
 import { createServer } from 'node:http';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, extname, normalize } from 'node:path';
@@ -27,6 +28,8 @@ const PAIRED = flag('paired');
 const RICH = flag('rich');
 const CONTROL_OFF = flag('control-off');
 const PAIR_WAIT_MS = Number(option('pair-wait', 1500));
+const UI_BUMP_S = Number(option('ui-bump', 0));
+let bumped = false;
 const fx = (name) => JSON.parse(readFileSync(join(fixtures, name), 'utf8'));
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.json': 'application/json' };
 // As the service answers its page (docs/protocol.md, "The page"): scripts and styles only from it.
@@ -73,6 +76,10 @@ function ui() {
 		u.version = 'rich0000000000000';
 	}
 	if (CONTROL_OFF) u.control = { enabled: false, off_reason: 'held_off' };
+	if (bumped) {
+		u.version = 'bumped0000000000';
+		u.dashboards.find((d) => d.id === 'home').title = 'Home, changed';
+	}
 	return u;
 }
 
@@ -182,6 +189,13 @@ function lineFor(dashboard, t, first, stream) {
 	return line;
 }
 
+if (UI_BUMP_S > 0) {
+	setTimeout(() => {
+		bumped = true;
+		for (const s of streams.values()) s.write(JSON.stringify({ type: 'ui', ui: ui().version, endpoints: ui().service.endpoints }) + '\n');
+	}, UI_BUMP_S * 1000);
+}
+
 /** Open streams, by id. */
 const streams = new Map();
 let streamCount = 0;
@@ -190,8 +204,9 @@ function openStream(req, res, url) {
 	const u = ui();
 	const id = `s${(++streamCount).toString(16).padStart(7, '0')}`;
 	const asked = url.searchParams.get('dashboard');
-	const stream = { dashboard: u.dashboards.some((d) => d.id === asked) ? asked : u.tabs[0], sort: {}, log: {}, reset: new Set(), first: true, send: null };
+	const stream = { dashboard: u.dashboards.some((d) => d.id === asked) ? asked : u.tabs[0], sort: {}, log: {}, reset: new Set(), first: true, send: null, write: (line) => res.write(line) };
 	streams.set(id, stream);
+	console.log(`stream ${id} opened on ${stream.dashboard}`);
 	res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store' });
 	res.write(JSON.stringify({ type: 'open', stream: id, ui: u.version }) + '\n');
 	stream.send = () => {
@@ -203,6 +218,7 @@ function openStream(req, res, url) {
 	req.on('close', () => {
 		clearInterval(timer);
 		streams.delete(id);
+		console.log(`stream ${id} closed`);
 	});
 }
 
@@ -315,6 +331,7 @@ createServer(async (req, res) => {
 		const s = streams.get(decodeURIComponent(p.slice('/api/v1/stream/'.length)));
 		if (!s) return json(res, 404, { error: 'no_such_stream' });
 		const b = await body(req);
+		console.log(`stream change ${JSON.stringify(b)}`);
 		if (b.dashboard && !ui().dashboards.some((d) => d.id === b.dashboard)) return json(res, 404, { error: 'no_such_dashboard' });
 		for (const [k, v] of Object.entries(b.sort || {})) {
 			if (v == null) delete s.sort[k];

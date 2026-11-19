@@ -81,3 +81,14 @@ test('refusals in words', () => {
 	for (const e of fx('errors.json')) assert.ok(said(e.status, { error: e.error }).length > 0);
 	assert.equal(errorText(new TypeError('fetch failed')), S.panels.errUnreachable);
 });
+
+test('the page asks for the types it has a module for, and no other', async () => {
+	const { TYPES } = await import('../js/widgets/index.js');
+	const { DRAWS } = await import('../js/panels.js');
+	assert.deepEqual(DRAWS.split(',').sort(), [...TYPES].sort());
+	// Every type the fixtures' ui documents use is drawn.
+	const used = new Set();
+	const walk = (ws) => ws.forEach((w) => (used.add(w.type), w.widgets && walk(w.widgets)));
+	for (const f of ['ui.json', 'ui-default.json', '0.7/ui-ups.json', '0.8/ui-sources.json', '0.8.1/ui-legend.json', '0.9/ui-events.json', '0.10/ui-displays.json']) for (const d of fx(f).dashboards) walk(d.widgets);
+	for (const t of used) assert.ok(TYPES.includes(t), t);
+});
