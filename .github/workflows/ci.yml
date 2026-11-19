@@ -1,7 +1,8 @@
 # elamond's lints and tests (with the protocol fixtures), and its tests built on each distribution
 # the guide names, with that distribution's compiler, with install.sh there; install.sh,
 # `elamond setup` and `elamond update` with a real systemd user manager; install.sh's lint; the
-# app's unit tests, lint and release build; and the NixOS module in a VM.
+# app's unit tests, lint and release build; the web page in a headless browser; and the NixOS
+# module in a VM.
 #
 # Every action is pinned to a commit, its release in the comment beside it: a tag can be moved,
 # a commit can't. To update one: git ls-remote https://github.com/OWNER/REPO refs/tags/TAG
@@ -42,7 +43,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: shellcheck --version && shellcheck install.sh .github/local-release.sh
+      - run: shellcheck --version && shellcheck install.sh .github/local-release.sh elamond/web/test/browser.sh
 
   # elamond built and tested on each distribution the guide names, as someone building it there
   # from source would: Fedora, Arch and openSUSE with their own Rust, Debian and Ubuntu with
@@ -185,6 +186,22 @@ jobs:
         with:
           name: app-reports
           path: app/build/reports
+
+  # The page in a headless Chromium driven by Playwright, both from nixpkgs (Playwright downloads
+  # nothing itself), against a throwaway elamond built in the flake's browser shell.
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@91f6a0f59e94dfb2cfed0f4000f36a68ead1d20c # v31.11.4
+      - run: BROWSER_SHOTS="$RUNNER_TEMP/browser-shots" nix develop .#browser -c elamond/web/test/browser.sh
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-shots
+          path: ${{ runner.temp }}/browser-shots
 
   nixos:
     runs-on: ubuntu-latest
