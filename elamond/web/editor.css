@@ -136,12 +136,12 @@
 .ed-drop { grid-column: 1 / -1; min-height: 4px; border-radius: 10px; }
 .ed-drop-empty { min-height: 56px; display: grid; place-items: center; border: 1px dashed var(--line); color: var(--muted); font-size: 0.9rem; }
 .ed-canvas.dragging .ed-drop { min-height: 40px; border: 1px dashed var(--line); }
-.ed-canvas .drop-into { border: 2px dashed var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
-.drop-before::before, .drop-after::after, .drop-above::before, .drop-below::after { content: ""; position: absolute; z-index: 4; border-radius: 2px; background: var(--primary); }
-.drop-before::before { top: 0; bottom: 0; left: -8px; width: 4px; }
-.drop-after::after { top: 0; bottom: 0; right: -8px; width: 4px; }
-.drop-above::before { left: 0; right: 0; top: -8px; height: 4px; }
-.drop-below::after { left: 0; right: 0; bottom: -8px; height: 4px; }
+.ed-canvas .ed-drop-into { border: 2px dashed var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.ed-drop-before::before, .ed-drop-after::after, .ed-drop-above::before, .ed-drop-below::after { content: ""; position: absolute; z-index: 4; border-radius: 2px; background: var(--primary); }
+.ed-drop-before::before { top: 0; bottom: 0; left: -8px; width: 4px; }
+.ed-drop-after::after { top: 0; bottom: 0; right: -8px; width: 4px; }
+.ed-drop-above::before { left: 0; right: 0; top: -8px; height: 4px; }
+.ed-drop-below::after { left: 0; right: 0; bottom: -8px; height: 4px; }
 .ed-ghost { position: fixed; left: 0; top: 0; z-index: 100; pointer-events: none; max-width: 60vw; padding: 8px 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 	border-radius: 999px; background: var(--primary); color: var(--on-primary); box-shadow: 0 8px 24px rgb(0 0 0 / 0.25); }
 

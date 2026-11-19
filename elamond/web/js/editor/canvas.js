@@ -398,7 +398,7 @@ export class Canvas {
 			handle.setPointerCapture(e.pointerId);
 		} catch {}
 		const unmark = () => {
-			for (const m of this.el.querySelectorAll('.drop-before, .drop-after, .drop-above, .drop-below, .drop-into')) m.classList.remove('drop-before', 'drop-after', 'drop-above', 'drop-below', 'drop-into');
+			for (const m of this.el.querySelectorAll('.ed-drop-before, .ed-drop-after, .ed-drop-above, .ed-drop-below, .ed-drop-into')) m.classList.remove('ed-drop-before', 'ed-drop-after', 'ed-drop-above', 'ed-drop-below', 'ed-drop-into');
 		};
 		const move = (/** @type {PointerEvent} */ ev) => {
 			if (!active) {
@@ -413,7 +413,7 @@ export class Canvas {
 			setStyle(/** @type {HTMLElement} */ (ghost), { transform: `translate(${ev.clientX + 12}px, ${ev.clientY + 12}px)` });
 			unmark();
 			target = this.dropAt(ev.clientX, ev.clientY, from);
-			if (target) target.el.classList.add(`drop-${target.where}`);
+			if (target) target.el.classList.add(`ed-drop-${target.where}`);
 			if (ev.clientY < 56) window.scrollBy(0, -14);
 			else if (ev.clientY > window.innerHeight - 56) window.scrollBy(0, 14);
 		};
