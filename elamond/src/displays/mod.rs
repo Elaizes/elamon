@@ -47,10 +47,10 @@ impl Seen {
 		self.outputs.iter().any(|o| o.name != name && !o.headless() && o.lit())
 	}
 
-	/// Whether turning `o` off, or its picture, takes its name typed in: it is on, and no other
-	/// screen shows a picture.
+	/// Whether turning `o` off, or its picture, takes its name typed in: it is a screen, it is on,
+	/// and no other screen shows a picture. An output without a screen leaves nobody in the dark.
 	pub fn typed_off(&self, o: &Output) -> bool {
-		!o.disabled && !self.another_lit(&o.name)
+		!o.headless() && !o.disabled && !self.another_lit(&o.name)
 	}
 
 	/// The outputs a client is told of and may act on, as `[displays]` says.

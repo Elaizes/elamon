@@ -900,8 +900,8 @@ unless `[displays] headless` says ([config.md](config.md#monitors)).
 
 Their least role is `[displays] role` (`operate` unless it says `admin`); turning an output or its
 picture on or off asks before it runs (`confirm`), its brightness doesn't; each unlocks as the
-profile's `unlock.for` says for the kind `display`. Turning off, or putting to sleep, an output
-while no other with a screen shows a picture (on, its picture on) is typed in: the choice `off`
+profile's `unlock.for` says for the kind `display`. Turning off, or putting to sleep, an output with
+a screen while no other with a screen shows a picture (on, its picture on) is typed in: the choice `off`
 carries `confirm_text`, the output's name, which the client asks the person to type, and sends:
 
 ```json

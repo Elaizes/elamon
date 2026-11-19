@@ -165,6 +165,7 @@ fn what_hyprland_shows_and_what_may_be_done() {
 	// Shown too, the stream's output never counts as a screen showing a picture.
 	let all = DisplaysDef { headless: true, ..quick() };
 	assert!(ids(&seen, &all).contains(&"display.output.stream".to_string()));
+	assert_eq!(typed(&seen, &all, "display.output.stream"), None, "a stream's output leaves nobody in the dark");
 	assert_eq!(typed(&seen, &all, "display.output.DP-1").as_deref(), Some("DP-1"));
 	// With the panel on as well, neither is the last.
 	f.output("eDP-1", "");
