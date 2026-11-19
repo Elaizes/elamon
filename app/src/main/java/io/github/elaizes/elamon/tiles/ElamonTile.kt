@@ -55,10 +55,13 @@ abstract class ElamonTile : TileService() {
 		s.launch {
 			val machine = tilesMachine(this@ElamonTile)
 			// At once, as last read; then as the computer says now, toggles and profile alike.
-			draw(machine, machine?.let { UiCache.get(this@ElamonTile).ui(it.id) })
+			var ui = machine?.let { UiCache.get(this@ElamonTile).ui(it.id) }
+			draw(machine, ui)
 			if (machine == null) return@launch
-			val reading = TileReading.read(this@ElamonTile, machine) ?: return@launch
-			draw(machine, reading.ui)
+			// An action that starts or ends meanwhile (this tile's, or another's on the same toggle) is shown.
+			s.launch { TileMemory.changes.collect { draw(machine, ui) } }
+			ui = TileReading.read(this@ElamonTile, machine)?.ui ?: return@launch
+			draw(machine, ui)
 		}
 	}
 
@@ -87,9 +90,7 @@ abstract class ElamonTile : TileService() {
 			open(TileActionActivity.intent(this, machine.id, slot.widget.id, on))
 			return
 		}
-		runForTile(this, machine, slot.widget.id, slot.action, tap.params, null)
-		// Turned as it was tapped, until a reading says otherwise.
-		if (slot.toggle) TileMemory.on[slot.widget.id] = !on
+		runForTile(this, machine, slot.widget.id, slot.action, tap.params, null, turnsTo = if (slot.toggle) !on else null)
 	}
 
 	/** What asks before the action, over whatever is on screen, the panel closed. */

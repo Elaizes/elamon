@@ -68,7 +68,7 @@ class TileActionActivity : FragmentActivity() {
 			val ui = machine?.let { UiCache.get(this@TileActionActivity).ui(it.id) }
 			val slot = ui?.let { tileSlots(it).find { s -> s.widget.id == widgetId } }
 			if (machine == null || ui == null || slot == null) return@launch finish()
-			val launcher = launcher(guard, machine, ui, slot)
+			val launcher = launcher(guard, machine, ui, slot, on)
 			// The prompt is shown once the activity is up.
 			withStarted {
 				if (!ask.launched) {
@@ -91,10 +91,13 @@ class TileActionActivity : FragmentActivity() {
 		}
 	}
 
-	/** Runs [slot]'s action of [machine] as the app runs any, once asked, for the tile to show how it ended. */
-	private fun launcher(guard: Guard, machine: Machine, ui: UiDoc, slot: TileSlot) = ActionLauncher(
+	/**
+	 * Runs [slot]'s action of [machine] as the app runs any, once asked, for the tile to show how it
+	 * ended: a toggle [on] when tapped, turned off, and the other way.
+	 */
+	private fun launcher(guard: Guard, machine: Machine, ui: UiDoc, slot: TileSlot, on: Boolean) = ActionLauncher(
 		guard,
-		run = { action, params, _, typed -> runForTile(applicationContext, machine, slot.widget.id, action, params, typed) },
+		run = { action, params, _, typed -> runForTile(applicationContext, machine, slot.widget.id, action, params, typed, turnsTo = if (slot.toggle) !on else null) },
 		ui = ui,
 		computer = machine.name,
 		res = resources,

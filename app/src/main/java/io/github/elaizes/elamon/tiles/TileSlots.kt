@@ -5,6 +5,8 @@ import android.content.Context
 import android.service.quicksettings.TileService
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import io.github.elaizes.elamon.Message
@@ -83,6 +85,11 @@ object TileMemory {
 	/** How long what a tile ran stays said under its name. */
 	const val NOTE_MS = 10 * 60_000L
 
+	/** Counts the changes to what the tiles show, for a tile that listens to draw itself again. */
+	val changes = MutableStateFlow(0)
+
+	fun changed() = changes.update { it + 1 }
+
 	fun note(widget: String, now: Long): TileNote? = notes[widget]?.takeIf { now - it.at < NOTE_MS }
 }
 
@@ -96,15 +103,18 @@ fun refreshTiles(context: Context) {
 
 /**
  * Runs [action] of [machine], a tile's ([widget]), once whatever asks before it has been answered:
- * outside any screen, so it goes on after the panel closes. How it ended is the tile's to show.
+ * outside any screen, so it goes on after the panel closes. How it ended is the tile's to show; a
+ * toggle's, done, [turnsTo] on or off.
  */
-fun runForTile(context: Context, machine: Machine, widget: String, action: Action, params: JsonObject, typed: String?) {
+fun runForTile(context: Context, machine: Machine, widget: String, action: Action, params: JsonObject, typed: String?, turnsTo: Boolean? = null) {
 	val ctx = context.applicationContext
 	if (!TileMemory.running.add(widget)) return
+	TileMemory.changed()
 	refreshTiles(ctx)
 	Outside.scope.launch {
 		val note = try {
 			val r = runAction(machine, MachineStore.get(ctx), action, params, typed)
+			turnsTo?.let { TileMemory.on[widget] = it }
 			TileNote(afterRun(action, params, r) ?: Message.Res(io.github.elaizes.elamon.R.string.control_done), System.currentTimeMillis(), failed = false)
 		} catch (e: CancellationException) {
 			throw e
@@ -113,6 +123,7 @@ fun runForTile(context: Context, machine: Machine, widget: String, action: Actio
 		}
 		TileMemory.notes[widget] = note
 		TileMemory.running.remove(widget)
+		TileMemory.changed()
 		refreshTiles(ctx)
 	}
 }
