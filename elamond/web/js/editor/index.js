@@ -10,7 +10,7 @@ import {
 	draft, isDirty, rebase, clone, stable, widgetAt, addWidget, removeWidget, moveWidget, nudge, setSpan, pathKey, samePath,
 	sortMistakes, isId, addTab, WIDGETS,
 } from './draft.js';
-import { normalise, isGroup, spanOf, spanRange, nameOf, exampleOf, origins, keysFromBelow } from './describe.js';
+import { normalise, isGroup, spanRange, nameOf, exampleOf, origins, keysFromBelow } from './describe.js';
 import { keyFields, otherField, markField } from './form.js';
 import { Canvas } from './canvas.js';
 import { Previewer } from './preview.js';
@@ -443,6 +443,7 @@ class Editor {
 		}
 		const path = this.selected;
 		const { min, max } = spanRange(this.desc);
+		const info = this.canvas.infoAt(path);
 		this.form = widgetForm({
 			desc: this.desc,
 			dash: this.dash.value,
@@ -467,6 +468,8 @@ class Editor {
 			},
 			remove: () => this.remove(path),
 			addInto: isGroup(this.desc, w) ? () => this.openAdd(path) : null,
+			as: info.as,
+			width: info.span,
 		});
 		side.append(this.form.el);
 	}
@@ -532,7 +535,7 @@ class Editor {
 		const w = widgetAt(this.dash.value, path);
 		if (!w) return;
 		const { min, max } = spanRange(this.desc);
-		if (Math.max(min, Math.min(max, n)) === spanOf(this.desc, w) && w.span !== undefined) return;
+		if (Math.max(min, Math.min(max, n)) === this.canvas.infoAt(path).span && w.span !== undefined) return;
 		setSpan(w, n, min, max);
 		this.changed(true);
 		if (this.selected && samePath(this.selected, path)) this.renderSide();

@@ -356,6 +356,8 @@ function listControl(fc, k, value, set, label) {
 	const cur = Array.isArray(value) ? value : [];
 	const rows = h('ol', { class: 'ed-rows' });
 	const el = h('div', { class: 'ed-list' }, rows);
+	// An item that is a table or list of its own gets the whole width, its row's buttons above it.
+	const block = ['record', 'map', 'list', 'any'].includes(of.kind);
 	const draw = () => {
 		clear(rows);
 		cur.forEach((item, i) => {
@@ -363,7 +365,7 @@ function listControl(fc, k, value, set, label) {
 			rows.append(
 				h(
 					'li',
-					{ class: 'ed-row' },
+					{ class: block ? 'ed-row ed-row-block' : 'ed-row' },
 					h('div', { class: 'ed-row-value' }, control(fc, of, item, (v) => {
 						cur[i] = v === undefined ? emptyOf(of) : v;
 						set(cur);

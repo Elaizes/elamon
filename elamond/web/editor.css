@@ -221,3 +221,11 @@
 
 .ed-keys summary { display: flex; align-items: center; min-height: var(--tap); cursor: pointer; }
 .ed-keys summary h2 { margin: 0; }
+.ed-row-block { flex-direction: column-reverse; align-items: stretch; gap: 0; padding: 4px 0 8px; border-bottom: 1px solid var(--line); }
+.ed-row-block > .ed-row-tools { justify-content: flex-end; }
+
+/* A narrow cell's bar keeps its handle, its name and taking it out; its widths are in the form. */
+.ed-cell:not(.ed-groupcell) { container-type: inline-size; }
+@container (max-width: 300px) {
+	.ed-widths { display: none; }
+}

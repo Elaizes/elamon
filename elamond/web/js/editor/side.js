@@ -4,7 +4,7 @@
 import { h } from '../dom.js';
 import { S, fill } from '../strings.js';
 import { keyFields, otherField, markField } from './form.js';
-import { keysOf, unknownKeys, isGroup, nameOf, typeLabel, spanOf, spanRange } from './describe.js';
+import { keysOf, unknownKeys, isGroup, nameOf, typeLabel, spanRange } from './describe.js';
 import { allPaths, widgetAt, pathKey } from './draft.js';
 
 /**
@@ -12,7 +12,7 @@ import { allPaths, widgetAt, pathKey } from './draft.js';
  *   desc: import('./describe.js').Editor, dash: import('./draft.js').DraftDashboard, path: import('./draft.js').WidgetPath,
  *   mistakes: Map<string, string[]>, changed: (shape: boolean) => void, close: () => void,
  *   span: (n: number) => void, nudge: (delta: -1 | 1) => void, moveInto: (parent: import('./draft.js').WidgetPath) => void,
- *   remove: () => void, addInto: (() => void) | null,
+ *   remove: () => void, addInto: (() => void) | null, as: string | null, width: number,
  * }} SideHooks
  */
 
@@ -25,7 +25,8 @@ export function widgetForm(o) {
 	const { desc, dash, path } = o;
 	const w = /** @type {Record<string, any>} */ (widgetAt(dash, path));
 	const name = nameOf(desc, w);
-	const { own, common } = keysOf(desc, w);
+	// A widget from a template has no type of its own: its keys are those of the type it was drawn as.
+	const { own, common } = keysOf(desc, w, o.as);
 	let type = w.type;
 	const fc = {
 		desc,
@@ -42,21 +43,23 @@ export function widgetForm(o) {
 	// that still lists `type` among the common keys doesn't make it twice).
 	const ownFields = keyFields(fc, own.filter((k) => k.key !== 'span' && k.key !== 'type'), w);
 	const commonFields = keyFields(fc, common.filter((k) => k.key !== 'span' && k.key !== 'type'), w);
-	const others = unknownKeys(desc, w).map((k) => otherField(fc, k, w));
+	const others = unknownKeys(desc, w, o.as).map((k) => otherField(fc, k, w));
 	const whole = h('div', { class: 'ed-whole' });
 
 	// What it is: one of the types the service describes (one it doesn't is kept, and said).
 	const types = h('select', { id: 'ed-type' });
+	if (w.type === undefined) types.append(h('option', { value: '' }, fill(S.editor.fromTemplate, String(w.use ?? '?'))));
 	for (const t of desc.types) types.append(h('option', { value: t.type }, t.label && t.label !== t.type ? `${t.label} (${t.type})` : t.type));
-	if (!desc.types.some((t) => t.type === w.type)) types.append(h('option', { value: String(w.type ?? '') }, String(w.type ?? '')));
+	if (w.type !== undefined && !desc.types.some((t) => t.type === w.type)) types.append(h('option', { value: String(w.type) }, String(w.type)));
 	types.value = String(w.type ?? '');
 	types.addEventListener('change', () => {
-		w.type = types.value;
+		if (types.value === '') delete w.type;
+		else w.type = types.value;
 		fc.changed();
 	});
 
 	const { min, max } = spanRange(desc);
-	const span = spanOf(desc, w);
+	const span = o.width;
 	const widths = h('div', { class: 'ed-seg', role: 'group', 'aria-label': S.editor.width });
 	for (let n = min; n <= max; n++) {
 		widths.append(h('button', { type: 'button', 'aria-pressed': n === span ? 'true' : 'false', 'aria-label': fill(S.editor.widthN, n, max), onclick: () => o.span(n) }, String(n)));
@@ -79,7 +82,7 @@ export function widgetForm(o) {
 		h(
 			'div',
 			{ class: 'ed-side-head' },
-			h('h2', { id: 'ed-side-title' }, name, ' ', h('small', { class: 'muted' }, typeLabel(desc, w.type))),
+			h('h2', { id: 'ed-side-title' }, name, ' ', h('small', { class: 'muted' }, w.type !== undefined ? typeLabel(desc, w.type) : o.as ? typeLabel(desc, o.as) : String(w.use ?? ''))),
 			h('button', { type: 'button', class: 'quiet', onclick: o.close }, S.core.close),
 		),
 		whole,
@@ -97,12 +100,13 @@ export function widgetForm(o) {
 				h('button', { type: 'button', 'aria-label': S.editor.moveDown, title: S.editor.moveDown, onclick: () => o.nudge(1) }, S.editor.down),
 			),
 		),
-		ownFields.length ? h('section', { class: 'ed-section' }, h('h3', null, fill(S.editor.typeKeys, typeLabel(desc, w.type))), ...ownFields) : null,
+		ownFields.length ? h('section', { class: 'ed-section' }, h('h3', null, fill(S.editor.typeKeys, typeLabel(desc, w.type ?? o.as))), ...ownFields) : null,
 		h('section', { class: 'ed-section' }, h('h3', null, S.editor.commonKeys), ...commonFields),
 		others.length ? h('section', { class: 'ed-section' }, h('h3', null, S.editor.otherKeys), ...others) : null,
 		h('div', { class: 'ed-row-buttons' }, h('button', { type: 'button', class: 'danger', onclick: o.remove }, S.editor.removeThis)),
 	);
-	if (!desc.types.some((t) => t.type === w.type)) whole.append(h('p', { class: 'note warning' }, fill(S.editor.unknownType, String(w.type))));
+	if (w.type === undefined) whole.append(h('p', { class: 'note' }, fill(S.editor.templateNote, String(w.use ?? '?'))));
+	else if (!desc.types.some((t) => t.type === w.type)) whole.append(h('p', { class: 'note warning' }, fill(S.editor.unknownType, String(w.type))));
 
 	/** @param {Map<string, string[]>} m */
 	const mark = (m) => {

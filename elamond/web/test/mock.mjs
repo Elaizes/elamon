@@ -67,7 +67,7 @@ function mistakesOf(id, dash) {
 		for (const k of ['max', 'min']) {
 			if (typeof w[k] === 'string' && !known.has(w[k])) out.push({ file: editor.desc.file, line: null, path: `${path}.${k}`, message: `expected a number or an address, like "cpu.usage", found "${w[k]}"` });
 		}
-		if (w.action !== undefined && !editor.desc.actions.some((a) => a.id === w.action)) out.push({ file: editor.desc.file, line: null, path: `${path}.action`, message: `no action ${JSON.stringify(w.action)}` });
+		if (w.action !== undefined && !String(w.action).includes('{') && !editor.desc.actions.some((a) => a.id === w.action)) out.push({ file: editor.desc.file, line: null, path: `${path}.action`, message: `no action ${JSON.stringify(w.action)}` });
 		walk(w.widgets, path);
 	});
 	walk(dash && dash.widgets, `dashboards.${id}`);

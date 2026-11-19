@@ -60,11 +60,13 @@ export function typeOf(d, type) {
 
 /**
  * The keys a widget takes: its type's, then those of every widget (`common`) its type doesn't
- * have. @param {Editor} d @param {Record<string, any>} widget
+ * have. A widget made from a template (`use`) has no `type` of its own: `as` is the type the
+ * preview drew it as, if known.
+ * @param {Editor} d @param {Record<string, any>} widget @param {string | null} [as]
  * @returns {{ own: EditorKey[], common: EditorKey[] }}
  */
-export function keysOf(d, widget) {
-	const t = typeOf(d, widget.type);
+export function keysOf(d, widget, as = null) {
+	const t = typeOf(d, widget.type ?? as);
 	const own = t ? t.keys.filter((k) => k && k.key) : [];
 	const names = new Set(own.map((k) => k.key));
 	return { own, common: d.common.filter((k) => k && k.key && !names.has(k.key)) };
@@ -73,10 +75,10 @@ export function keysOf(d, widget) {
 /**
  * The keys of a widget no description names, in the order it has them. `type` is the protocol's
  * own (what the widget is), offered on its own, never as one of these.
- * @param {Editor} d @param {Record<string, any>} widget
+ * @param {Editor} d @param {Record<string, any>} widget @param {string | null} [as] the type drawn, for one from a template
  */
-export function unknownKeys(d, widget) {
-	const { own, common } = keysOf(d, widget);
+export function unknownKeys(d, widget, as = null) {
+	const { own, common } = keysOf(d, widget, as);
 	const known = new Set([...own, ...common].map((k) => k.key));
 	known.add('type');
 	return Object.keys(widget).filter((k) => !known.has(k));
@@ -107,10 +109,13 @@ export function spanRange(d) {
 	return { min, max };
 }
 
-/** How wide a widget is: its own `span`, else its type's, else `span`'s default. @param {Editor} d @param {Record<string, any>} widget */
-export function spanOf(d, widget) {
+/**
+ * How wide a widget is: its own `span`, else its type's (the type drawn, `as`, for one from a
+ * template), else `span`'s default. @param {Editor} d @param {Record<string, any>} widget @param {string | null} [as]
+ */
+export function spanOf(d, widget, as = null) {
 	const { min, max } = spanRange(d);
-	const t = typeOf(d, widget.type);
+	const t = typeOf(d, widget.type ?? as);
 	const k = commonKey(d, 'span');
 	const raw = typeof widget.span === 'number' ? widget.span : t && typeof t.span === 'number' ? t.span : k && typeof k.default === 'number' ? k.default : max;
 	return Math.max(min, Math.min(max, Math.round(raw)));
@@ -125,6 +130,7 @@ export function exampleOf(d, type) {
 /** What to call a widget: its label, else its type's, else its type. @param {Editor} d @param {Record<string, any>} widget */
 export function nameOf(d, widget) {
 	if (typeof widget.label === 'string' && widget.label.trim()) return widget.label;
+	if (widget.type === undefined && typeof widget.use === 'string') return widget.use;
 	const t = typeOf(d, widget.type);
 	return (t && t.label) || String(widget.type ?? '?');
 }

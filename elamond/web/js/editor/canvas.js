@@ -155,10 +155,11 @@ export class Canvas {
 		const desc = this.opts.desc();
 		const g = h('div', { class: 'ed-grid', role: 'list', 'data-parent': pathKey(parent) });
 		const drawn = list.map((w, i) => this.assigned.get(pathKey([...parent, i])) ?? null);
+		const spans = list.map((w, i) => this.info(w && typeof w === 'object' ? w : {}, drawn[i]).span);
 		// A widget made for each item of something takes the whole width: its items flow inside.
-		const spans = list.map((w, i) => (drawn[i] && /** @type {any[]} */ (drawn[i]).length > 1 ? 4 : spanOf(desc, w && typeof w === 'object' ? w : {})));
-		const wide = flow(spans, 4);
-		const narrow = flow(spans, 2);
+		const cells = spans.map((n, i) => (drawn[i] && /** @type {any[]} */ (drawn[i]).length > 1 ? 4 : n));
+		const wide = flow(cells, 4);
+		const narrow = flow(cells, 2);
 		list.forEach((w, i) => g.append(this.cell(w && typeof w === 'object' ? w : {}, [...parent, i], drawn[i], wide[i], narrow[i])));
 		g.append(
 			h(
@@ -171,6 +172,28 @@ export class Canvas {
 	}
 
 	/**
+	 * What a widget is and how wide: its own type and width, else (one made from a template, which
+	 * the description doesn't describe) as the preview drew it.
+	 * @param {Record<string, any>} w @param {any[] | null} drawn
+	 * @returns {{ as: string | null, span: number, kind: string }}
+	 */
+	info(w, drawn) {
+		const desc = this.opts.desc();
+		const first = drawn && drawn.length ? drawn[0] : null;
+		const as = w.type === undefined && first && typeof first.type === 'string' ? first.type : null;
+		const { min, max } = spanRange(desc);
+		const span = typeof w.span !== 'number' && first && typeof first.span === 'number' ? Math.max(min, Math.min(max, first.span)) : spanOf(desc, w, as);
+		const kind = w.type !== undefined ? typeLabel(desc, w.type) : as ? fill(S.editor.templateAs, w.use ?? '', typeLabel(desc, as)) : fill(S.editor.fromTemplate, w.use ?? '?');
+		return { as, span, kind };
+	}
+
+	/** What a widget at a path is and how wide, as drawn now. @param {import('./draft.js').WidgetPath} path */
+	infoAt(path) {
+		const w = this.widget(pathKey(path)) || {};
+		return this.info(w, this.assigned.get(pathKey(path)) ?? null);
+	}
+
+	/**
 	 * @param {Record<string, any>} w @param {import('./draft.js').WidgetPath} path @param {any[] | null} drawn
 	 * @param {number} wide its width on four columns @param {number} narrow on two
 	 */
@@ -178,7 +201,7 @@ export class Canvas {
 		const desc = this.opts.desc();
 		const group = isGroup(desc, w);
 		const name = nameOf(desc, w);
-		const span = spanOf(desc, w);
+		const { span, kind } = this.info(w, drawn);
 		const key = pathKey(path);
 		const mistakes = this.mistakes.get(key);
 		const sel = !!this.selected && samePath(this.selected, path);
@@ -187,11 +210,11 @@ export class Canvas {
 			tabindex: 0,
 			role: 'listitem',
 			'data-path': key,
-			'aria-label': fill(S.editor.cellLabel, name, typeLabel(desc, w.type), span),
+			'aria-label': fill(S.editor.cellLabel, name, kind, span),
 			'aria-current': sel ? 'true' : null,
 			'aria-keyshortcuts': 'Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight Enter Delete',
 		});
-		const bar = this.bar(w, path, name, span, cell);
+		const bar = this.bar(path, name, kind, span, cell);
 		const entry = { draw: /** @type {HTMLElement | null} */ (null), view: null, sig: '', many: !!drawn && drawn.length > 1 };
 		this.cells.set(key, entry);
 		if (group) {
@@ -262,7 +285,7 @@ export class Canvas {
 	}
 
 	/** The frame's bar: a handle to drag by, the widget's name, its width, taking it out. */
-	bar(w, path, name, span, cell) {
+	bar(path, name, kind, span, cell) {
 		const desc = this.opts.desc();
 		const { min, max } = spanRange(desc);
 		const grip = h('button', { type: 'button', class: 'ed-grip quiet', tabindex: -1, 'aria-label': fill(S.editor.dragToMove, name), title: S.editor.drag }, icon('grip'));
@@ -295,7 +318,7 @@ export class Canvas {
 				this.opts.hooks.remove(path);
 			},
 		}, icon('close'));
-		const bar = h('div', { class: 'ed-bar' }, grip, h('span', { class: 'ed-name' }, h('span', null, name), h('small', { class: 'muted' }, typeLabel(desc, w.type))), widths, out);
+		const bar = h('div', { class: 'ed-bar' }, grip, h('span', { class: 'ed-name' }, h('span', null, name), h('small', { class: 'muted' }, kind)), widths, out);
 		// With a mouse the bar is a handle too (its buttons aside), once it has moved a little.
 		bar.addEventListener('pointerdown', (e) => {
 			const t = /** @type {Element} */ (e.target);
@@ -309,11 +332,11 @@ export class Canvas {
 		const cell = this.el.querySelector(`.ed-cell[data-path="${pathKey(path)}"]`);
 		const w = this.widget(pathKey(path));
 		if (!(cell instanceof HTMLElement) || !w) return;
-		const desc = this.opts.desc();
-		const name = nameOf(desc, w);
+		const name = nameOf(this.opts.desc(), w);
+		const info = this.infoAt(path);
 		const span = cell.querySelector(':scope > .ed-bar .ed-name > span');
 		if (span) span.textContent = name;
-		cell.setAttribute('aria-label', fill(S.editor.cellLabel, name, typeLabel(desc, w.type), spanOf(desc, w)));
+		cell.setAttribute('aria-label', fill(S.editor.cellLabel, name, info.kind, info.span));
 	}
 
 	/** Picks a widget: its frame is marked. @param {import('./draft.js').WidgetPath | null} path */
@@ -345,7 +368,7 @@ export class Canvas {
 			hooks.nudge(path, e.key === 'ArrowUp' ? -1 : 1);
 		} else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
 			e.preventDefault();
-			hooks.span(path, spanOf(this.opts.desc(), w) + (e.key === 'ArrowLeft' ? -1 : 1));
+			hooks.span(path, this.infoAt(path).span + (e.key === 'ArrowLeft' ? -1 : 1));
 		} else if (e.key === 'Enter' || e.key === ' ') {
 			e.preventDefault();
 			hooks.select(path, true, true);
