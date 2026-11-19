@@ -218,6 +218,14 @@ scope = "user"
 label = "My journal"
 span = 4
 
+# The phone's Quick Settings tile 1: Say hello.
+[profiles.phone.android]
+tiles = "tiles"
+
+[dashboards.tiles]
+title = "Tiles"
+widgets = [{ type = "button", action = "hello", label = "Hello" }]
+
 [profiles.lean]
 use = "phone"
 name = "Lean"
@@ -298,6 +306,12 @@ flow maestro/events.yaml
 wait "$writer" 2>/dev/null || true
 (run_elamond events) | grep -q 'notify: maestro event two' || fail "elamond events doesn't list what elamond notify made: $( (run_elamond events) )"
 [[ -f "$work/cfg/elamond.d/events.toml" ]] || fail "the service wrote no elamond.d/events.toml with its starter settings"
+# Monitors: what the stand-in Hyprland was told, as Control asked it, and the activity log.
+flow maestro/monitors.yaml
+grep -qx 'disabled=true' "$hypr/outputs/DP-1" || fail "DP-1 isn't off after its name was typed: $(cat "$hypr/outputs/DP-1")"
+grep -qx 'disabled=false' "$hypr/outputs/eDP-1" || fail "eDP-1 isn't on: $(cat "$hypr/outputs/eDP-1")"
+grep -q "hl.monitor({ output = 'eDP-1', mode = '1920x1080.149'" "$hypr/evals" || fail "eDP-1 wasn't turned on with what it had: $(cat "$hypr/evals")"
+grep -q '"what":"display output DP-1 off","result":"ok"' "$work/data/activity.jsonl" || fail "the activity log has no DP-1 off"
 # A row's sheet, an action's confirmation and its form, and the licences, each turned while open:
 # each action confirmed there runs once. Not on a real phone, where an action unlocks it instead.
 if [[ "$real_phone" != true ]]; then
@@ -357,4 +371,27 @@ exec 3>&-
 grep -q "had the profile $own" "$work/pair3.log" || fail "pairing wasn't offered the table by name: $(cat "$work/pair3.log")"
 [[ $( (run_elamond clients) | grep -c '^[0-9a-f]\{8\} ') -eq 1 ]] || fail "not one entry after pairing again"
 if [[ $(grep -c '^\[profiles\.' "$phones") -ne 1 ]] || grep -q '^# Unpaired ' "$phones"; then fail "the table wasn't taken again: $(cat "$phones")"; fi
+# The first Quick Settings tile runs Say hello, before and after the phone restarts, without the
+# app opened in between. Only on an emulator, which restarts here.
+if [[ "$real_phone" != true ]]; then
+	hellos() { grep -c '"what":"action Say hello","result":"ok"' "$work/data/activity.jsonl" || true; }
+	tile=$APP_ID/io.github.elaizes.elamon.tiles.Tile1
+	adb shell am force-stop "$APP_ID"
+	adb shell cmd statusbar add-tile "$tile" > /dev/null
+	before=$(hellos)
+	adb shell cmd statusbar click-tile "$tile" > /dev/null
+	for _ in $(seq 30); do [[ $(hellos) -gt $before ]] && break; sleep 1; done
+	[[ $(hellos) -gt $before ]] || fail "the tile didn't run Say hello"
+	adb shell screencap -p > "$OUT/60-tile.png" || true
+	adb reboot
+	adb wait-for-device
+	until [[ $(adb shell getprop sys.boot_completed | tr -d '\r') == 1 ]]; do sleep 2; done
+	sleep 10
+	before=$(hellos)
+	adb shell cmd statusbar click-tile "$tile" > /dev/null
+	for _ in $(seq 60); do [[ $(hellos) -gt $before ]] && break; sleep 1; done
+	[[ $(hellos) -gt $before ]] || fail "the tile didn't run Say hello after the phone restarted"
+	adb shell screencap -p > "$OUT/61-tile-after-restart.png" || true
+	adb shell cmd statusbar remove-tile "$tile" > /dev/null || true
+fi
 echo "screenshots: $OUT"

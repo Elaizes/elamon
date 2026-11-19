@@ -1,0 +1,51 @@
+# Control's Monitors against run.sh's stand-in Hyprland: eDP-1 off, DP-1 the one screen showing a
+# picture, its brightness read over a stand-in DDC. Turning DP-1 off asks for its name typed; eDP-1
+# then comes on with a plain confirmation. run.sh checks what the stand-in was told. Right after
+# events.yaml, on Overview.
+appId: io.github.elaizes.elamon.debug
+---
+- scrollUntilVisible:
+    element: "Control"
+    direction: RIGHT
+    timeout: 10000
+- tapOn: "Control"
+- scrollUntilVisible:
+    element: "Monitors"
+    timeout: 30000
+    speed: 70
+- tapOn: "Monitors"
+- scrollUntilVisible:
+    element: "DP-1 brightness"
+    timeout: 20000
+- takeScreenshot: 50-monitors
+# The last screen showing a picture: its name is typed, or nothing is done.
+- tapOn: "DP-1"
+- extendedWaitUntil:
+    visible: "Type the monitor's name"
+    timeout: 10000
+- assertVisible: ".*Type “DP-1” to go on.*"
+- takeScreenshot: 51-monitors-typed
+- inputText: "DP-1"
+- tapOn:
+    text: "DP-1"
+    rightOf: "Cancel"
+- waitForAnimationToEnd
+- takeScreenshot: 52-monitors-dp-off
+# The panel, off, comes on with an ordinary question.
+- scrollUntilVisible:
+    element: "eDP-1"
+    timeout: 10000
+- tapOn: "eDP-1"
+- extendedWaitUntil:
+    visible: "eDP-1: On\\?"
+    timeout: 10000
+- tapOn:
+    text: "eDP-1"
+    rightOf: "Cancel"
+- waitForAnimationToEnd
+- takeScreenshot: 53-monitors-panel-on
+- scrollUntilVisible:
+    element: "Overview"
+    direction: LEFT
+    timeout: 10000
+- tapOn: "Overview"
