@@ -23,8 +23,9 @@ tests read them, so the two can't drift apart. Those elamond 0.7 adds are in
 them ([below](#what-came-with-elamond-07)), those 0.8 adds in
 [`elamond/fixtures/0.8`](../elamond/fixtures/0.8) ([below](#what-came-with-elamond-08)), and
 those 0.8.1 adds in [`elamond/fixtures/0.8.1`](../elamond/fixtures/0.8.1)
-([below](#what-came-with-elamond-081)), and those 0.10 adds in
-[`elamond/fixtures/0.10`](../elamond/fixtures/0.10) ([below](#what-came-with-elamond-010)).
+([below](#what-came-with-elamond-081)), those 0.10 adds in
+[`elamond/fixtures/0.10`](../elamond/fixtures/0.10) ([below](#what-came-with-elamond-010)), and those 0.11
+adds in [`elamond/fixtures/0.11`](../elamond/fixtures/0.11) ([below](#what-came-with-elamond-011)).
 
 ## Versions and what each side can do
 
@@ -46,11 +47,13 @@ those 0.8.1 adds in [`elamond/fixtures/0.8.1`](../elamond/fixtures/0.8.1)
 ### `GET /api/v1/hello` (no token)
 
 ```json
-{ "app": "elamon", "api": 2, "widgets": 3, "id": "…", "name": "…", "version": "0.10.0", "min_app": "0.6.0" }
+{ "app": "elamon", "api": 2, "widgets": 3, "id": "…", "name": "…", "version": "0.11.0", "min_app": "0.6.0", "fingerprint": "…64 hex…" }
 ```
 
 Anyone on the network may ask, so it says which service this is and which versions it speaks, and
 nothing of what the computer can do: that a paired client reads in `ui` (`service.features`).
+`fingerprint` (since 0.11) is the SHA-256 of the certificate it presents, which anyone connecting
+sees anyway: the page shows it beside what to compare it with ([pairing a browser](#a-browsers-session)).
 
 ### The client says what it is
 
@@ -216,6 +219,38 @@ line); `snapshot-widget.json` (`GET /api/v1/snapshot?dashboard=phone&history=0`,
 dashboard); `action-display-typed.json` (the last screen turned off, its name typed);
 `actions-displays.json` (the answers to a monitor's action, by case).
 
+### What came with elamond 0.11
+
+A web page the service serves itself, and an admin API behind a role above `admin`. The API stays 2,
+`widgets` 3 and the settings schema 3: the page is a client of kind `web` that reads `ui` and the
+stream as the app does; the rest is new routes, a new role and new optional fields.
+
+| new | where |
+|---|---|
+| `GET /` and `GET /web/<file>`: the page, without a token | [the page](#the-page) |
+| pairing a client of kind `web`: a cookie instead of `token` in the answer; the cookie as the token | [pairing a browser](#pairing-a-browser) |
+| `fingerprint` in `hello` | [`hello`](#get-apiv1hello-no-token) |
+| the role `owner`, above `admin` | [roles](#roles) |
+| `admin` and `editor` in `service.features`, for the roles the admin API is open to | [`ui`](#get-apiv1ui) |
+| `/api/v1/admin/…`: the service's state, the settings, the clients, pairing from the page, `control off`, the settings files, a preview from a draft | [admin API](#admin-api) |
+| `/api/v1/admin/editor…`: dashboards, their widgets and the profiles' tabs, written by the service from forms | [the dashboard editor](#the-dashboard-editor) |
+| the errors `bad_origin`, `admin_off`, `writes_off`, `read_only`, `at_computer`, `bad_name`, `changed_on_disk`, `bad_settings` | [errors](#errors) |
+| `[web]` in the settings | [config.md](config.md#the-web-page-and-the-admin-api) |
+
+What an app of 0.10.1 or before sees of a 0.11 service: what it saw of 0.10, `fingerprint` in
+`hello` and the new `features` among those it ignores; a phone given the role `owner` shows it by
+its name, as a role it doesn't know, and works as an `admin`. An app of 0.11 with an older service:
+no `editor` in `features`, so no editor.
+
+The fixtures 0.11 adds are in `elamond/fixtures/0.11/`: `pair-web.json` (pairing a browser: the
+request's headers, the answer's `Set-Cookie` and body), `hello.json`, `admin-state.json`,
+`admin-settings.json` (with `admin-settings.toml`, the settings it is made from),
+`admin-clients.json`, `admin-pairing.json`, `admin-file.json`, `admin-check.json` (a draft with a
+mistake, and a sound one with its difference), `admin-save.json` (the answers to saving, by case),
+`admin-preview.json`, `editor.json` (the description the editor builds its forms from),
+`editor-dashboard.json` (a dashboard written from the editor: the request, and the file it makes),
+`editor-profile.json`, `ui-owner.json` (`ui` for an `owner` of kind `web`).
+
 ## Discovery
 
 The service announces `_elamon._tcp` over mDNS with TXT records:
@@ -373,7 +408,8 @@ A phone that forgets the computer unpairs itself: the entry whose token asks is 
 stay paired. Any role may ask, and it needs no control (it works with `control = false` and after
 `elamond control off`). No body is read.
 
-200 `{ "ok": true }`: from then on its token gets 401 and any stream it has open ends. Its own
+200 `{ "ok": true }`: from then on its token gets 401 and any stream it has open ends. A browser's
+answer clears its cookie. Its own
 table in [phones.toml](config.md#phones) stays, whatever is in it, with a note above it
 (`# Unpaired <date>; kept for a phone paired again (elamond pair offers it to one named "<name>").`),
 so that `elamond pair` offers it to the phone when it pairs again. The service's journal says
@@ -383,6 +419,70 @@ or no longer parses (it is never written over).
 
 A service before 0.6.2 answers 404 `not_found`; a client then forgets the computer all the same and
 says to run `elamond revoke` there, as it does when it can't reach the computer.
+
+## The page
+
+`GET /` answers the page, `GET /web/<file>` its scripts, styles, icon and manifest: files built into
+elamond, the same on every computer with the same version. No token is needed (the page knows
+nothing until it is paired), and nothing but these files is served outside `/api/`. Each answer has
+
+    Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+    X-Content-Type-Options: nosniff
+    Referrer-Policy: no-referrer
+    Cross-Origin-Opener-Policy: same-origin
+    Cache-Control: no-cache
+    ETag: "<16 hex characters of the file's SHA-256>"
+
+and an `If-None-Match` with that tag gets 304. Answers of `/api/` have `Cache-Control: no-store`
+and `X-Content-Type-Options: nosniff`. With `[web] page = false` in the settings `/` and `/web/…`
+are 404 `not_found`, as any path the service doesn't know.
+
+The page is a client like the app: it reads [`ui`](#get-apiv1ui) and
+[the stream](#get-apiv1stream) and runs [actions](#post-apiv1actionsid), saying
+`Elamon-Client: web/<version>`. It draws the dashboards of the computer that serves it, and no other.
+
+## Pairing a browser
+
+A browser pairs with the code of `elamond pair` too, typed into the page (or in the page's address:
+`elamond pair --web` prints a QR code of `https://<host>:<port>/#pair=<code>`; the code is in the
+fragment, which no browser sends to the server). The page sends the same
+[`POST /api/v1/pair`](#post-apiv1pair-no-token), with `Elamon-Client: web/<version>`: a pairing of
+kind `web`. It is checked as a [change by cookie](#a-browsers-session) is (`Origin` of the page
+itself), and, the right code given and the client let in, answered with the same body less `token`
+and with
+
+    Set-Cookie: __Host-elamon=<token>; Max-Age=<cookie_days × 86400>; Path=/; Secure; HttpOnly; SameSite=Strict
+
+`device` may be empty: the service then names the client after its browser and system, from
+`User-Agent` (`Firefox on Linux`, `Chrome on Android`), and keeps nothing else of that header. The
+answer to a client of kind `android` is as it was.
+
+### A browser's session
+
+The cookie is the token: the script of the page never sees it, in pairing or after. The service
+gives the cookie again with every `GET /api/v1/ui` it answers by it, so a page in use stays paired;
+one left alone for `cookie_days` (30 unless the settings say) loses it, while its entry stays paired
+until revoked. A client paired as `web` is let in only by the cookie, any other only by
+`Authorization: Bearer`: a cookie with the token of a phone, or a `Bearer` with the token of a
+browser, is 401 `unauthorized`. A request let in by the cookie is of kind `web`, whatever
+`Elamon-Client` says. A cookie whose token is no one's (revoked, or from before a restore) is
+answered 401 with the cookie cleared (`Max-Age=0`).
+
+Every request let in by the cookie other than `GET` and `HEAD` must come from the page: its `Origin`
+is `https://` and the `Host` it was sent to, or, without `Origin`, it has `Sec-Fetch-Site:
+same-origin`. Any other is 403 `bad_origin`, and does nothing. This is on top of `SameSite=Strict`,
+with which no other site's page sends the cookie at all.
+
+[`POST /api/v1/unpair`](#post-apiv1unpair) by the cookie (*Forget this browser*) unpairs the
+browser and clears the cookie. `elamond clients` shows a browser as `web/<version>`, by its name.
+A browser has a profile of its own in [phones.toml](config.md#phones), as a phone has.
+
+The page shows the certificate's fingerprint (from `hello`) beside what to compare it with: the one
+the browser shows for the page, and the one `elamond pair` prints. While the service presents its
+own certificate, the browser warns once, and again after `elamond rotate-cert`; with a certificate
+from files for the name the browser reaches it by ([config.md](config.md#the-web-page-and-the-admin-api)),
+it doesn't warn. That certificate goes only to a client that asks for that name (SNI); every other
+connection, the app's among them, gets the service's own, which the app pins.
 
 ## A new certificate
 
@@ -404,6 +504,7 @@ Each paired client has a role. They are ordered, each allowing what the one befo
 | `monitor` | everything there is to read: also processes with their commands and users, monitors, links, media with their covers, the activity log, the journal, the events (unless the settings give them to another role), a UPS's driver, serial numbers and versions | nothing |
 | `operate` | | actions of kind `profile`, `units`, `media` and `actions`, and `nut` of a source whose `role` is `operate`, and `display` unless `[displays]` gives them to `admin` |
 | `admin` | | `power`, `signal` and `nut` too |
+| `owner` | | the [admin API](#admin-api) too, from `[web] role` up (`owner` unless the settings say): the settings, the clients, the dashboard editor |
 
 Any role may ask for a key of its own ([`rekey`](#post-apiv1rekey)), which keeps that role.
 The values of a source of kind `command`, `http` or `file` are seen from that source's `role` up,
@@ -415,6 +516,10 @@ dashboard's or a widget's `role` in the settings can only ask for more.
 
 The person at the computer chooses: `elamond pair --role <role>`, otherwise `default_role` from
 the settings (`admin` unless set); a client with no role in the list of paired clients is `admin`.
+No client becomes `owner` by itself: the computer gives it (`elamond pair --role owner`,
+`elamond clients role ID owner`), or a client that has it, from the [admin API](#admin-api).
+Whoever may write the settings may add a command and run it: `owner` may do on the computer
+whatever its user may.
 `elamond clients role` changes a paired client's role, which applies from its next request; a stream
 it has open gets [`ui`](#get-apiv1stream) at once.
 
@@ -468,10 +573,11 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
   sleep or lock), `power_profiles` (power-profiles-daemon or tuned-ppd), `units` (systemd), `media`
   (a session bus for MPRIS), `processes`, `displays` (a GPU whose monitors DRM tells of), `display_control` (a Hyprland with Lua settings, which the service acts on the monitors through: [monitors](#monitors-kind-display)), `nvml` (an
   NVIDIA GPU NVML can read), `ups` (the settings have a `nut` [source](config.md#sources), whether
-  upsd answers or not). A client ignores those it doesn't know.
+  upsd answers or not), and for the client's role alone `admin` (the [admin API](#admin-api) is
+  open to it) and `editor` ([the dashboard editor](#the-dashboard-editor) too). A client ignores those it doesn't know.
 - `service.endpoints`: where the computer is now ([pairing](#where-the-computer-is-endpoints)).
-- `profile` holds the part every client reads, and the part for this client's kind (`android`)
-  only. For an `admin`, `source` says where the profile's table is, for the person to change it:
+- `profile` holds the part every client reads, and the part for this client's kind (`android` or
+  `web`) only. For an `admin` and an `owner`, `source` says where the profile's table is, for the person to change it:
   the file that set it last (relative to the settings' folder, `~/.config/elamon`, when it is in
   it; `elamond.toml`, `elamond.d/phones.toml`) and the line of its `[profiles.<id>]` there; for
   other roles it is left out.
@@ -479,7 +585,8 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
   with `for_each`); `dashboards` the tabs, then the header, then the dashboards their widgets
   open, and those theirs open, then those the tables' row actions open
   ([below](#row-actions-that-open-a-dashboard)), then, for an `android` client, those the profile's
-  `android` names for the app's home-screen widget, tiles and card (`widget`, `tiles`, `card`), each once and as far as the role sees. A
+  `android` names for the app's home-screen widget, tiles and card (`widget`, `tiles`, `card`), and, in a
+  [preview](#post-apiv1adminpreview), the dashboard it asks for, each once and as far as the role sees. A
   dashboard the role sees none of the widgets of isn't there, nor an `open` to a dashboard that
   isn't.
 - `header` is the profile's `header` dashboard, whose widgets a client draws as small chips under
@@ -967,6 +1074,253 @@ command), `nut eco experimental.battery.charge.max 90` (a setting: the source, t
 its value), `display output DP-1 off`, `display dpms DP-1 on`, `display brightness eDP-1 40 %`; a station's `message` is `done` or why it failed. Requests that were let
 through are also in the journal (`journalctl --user -u elamond`).
 
+## Admin API
+
+For the role `[web] role` names (`owner` unless the settings say) and above, whether by the cookie
+of a browser or the `Bearer` token of a phone; any other role gets 403 `not_allowed`, and with
+`[web] admin = false` every role gets 403 `admin_off`. Bodies are JSON, up to 1 MiB for those that
+carry a settings file and 4 KiB for the others. A request that changes something — a client's role,
+profile or pairing, control, a settings file, a dashboard — is recorded in the
+[activity log](#activity-log) under the client that asked (what was changed, never what a file
+holds), and so is one refused for its role.
+
+Writing the settings (`file/save`, `file/restore`, `file/rename`, `file/delete` and the editor's
+writes) is refused with 403 `writes_off` while `[web] write = false` or `elamond control off` holds;
+changing clients and pairing from the page, while `elamond control off` holds. Only the person at
+the computer lets go of `elamond control off`.
+
+`ui` tells a client what of this it may use: `admin` in `service.features` when its role reaches
+`[web] role` and `[web] admin` is on, `editor` when `[web] editor` is on too.
+
+### `GET /api/v1/admin/state`
+
+```json
+{
+  "service": { "id": "…", "name": "desk", "version": "0.11.0", "started": 1763550000, "features": ["control", "processes"],
+               "fingerprint": "…64 hex…", "listening": ["192.0.2.7:47823"], "endpoints": ["192.0.2.7", "desk.example.net"] },
+  "control": { "enabled": true, "off_reason": null, "held_off_since": null },
+  "web": { "page": true, "admin": true, "write": true, "editor": true, "role": "owner", "editor_file": "elamond.d/zz-editor.toml",
+           "certificate": { "name": "desk.example.net", "ok": true, "until": 1771000000, "message": "valid until 2026-02-13" } },
+  "settings": { "sound": true, "message": null, "generation": 3 },
+  "setup": [{ "ok": true, "text": "The unit elamond.service runs elamond 0.11.0" }],
+  "files": [{ "name": "elamond.toml", "kind": "main", "writable": false, "why": "set in Nix: change it in your NixOS or Home Manager configuration",
+              "hash": "…", "size": 1200, "modified": 1763540000 }, …],
+  "you": { "id": "…", "role": "owner" }
+}
+```
+
+`files` are the settings files in the order they are read: `kind` is `main`, `own` (an elamond.toml
+of the user's beside a main file elsewhere) or `dropin`; `name` is relative to the settings' folder;
+`hash` is 16 hex characters of the file's SHA-256, what a write names as its `base`. `writable` is
+false for a file in the Nix store, a link that leads out of the settings' folder or one the service
+can't write, with the reason in `why`. `settings.sound` is false while the files don't parse (the
+service runs with those read before, control off); `message` then says why, one mistake to a line.
+`certificate` is `null` without `cert_name`. `setup` is what `elamond setup --check` says, a line
+each.
+
+### `GET /api/v1/admin/settings`
+
+The settings as the service merged them from the files, before they were taken up, and where each
+part came from.
+
+```json
+{
+  "files": ["elamond.toml", "elamond.d/dashboards.toml"],
+  "settings": { "schema": 3, "port": 47823, "dashboards": { "cpu": { "title": "CPU", "widgets": [ … ] } }, … },
+  "whence": { "port": [0, 4], "dashboards.cpu": [1, 12], "dashboards.cpu.title": [1, 13] },
+  "changes": [{ "kind": "changed", "path": "port", "file": "elamond.toml", "line": 4 }],
+  "warnings": ["…"]
+}
+```
+
+`whence` gives, for each path up to three parts deep (`dashboards.cpu.title`, `dashboards.cpu.widgets[2]`),
+the file (its index in `files`) and line that set it last. `changes` are what `elamond defaults
+--diff` prints: `kind` is `added`, `changed` or `removed` against the built-in defaults, each with
+the file and line that set it (none for `removed`). `warnings` are those of `elamond check`.
+
+### Clients
+
+`GET /api/v1/admin/clients`:
+
+```json
+{
+  "clients": [{ "id": "…", "name": "Pixel 9", "role": "admin", "profile": "pixel-9", "own_profile": "pixel-9", "kind": "android",
+                "app": "android/0.11.0", "address": "192.0.2.20", "seen": 1763550000, "created": 1763000000,
+                "from": null, "added": [], "you": false }, …],
+  "roles": ["glance", "monitor", "operate", "admin", "owner"],
+  "can_give": ["glance", "monitor", "operate", "admin", "owner"],
+  "profiles": ["default", "pixel-9", …]
+}
+```
+
+`kind` is `web` for a browser, `android` for any other; `from` is the entry whose key this one was
+added with, `added` the entries added with its key; `seen` the Unix time of its last request, as
+written down (at most once every 5 minutes); `you` marks the client asking. `can_give` are the
+roles it may give: up to its own.
+
+- `POST /api/v1/admin/clients/{id}/role` `{ "role": "operate", "with_added": false }`
+- `POST /api/v1/admin/clients/{id}/profile` `{ "profile": "pixel-9", "with_added": false }` (`null` for `default_profile`)
+- `POST /api/v1/admin/clients/{id}/revoke` `{ "with_added": false }`
+
+each answer `{ "ok": true, "changed": ["<id>", …] }`, as `elamond clients role`, `clients profile`
+and `revoke` do (`with_added`: the entries added with its key too). A role above the asker's is 403
+`not_allowed`, an id no one has 404 `not_found`, a profile the settings don't have 400 `bad_param`.
+Revoking itself, a browser's answer clears its cookie.
+
+### Pairing from the page
+
+`POST /api/v1/admin/pairing` `{ "role": "admin", "profile": null }` makes a code, as
+`elamond pair --role … --profile …` does, in place of any pending one; a role above the asker's is
+403 `not_allowed`. `GET /api/v1/admin/pairing` says what is pending:
+
+```json
+{
+  "code": "123456", "expires": 1763550300, "role": "admin", "profile": null, "from_page": true,
+  "app": { "link": "elamon://pair?v=1&id=…&code=123456&…", "qr": { "size": 41, "modules": "1111111010…" } },
+  "web": { "link": "https://192.0.2.7:47823/#pair=123456", "qr": { "size": 37, "modules": "…" } },
+  "ask": { "id": "…", "name": "Firefox on Linux", "address": "192.0.2.30", "at": 1763550100, "replaces": null, "offer": null }
+}
+```
+
+or `{ "code": null }`. `qr.modules` is the QR code's modules row by row, `1` dark, `size` to a row;
+`app` is the link the app's scanner takes, `web` the page's address with the code. `ask` is the
+client that gave the right code and waits to be let in (with `replaces`, the entry it proved it was,
+and `offer`, a profile left by an unpaired client of its name), else `null`. A code made from the
+page always waits to be let in, by the page or by `elamond pair` (which shows the same question when
+it runs); one made by `elamond pair` waits as it says.
+
+- `POST /api/v1/admin/pairing/answer` `{ "ask": "<id>", "allow": true, "take": false }` lets it in or turns it away (`take`: give it `offer`)
+- `POST /api/v1/admin/pairing/withdraw` withdraws the code
+
+### Control
+
+`POST /api/v1/admin/control` `{ "on": false }` holds control off, as `elamond control off` does, and
+answers `{ "enabled": false, "off_reason": "held_off" }`. `{ "on": true }` is 403 `at_computer`:
+only `elamond control on` lets go of it.
+
+### What happened, and what a source gives
+
+- `GET /api/v1/admin/activity?limit=200` — `{ "entries": [ … ] }`, the [activity log](#activity-log), newest first
+- `GET /api/v1/admin/events?limit=200` — `{ "events": [ … ] }`, the kept events, newest first, as `elamond events` lists them
+- `GET /api/v1/admin/values` — `{ "sources": [{ "id": "ups", "kind": "nut" }, …] }`; with `?source=<id>`, what `elamond values <id>` prints: `{ "id": "ups", "kind": "nut", "values": [{ "address": "ups.battery.charge", "text": "100 %" }, …], "error": null, "commands": […], "settings": […] }`
+
+### The settings files
+
+- `GET /api/v1/admin/file?name=elamond.d/mine.toml` — `{ "name", "kind", "text", "hash", "writable", "why", "note", "backups": [{ "id": "1763550000123", "at": 1763550000, "size": 312 }] }`; `note` is `phones` for phones.toml (pairing writes it too) and `editor` for the editor's file; 404 `not_found` for a file that isn't there
+- `GET /api/v1/admin/file/backup?name=…&id=…` — `{ "name", "id", "at", "text" }`
+- `POST /api/v1/admin/file/check` `{ "name", "text" }` — the settings with this text in that file's place, as `elamond check FILE` reads them: `{ "sound": false, "mistakes": [{ "file": "elamond.d/mine.toml", "line": 3, "path": "dashboards.mine.widgets[0].max", "message": "…" }], "warnings": [], "diff": ["@@ -1,2 +1,3 @@", " [dashboards.mine]", "+title = \"Mine\""] }`
+- `POST /api/v1/admin/file/save` `{ "name", "text", "base": "<hash>" }` — writes it, once the settings with it are sound: `{ "ok": true, "hash": "…", "backup": "<id>" | null, "generation": 4 }`
+- `POST /api/v1/admin/file/restore` `{ "name", "backup": "<id>", "base" }` — writes a backup back, as a save of its text
+- `POST /api/v1/admin/file/rename` `{ "name", "to", "base" }` and `POST /api/v1/admin/file/delete` `{ "name", "base" }` — drop-ins only
+
+`name` is the main file (`elamond.toml`, or the name of the one `ELAMON_CONFIG` names) or a drop-in,
+`elamond.d/<name>.toml`, the name of letters, digits, `_`, `.` and `-`, starting with a letter or a
+digit, at most 64 characters before `.toml`; any other is 400 `bad_name`, and a link or a file
+whose real path is out of the settings' folder, or one in the Nix store, 403 `read_only`. A new
+drop-in is a save with `base` `null` (409 `changed_on_disk` if it is there already).
+
+Every write holds the service's one lock of writes and, under it, compares `base` with the file on
+disk (409 `changed_on_disk`, with the file's `hash` now, when it changed since it was read), reads
+the settings with the change in place, as the service would (422 `bad_settings` with `mistakes`,
+writing nothing, when they don't parse), keeps the file as it was in the backups, and replaces it in
+one step with its mode (600 for a new one). The service takes the settings up at once and answers
+with their `generation`; clients get the new `ui` in their streams. `[web] backups` (10 unless the
+settings say) backups of each file are kept, in `backups/` beside the settings, each named after
+the file and its time and never read as settings. `diff` lines are those of a unified diff of the
+file on disk and the text.
+
+### `POST /api/v1/admin/preview`
+
+What the settings would show with a draft, without writing it or running anything of it:
+
+```json
+{ "files": [{ "name": "elamond.d/mine.toml", "text": "…" }], "dashboard": "mine", "widgets": "value,gauge,…" }
+```
+
+or, for the editor, `"editor": { "dashboards": { "mine": { … } }, "profiles": { … } }` in place of
+`files` (the bodies of [the editor's writes](#the-dashboard-editor), as one). Answer 200
+`{ "ui": { … }, "data": { … } }`: the `ui` the asking client would get with the draft, the dashboard
+asked for among its tabs, and that dashboard's `data` from the reading there is now, as a stream's
+`data` line has it without `type`. A source or action of the draft only is never started: its values
+are missing. 422 `bad_settings` with `mistakes` for a draft that doesn't parse, 404
+`no_such_dashboard` for a dashboard the draft doesn't have or the role doesn't see.
+
+## The dashboard editor
+
+Forms for dashboards and the profiles' tabs, for those the admin API is open to with `[web] editor`
+on: the page and the app 0.11 have it. What the forms offer the service describes, from the same
+tables that make `elamond schema`; the client keeps no list of widget types, keys or values of its
+own. The service writes what is sent to a drop-in of its own, `[web] editor_file`
+(`elamond.d/zz-editor.toml` unless the settings say), in TOML it makes itself.
+
+### `GET /api/v1/admin/editor`
+
+```json
+{
+  "file": "elamond.d/zz-editor.toml", "hash": "…" , "writable": true, "why": null, "profile": "pixel-9",
+  "dashboard": { "keys": [ … ] },
+  "common": [ … ],
+  "types": [{ "type": "gauge", "label": "Gauge", "span": 2, "keys": [{ "key": "value", "kind": "address", "label": "Value", "hint": "…" }, …],
+              "example": { "type": "gauge", "label": "CPU", "value": "cpu.usage", "max": 100 } }, …],
+  "records": { "item": [ … ], "column": [ … ] },
+  "values": [{ "address": "cpu.usage", "now": "12 %" }, …],
+  "collections": [{ "name": "processes", "fields": ["pid", "name", "cpu", …] }, …],
+  "actions": [{ "id": "mode", "name": "Server mode", "kind": "actions" }, …],
+  "links": [{ "id": "music", "name": "Music" }],
+  "sources": [{ "id": "ups", "kind": "nut" }],
+  "dashboards": [{ "id": "cpu", "title": "CPU", "def": { … }, "from": [{ "file": "elamond.d/dashboards.toml", "line": 12 }], "editor": false, "own": false }, …],
+  "profiles": [{ "id": "pixel-9", "name": "Pixel 9", "def": { "dashboards": […], "header": "header", "android": { "widget": "phone" } },
+                 "from": [{ "file": "elamond.d/phones.toml", "line": 4 }], "editor": false, "clients": ["…"] }, …]
+}
+```
+
+A key is `{ "key", "kind", "label", "hint" }` and, by its kind, more:
+
+| `kind` | what it holds | more |
+|---|---|---|
+| `string`, `text` | a string; `text` may hold values (`{cpu.usage}`) | |
+| `id` | an id: 1–32 of `a-z`, `0-9`, `_`, `-` | |
+| `address` | a value's address, one of `values` (or of a `for_each` item) | |
+| `ref` | the id of something there is | `to`: `action`, `dashboard`, `collection`, `link` or `source` |
+| `bool` | true or false | |
+| `int` | an integer | `min`, `max` |
+| `number`, `scalar` | a number; a string, number or bool | |
+| `enum` | one of `choices` | `choices` |
+| `format` | one of `choices`, or a pattern like `{:.1}` | `choices` |
+| `list`, `map` | a list, a table of any keys | `of`: a key without its `key` |
+| `record` | a table of the keys `record` names in `records` | `record` |
+| `widgets` | a list of widgets (a `group`'s) | |
+| `any` | any one of `of` | `of`: a list of keys without their `key` |
+
+each with `required: true` when it must be there and `default` when the service fills it in. Every
+widget takes the keys of `common` and those of its type; a dashboard, those of `dashboard.keys`. A
+key or kind a client doesn't know it keeps as it is and offers as JSON text, never drops: what it
+sends back holds every key it was given. `def` is a dashboard as the settings merge it (before
+templates), and a profile's tabs, header and Android dashboards; `from` the files that set it,
+lowest first; `editor` says the editor's file overrides it, `own` that only the editor's file has
+it. `profile` is the asking client's own.
+
+### Writing
+
+- `POST /api/v1/admin/editor/dashboard` `{ "id": "mine", "dashboard": { "title": "Mine", "icon": "gauge", "widgets": [ … ] }, "base": "<hash of the editor's file>" }`
+- `POST /api/v1/admin/editor/profile` `{ "id": "pixel-9", "profile": { "dashboards": ["mine", "cpu"], "header": "header", "android": { "widget": "phone", "tiles": "tiles", "card": "" } }, "base" }`
+- `POST /api/v1/admin/editor/revert` `{ "dashboard": "cpu", "base" }` or `{ "profile": "pixel-9", "base" }` — takes the editor's table out: back to what the other files say
+- `POST /api/v1/admin/editor/delete` `{ "dashboard": "mine", "base" }` — a dashboard only the editor's file has, and its place among the editor's tabs
+
+each answered as a save is: `{ "ok": true, "hash", "backup", "generation" }`, 409
+`changed_on_disk` (the editor's file changed since `hash`: another editor wrote), 422 `bad_settings`
+with `mistakes` (their `path` names the dashboard, widget and key, `dashboards.mine.widgets[1].max`),
+403 `writes_off`.
+
+A dashboard holds `title`, `icon`, `role`, `for_each` and `widgets` and nothing else; a profile,
+`dashboards`, `header` and `android` with `widget`, `tiles` and `card`; anything else in a body is
+422 `bad_settings`. A widget is one of the settings' (any key a widget takes, checked as any
+drop-in is): a button, switch, choice or row runs an action the settings have, by id, and the
+editor writes no actions, sources, links, rules or targets. The dashboard is written whole
+(`[dashboards.<id>]` with every key it has, `widgets` the whole list): since the files merge key by
+key, what is on screen is what the settings then say. A key a file below the editor's sets can be
+changed but not taken out: 422 with the file and line that set it.
+
 ## Errors
 
 Errors are `{ "error": "<code>" }`, some with a `message`, with these statuses (the same list is in
@@ -974,11 +1328,12 @@ Errors are `{ "error": "<code>" }`, some with a `message`, with these statuses (
 
 | status | codes |
 |---|---|
-| 400 | `bad_param` (with `message`, the parameter), `bad_sort`, `unknown_signal` |
+| 400 | `bad_param` (with `message`, the parameter), `bad_sort`, `unknown_signal`, `bad_name` (a settings file's name the admin API doesn't take) |
 | 401 | `unauthorized` |
-| 403 | `no_pairing`, `wrong_code`, `pair_declined`, `too_many_phones` (64 are paired), `rekey_refused`, `control_disabled`, `not_permitted` (polkit refused, or a protected process), `not_allowed` (the client's role doesn't allow it), `confirm_required` (a station's command, or a monitor turned off while no other screen shows a picture, without its typed text; the text in `message`) |
+| 403 | `no_pairing`, `wrong_code`, `pair_declined`, `too_many_phones` (64 are paired), `rekey_refused`, `control_disabled`, `not_permitted` (polkit refused, or a protected process), `not_allowed` (the client's role doesn't allow it), `confirm_required` (a station's command, or a monitor turned off while no other screen shows a picture, without its typed text; the text in `message`), `bad_origin` (a change by a browser's cookie not from its page), `admin_off` (`[web] admin = false`), `writes_off` (`[web] write = false`, or `elamond control off`), `read_only` (a settings file in the Nix store, or one that leads out of the settings' folder), `at_computer` (done only at the computer) |
 | 404 | `not_found`, `no_such_process`, `no_such_action`, `no_such_dashboard`, `no_such_widget` (no such graph, timeline or log in the client's `ui`), `no_such_stream`, `no_art` |
-| 409 | `process_changed` |
+| 409 | `process_changed`, `changed_on_disk` (a settings file changed since it was read; its `hash` now in `hash`) |
+| 422 | `bad_settings` (the settings with the change don't parse; each mistake in `mistakes`) |
 | 500 | `storage` |
 | 502 | `failed`, with `message` |
 
@@ -990,7 +1345,9 @@ saying the station did it, `accepted by upsd but not confirmed by the station`; 
 `not_applied` when Hyprland didn't show it done in time, `waiting_for_a_screen` when it waits for a
 screen to wake to turn one on). A request whose JSON
 or query the service can't read at all gets a plain-text 400, 415 or 422, and a body over its limit
-(4 KiB for `pair`, `rekey`, `actions` and `stream`) a plain-text 413.
+(4 KiB for `pair`, `rekey`, `actions`, `stream` and the admin API's, 1 MiB for those that carry a
+settings file) a plain-text 413; JSON is the answer's type with a code, plain text without.
 
 In [`errors.json`](../elamond/fixtures/errors.json) the codes come in this table's order:
-`confirm_required` after `not_allowed`, `no_such_widget` after `no_such_dashboard`.
+`confirm_required` after `not_allowed`, `no_such_widget` after `no_such_dashboard`, then those of
+elamond 0.11 in the order above.

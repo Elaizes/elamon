@@ -1,0 +1,10 @@
+schema = 3
+port = 47823
+control = true
+
+[dashboards.mine]
+title = "Mine"
+widgets = [{ type = "value", label = "Uptime", value = "system.uptime", format = "uptime" }]
+
+[profiles.default]
+dashboards = ["mine"]

@@ -1,0 +1,70 @@
+{
+  "saved": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "hash": "9a8b7c6d5e4f3021",
+      "backup": "1763550200456",
+      "generation": 4
+    }
+  },
+  "changed_on_disk": {
+    "status": 409,
+    "body": {
+      "error": "changed_on_disk",
+      "hash": "0000111122223333"
+    }
+  },
+  "bad_settings": {
+    "status": 422,
+    "body": {
+      "error": "bad_settings",
+      "mistakes": [
+        {
+          "file": "elamond.d/mine.toml",
+          "line": 3,
+          "path": "dashboards.mine.widgets[0].max",
+          "message": "expected a number or an address, like \"cpu.usage\", found \"lots\""
+        }
+      ]
+    }
+  },
+  "read_only": {
+    "status": 403,
+    "body": {
+      "error": "read_only",
+      "message": "set in Nix: change it in your NixOS or Home Manager configuration"
+    }
+  },
+  "writes_off": {
+    "status": 403,
+    "body": {
+      "error": "writes_off",
+      "message": "held_off"
+    }
+  },
+  "bad_name": {
+    "status": 400,
+    "body": {
+      "error": "bad_name"
+    }
+  },
+  "not_allowed": {
+    "status": 403,
+    "body": {
+      "error": "not_allowed"
+    }
+  },
+  "admin_off": {
+    "status": 403,
+    "body": {
+      "error": "admin_off"
+    }
+  },
+  "at_computer": {
+    "status": 403,
+    "body": {
+      "error": "at_computer"
+    }
+  }
+}

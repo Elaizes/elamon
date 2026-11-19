@@ -1,0 +1,54 @@
+{
+  "clients": [
+    {
+      "id": "0123abcd",
+      "name": "Pixel 9",
+      "role": "admin",
+      "profile": "pixel-9",
+      "own_profile": "pixel-9",
+      "kind": "android",
+      "app": "android/0.11.0",
+      "address": "192.0.2.20",
+      "seen": 1763550000,
+      "created": 1763000000,
+      "from": null,
+      "added": [],
+      "you": false
+    },
+    {
+      "id": "89abcdef",
+      "name": "Firefox on Linux",
+      "role": "owner",
+      "profile": "firefox-on-linux",
+      "own_profile": "firefox-on-linux",
+      "kind": "web",
+      "app": "web/0.11.0",
+      "address": "192.0.2.30",
+      "seen": 1763550100,
+      "created": 1763549000,
+      "from": null,
+      "added": [],
+      "you": true
+    }
+  ],
+  "roles": [
+    "glance",
+    "monitor",
+    "operate",
+    "admin",
+    "owner"
+  ],
+  "can_give": [
+    "glance",
+    "monitor",
+    "operate",
+    "admin",
+    "owner"
+  ],
+  "profiles": [
+    "default",
+    "firefox-on-linux",
+    "owner",
+    "pixel-9"
+  ]
+}

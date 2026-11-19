@@ -129,6 +129,60 @@ Nix store and `ELAMON_CONFIG` names them (Home Manager links elamond.toml to the
 module, an elamond.toml of your own in ~/.config/elamon is read right after the module's, as a drop-in would be, so nothing it held is
 lost; the journal and `elamond check` say so.
 
+## The web page and the admin API
+
+elamond serves a web page on its own port (`https://<computer>:47823/`), paired as the app is, with
+the code of `elamond pair` ([guide](guide.md#in-a-browser)). It shows the dashboards of the
+browser's profile and, to the role `role` names, an admin panel: the service's state, the settings
+merged with where each part comes from, the clients and their roles, pairing, `control off`, an
+editor of the settings files, and a dashboard editor (also in the app 0.11). Whoever may use it may
+write the settings, and so add a command and run it.
+
+```toml
+[web]
+page = true
+admin = true
+write = true
+editor = true
+role = "owner"
+cookie_days = 30
+backups = 10
+editor_file = "zz-editor.toml"
+# A real certificate for one name, presented to browsers that reach the computer by it:
+# cert_name = "desk.example.net"
+# cert_file = "/var/lib/certs/desk.example.net.crt"
+# key_file = "/var/lib/certs/desk.example.net.key"
+```
+
+| key | type | default | |
+|---|---|---|---|
+| `page` | bool | `true` | serve the page at `/`; off, `/` is 404 and only the app is served |
+| `admin` | bool | `true` | the admin API: the page's admin panel and both dashboard editors |
+| `write` | bool | `true` | let the admin API write the settings (the files and the dashboard editor); off, it only shows them |
+| `editor` | bool | `true` | the dashboard editor, in the page and in the app |
+| `role` | `admin` \| `owner` | `owner` | the least role the admin API is open to |
+| `cookie_days` | integer, 1–400 | 30 | how long a browser stays paired without opening the page |
+| `backups` | integer, 0–100 | 10 | backups kept of each settings file the admin API writes, in `~/.config/elamon/backups/` |
+| `editor_file` | file name | `zz-editor.toml` | the drop-in in `elamond.d/` the dashboard editor writes; it is read after the others whose names sort before it |
+| `cert_name` | host name | | the name a real certificate is for; browsers that reach the computer by it get that certificate, every other client the service's own |
+| `cert_file` | path | | that certificate and its chain, PEM |
+| `key_file` | path | | its private key, PEM, readable by you alone (`chmod 600`) |
+
+`elamond pair --role owner` pairs a client with the role `owner`; `elamond clients role ID owner`
+gives it to one paired. A client of the role may give any role up to its own from the admin panel.
+`elamond control off` stops the admin API's writes too, and only `elamond control on` at the
+computer lets go of it.
+
+What the admin API writes it writes as `elamond edit` does: only once the settings with the change
+are sound, in one step, with a backup of the file as it was. Under Nix the main file is read-only
+(it is in the Nix store): the admin panel shows it and writes drop-ins. The dashboard editor writes
+only `[dashboards.<id>]` and the tabs, header and Android dashboards of `[profiles.<id>]`, to
+`editor_file`, and never a command: its buttons and switches pick among the actions there are.
+
+The certificate files are read again when they change; one that doesn't load, isn't for its key or
+has expired is said in the journal, by `elamond check` and by `elamond setup --check`, and the
+service presents the one before (or its own) meanwhile.
+
 ## Phones
 
 Each paired phone has a profile of its own, in `~/.config/elamon/elamond.d/phones.toml`: a drop-in
@@ -196,7 +250,7 @@ The default is what a key left out is; the starter file writes most of them out.
 | `interval_ms` | integer, 250–10 000 | 1000 | the service's tick: how often it reads the computer |
 | `history_minutes` | integer, 1–1440 | 10 | how far back graphs reach |
 | `control` | bool | `false` | let paired clients act on the computer, as far as their roles allow |
-| `default_role` | `glance` \| `monitor` \| `operate` \| `admin` | `admin` | the role of a client paired without `--role` |
+| `default_role` | `glance` \| `monitor` \| `operate` \| `admin` \| `owner` | `admin` | the role of a client paired without `--role` |
 | `default_profile` | profile id | `default` | the profile a phone's own table uses when `elamond pair` isn't given `--profile`, and the profile of a phone whose profile is gone |
 | `links` | table of [links](#links) | | |
 | `actions` | table of [actions](#actions) | | |
@@ -209,6 +263,7 @@ The default is what a key left out is; the starter file writes most of them out.
 | `events` | [table](#events-and-notifications) | events.toml's | how events are kept and shown, `elamond notify`, and what a rule or a target leaves out |
 | `rules` | table of [rules](#rules) | | what makes an event |
 | `notify` | table of [targets](#targets-ntfy) | | the ntfy topics events are sent on to |
+| `web` | [table](#the-web-page-and-the-admin-api) | | the web page, the admin API and the dashboard editor |
 
 Settings schema 1 (elamond 0.5 and before) had `[[links]]`, `[[actions]]` and `units`; they are
 refused with a note on what replaces them: `[links.<id>]`, `[actions.<id>]`, and a unit named on
@@ -782,7 +837,8 @@ The part every client reads:
 | `tiles` | dashboard id | `""` | the app's four Quick Settings tiles: the dashboard's first four `button`s and `toggle`s, in order, each named and drawn as the widget or its action; a tile with none says so |
 | `card` | dashboard id | `""` | what the computer's card on the app's home screen shows: its values, gauges and meters (a `value` with `spark`, as a small graph) and its buttons and toggles as quick actions; `""`, the first figures of the first tab |
 
-`[profiles.<id>.web]` is for the web page and takes no keys yet.
+`[profiles.<id>.web]` is for the web page and takes no keys: the page takes `theme`, `pure_black`,
+`animations` and `confirm_actions` from the part every client reads, and its size from the browser.
 
 A `use` chain is followed to its end (a loop is a mistake); `android` and `web` are inherited key by
 key as well. A profile that names a dashboard that doesn't exist is a mistake.

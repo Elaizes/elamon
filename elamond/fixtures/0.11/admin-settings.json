@@ -1,0 +1,97 @@
+{
+  "files": [
+    "elamond.toml"
+  ],
+  "settings": {
+    "schema": 3,
+    "port": 47823,
+    "control": true,
+    "dashboards": {
+      "mine": {
+        "title": "Mine",
+        "widgets": [
+          {
+            "type": "value",
+            "label": "Uptime",
+            "value": "system.uptime",
+            "format": "uptime"
+          }
+        ]
+      }
+    },
+    "profiles": {
+      "default": {
+        "dashboards": [
+          "mine"
+        ]
+      }
+    }
+  },
+  "whence": {
+    "schema": [
+      0,
+      1
+    ],
+    "port": [
+      0,
+      2
+    ],
+    "control": [
+      0,
+      3
+    ],
+    "dashboards": [
+      0,
+      5
+    ],
+    "dashboards.mine": [
+      0,
+      5
+    ],
+    "dashboards.mine.title": [
+      0,
+      6
+    ],
+    "dashboards.mine.widgets": [
+      0,
+      7
+    ],
+    "dashboards.mine.widgets[0]": [
+      0,
+      7
+    ],
+    "profiles": [
+      0,
+      9
+    ],
+    "profiles.default": [
+      0,
+      9
+    ],
+    "profiles.default.dashboards": [
+      0,
+      10
+    ]
+  },
+  "changes": [
+    {
+      "kind": "changed",
+      "path": "control",
+      "file": "elamond.toml",
+      "line": 3
+    },
+    {
+      "kind": "added",
+      "path": "dashboards.mine",
+      "file": "elamond.toml",
+      "line": 5
+    },
+    {
+      "kind": "changed",
+      "path": "profiles.default.dashboards",
+      "file": "elamond.toml",
+      "line": 10
+    }
+  ],
+  "warnings": []
+}

@@ -1,0 +1,58 @@
+{
+  "request": {
+    "editor": {
+      "dashboards": {
+        "mine": {
+          "title": "Mine",
+          "widgets": [
+            {
+              "type": "gauge",
+              "label": "CPU",
+              "value": "cpu.usage",
+              "max": 100
+            }
+          ]
+        }
+      }
+    },
+    "dashboard": "mine",
+    "widgets": "value,gauge,meter,status,graph,list,bars,table,button,toggle,select,slider,text,group,media,timeline,log"
+  },
+  "response": {
+    "ui": {
+      "version": "0011223344556677",
+      "role": "owner",
+      "tabs": [
+        "overview",
+        "mine"
+      ],
+      "header": null,
+      "dashboards": [
+        {
+          "id": "mine",
+          "title": "Mine",
+          "widgets": [
+            {
+              "id": "mine/w0",
+              "type": "gauge",
+              "span": 2,
+              "label": "CPU",
+              "max": 100
+            }
+          ]
+        }
+      ],
+      "actions": []
+    },
+    "data": {
+      "widgets": {
+        "mine/w0": {
+          "v": 12.5,
+          "level": "normal"
+        }
+      },
+      "t": 1763550000000,
+      "dashboard": "mine"
+    }
+  }
+}

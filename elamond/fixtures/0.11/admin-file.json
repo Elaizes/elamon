@@ -1,0 +1,16 @@
+{
+  "name": "elamond.d/mine.toml",
+  "kind": "dropin",
+  "text": "[dashboards.mine]\ntitle = \"Mine\"\nwidgets = [{ type = \"value\", value = \"cpu.usage\" }]\n",
+  "hash": "5e6f708192a3b4c5",
+  "writable": true,
+  "why": null,
+  "note": null,
+  "backups": [
+    {
+      "id": "1763549000123",
+      "at": 1763549000,
+      "size": 61
+    }
+  ]
+}

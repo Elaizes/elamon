@@ -1,0 +1,99 @@
+{
+  "service": {
+    "id": "0123456789abcdef0123456789abcdef",
+    "name": "fixture",
+    "version": "0.11.0",
+    "started": 1763550000,
+    "features": [
+      "admin",
+      "control",
+      "editor",
+      "processes"
+    ],
+    "fingerprint": "1f0e8d2c3b4a59687766554433221100ffeeddccbbaa99887766554433221100",
+    "listening": [
+      "192.0.2.10:47823",
+      "[::1]:47823"
+    ],
+    "endpoints": [
+      "192.0.2.10",
+      "desk.example.net"
+    ]
+  },
+  "control": {
+    "enabled": true,
+    "off_reason": null,
+    "held_off_since": null
+  },
+  "web": {
+    "page": true,
+    "admin": true,
+    "write": true,
+    "editor": true,
+    "role": "owner",
+    "editor_file": "elamond.d/zz-editor.toml",
+    "certificate": {
+      "name": "desk.example.net",
+      "ok": true,
+      "until": 1771000000,
+      "message": "valid until 2026-02-13"
+    }
+  },
+  "settings": {
+    "sound": true,
+    "message": null,
+    "generation": 3
+  },
+  "setup": [
+    {
+      "ok": true,
+      "text": "The unit elamond.service runs elamond 0.11.0"
+    },
+    {
+      "ok": false,
+      "text": "No polkit rule lets elamond power off the computer"
+    }
+  ],
+  "files": [
+    {
+      "name": "elamond.toml",
+      "kind": "main",
+      "writable": false,
+      "why": "set in Nix: change it in your NixOS or Home Manager configuration",
+      "hash": "a1b2c3d4e5f60718",
+      "size": 1200,
+      "modified": 1763540000
+    },
+    {
+      "name": "elamond.d/dashboards.toml",
+      "kind": "dropin",
+      "writable": true,
+      "why": null,
+      "hash": "0f1e2d3c4b5a6978",
+      "size": 30210,
+      "modified": 1763540000
+    },
+    {
+      "name": "elamond.d/phones.toml",
+      "kind": "dropin",
+      "writable": true,
+      "why": null,
+      "hash": "1122334455667788",
+      "size": 512,
+      "modified": 1763545000
+    },
+    {
+      "name": "elamond.d/zz-editor.toml",
+      "kind": "dropin",
+      "writable": true,
+      "why": null,
+      "hash": "8877665544332211",
+      "size": 420,
+      "modified": 1763549000
+    }
+  ],
+  "you": {
+    "id": "89abcdef",
+    "role": "owner"
+  }
+}

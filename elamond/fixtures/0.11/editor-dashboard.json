@@ -1,0 +1,65 @@
+{
+  "request": {
+    "id": "mine",
+    "dashboard": {
+      "title": "Mine",
+      "icon": "gauge",
+      "widgets": [
+        {
+          "type": "gauge",
+          "label": "CPU",
+          "value": "cpu.usage",
+          "max": 100,
+          "span": 2
+        },
+        {
+          "type": "button",
+          "label": "Lock",
+          "action": "power.lock",
+          "span": 2
+        },
+        {
+          "type": "graph",
+          "label": "Memory",
+          "values": [
+            "memory.used"
+          ],
+          "format": "bytes"
+        }
+      ]
+    },
+    "base": "8877665544332211"
+  },
+  "file": "# Written by the dashboard editor of Elamon (the web page and the app): dashboards and the\n# tabs of profiles. A change by hand here is kept; elamond rewrites only the tables it is asked to.\n\n[dashboards.mine]\ntitle = \"Mine\"\nicon = \"gauge\"\n\n[[dashboards.mine.widgets]]\ntype = \"gauge\"\nlabel = \"CPU\"\nvalue = \"cpu.usage\"\nmax = 100\nspan = 2\n\n[[dashboards.mine.widgets]]\ntype = \"button\"\nlabel = \"Lock\"\naction = \"power.lock\"\nspan = 2\n\n[[dashboards.mine.widgets]]\ntype = \"graph\"\nlabel = \"Memory\"\nvalues = [\"memory.used\"]\nformat = \"bytes\"\n",
+  "response": {
+    "ok": true,
+    "hash": "9a8b7c6d5e4f3021",
+    "backup": null,
+    "generation": 5
+  },
+  "a_command": {
+    "request": {
+      "id": "mine",
+      "dashboard": {
+        "title": "Mine",
+        "command": [
+          "sh",
+          "-c",
+          "true"
+        ]
+      },
+      "base": "9a8b7c6d5e4f3021"
+    },
+    "response": {
+      "error": "bad_settings",
+      "mistakes": [
+        {
+          "file": "elamond.d/zz-editor.toml",
+          "line": null,
+          "path": "dashboards.mine.command",
+          "message": "a dashboard has no key command (title, icon, role, for_each, widgets)"
+        }
+      ]
+    }
+  }
+}
