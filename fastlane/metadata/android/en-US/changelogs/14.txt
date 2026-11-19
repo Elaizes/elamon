@@ -1,0 +1,1 @@
+Works with elamond 0.6 and later. The home-screen widget draws the computer's gauges as small rings, as its tiles in the app have them: CPU, memory, a temperature or whatever the profile's widget dashboard names, with the level's colour; the rest stays a line under them.

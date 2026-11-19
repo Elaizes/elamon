@@ -777,7 +777,7 @@ The part every client reads:
 | `blur` | bool | `true` | frosted-glass bars and sheets (Android 12+) |
 | `haptics` | bool | `true` | |
 | `keep_screen_on` | bool | `false` | while a computer's screen is open |
-| `widget` | dashboard id | `""` | what the app's home-screen widget shows: the dashboard's values, gauges, meters, statuses, lists and texts, groups opened out; `""` for nothing, and the widget says to set this |
+| `widget` | dashboard id | `""` | what the app's home-screen widget shows: the dashboard's values, gauges, meters, statuses, lists and texts, groups opened out, its gauges as small rings (an app before 0.10.1 draws them as lines); `""` for nothing, and the widget says to set this |
 | `widget_minutes` | integer, 15–1440 | 30 | how often the app reads the widget's dashboard in the background (Android allows no less than 15); a tap on the widget reads it at once |
 | `tiles` | dashboard id | `""` | the app's four Quick Settings tiles: the dashboard's first four `button`s and `toggle`s, in order, each named and drawn as the widget or its action; a tile with none says so |
 | `card` | dashboard id | `""` | what the computer's card on the app's home screen shows: its values, gauges and meters (a `value` with `spark`, as a small graph) and its buttons and toggles as quick actions; `""`, the first figures of the first tab |

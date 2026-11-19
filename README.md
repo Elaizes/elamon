@@ -74,8 +74,8 @@ pairing the phones again; a new phone pairs with `elamond pair`.
 The app: Material You with frosted glass on Android 12 and newer, light, dark or pure black. It
 opens on the computer you opened last. Two things are the phone's own, not the computer's: the
 app's scale, 80 to 140%, and, if you want one, a theme that stays whatever the profiles say. On
-the phone's home screen, a widget with figures of the computer's, and four Quick Settings tiles
-that run its actions; which, the computer's profile says.
+the phone's home screen, a widget with figures of the computer's, its gauges as small rings, and
+four Quick Settings tiles that run its actions; which, the computer's profile says.
 
 ## Quick start
 
@@ -191,9 +191,9 @@ dashboards and profiles: [docs/config.md](docs/config.md).
 
 UPSes and power stations came with 0.7, your own readings and the system journal with 0.8, the
 phone's own scale and theme with 0.8.1, events and notifications through ntfy with 0.9, monitors
-under Hyprland, a home-screen widget and Quick Settings tiles with 0.10. Next: a web version with
-an admin page. Not planned: the service for Windows or macOS, app stores (the app is
-the APK in each release).
+under Hyprland, a home-screen widget and Quick Settings tiles with 0.10, the widget's rings with
+0.10.1. Next: a web version with an admin page. Not planned: the service for Windows or macOS, app
+stores (the app is the APK in each release).
 
 ## License
 
