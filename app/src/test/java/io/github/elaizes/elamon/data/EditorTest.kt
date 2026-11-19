@@ -103,7 +103,7 @@ class EditorTest {
 		val raw = fixture("editor")
 		val types = raw.getValue("types").jsonArray
 		val sparkle = obj("""{"type":"sparkle","label":"Sparkle","keys":[{"key":"glitter","kind":"stardust","label":"Glitter","hint":"","weight":3}],"later":true}""")
-		val newer = JsonObject(raw + ("types" to JsonArray(types + sparkle)) + ("templates" to JsonArray(emptyList())))
+		val newer = JsonObject(raw + ("types" to JsonArray(types + sparkle)) + ("macros" to JsonArray(emptyList())))
 		val d = description(newer)
 		val t = d.type("sparkle")!!
 		assertNull(t.example)
@@ -119,6 +119,52 @@ class EditorTest {
 		assertEquals(EditorDescription.DEFAULT_SPAN, d.spanOf(w))
 		// A key the app can't read at all is still a key, of a kind no form knows.
 		assertEquals(EditorKey(key = "odd"), editorKey(obj("""{"key":"odd","kind":["not","a","string"]}""")))
+	}
+
+	@Test
+	fun aWidgetWithUseStartsFromItsTemplate() {
+		val d = description()
+		// The stock Sensors and CPU dashboards: tables made of the service's templates, with no type of their own.
+		val processor = Drafts.widgets(d.dashboard("sensors")!!.def).map { it.jsonObject }.first { it["id"]!!.jsonPrimitive.content == "cpu" }
+		assertEquals("sensor_table", processor["use"]!!.jsonPrimitive.content)
+		assertNull(processor["type"])
+		assertEquals("table", d.typeOf(processor))
+		assertEquals(d.type("table")!!.span, d.spanOf(processor))
+		assertEquals("Table · Processor", d.titleOf(processor))
+		// The table's keys, what the template sets of them what they are while the widget doesn't.
+		val keys = d.keysOf(processor)
+		assertEquals(d.common.map { it.key } + d.type("table")!!.keys.map { it.key }, keys.map { it.key })
+		assertEquals(d.templates.getValue("sensor_table")["columns"], keys.first { it.key == "columns" }.default)
+		assertEquals(d.type("table")!!.keys.first { it.key == "limit" }.default, keys.first { it.key == "limit" }.default)
+		val top = Drafts.widgets(d.dashboard("cpu")!!.def).map { it.jsonObject }.first { it["use"]?.jsonPrimitive?.content == "top_processes" }
+		assertEquals("table", d.typeOf(top))
+		assertEquals("Table · Top processes", d.titleOf(top))
+		assertEquals("processes", d.valueOf(top, "icon")!!.jsonPrimitive.content)
+		// A template that uses another: the nearer wins, `use` and `with` aren't keys of the widget;
+		// a loop ends where it comes round; a template there isn't gives nothing.
+		val chained = EditorDescription(
+			common = d.common,
+			types = d.types,
+			templates = mapOf(
+				"base" to obj("""{"type":"graph","range":300,"label":"{name}","span":2}"""),
+				"mine" to obj("""{"use":"base","with":{"name":"x"},"range":60}"""),
+				"a" to obj("""{"use":"b","label":"A"}"""),
+				"b" to obj("""{"use":"a","type":"gauge"}"""),
+			),
+		)
+		val w = obj("""{"use":"mine","with":{"name":"CPU"}}""")
+		assertEquals(obj("""{"type":"graph","range":60,"label":"{name}","span":2}"""), chained.templateOf(w))
+		assertEquals("graph", chained.typeOf(w))
+		assertEquals(2, chained.spanOf(w))
+		assertEquals(3, chained.spanOf(obj("""{"use":"mine","span":3}""")))
+		assertEquals(JsonPrimitive(60), chained.keysOf(w).first { it.key == "range" }.default)
+		assertEquals("gauge", chained.typeOf(obj("""{"use":"a"}""")))
+		assertEquals("A", chained.valueOf(obj("""{"use":"a"}"""), "label")!!.jsonPrimitive.content)
+		assertEquals(obj("{}"), chained.templateOf(obj("""{"use":"none"}""")))
+		assertEquals(EditorDescription.DEFAULT_SPAN, chained.spanOf(obj("""{"use":"none"}""")))
+		// Its own type and keys win.
+		assertEquals("value", chained.typeOf(obj("""{"use":"mine","type":"value"}""")))
+		assertEquals("Graph · Mine", chained.titleOf(obj("""{"use":"mine","label":"Mine"}""")))
 	}
 
 	@Test

@@ -400,7 +400,8 @@ private const val REVERT = "revert"
 private const val DELETE = "delete"
 private const val RELOAD = "reload"
 private const val ANDROID = "android"
-private const val TYPE = "type"
+private const val TYPE = EditorDescription.TYPE
+private const val ICON = "icon"
 
 /**
  * The files below the editor's own that set what [editing] opens: what they set can be changed,
@@ -693,7 +694,7 @@ private fun EditCell(
 		drag.target == i -> MaterialTheme.colorScheme.primary
 		else -> null
 	}
-	val label = listOfNotNull(desc.typeLabel(w), w["label"].text()?.ifBlank { null }).joinToString(" · ")
+	val label = desc.titleOf(w)
 	val shadow = with(LocalDensity.current) { LIFT_SHADOW.toPx() }
 	Box(
 		modifier
@@ -787,7 +788,8 @@ private const val HANDLE_ALPHA = 0.85f
 @Composable
 private fun Hidden(w: JsonObject, desc: EditorDescription) {
 	val typeLabel = desc.typeLabel(w)
-	Section(w["label"].text()?.ifBlank { null } ?: typeLabel, icon(w["icon"].text()), accent = MaterialTheme.colorScheme.secondary) {
+	// Its own label and icon, else its template's.
+	Section(desc.valueOf(w, EditorDescription.LABEL).text()?.ifBlank { null } ?: typeLabel, icon(desc.valueOf(w, ICON).text()), accent = MaterialTheme.colorScheme.secondary) {
 		Text(stringResource(R.string.editor_not_shown, typeLabel), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		// Room for the handle beside the title.
 		Spacer(Modifier.height(Space.xs))
@@ -826,10 +828,10 @@ private fun WidgetSheet(
 				val parent = Drafts.widget(state.draft, path.dropLast(1))
 				TextButton(onClick = { onOpen(path.dropLast(1)) }) {
 					Icon(Icons.AutoMirrored.Filled.ArrowBack, null, Modifier.size(Sizes.iconM))
-					Text(stringResource(R.string.editor_back_to, parent?.let { listOfNotNull(desc.typeLabel(it), it["label"].text()).joinToString(" · ") }.orEmpty()), Modifier.padding(start = Space.xs))
+					Text(stringResource(R.string.editor_back_to, parent?.let(desc::titleOf).orEmpty()), Modifier.padding(start = Space.xs))
 				}
 			}
-			Text(listOfNotNull(desc.typeLabel(w), w["label"].text()?.ifBlank { null }).joinToString(" · "), style = MaterialTheme.typography.titleLarge)
+			Text(desc.titleOf(w), style = MaterialTheme.typography.titleLarge)
 			Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 				OutlinedButton(onClick = { onMove(-1) }, enabled = i > 0) {
 					Icon(Icons.Default.KeyboardArrowUp, null, Modifier.size(Sizes.iconM))

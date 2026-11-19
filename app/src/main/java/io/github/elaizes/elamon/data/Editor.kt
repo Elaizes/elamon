@@ -42,30 +42,73 @@ data class EditorDescription(
 	val sources: List<EditorSource> = emptyList(),
 	val dashboards: List<EditorDashboard> = emptyList(),
 	val profiles: List<EditorProfile> = emptyList(),
+	/** The settings' widget templates as they merge them, by id: the keys a widget with `use` starts from, its type among them. */
+	val templates: Map<String, JsonObject> = emptyMap(),
 ) {
 	fun type(type: String?): EditorType? = types.find { it.type == type }
 	fun dashboard(id: String?): EditorDashboard? = dashboards.find { it.id == id }
 	fun profile(id: String?): EditorProfile? = profiles.find { it.id == id }
 
-	/** The keys [widget] takes: the common ones, then those of its type, each once. */
-	fun keysOf(widget: JsonObject): List<EditorKey> {
-		val own = type(widget["type"].text())?.keys.orEmpty()
+	/**
+	 * What [widget]'s template gives it, as the service applies one: the keys of the template its
+	 * `use` names, and of the one that one uses, and so on, the nearer winning (`use` and `with` not
+	 * among them). Empty without one, or for a template there isn't.
+	 */
+	fun templateOf(widget: JsonObject): JsonObject {
+		val chain = mutableListOf<JsonObject>()
 		val seen = HashSet<String>()
-		return (common + own).filter { seen.add(it.key) }
+		var id = widget[USE].text()
+		// A loop the settings would refuse ends where it comes round.
+		while (id != null && seen.add(id)) {
+			val t = templates[id] ?: break
+			chain += t
+			id = t[USE].text()
+		}
+		val out = LinkedHashMap<String, JsonElement>()
+		for (t in chain.asReversed()) for ((k, v) in t) if (k != USE && k != WITH) out[k] = v
+		return JsonObject(out)
 	}
 
-	/** How many of four columns [widget] takes: its own `span`, else its type's, else two. */
-	fun spanOf(widget: JsonObject): Int =
-		(widget["span"] as? JsonPrimitive)?.takeIf { !it.isString }?.intOrNull ?: type(widget["type"].text())?.span ?: DEFAULT_SPAN
+	/** [key] of [widget] as it stands: its own, else its template's. */
+	fun valueOf(widget: JsonObject, key: String): JsonElement? = widget[key] ?: templateOf(widget)[key]
+
+	/** [widget]'s type: its own, else its template's. */
+	fun typeOf(widget: JsonObject): String? = valueOf(widget, TYPE).text()
+
+	/**
+	 * The keys [widget] takes: the common ones, then those of its type, each once. What its template
+	 * sets is what a key is while the widget doesn't set it.
+	 */
+	fun keysOf(widget: JsonObject): List<EditorKey> {
+		val template = templateOf(widget)
+		val own = type(typeOf(widget))?.keys.orEmpty()
+		val seen = HashSet<String>()
+		return (common + own).filter { seen.add(it.key) }.map { k -> template[k.key]?.let { k.copy(default = it) } ?: k }
+	}
+
+	/** How many of four columns [widget] takes: its own `span`, else its template's, else its type's, else two. */
+	fun spanOf(widget: JsonObject): Int = wholeOf(valueOf(widget, Drafts.SPAN)) ?: type(typeOf(widget))?.span ?: DEFAULT_SPAN
 
 	/** What a widget is called in the forms: its type's label, else the type as written. */
 	fun typeLabel(widget: JsonObject): String {
-		val t = widget["type"].text().orEmpty()
+		val t = typeOf(widget).orEmpty()
 		return type(t)?.label?.ifBlank { null } ?: t
 	}
 
+	/** [widget] in a line: its type's label, then its own (or its template's) `label`. */
+	fun titleOf(widget: JsonObject): String =
+		listOfNotNull(typeLabel(widget).ifBlank { null }, valueOf(widget, LABEL).text()?.ifBlank { null }).joinToString(" · ")
+
 	companion object {
 		const val DEFAULT_SPAN = 2
+		const val TYPE = "type"
+		const val LABEL = "label"
+
+		/** The key that names a widget's template, and the one that fills its placeholders. */
+		const val USE = "use"
+		const val WITH = "with"
+
+		private fun wholeOf(v: JsonElement?): Int? = (v as? JsonPrimitive)?.takeIf { !it.isString }?.intOrNull
 	}
 }
 
