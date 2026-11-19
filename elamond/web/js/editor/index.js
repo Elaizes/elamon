@@ -611,7 +611,9 @@ class Editor {
 		// The page's own `ui` fills in what a preview leaves out (the service, the profile, control).
 		/** @type {import('../types.js').Ui} */
 		const ui = { ...(own || {}), ...a.ui, service: a.ui.service || (own && own.service), profile: a.ui.profile || (own && own.profile), control: a.ui.control || (own && own.control), actions: a.ui.actions || (own && own.actions) || [], dashboards: Array.isArray(a.ui.dashboards) ? a.ui.dashboards : [] };
-		const d = ui.dashboards.find((x) => x.id === this.id) || ui.dashboards.find((x) => x.id.startsWith(`${this.id}.`)) || null;
+		// The dashboard the data is of: a `for_each` one's first item's.
+		const of = a.data && typeof a.data.dashboard === 'string' ? a.data.dashboard : this.id;
+		const d = ui.dashboards.find((x) => x.id === of) || ui.dashboards.find((x) => x.id === this.id) || ui.dashboards.find((x) => x.id.startsWith(`${this.id}.`)) || null;
 		this.setMistakes([], 'preview');
 		this.note(d ? S.editor.previewLive : S.editor.previewNone, !d);
 		this.canvas.setDrawn({ ui, dashboard: d, data: a.data || null });
@@ -715,7 +717,7 @@ class Editor {
 		}
 		for (const [id, d] of this.profiles) {
 			if (!isDirty(d)) continue;
-			// Only what was changed here: a key the files set stays theirs.
+			// Only what was changed here, null for a key taken out: one not sent stays as the editor's file has it.
 			steps.push(async (base) => {
 				const r = await api('/api/v1/admin/editor/profile', { body: { id, profile: changes(d.start, d.value), base } });
 				rebase(d);

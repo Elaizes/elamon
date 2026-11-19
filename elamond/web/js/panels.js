@@ -24,7 +24,6 @@ export const DRAWS = 'value,gauge,meter,status,graph,list,bars,table,button,togg
 
 const P = S.panels;
 
-
 /**
  * @typedef {import('./types.js').Ui} Ui
  * @typedef {import('./types.js').Ctx} Ctx
