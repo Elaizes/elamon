@@ -872,6 +872,7 @@ mod tests {
 			assert_eq!(Version::parse(not), None, "{not:?}");
 		}
 		assert!(v("0.6.10") > v("0.6.9") && v("0.10.0") > v("0.9.9") && v("1.0.0") > v("0.99.99"));
+		assert!(v("0.11.0") > v("0.10.1") && v("0.10.1") > v("0.10.0"));
 		assert_eq!(version_of("0.6.0"), (v("0.6.0"), false));
 		assert_eq!(version_of("0.7.0-rc.1"), (v("0.7.0"), true));
 		assert_eq!(version_of("0.7.0+build.5"), (v("0.7.0"), false));
