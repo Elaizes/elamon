@@ -506,6 +506,8 @@
 	<string name="editor_dashboard_id">Id: %1$s</string>
 	<!-- The files and lines that set a dashboard: "elamond.d/dashboards.toml:3". -->
 	<string name="editor_set_in">Set in %1$s</string>
+	<!-- A settings file in the Nix store, made by the computer's Nix settings, and where in it: "elamond.toml:12, from Nix". -->
+	<string name="editor_from_nix">%1$s, from Nix</string>
 	<string name="editor_revert">Back to the files</string>
 	<string name="editor_revert_title">Back to the files?</string>
 	<!-- %1$s: the editor's file, "elamond.d/zz-editor.toml". -->
@@ -535,7 +537,7 @@
 	<string name="editor_required">%1$s (needed)</string>
 	<string name="editor_clear">Clear %1$s</string>
 	<string name="editor_default">Unless set: %1$s</string>
-	<!-- %1$s: the settings files below the editor's that set it. -->
+	<!-- %1$s: where a settings file below the editor's sets it, "elamond.toml:12". -->
 	<string name="editor_fixed">Also set in %1$s: it can be changed here, not taken out.</string>
 	<string name="editor_between">From %1$s to %2$s</string>
 	<string name="editor_pick">Choose</string>

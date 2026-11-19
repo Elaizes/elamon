@@ -193,7 +193,15 @@ data class EditorSource(val id: String, val kind: String = "")
 
 /** A file of the settings and the line of it that set something. */
 @Serializable
-data class EditorFrom(val file: String = "", val line: Int? = null)
+data class EditorFrom(
+	val file: String = "",
+	val line: Int? = null,
+	/** The file is in the Nix store: made by the Nix settings, not written by hand. */
+	val nix: Boolean = false,
+) {
+	/** As a line names it: `file:line`, or the file alone. */
+	val where: String get() = line?.let { "$file:$it" } ?: file
+}
 
 @Serializable
 data class EditorDashboard(
@@ -203,11 +211,19 @@ data class EditorDashboard(
 	val def: JsonObject = JsonObject(emptyMap()),
 	/** The files that set it, lowest first. */
 	val from: List<EditorFrom> = emptyList(),
+	/**
+	 * The keys of it the files below the editor's set, and where: what the editor writes may change
+	 * them, not leave them out (the files merge key by key).
+	 */
+	val below: Map<String, EditorFrom> = emptyMap(),
 	/** The editor's file overrides it. */
 	val editor: Boolean = false,
 	/** Only the editor's file has it. */
 	val own: Boolean = false,
-)
+) {
+	/** Where a file below the editor's sets [key] of it, its file's being in the Nix store as [from] says; null where none does. */
+	fun fixed(key: String): EditorFrom? = below[key]?.let { b -> b.copy(nix = b.nix || from.any { it.file == b.file && it.nix }) }
+}
 
 @Serializable
 data class EditorProfile(

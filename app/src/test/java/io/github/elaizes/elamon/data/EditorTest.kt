@@ -122,6 +122,30 @@ class EditorTest {
 	}
 
 	@Test
+	fun whatTheFilesBelowSetIsFixed() {
+		val d = description()
+		// The stock overview: its title, icon and widgets set in elamond.toml, key by key; nothing else of it is.
+		val overview = d.dashboard("overview")!!
+		assertEquals(setOf("title", "icon", "widgets"), overview.below.keys)
+		assertEquals(EditorFrom("elamond.toml", 143), overview.fixed("title"))
+		assertEquals("elamond.toml:143", overview.fixed("title")!!.where)
+		assertNull(overview.fixed("role"))
+		assertTrue(overview.from.none { it.nix })
+		// Only the keys below says: one the editor's file sets alone isn't, whatever other file sets the dashboard.
+		val mine = EditorDashboard(
+			id = "mine",
+			def = obj("""{"title":"Mine","icon":"gauge","widgets":[]}"""),
+			from = listOf(EditorFrom("/nix/store/0000-elamond.toml", 3, nix = true), EditorFrom("elamond.d/zz-editor.toml", 1)),
+			below = mapOf("title" to EditorFrom("/nix/store/0000-elamond.toml", 4)),
+			editor = true,
+		)
+		assertNull(mine.fixed("icon"))
+		// Where it is set, the file's being in the Nix store as from says.
+		assertEquals(EditorFrom("/nix/store/0000-elamond.toml", 4, nix = true), mine.fixed("title"))
+		assertEquals("elamond.d/zz-editor.toml", EditorFrom("elamond.d/zz-editor.toml").where)
+	}
+
+	@Test
 	fun aProfilesFormIsTheDescriptions() {
 		val d = description()
 		// The editor's part of a profile: its tabs and header, then, under android, the dashboards shown outside the app.
