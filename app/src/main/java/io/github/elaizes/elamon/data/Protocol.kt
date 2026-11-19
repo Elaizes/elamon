@@ -52,6 +52,11 @@ data class Hello(
 	 * lists ([WIDGET_TYPES]), and the app ignores keys it doesn't know.
 	 */
 	val widgets: Int? = null,
+	/**
+	 * The SHA-256 of the certificate the service presents (elamond 0.11), for its web page to show
+	 * before pairing. The app pins the certificate it pairs with instead, and reads nothing from it.
+	 */
+	val fingerprint: String? = null,
 )
 
 /** Pairing with a code; [previous], this phone's entry on that computer and its token, when it pairs again with one it has. */

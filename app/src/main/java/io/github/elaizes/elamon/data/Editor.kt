@@ -175,9 +175,9 @@ data class EditorType(
 	fun newWidget(): JsonObject = example?.takeIf { it["type"] != null } ?: JsonObject(mapOf("type" to JsonPrimitive(type)) + example.orEmpty())
 }
 
-/** A value there is, and its reading now as text. */
+/** A value there is, and its reading now as text; its unit and format, which the picker leaves to [now]. */
 @Serializable
-data class EditorValue(val address: String, val now: String? = null)
+data class EditorValue(val address: String, val now: String? = null, val unit: String? = null, val format: String? = null)
 
 @Serializable
 data class EditorCollection(val name: String, val fields: List<String> = emptyList())
