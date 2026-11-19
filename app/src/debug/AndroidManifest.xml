@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: what maestro/run.sh needs of the app beyond what a person does with it. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+	<application>
+		<!-- Puts the home-screen widget there, the home screen asking first (adb shell am start). -->
+		<activity
+			android:name=".PinWidgetActivity"
+			android:excludeFromRecents="true"
+			android:exported="true"
+			android:noHistory="true"
+			android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+	</application>
+</manifest>

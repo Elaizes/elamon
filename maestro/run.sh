@@ -218,13 +218,25 @@ scope = "user"
 label = "My journal"
 span = 4
 
-# The phone's Quick Settings tile 1: Say hello.
+# The phone's Quick Settings tile 1: Say hello. Its home-screen widget: four gauges as rings, the
+# UPS's status a line under them.
 [profiles.phone.android]
 tiles = "tiles"
+widget = "gauges"
 
 [dashboards.tiles]
 title = "Tiles"
 widgets = [{ type = "button", action = "hello", label = "Hello" }]
+
+[dashboards.gauges]
+title = "Gauges"
+widgets = [
+  { type = "gauge", value = "cpu.usage", label = "CPU", color = "cpu" },
+  { type = "gauge", value = "mem.percent", label = "Memory", color = "memory" },
+  { type = "gauge", value = "cpu.temp", label = "Temp", max = 100 },
+  { type = "gauge", value = "rack.battery.charge", label = "Rack", color = "battery" },
+  { type = "status", value = "rack.status", label = "Rack power" },
+]
 
 [profiles.lean]
 use = "phone"
@@ -371,6 +383,13 @@ exec 3>&-
 grep -q "had the profile $own" "$work/pair3.log" || fail "pairing wasn't offered the table by name: $(cat "$work/pair3.log")"
 [[ $( (run_elamond clients) | grep -c '^[0-9a-f]\{8\} ') -eq 1 ]] || fail "not one entry after pairing again"
 if [[ $(grep -c '^\[profiles\.' "$phones") -ne 1 ]] || grep -q '^# Unpaired ' "$phones"; then fail "the table wasn't taken again: $(cat "$phones")"; fi
+# The home-screen widget, put there by the debug build as a person would drag it (the home screen
+# asks first): the gauges as rings, the status a line under them. Only on an emulator, whose home
+# screen it changes.
+if [[ "$real_phone" != true ]]; then
+	adb shell am start -n "$APP_ID/io.github.elaizes.elamon.PinWidgetActivity" > /dev/null
+	flow -e NAME="$NAME" maestro/widget.yaml
+fi
 # The first Quick Settings tile runs Say hello, before and after the phone restarts, without the
 # app opened in between. Only on an emulator, which restarts here.
 if [[ "$real_phone" != true ]]; then

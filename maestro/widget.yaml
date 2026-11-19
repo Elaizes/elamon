@@ -1,0 +1,27 @@
+# The home-screen widget, as run.sh asked the home screen to take it (the debug build's
+# PinWidgetActivity): the home screen asks first; with one computer paired, nothing more is asked.
+# The home screen puts it on a page with room, not always the first. Its four gauges are rings with
+# their values and labels in them, the UPS's status a line under them, once the computer is read.
+appId: io.github.elaizes.elamon.debug
+---
+- extendedWaitUntil:
+    visible: "Add to home screen"
+    timeout: 20000
+- tapOn: "Add to home screen"
+- pressKey: Home
+- repeat:
+    times: 4
+    while:
+      notVisible: ${NAME}
+    commands:
+      - swipe:
+          direction: LEFT
+      - waitForAnimationToEnd
+- extendedWaitUntil:
+    visible: "Memory"
+    timeout: 60000
+- assertVisible: "CPU"
+- assertVisible: "Temp"
+- assertVisible: "Rack"
+- assertVisible: "Rack power"
+- takeScreenshot: 70-widget
