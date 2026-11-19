@@ -81,6 +81,110 @@
       }
     ]
   },
+  "profile_keys": [
+    {
+      "kind": "list",
+      "of": {
+        "kind": "ref",
+        "to": "dashboard"
+      },
+      "key": "dashboards",
+      "label": "Dashboards",
+      "hint": "The tabs, in order"
+    },
+    {
+      "kind": "ref",
+      "to": "dashboard",
+      "key": "header",
+      "label": "Header",
+      "hint": "A dashboard shown as chips under the computer's name"
+    }
+  ],
+  "android_keys": [
+    {
+      "kind": "ref",
+      "to": "dashboard",
+      "key": "widget",
+      "label": "Widget",
+      "hint": "The dashboard the app's home-screen widget shows"
+    },
+    {
+      "kind": "ref",
+      "to": "dashboard",
+      "key": "tiles",
+      "label": "Tiles",
+      "hint": "The dashboard whose first four buttons and switches are the app's tiles"
+    },
+    {
+      "kind": "ref",
+      "to": "dashboard",
+      "key": "card",
+      "label": "Card",
+      "hint": "The dashboard the computer's card on the app's home screen shows"
+    }
+  ],
+  "templates": {
+    "sensor_table": {
+      "columns": [
+        {
+          "field": "label",
+          "grow": true
+        },
+        {
+          "bar": {
+            "max": "crit"
+          },
+          "field": "value",
+          "format": "temp"
+        }
+      ],
+      "expand": [
+        {
+          "field": "chip",
+          "label": "Chip"
+        },
+        {
+          "field": "high",
+          "format": "temp",
+          "label": "High"
+        },
+        {
+          "field": "crit",
+          "format": "temp",
+          "label": "Critical"
+        }
+      ],
+      "hide_empty": true,
+      "sort": {
+        "desc": false,
+        "field": "label"
+      },
+      "source": "temps",
+      "type": "table"
+    },
+    "top_processes": {
+      "columns": [
+        {
+          "field": "name",
+          "grow": true
+        },
+        {
+          "field": "cpu",
+          "format": "percent"
+        },
+        {
+          "field": "mem",
+          "format": "bytes"
+        }
+      ],
+      "icon": "processes",
+      "label": "Top processes",
+      "limit": 5,
+      "open": "processes",
+      "source": "processes",
+      "type": "table"
+    }
+  },
   "common": [
     {
       "kind": "id",
@@ -2656,7 +2760,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 946
+          "line": 946,
+          "nix": false
         }
       ],
       "below": {
@@ -2757,7 +2862,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 913
+          "line": 913,
+          "nix": false
         }
       ],
       "below": {
@@ -3055,7 +3161,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 537
+          "line": 537,
+          "nix": false
         }
       ],
       "below": {
@@ -3156,7 +3263,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 675
+          "line": 675,
+          "nix": false
         }
       ],
       "below": {
@@ -3197,7 +3305,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 983
+          "line": 983,
+          "nix": false
         }
       ],
       "below": {
@@ -3333,7 +3442,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 766
+          "line": 766,
+          "nix": false
         }
       ],
       "below": {
@@ -3403,7 +3513,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 111
+          "line": 111,
+          "nix": false
         }
       ],
       "below": {
@@ -3444,7 +3555,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 969
+          "line": 969,
+          "nix": false
         }
       ],
       "below": {
@@ -3530,7 +3642,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 734
+          "line": 734,
+          "nix": false
         }
       ],
       "below": {
@@ -3633,7 +3746,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 822
+          "line": 822,
+          "nix": false
         }
       ],
       "below": {
@@ -3772,7 +3886,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 142
+          "line": 142,
+          "nix": false
         }
       ],
       "below": {
@@ -3921,7 +4036,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 410
+          "line": 410,
+          "nix": false
         }
       ],
       "below": {
@@ -4048,7 +4164,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 448
+          "line": 448,
+          "nix": false
         }
       ],
       "below": {
@@ -4190,7 +4307,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 857
+          "line": 857,
+          "nix": false
         }
       ],
       "below": {
@@ -4232,7 +4350,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 998
+          "line": 998,
+          "nix": false
         }
       ],
       "below": {
@@ -4671,7 +4790,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 236
+          "line": 236,
+          "nix": false
         }
       ],
       "below": {
@@ -4718,7 +4838,8 @@
       "from": [
         {
           "file": "elamond.toml",
-          "line": 57
+          "line": 57,
+          "nix": false
         }
       ],
       "editor": false,
@@ -4749,7 +4870,8 @@
       "from": [
         {
           "file": "elamond.d/base.toml",
-          "line": 13
+          "line": 13,
+          "nix": false
         }
       ],
       "editor": false,

@@ -546,8 +546,13 @@ pub async fn describe(State(hub): State<Arc<Hub>>, Extension(who): Extension<Cal
 	let raw = settings::read_merged(&sources).map(|(_, raw)| raw).unwrap_or_default();
 	let text = sources.iter().find(|s| s.name == at).map(|s| s.text.clone());
 	let why = files::read_only(&hub.place, &file.path);
-	let lines: Vec<(String, HashMap<String, usize>)> = sources.iter().map(|s| (files::shown_name(&hub.place, &s.name), settings::lines_of(&s.text))).collect();
-	let from = |path: &str| -> Vec<Value> { lines.iter().filter_map(|(f, l)| l.get(path).map(|line| json!({ "file": f, "line": line }))).collect() };
+	let lines: Vec<(String, bool, HashMap<String, usize>)> = sources
+		.iter()
+		.map(|s| (files::shown_name(&hub.place, &s.name), store::from_nix_store(std::path::Path::new(&s.name)), settings::lines_of(&s.text)))
+		.collect();
+	let from = |path: &str| -> Vec<Value> {
+		lines.iter().filter_map(|(f, nix, l)| l.get(path).map(|line| json!({ "file": f, "line": line, "nix": nix }))).collect()
+	};
 	let editor_has = |path: &str| text.as_deref().is_some_and(|t| settings::lines_of(t).contains_key(path));
 	let frame = hub.frame.borrow().clone();
 	let actions: Vec<crate::actions::Spec> = crate::actions::available(&config, &frame.caps).into_iter().filter(|a| a.role <= who.role).collect();
@@ -635,6 +640,9 @@ pub async fn describe(State(hub): State<Arc<Hub>>, Extension(who): Extension<Cal
 		"why": why,
 		"profile": mine,
 		"dashboard": { "keys": dashboard_keys.iter().map(key_json).collect::<Vec<_>>() },
+		"profile_keys": settings::record("profile").iter().filter(|k| PROFILE_KEYS.contains(&k.name) && k.name != "android").map(key_json).collect::<Vec<_>>(),
+		"android_keys": settings::record("android").iter().filter(|k| ANDROID_KEYS.contains(&k.name)).map(key_json).collect::<Vec<_>>(),
+		"templates": raw.get("templates").cloned().unwrap_or_else(|| json!({})),
 		"common": common.iter().map(key_json).collect::<Vec<_>>(),
 		"types": types,
 		"records": records,

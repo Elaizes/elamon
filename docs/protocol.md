@@ -1086,8 +1086,9 @@ profile or pairing, control, a settings file, a dashboard — is recorded in the
 holds), and so is one refused for its role.
 
 Writing the settings (`file/save`, `file/restore`, `file/rename`, `file/delete` and the editor's
-writes) is refused with 403 `writes_off` while `[web] write = false` or `elamond control off` holds;
-changing clients and pairing from the page, while `elamond control off` holds. Only the person at
+writes) is refused with 403 `writes_off` while `[web] write = false` or `elamond control off` holds (its
+`message` says which: `settings` or `held_off`); changing clients and pairing from the page, while
+`elamond control off` holds. Only the person at
 the computer lets go of `elamond control off`.
 
 `ui` tells a client what of this it may use: `admin` in `service.features` when its role reaches
@@ -1265,6 +1266,8 @@ own. The service writes what is sent to a drop-in of its own, `[web] editor_file
 {
   "file": "elamond.d/zz-editor.toml", "hash": "…" , "writable": true, "why": null, "profile": "pixel-9",
   "dashboard": { "keys": [ … ] },
+  "profile_keys": [ … ], "android_keys": [ … ],
+  "templates": { "sensor_table": { "type": "table", … } },
   "common": [ … ],
   "types": [{ "type": "gauge", "label": "Gauge", "span": 2, "keys": [{ "key": "value", "kind": "address", "label": "Value", "hint": "…" }, …],
               "example": { "type": "gauge", "label": "CPU", "value": "cpu.usage", "max": 100 } }, …],
@@ -1300,11 +1303,13 @@ A key is `{ "key", "kind", "label", "hint" }` and, by its kind, more:
 | `any` | any one of `of` | `of`: a list of keys without their `key` |
 
 each with `required: true` when it must be there and `default` when the service fills it in. Every
-widget takes the keys of `common` and those of its type; a dashboard, those of `dashboard.keys`. A
+widget takes the keys of `common` and those of its type; a dashboard, those of `dashboard.keys`; the
+editor's part of a profile, those of `profile_keys` and, under `android`, `android_keys`. A widget
+with `use` starts from that template of `templates` (as the settings merge them), its type among it. A
 key or kind a client doesn't know it keeps as it is and offers as JSON text, never drops: what it
 sends back holds every key it was given. `def` is a dashboard as the settings merge it (before
 templates), and a profile's tabs, header and Android dashboards; `from` the files that set it,
-lowest first; `below` the keys the files below the editor's set, which a write may change but not
+lowest first, each with `nix: true` when it is in the Nix store; `below` the keys the files below the editor's set, which a write may change but not
 leave out; `editor` says the editor's file overrides it, `own` that only the editor's file has it. `profile` is the asking client's own.
 
 ### Writing
