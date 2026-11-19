@@ -12,8 +12,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.glance.ColorFilter
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.Image
+import androidx.glance.ImageProvider
 import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.ActionParameters
@@ -31,6 +34,7 @@ import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.layout.Alignment
+import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
@@ -38,12 +42,14 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
+import androidx.glance.layout.size
 import androidx.glance.layout.width
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import java.text.DateFormat
+import kotlin.math.roundToInt
 import io.github.elaizes.elamon.MainActivity
 import io.github.elaizes.elamon.Prefs
 import io.github.elaizes.elamon.R
@@ -54,6 +60,7 @@ import io.github.elaizes.elamon.data.Machine
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.UiCache
 import io.github.elaizes.elamon.ui.MetricColors
+import io.github.elaizes.elamon.ui.accentOf
 import io.github.elaizes.elamon.ui.appColorScheme
 import io.github.elaizes.elamon.ui.color
 import io.github.elaizes.elamon.ui.levelOf
@@ -63,11 +70,12 @@ import androidx.glance.color.ColorProvider as DayNight
 
 /**
  * The home-screen widget: the dashboard the profile's `widget` names, of the computer chosen for it
- * (or the one paired), as label and value lines; when it was read, and what it is when it can't be.
- * A tap reads it at once; its name opens the computer in the app.
+ * (or the one paired): its gauges as small rings, the rest as label and value lines; when it was
+ * read, and what it is when it can't be. A tap reads it at once; its name opens the computer in the
+ * app.
  */
 class ElamonWidget : GlanceAppWidget() {
-	/** Drawn for the size it is: as many lines as fit. */
+	/** Drawn for the size it is: as many rings and lines as fit. */
 	override val sizeMode: SizeMode = SizeMode.Exact
 
 	override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -141,6 +149,9 @@ private class WidgetColors(
 	val text = scheme { it.onSurface }
 	val quiet = scheme { it.onSurfaceVariant }
 
+	/** A ring's empty part, as the app's. */
+	val track = scheme { it.surfaceContainerHighest }
+
 	/** What was read before, shown while the computer can't be reached: faded. */
 	val old = scheme { it.onSurfaceVariant.copy(alpha = OLD_ALPHA) }
 
@@ -148,6 +159,15 @@ private class WidgetColors(
 	fun level(line: WidgetLine): ColorProvider {
 		val band = levelOf(line.level, line.blend) ?: return text
 		fun pick(s: ColorScheme, m: MetricColors) = band.color(if (line.green) m.good else s.onSurface, m.warn, m.hot)
+		return of(pick(light, lightMetric), pick(dark, darkMetric))
+	}
+
+	/** A gauge's ring by its level, as its tile colours it: the gauge's own colour while normal, turning amber, then red. */
+	fun ring(line: WidgetLine): ColorProvider {
+		fun pick(s: ColorScheme, m: MetricColors): Color {
+			val own = accentOf(line.color, s, m)
+			return levelOf(line.level, line.blend)?.color(own, m.warn, m.hot) ?: own
+		}
 		return of(pick(light, lightMetric), pick(dark, darkMetric))
 	}
 
@@ -203,8 +223,43 @@ private fun Content(machine: Machine?, shown: WidgetShown, reading: Boolean, c: 
 			return@Column
 		}
 		val old = shown.fetch != Fetch.Ok
-		val fit = linesThatFit(LocalSize.current.height.value, scale)
-		for (line in shown.lines.take(fit)) Line(line, old, c, scale)
+		val size = LocalSize.current
+		val layout = widgetLayout(shown.lines, size.width.value, size.height.value, scale)
+		val gap = (RING_GAP_DP * scale).dp
+		// Rings, with the lines under them, sit in the middle of the room they have; lines alone start
+		// under the name, as before rings.
+		Column(
+			GlanceModifier.fillMaxWidth().defaultWeight(),
+			verticalAlignment = if (layout.rings.isEmpty()) Alignment.Top else Alignment.CenterVertically,
+		) {
+			layout.rings.forEachIndexed { i, row ->
+				if (i > 0) Spacer(GlanceModifier.height(gap))
+				Row(GlanceModifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+					row.forEachIndexed { j, line ->
+						if (j > 0) Spacer(GlanceModifier.width(gap))
+						Ring(line, layout.ringDp, old, c)
+					}
+				}
+			}
+			if (layout.rings.isNotEmpty() && layout.lines.isNotEmpty()) Spacer(GlanceModifier.height(gap))
+			for (line in layout.lines) Line(line, old, c, scale)
+		}
+	}
+}
+
+/** A gauge as a small ring, as on its tile: its value inside, its label under that. */
+@Composable
+private fun Ring(line: WidgetLine, dp: Float, old: Boolean, c: WidgetColors) {
+	val density = LocalContext.current.resources.displayMetrics.density
+	val px = (dp * density).roundToInt().coerceIn(1, RING_MAX_PX)
+	val fill = remember(line.ring, px) { ringFill(line.ring ?: 0f, px) }
+	Box(GlanceModifier.size(dp.dp), contentAlignment = Alignment.Center) {
+		Image(ImageProvider(R.drawable.widget_ring_track), null, GlanceModifier.fillMaxSize(), colorFilter = ColorFilter.tint(c.track))
+		Image(ImageProvider(fill), null, GlanceModifier.fillMaxSize(), colorFilter = ColorFilter.tint(if (old) c.old else c.ring(line)))
+		Column(horizontalAlignment = Alignment.CenterHorizontally) {
+			Text(line.text, style = TextStyle(color = if (old) c.old else c.text, fontSize = (dp * RING_VALUE).sp, fontWeight = FontWeight.Bold), maxLines = 1)
+			Text(line.label, style = TextStyle(color = if (old) c.old else c.quiet, fontSize = (dp * RING_LABEL).coerceAtLeast(RING_LABEL_MIN_SP).sp), maxLines = 1)
+		}
 	}
 }
 
@@ -225,6 +280,45 @@ private fun Line(line: WidgetLine, old: Boolean, c: WidgetColors, scale: Float) 
 /** How many lines fit in a widget [heightDp] tall at the app's [scale]: one at least. */
 internal fun linesThatFit(heightDp: Float, scale: Float): Int =
 	((heightDp - 2 * Pad.value - HEADER_DP * scale) / (LINE_DP * scale)).toInt().coerceAtLeast(1)
+
+/** A ring's least and most size at 100%, and the room between rings, in dp. */
+internal const val RING_MIN_DP = 48f
+internal const val RING_MAX_DP = 84f
+internal const val RING_GAP_DP = 8f
+
+/** A ring's picture is drawn no larger than this: what a widget sends the home screen is kept small. */
+private const val RING_MAX_PX = 256
+
+/** A ring's value and label, in sp for each dp of it; a label no smaller than [RING_LABEL_MIN_SP]. */
+private const val RING_VALUE = 0.24f
+private const val RING_LABEL = 0.15f
+private const val RING_LABEL_MIN_SP = 9f
+
+/** What a widget shows of its lines: its gauges as [rings], rows of them [ringDp] across, then the [lines] of the rest. */
+internal data class WidgetLayout(val rings: List<List<WidgetLine>>, val ringDp: Float, val lines: List<WidgetLine>)
+
+/**
+ * What fits of [lines] in a widget [widthDp] by [heightDp] at the app's [scale]: its gauges as rings
+ * at the top, in rows as even as they go (four in two rows of two rather than three and one), each
+ * as large as the room allows up to [RING_MAX_DP]; then the other lines, in order, as many as fit
+ * below. Where not even one ring fits, the gauges are lines like the rest.
+ */
+internal fun widgetLayout(lines: List<WidgetLine>, widthDp: Float, heightDp: Float, scale: Float): WidgetLayout {
+	val gauges = lines.filter { it.ring != null }
+	val width = widthDp - 2 * Pad.value
+	val height = heightDp - 2 * Pad.value - HEADER_DP * scale
+	val least = RING_MIN_DP * scale
+	val gap = RING_GAP_DP * scale
+	if (gauges.isEmpty() || width < least || height < least) return WidgetLayout(emptyList(), 0f, lines.take(linesThatFit(heightDp, scale)))
+	val across = ((width + gap) / (least + gap)).toInt().coerceIn(1, gauges.size)
+	val rows = minOf((gauges.size + across - 1) / across, ((height + gap) / (least + gap)).toInt())
+	val shown = minOf(gauges.size, rows * across)
+	val perRow = (shown + rows - 1) / rows
+	val ring = minOf(RING_MAX_DP * scale, (width - (perRow - 1) * gap) / perRow, (height - (rows - 1) * gap) / rows)
+	val left = height - rows * ring - rows * gap
+	val rest = lines.filter { it.ring == null }
+	return WidgetLayout(gauges.take(shown).chunked(perRow), ring, rest.take((left / (LINE_DP * scale)).toInt().coerceAtLeast(0)))
+}
 
 /** What the widget says beside the computer's name: when it was read, or what keeps it from it. */
 private fun note(ctx: Context, shown: WidgetShown, reading: Boolean): String? {

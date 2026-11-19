@@ -7,10 +7,11 @@ import io.github.elaizes.elamon.data.Widget
 import io.github.elaizes.elamon.data.WidgetState
 import io.github.elaizes.elamon.ui.DASH
 import io.github.elaizes.elamon.ui.Fmt
+import io.github.elaizes.elamon.ui.fraction
 
 /**
  * A line of the home-screen widget: a widget of the profile's `widget` dashboard as it read, its
- * label and its value as the app writes it, and its level for the colour.
+ * label and its value as the app writes it, and its level for the colour; a gauge's, its ring too.
  */
 @Serializable
 data class WidgetLine(
@@ -23,6 +24,10 @@ data class WidgetLine(
 	val green: Boolean = false,
 	/** Words rather than a figure: a `text` widget's, drawn across the widget. */
 	val words: Boolean = false,
+	/** A gauge's: how full its ring is, 0 to 1, drawn as a small ring where one fits. Null for any other. */
+	val ring: Float? = null,
+	/** A gauge's colour, as the settings name it (docs/config.md, "Colours"): its ring's while the level is normal. */
+	val color: String? = null,
 )
 
 /** What the last try to read a computer for its widget found. */
@@ -70,6 +75,7 @@ data class WidgetShown(
 }
 
 private const val TEMP = "temp"
+private const val GAUGE = "gauge"
 
 /** The types the widget draws; any other (a graph, a table, a button) is left out. */
 private val FIGURES = setOf("value", "gauge", "meter", "status")
@@ -86,7 +92,15 @@ private fun linesOf(w: Widget, states: Map<String, WidgetState>): List<WidgetLin
 	val s = states[w.id]
 	return when (w.type) {
 		in FIGURES -> listOf(
-			WidgetLine(w.label.orEmpty(), s?.text ?: Fmt.format(s?.v, w.format, w.unit) ?: DASH, s?.level, s?.blend, green = w.type == "status" || w.format == TEMP),
+			WidgetLine(
+				w.label.orEmpty(),
+				s?.text ?: Fmt.format(s?.v, w.format, w.unit) ?: DASH,
+				s?.level,
+				s?.blend,
+				green = w.type == "status" || w.format == TEMP,
+				ring = if (w.type == GAUGE) fraction(w, s) else null,
+				color = w.color.takeIf { w.type == GAUGE },
+			),
 		)
 		"text" -> listOfNotNull((s?.text ?: w.text)?.takeIf { it.isNotBlank() }?.let { WidgetLine(w.label.orEmpty(), it, s?.level ?: w.level, words = true) })
 		"list" -> w.items.orEmpty().mapIndexedNotNull { i, item ->

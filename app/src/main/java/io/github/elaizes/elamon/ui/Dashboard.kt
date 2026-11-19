@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -198,26 +199,25 @@ fun WidgetView(scope: DashScope, w: Widget, modifier: Modifier, columns: Int) {
 
 /** A colour the settings name (docs/config.md, "Colours"); the primary for none, or one this app doesn't know. */
 @Composable
-fun accent(name: String?): Color {
-	val c = Metric.colors
-	val s = MaterialTheme.colorScheme
-	return when (name) {
-		"cpu" -> c.cpu
-		"memory" -> c.memory
-		"swap" -> c.swap
-		"gpu" -> c.gpu
-		"rx" -> c.rx
-		"tx" -> c.tx
-		"read" -> c.read
-		"write" -> c.write
-		"battery" -> c.battery
-		"good" -> c.good
-		"warn" -> c.warn
-		"hot" -> c.hot
-		"secondary" -> s.secondary
-		"tertiary" -> s.tertiary
-		else -> s.primary
-	}
+fun accent(name: String?): Color = accentOf(name, MaterialTheme.colorScheme, Metric.colors)
+
+/** [accent] in the scheme [s] and the metric colours [c]: the home-screen widget's, outside the app's theme. */
+fun accentOf(name: String?, s: ColorScheme, c: MetricColors): Color = when (name) {
+	"cpu" -> c.cpu
+	"memory" -> c.memory
+	"swap" -> c.swap
+	"gpu" -> c.gpu
+	"rx" -> c.rx
+	"tx" -> c.tx
+	"read" -> c.read
+	"write" -> c.write
+	"battery" -> c.battery
+	"good" -> c.good
+	"warn" -> c.warn
+	"hot" -> c.hot
+	"secondary" -> s.secondary
+	"tertiary" -> s.tertiary
+	else -> s.primary
 }
 
 /** An icon the settings name (docs/config.md, "Icons"); `overview` for one this app doesn't know. */
@@ -300,7 +300,7 @@ fun Figure(w: Widget, s: WidgetState?, color: Color, large: Boolean) {
 }
 
 /** How full a gauge or meter is: its value between its min and its max (the state's, where it changes). */
-private fun fraction(w: Widget, s: WidgetState?): Float {
+internal fun fraction(w: Widget, s: WidgetState?): Float {
 	val v = s?.number ?: return 0f
 	val min = w.min ?: 0.0
 	val max = s.max ?: w.max ?: if (w.format == "percent") Thresholds.PERCENT.toDouble() else return 0f

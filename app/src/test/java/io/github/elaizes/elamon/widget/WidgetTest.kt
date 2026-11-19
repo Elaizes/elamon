@@ -37,6 +37,74 @@ class WidgetTest {
 		// A temperature is green while normal, as its tile; the text's words go across the widget.
 		assertEquals(listOf(false, true, false), lines.map { it.green })
 		assertEquals(listOf(false, false, true), lines.map { it.words })
+		// The gauge is a ring, as full as its value is between its min and max; nothing else is.
+		assertEquals(listOf(0.8f, null, null), lines.map { it.ring })
+	}
+
+	@Test
+	fun aGaugesRingByItsRangeAndItsColour() {
+		val doc = ui.copy(
+			dashboards = ui.dashboards + io.github.elaizes.elamon.data.Dashboard(
+				"w",
+				widgets = listOf(
+					Widget("w/cpu", "gauge", label = "CPU", format = "percent", color = "cpu"),
+					Widget("w/temp", "gauge", label = "Temp", format = "temp", min = 20.0, max = 100.0),
+					Widget("w/load", "gauge", label = "Load"),
+					Widget("w/disk", "meter", label = "Disk", format = "percent", color = "memory"),
+				),
+			),
+		)
+		val states = mapOf(
+			"w/cpu" to WidgetState(v = JsonPrimitive(150)),
+			"w/temp" to WidgetState(v = JsonPrimitive(60)),
+			"w/load" to WidgetState(v = JsonPrimitive(3), max = 12.0),
+			"w/disk" to WidgetState(v = JsonPrimitive(40)),
+		)
+		val lines = widgetLines(doc, "w", states)
+		// A percent is of 100 and never past it; a range of the widget's own; a max the state gives; a meter stays a line.
+		assertEquals(listOf(1f, 0.5f, 0.25f, null), lines.map { it.ring })
+		assertEquals(listOf("cpu", null, null, null), lines.map { it.color })
+		// Not read yet: an empty ring and a dash.
+		assertEquals(0f to "—", widgetLines(doc, "w", emptyMap()).first().let { it.ring to it.text })
+	}
+
+	@Test
+	fun gaugesAsRingsWhereTheyFit() {
+		fun gauge(n: Int) = WidgetLine("G$n", "$n%", ring = n / 10f)
+		fun line(n: Int) = WidgetLine("L$n", "$n")
+		fun WidgetLayout.labels() = rings.map { r -> r.map { it.label } }
+		val four = (1..4).map(::gauge)
+		// A square widget: two rows of two, as large as its height leaves them, and nothing under them.
+		with(widgetLayout(four, 170f, 170f, 1f)) {
+			assertEquals(listOf(listOf("G1", "G2"), listOf("G3", "G4")), labels())
+			assertEquals(54f, ringDp)
+			assertEquals(emptyList(), lines)
+		}
+		// A wide one: all four in a row and the rest's lines under them, the gauges in their order, the lines in theirs.
+		with(widgetLayout(listOf(line(1), gauge(1), gauge(2), line(2), gauge(3), gauge(4), line(3)), 340f, 180f, 1f)) {
+			assertEquals(listOf(listOf("G1", "G2", "G3", "G4")), labels())
+			assertEquals(73f, ringDp)
+			assertEquals(listOf("L1", "L2"), lines.map { it.label })
+		}
+		// No larger than the most, however much room there is.
+		assertEquals(RING_MAX_DP, widgetLayout(listOf(gauge(1)), 400f, 400f, 1f).ringDp)
+		// Three across would leave one alone: two rows of two instead.
+		assertEquals(listOf(2, 2), widgetLayout(four, 220f, 200f, 1f).rings.map { it.size })
+		// A row's height only: the row that fits; the other gauges are left out.
+		with(widgetLayout(four, 170f, 110f, 1f)) {
+			assertEquals(listOf(listOf("G1", "G2")), labels())
+			assertEquals(RING_MIN_DP + 8f, ringDp)
+		}
+		// Too low for even one ring: the gauges are lines like the rest.
+		with(widgetLayout(four + line(5), 340f, 90f, 1f)) {
+			assertEquals(emptyList(), rings)
+			assertEquals(listOf("G1"), lines.map { it.label })
+		}
+		// No gauges: lines, as before.
+		assertEquals(linesThatFit(180f, 1f), widgetLayout((1..9).map(::line), 170f, 180f, 1f).lines.size)
+		// Larger at the app's scale: fewer across, still as even as they go.
+		assertEquals(listOf(4), widgetLayout(four, 264f, 260f, 1f).rings.map { it.size })
+		assertEquals(listOf(2, 2), widgetLayout(four, 264f, 260f, 1.4f).rings.map { it.size })
 	}
 
 	@Test

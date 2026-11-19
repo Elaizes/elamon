@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A gauge's empty ring on the home-screen widget, three quarters round and open at the bottom, tinted
+     there. Of the proportions widget/WidgetRing.kt draws its filled part in: a stroke of 0.11 of the
+     size and 0.04 more room around it, so a radius of 40.5 of 100, from 135° to 45°. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+	android:width="48dp"
+	android:height="48dp"
+	android:viewportWidth="100"
+	android:viewportHeight="100">
+	<path
+		android:pathData="M21.362,78.638 A40.5,40.5 0 1,1 78.638,78.638"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeWidth="11"
+		android:strokeLineCap="round" />
+</vector>
