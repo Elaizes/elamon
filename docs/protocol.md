@@ -1079,7 +1079,8 @@ through are also in the journal (`journalctl --user -u elamond`).
 For the role `[web] role` names (`owner` unless the settings say) and above, whether by the cookie
 of a browser or the `Bearer` token of a phone; any other role gets 403 `not_allowed`, and with
 `[web] admin = false` every role gets 403 `admin_off`. Bodies are JSON, up to 1 MiB for those that
-carry a settings file and 4 KiB for the others. A request that changes something — a client's role,
+carry a settings file or a draft (`file/check`, `file/save`, `preview`, `editor/dashboard`) and 4 KiB
+for the others. A request that changes something — a client's role,
 profile or pairing, control, a settings file, a dashboard — is recorded in the
 [activity log](#activity-log) under the client that asked (what was changed, never what a file
 holds), and so is one refused for its role.
@@ -1246,8 +1247,9 @@ or, for the editor, `"editor": { "dashboards": { "mine": { … } }, "profiles": 
 `{ "ui": { … }, "data": { … } }`: the `ui` the asking client would get with the draft, the dashboard
 asked for among its tabs, and that dashboard's `data` from the reading there is now, as a stream's
 `data` line has it without `type`. A source or action of the draft only is never started: its values
-are missing. 422 `bad_settings` with `mistakes` for a draft that doesn't parse, 404
-`no_such_dashboard` for a dashboard the draft doesn't have or the role doesn't see.
+are missing. A dashboard with `for_each` is shown by its first item's (`gpus.nvidia` for `gpus`). 422
+`bad_settings` with `mistakes` for a draft that doesn't parse, 404 `no_such_dashboard` for a
+dashboard the draft doesn't have or the role sees nothing of (a new one with no widgets yet).
 
 ## The dashboard editor
 
@@ -1272,7 +1274,8 @@ own. The service writes what is sent to a drop-in of its own, `[web] editor_file
   "actions": [{ "id": "mode", "name": "Server mode", "kind": "actions" }, …],
   "links": [{ "id": "music", "name": "Music" }],
   "sources": [{ "id": "ups", "kind": "nut" }],
-  "dashboards": [{ "id": "cpu", "title": "CPU", "def": { … }, "from": [{ "file": "elamond.d/dashboards.toml", "line": 12 }], "editor": false, "own": false }, …],
+  "dashboards": [{ "id": "cpu", "title": "CPU", "def": { … }, "from": [{ "file": "elamond.d/dashboards.toml", "line": 12 }],
+                   "below": { "title": { "file": "elamond.d/dashboards.toml", "line": 13 } }, "editor": false, "own": false }, …],
   "profiles": [{ "id": "pixel-9", "name": "Pixel 9", "def": { "dashboards": […], "header": "header", "android": { "widget": "phone" } },
                  "from": [{ "file": "elamond.d/phones.toml", "line": 4 }], "editor": false, "clients": ["…"] }, …]
 }
@@ -1301,8 +1304,8 @@ widget takes the keys of `common` and those of its type; a dashboard, those of `
 key or kind a client doesn't know it keeps as it is and offers as JSON text, never drops: what it
 sends back holds every key it was given. `def` is a dashboard as the settings merge it (before
 templates), and a profile's tabs, header and Android dashboards; `from` the files that set it,
-lowest first; `editor` says the editor's file overrides it, `own` that only the editor's file has
-it. `profile` is the asking client's own.
+lowest first; `below` the keys the files below the editor's set, which a write may change but not
+leave out; `editor` says the editor's file overrides it, `own` that only the editor's file has it. `profile` is the asking client's own.
 
 ### Writing
 

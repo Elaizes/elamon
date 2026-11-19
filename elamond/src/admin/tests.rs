@@ -421,6 +421,14 @@ async fn the_dashboard_editor() {
 	assert!(p["ui"]["tabs"].as_array().unwrap().iter().any(|t| t == "draft"));
 	assert_eq!(p["data"]["dashboard"], "draft");
 	assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+	// A dashboard with `for_each`: its first item's.
+	let (status, p) = call(&hub, "POST", "/api/v1/admin/preview", "owner", &json!({ "dashboard": "gpu" }).to_string()).await;
+	assert_eq!(status, StatusCode::OK, "{p}");
+	assert!(p["data"]["dashboard"].as_str().unwrap().starts_with("gpu."), "{}", p["data"]["dashboard"]);
+	// What the files below the editor's set, by key.
+	let (_, d2) = call(&hub, "GET", "/api/v1/admin/editor", "owner", "").await;
+	let cpu = d2["dashboards"].as_array().unwrap().iter().find(|x| x["id"] == "cpu").unwrap();
+	assert!(cpu["below"]["title"]["line"].is_u64(), "{cpu}");
 	let (status, v) = call(&hub, "POST", "/api/v1/admin/editor/revert", "owner", &json!({ "dashboard": "overview", "base": v["hash"] }).to_string()).await;
 	assert_eq!(status, StatusCode::OK, "{v}");
 	let (_, ui) = call(&hub, "GET", "/api/v1/ui", "owner", "").await;

@@ -104,7 +104,10 @@ pub async fn preview(State(hub): State<Arc<Hub>>, Extension(who): Extension<Call
 		kind: &app.kind,
 		draws: draws.as_ref(),
 	});
-	let Some(dashboard) = crate::server::dashboard_in(&built, req.dashboard.as_deref()) else {
+	// A dashboard with `for_each` is in `ui` once for each item: the first item's shows it.
+	let first_item = |d: &str| built.dashboards.iter().find(|x| x.id.strip_prefix(d).is_some_and(|rest| rest.starts_with('.'))).map(|x| x.id.clone());
+	let asked = req.dashboard.as_deref().map(|d| if built.dashboard(d).is_some() { d.to_string() } else { first_item(d).unwrap_or_else(|| d.to_string()) });
+	let Some(dashboard) = crate::server::dashboard_in(&built, asked.as_deref()) else {
 		return error(ErrorCode::NoSuchDashboard);
 	};
 	let mut data = crate::server::data_of(&hub, &built, dashboard, &who, &frame, &HashMap::new(), true);

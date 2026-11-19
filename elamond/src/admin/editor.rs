@@ -574,17 +574,27 @@ pub async fn describe(State(hub): State<Arc<Hub>>, Extension(who): Extension<Cal
 
 	let empty = Map::new();
 	let raw_dashboards = raw.get("dashboards").and_then(Value::as_object).unwrap_or(&empty);
+	// What the files below the editor's set: keys it may change but not take away.
+	let below = settings::whence_of(&sources.iter().filter(|s| s.name != at).cloned().collect::<Vec<_>>(), 3);
 	let dashboards: Vec<Value> = raw_dashboards
 		.iter()
 		.map(|(id, def)| {
 			let path = settings::join("dashboards", id);
 			let from = from(&path);
 			let editor = editor_has(&path);
+			let fixed: Map<String, Value> = DASHBOARD_KEYS
+				.iter()
+				.filter_map(|k| {
+					let (i, line) = below.get(&settings::join(&path, k))?;
+					Some((k.to_string(), json!({ "file": files::shown_name(&hub.place, &sources.iter().filter(|s| s.name != at).nth(*i)?.name), "line": line })))
+				})
+				.collect();
 			json!({
 				"id": id,
 				"title": def.get("title"),
 				"def": def,
 				"from": from,
+				"below": fixed,
 				"editor": editor,
 				"own": editor && from.len() == 1,
 			})
