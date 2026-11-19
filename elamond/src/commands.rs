@@ -89,7 +89,7 @@ pub fn check(args: &[String]) -> Result<(), String> {
 			println!("{}", crate::events::def::summary(&c));
 			// The computer's own, for the settings it runs with: not those a build checks.
 			if file.is_none() {
-				let d = crate::displays::Displays::new();
+				let d = crate::displays::Displays::quiet();
 				d.apply(&c.displays);
 				for (ok, line) in d.check() {
 					let line = format!("{}{}", line[..1].to_uppercase(), &line[1..]);
@@ -492,7 +492,7 @@ pub fn values(args: &[String]) -> Result<(), String> {
 			let listing = match config.feeds.get(id) {
 				Some(feed) => crate::feeds::cli::listing(&config, id, feed)?,
 				None if config.sources.contains_key(id) => crate::nut::cli::values(&config, id)?,
-				None if id == "displays" => crate::displays::Displays::new().listing(&config.displays),
+				None if id == "displays" => crate::displays::Displays::quiet().listing(&config.displays),
 				None => {
 					let ids = source_ids(&config);
 					let there = if ids.is_empty() { "the settings have none".to_string() } else { format!("the settings have {}", ids.join(", ")) };

@@ -187,6 +187,8 @@ pub struct Displays {
 	programs: Programs,
 	sys: PathBuf,
 	dev: PathBuf,
+	/// Whether it tells the journal what it finds: the service's does, a command's doesn't.
+	journal: bool,
 }
 
 /// What is said to the journal, under `displays:`.
@@ -197,6 +199,11 @@ fn say(s: &str) {
 impl Displays {
 	pub fn new() -> Displays {
 		Displays::with(Programs::Found, PathBuf::from("/sys"), PathBuf::from("/dev"))
+	}
+
+	/// For a command: what it finds goes to the person, not to the journal.
+	pub fn quiet() -> Displays {
+		Displays { journal: false, ..Displays::new() }
 	}
 
 	/// With `hyprctl` and `ddcutil` where the test puts them, and its own sysfs.
@@ -213,6 +220,7 @@ impl Displays {
 			programs,
 			sys,
 			dev,
+			journal: true,
 		}
 	}
 
@@ -262,7 +270,7 @@ impl Displays {
 	}
 
 	fn say_once(&self, s: String) {
-		if self.lock().said.insert(s.clone()) {
+		if self.lock().said.insert(s.clone()) && self.journal {
 			say(&s);
 		}
 	}
@@ -308,6 +316,7 @@ impl Displays {
 		let seen = Arc::new(seen);
 		let mut s = self.lock();
 		if s.seen.why != seen.why
+			&& self.journal
 			&& let Some(why) = &seen.why
 		{
 			say(&format!("monitors aren't acted on: {why}"));
@@ -493,7 +502,7 @@ impl Displays {
 		let mut out = format!("Hyprland {instance}, its settings Lua.\n");
 		let width = seen.outputs.iter().map(|o| o.name.chars().count()).max().unwrap_or(0);
 		for o in &seen.outputs {
-			let mut parts = vec![if o.disabled { "off".to_string() } else { "on".to_string() }, format!("DPMS {}", if o.dpms_status { "on" } else { "off" })];
+			let mut parts = vec![if o.disabled { "off".to_string() } else { format!("on · DPMS {}", if o.dpms_status { "on" } else { "off" }) }];
 			if o.width > 0 {
 				parts.push(format!("{}×{} @ {:.2} Hz at {}, {}, scale {}", o.width, o.height, o.refresh_rate, o.x, o.y, number(o.scale)));
 			}
