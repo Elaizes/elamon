@@ -192,16 +192,16 @@ export function control(fc, k, value, set, id, label) {
 	const placeholder = k.default !== undefined && typeof k.default !== 'object' ? String(k.default) : '';
 	switch (k.kind) {
 		case 'string':
-			return textInput(value, set, id, placeholder);
+			return textInput(value, set, id, placeholder, label);
 		case 'text':
 			return textWithValues(fc, value, set, id, placeholder, label);
 		case 'id':
 			return idInput(value, set, id, placeholder);
 		case 'address':
-			return picker({ id, value, placeholder: placeholder || S.editor.pickValue, options: () => valueOptions(fc.desc), onInput: (t) => set(t || undefined) }).el;
+			return picker({ id, value, label, placeholder: placeholder || S.editor.pickValue, options: () => valueOptions(fc.desc), onInput: (t) => set(t || undefined) }).el;
 		case 'ref': {
 			const opts = refOptions(fc.desc, k.to);
-			return picker({ id, value, placeholder: placeholder || S.editor.refs[k.to || ''] || '', options: () => opts, onInput: (t) => set(t || undefined) }).el;
+			return picker({ id, value, label, placeholder: placeholder || S.editor.refs[k.to || ''] || '', options: () => opts, onInput: (t) => set(t || undefined) }).el;
 		}
 		case 'bool': {
 			const box = h('input', { type: 'checkbox', id });
@@ -233,9 +233,9 @@ export function control(fc, k, value, set, id, label) {
 	}
 }
 
-/** @param {any} value @param {(v: any) => void} set @param {string} id @param {string} placeholder */
-function textInput(value, set, id, placeholder) {
-	const input = h('input', { type: 'text', id, value: value ?? '', placeholder });
+/** @param {any} value @param {(v: any) => void} set @param {string} id @param {string} placeholder @param {string} label */
+function textInput(value, set, id, placeholder, label) {
+	const input = h('input', { type: 'text', id, value: value ?? '', placeholder, 'aria-label': label });
 	input.addEventListener('input', () => set(input.value === '' ? undefined : input.value));
 	return input;
 }

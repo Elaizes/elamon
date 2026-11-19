@@ -682,8 +682,10 @@ def test_editor(T):
 	page.keyboard.press('Alt+ArrowRight')
 	expect(page.get_by_role('listitem', name=re.compile(r'^Uptime, .*, 3 wide$'))).to_be_visible()
 	check(before.endswith(', 2 wide'), f'the value started {before}')
-	# The tab of this browser's profile, from the form before.
-	expect(page.get_by_text('this one', exact=True)).to_be_attached()
+	# The tab of this browser's profile, from the form before: the last of its tabs, and the one change
+	# its profile's form has.
+	tabs = page.get_by_role('combobox', name=re.compile(r'^Dashboards, item \d+$'), include_hidden=True)
+	expect(tabs.last).to_have_value('made')
 	# The service's preview of the draft, drawn in its cells with the readings now.
 	expect(page.get_by_role('listitem', name=re.compile(r'^CPU, '))).to_contain_text(re.compile(r'\d+\s*%'))
 	expect(page.get_by_role('listitem', name=re.compile(r'^Uptime, '))).to_contain_text(re.compile(r'\d+ (d|h|min|s)\b'))

@@ -25,7 +25,8 @@ export function picker(opts) {
 		'aria-autocomplete': 'list',
 		'aria-expanded': 'false',
 		'aria-controls': listId,
-		'aria-label': opts.id ? null : opts.label,
+		// Named by `label` where given: an item of a list has no label of its own to be named by.
+		'aria-label': opts.label || null,
 		class: 'mono',
 	});
 	if (opts.invalid) input.setAttribute('aria-invalid', 'true');
