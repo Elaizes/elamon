@@ -200,8 +200,8 @@ test("a profile's write holds what was changed here, never what the files set", 
 });
 
 test('ids as the settings take them', () => {
-	for (const ok of ['mine', 'a', 'cpu_2', 'x-y', 'a'.repeat(32)]) assert.equal(isId(ok), true, ok);
-	for (const bad of ['', 'Mine', 'a.b', 'a b', 'a'.repeat(33), 3, null]) assert.equal(isId(bad), false, String(bad));
+	for (const ok of ['mine', 'a', '2', 'cpu_2', 'x-y', 'a_', 'b-', '9lives', 'a'.repeat(32)]) assert.equal(isId(ok), true, ok);
+	for (const bad of ['', 'Mine', 'a.b', 'a b', 'a'.repeat(33), '_a', '-a', '_', '-', 3, null]) assert.equal(isId(bad), false, String(bad));
 });
 
 test('writes go one after another, each on the hash the one before left, and the next save on the last', async () => {

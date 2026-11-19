@@ -406,7 +406,7 @@ export function sortMistakes(mistakes, dashboard, profile) {
 	return { widgets, dash, prof, other };
 }
 
-/** Whether a string is an id as the settings take one: 1–32 of a-z, 0-9, `_`, `-`. @param {unknown} s */
+/** Whether a string is an id as the settings take one: 1–32 of a-z, 0-9, `_`, `-`, starting with a letter or a digit. @param {unknown} s */
 export function isId(s) {
-	return typeof s === 'string' && /^[a-z0-9_-]{1,32}$/.test(s);
+	return typeof s === 'string' && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(s);
 }

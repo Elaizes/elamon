@@ -679,8 +679,8 @@ export const S = {
 		// The new dashboard.
 		newTitle: 'New dashboard',
 		newId: 'Id',
-		newIdHint: 'Names it in the settings and in the address: 1–32 of a–z, 0–9, _ and -.',
-		badId: 'An id is 1–32 of a–z, 0–9, _ and -.',
+		newIdHint: 'Names it in the settings and in the address: 1–32 of a–z, 0–9, _ and -, starting with a letter or a digit.',
+		badId: 'An id is 1–32 of a–z, 0–9, _ and -, starting with a letter or a digit.',
 		idTaken: 'A dashboard “{0}” is there already.',
 		newName: 'Title',
 		needTitle: 'It needs a title.',
