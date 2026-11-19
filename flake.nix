@@ -79,6 +79,18 @@
 				'';
 			};
 
+			# ddcutil where the service finds it, for an external monitor's brightness.
+			ddcutilOption = lib: lib.mkOption {
+				type = lib.types.bool;
+				default = false;
+				description = ''
+					Give the service ddcutil, which it sets an external monitor's brightness with (DDC/CI) when
+					the monitors are acted on under Hyprland. The user also needs the monitors' I2C devices:
+					on NixOS `hardware.i2c.enable = true` and the user in its group (`i2c`); `elamond check`
+					says what is missing. A laptop's panel needs none of this: logind sets it.
+				'';
+			};
+
 			# The settings a module writes, as `elamond check` reads them while they are built: a mistake
 			# in a dashboard or an action fails `nixos-rebuild`, `home-manager switch` and `nix flake
 			# check`, naming its line, rather than the service that would have read them.
@@ -201,6 +213,7 @@
 								user can read (chmod 600).
 							'';
 						};
+						ddcutil = ddcutilOption lib;
 						defaults = defaultsOption lib toml;
 						settingsFile = lib.mkOption {
 							type = lib.types.package;
@@ -278,7 +291,7 @@
 								# pactl, and actions may run sudo, pkexec or what the user installed.
 								enableDefaultPath = false;
 								environment = {
-									PATH = "/run/wrappers/bin:%h/.nix-profile/bin:/etc/profiles/per-user/%u/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin";
+									PATH = lib.optionalString cfg.ddcutil "${pkgs.ddcutil}/bin:" + "/run/wrappers/bin:%h/.nix-profile/bin:/etc/profiles/per-user/%u/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin";
 									ELAMON_CONFIG = "${configFile}";
 								};
 								restartTriggers = [ configFile ];
@@ -386,11 +399,13 @@
 							'';
 						};
 						defaults = defaultsOption lib toml;
+						ddcutil = ddcutilOption lib;
 					};
 					config = lib.mkMerge [
 						{ services.elamond.settings = settingsDefaults lib; }
 						(lib.mkIf cfg.enable {
-							home.packages = [ cfg.package ];
+							# ddcutil among the user's packages, where the service finds programs.
+							home.packages = [ cfg.package ] ++ lib.optional cfg.ddcutil pkgs.ddcutil;
 							xdg.configFile."elamon/elamond.toml".source = configFile;
 							systemd.user.services.elamond = {
 								Unit = {

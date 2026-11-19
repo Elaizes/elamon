@@ -574,4 +574,4 @@ impl Default for Displays {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

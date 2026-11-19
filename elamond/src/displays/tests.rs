@@ -61,14 +61,14 @@ setvcp) printf '%s' "$5" > "$here/vcp" ;;
 esac
 "#;
 
-struct Fake {
-	dir: PathBuf,
-	d: Arc<Displays>,
+pub(crate) struct Fake {
+	pub(crate) dir: PathBuf,
+	pub(crate) d: Arc<Displays>,
 }
 
 impl Fake {
 	/// eDP-1 off and DP-1 on, both screens, and a stream's output; DP-1's DDC on i2c-14.
-	fn new(def: DisplaysDef) -> Fake {
+	pub(crate) fn new(def: DisplaysDef) -> Fake {
 		let dir = std::env::temp_dir().join(format!("elamond-displays-{}", data_encoding::HEXLOWER.encode(&crate::store::random_bytes::<6>())));
 		std::fs::create_dir_all(dir.join("bin/outputs")).unwrap();
 		let write_exe = |name: &str, text: &str| {
@@ -113,7 +113,7 @@ impl Fake {
 		}
 	}
 
-	fn state(&self, name: &str) -> String {
+	pub(crate) fn state(&self, name: &str) -> String {
 		std::fs::read_to_string(self.dir.join("bin/outputs").join(name)).unwrap()
 	}
 

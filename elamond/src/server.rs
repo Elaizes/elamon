@@ -1828,6 +1828,43 @@ dashboards = ["overview", "control"]
 		remove_test_dir(&hub.dir);
 	}
 
+	/// A monitor's action goes through the role, control and the typed name as any other, then
+	/// to Hyprland (a stand-in), and into the activity log with what it was.
+	#[tokio::test]
+	async fn a_monitor_is_turned_off_as_the_role_control_and_its_name_allow() {
+		let fake = crate::displays::tests::Fake::new(crate::settings::DisplaysDef { wait: 1, ..Default::default() });
+		for control in [false, true] {
+			let (hub, tx) = hub_with(control, |h| h.displays = fake.d.clone());
+			let seen = fake.d.refresh();
+			let config = hub.config();
+			let values = crate::fixtures::values(&config);
+			let caps = Caps { displays: crate::displays::specs(&seen, &config.displays), ..Caps::all(&values.power_profiles) };
+			tx.send_replace(Arc::new(Frame { seq: 2, shape: shape_of(&values, &caps), values: Arc::new(values), caps: Arc::new(caps), read: Sources::ALL, features: Arc::new(vec!["processes", "display_control"]) }));
+			let off = |text: &str| if text.is_empty() { r#"{"params":{"state":"off"}}"#.to_string() } else { format!(r#"{{"params":{{"state":"off"}},"confirm_text":"{text}"}}"#) };
+			let act = |who: &'static str, body: String| {
+				let hub = hub.clone();
+				async move { call(&hub, "POST", "/api/v1/actions/display.output.DP-1", who, &body).await }
+			};
+			assert_eq!(act("monitor", off("DP-1")).await.1["error"], "not_allowed");
+			if !control {
+				assert_eq!(act("operate", off("DP-1")).await.1["error"], "control_disabled");
+				assert!(fake.state("DP-1").contains("disabled=false"));
+				continue;
+			}
+			let (status, v) = act("operate", off("")).await;
+			assert_eq!((status, v), (StatusCode::FORBIDDEN, serde_json::json!({ "error": "confirm_required", "message": "DP-1" })));
+			let (status, v) = act("operate", off("DP-1")).await;
+			assert_eq!((status, v), (StatusCode::OK, serde_json::json!({ "ok": true, "output": "done" })));
+			assert!(fake.state("DP-1").contains("disabled=true"));
+			let (status, v) = call(&hub, "POST", "/api/v1/actions/display.output.HDMI-A-1", "admin", r#"{"params":{"state":"on"}}"#).await;
+			assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("no_such_action")));
+			let log: Vec<(String, String, Option<String>)> = hub.activity.newest(usize::MAX).into_iter().map(|e| (e.what, e.result, e.message)).collect();
+			assert!(log.contains(&("display output DP-1 off".into(), "ok".into(), Some("done".into()))), "{log:?}");
+			assert!(log.contains(&("display output DP-1 off".into(), "confirm_required".into(), Some("DP-1".into()))), "{log:?}");
+			remove_test_dir(&hub.dir);
+		}
+	}
+
 	/// When a process started, as the process list counts it.
 	fn process_start_of(pid: u32, boot: u64) -> u64 {
 		let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();

@@ -1,5 +1,5 @@
 {
-  "version": "6c39a81719e7081b",
+  "version": "1b8e53ee4d0e3000",
   "service": {
     "id": "0123456789abcdef0123456789abcdef",
     "name": "fixture",
@@ -23,7 +23,7 @@
     "confirm_actions": true,
     "unlock": { "for": ["power", "nut", "signal", "actions", "units"], "grace": "every_time" },
     "android": { "dynamic_color": true, "blur": true, "haptics": true, "keep_screen_on": false },
-    "source": { "file": "elamond.toml", "line": 67 }
+    "source": { "file": "elamond.toml", "line": 57 }
   },
   "tabs": ["overview", "processes", "sensors", "control"],
   "header": "header",

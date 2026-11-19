@@ -89,12 +89,15 @@ Usage:
   elamond defaults --diff              where your settings differ from those, and what changed in
                                        them since the version before (defaults.toml.old)
   elamond defaults TABLE               one table of them to copy: dashboards.ups, profiles.default,
-                                       rules.disk; or all the rules (rules), all of [events] (events)
+                                       rules.disk, displays; or all the rules (rules), all of [events]
+                                       (events)
   elamond values [SOURCE]              list the values this computer has now, and the collections;
                                        with SOURCE, that source's values (a UPS's, a command's, a web
                                        service's or a file's), read there and then, or why it
                                        couldn't; a UPS's with its commands and settings, and whether
                                        the source allows them
+  elamond values displays             the monitors as Hyprland shows them, their brightness, and
+                                       what a phone may do to them
   elamond notify [--level LEVEL] [--title TITLE] TEXT
                                        make an event of TEXT (info, warning or critical): kept
                                        with the rules' events, shown in the app and sent to the

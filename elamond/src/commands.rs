@@ -293,7 +293,7 @@ fn without_header(text: &str) -> &str {
 
 /// The tables with ids, in the order `elamond defaults --diff` lists them: as the starter file
 /// has them, then those it has only as examples.
-pub const SECTIONS: [&str; 8] = ["profiles", "dashboards", "templates", "links", "actions", "rules", "notify", "events"];
+pub const SECTIONS: [&str; 9] = ["profiles", "dashboards", "templates", "links", "actions", "rules", "notify", "events", "displays"];
 
 /// How a part of the settings differs from the same part of others.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -466,7 +466,7 @@ fn defaults_table(name: &str) -> Result<String, String> {
 				all.extend(t.iter().map(|(id, _)| format!("{section}.{id}")));
 			}
 		}
-		return Err(format!("no table \"{name}\" in the defaults; they have {}; and rules and events, each whole", all.join(", ")));
+		return Err(format!("no table \"{name}\" in the defaults; they have {}; and rules, events and displays, each whole", all.join(", ")));
 	};
 	// Its own comment, not the heading of the part of the file it is in.
 	if let Some(t) = item.as_table_mut() {
@@ -502,7 +502,7 @@ pub fn values(args: &[String]) -> Result<(), String> {
 			print!("{listing}");
 			return Ok(());
 		}
-		_ => return Err("usage: elamond values [SOURCE]".into()),
+		_ => return Err("usage: elamond values [SOURCE | displays]".into()),
 	}
 	let (interval, history_len, _) = crate::timing(&config);
 	let mut c = collect::Collector::new(crate::consts::cadence::Ticks::new(crate::consts::cadence::CLI_SNAPSHOT));
