@@ -585,7 +585,7 @@
 	<string name="editor_new_title">New dashboard</string>
 	<string name="editor_new_name">Title</string>
 	<string name="editor_new_id">Id</string>
-	<string name="editor_new_id_rule">Up to 32 of a–z, 0–9, _ and -, as the settings name it</string>
+	<string name="editor_new_id_rule">Up to 32 of a–z, 0–9, _ and -, starting with a letter or a digit</string>
 	<string name="editor_new_id_taken">The computer has a dashboard of this id already</string>
 	<string name="editor_new_from">Start from</string>
 	<string name="editor_new_empty">An empty dashboard</string>

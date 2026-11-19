@@ -240,8 +240,8 @@ fun mistakesOf(e: ElamondException): List<Mistake> {
 /** The key that holds a dashboard's or a group's widgets. */
 const val WIDGETS = "widgets"
 
-/** An id the settings take for a dashboard or a widget: 1–32 of a-z, 0-9, `_` and `-`. */
-private val ID = Regex("[a-z0-9_-]{1,32}")
+/** An id the settings take for a dashboard or a widget: 1–32 of a-z, 0-9, `_` and `-`, starting with a letter or a digit. */
+private val ID = Regex("[a-z0-9][a-z0-9_-]{0,31}")
 
 fun isSettingsId(s: String): Boolean = ID.matches(s)
 

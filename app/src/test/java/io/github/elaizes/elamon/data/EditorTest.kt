@@ -338,8 +338,9 @@ class EditorTest {
 
 	@Test
 	fun idsAsTheSettingsTakeThem() {
-		for (ok in listOf("mine", "a", "disk_2", "my-tab", "x".repeat(32))) assertTrue(isSettingsId(ok), ok)
-		for (bad in listOf("", "Mine", "my tab", "a.b", "x".repeat(33), "ü")) assertTrue(!isSettingsId(bad), bad)
+		for (ok in listOf("mine", "a", "7", "2nd", "disk_2", "my-tab", "a_", "b-", "x".repeat(32))) assertTrue(isSettingsId(ok), ok)
+		// It starts with a letter or a digit.
+		for (bad in listOf("", "Mine", "my tab", "a.b", "x".repeat(33), "ü", "_x", "-x", "_", "-")) assertTrue(!isSettingsId(bad), bad)
 	}
 
 	@Test
