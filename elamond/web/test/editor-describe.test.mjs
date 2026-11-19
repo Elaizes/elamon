@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { locate, pathParts, sortMistakes } from '../js/editor/draft.js';
 import {
 	normalise, typeOf, keysOf, unknownKeys, holdsWidgets, spanRange, refOptions, valueOptions, search, anyOf, whichOf, fits,
-	origins, keysFromBelow, matchDrawn, nameOf, typeLabel,
+	origins, keysFromBelow, matchDrawn, nameOf, typeLabel, templateOf, widgetType, spanOf, isGroup,
 } from '../js/editor/describe.js';
 
 const fx = (name) => JSON.parse(readFileSync(new URL(`../../fixtures/0.11/${name}`, import.meta.url), 'utf8'));
@@ -89,6 +89,35 @@ test('an `any` key: which of its shapes a value has', () => {
 	assert.equal(fits({ kind: 'enum', choices: ['a'] }, 'b'), false);
 	assert.equal(fits({ kind: 'scalar' }, true), true);
 	assert.equal(fits({ kind: 'sparkle' }, 1), false);
+});
+
+test("a widget made from a template takes its type, width and keys from it, as the stock sensors do", () => {
+	const sensors = desc.dashboards.find((d) => d.id === 'sensors');
+	assert.ok(sensors, 'the stock sensors dashboard');
+	const made = sensors.def.widgets.filter((w) => typeof w.use === 'string');
+	assert.ok(made.length > 0);
+	for (const w of made) {
+		const tpl = desc.templates[w.use];
+		assert.equal(templateOf(desc, w), tpl, w.id);
+		assert.equal(widgetType(desc, w), tpl.type, w.id);
+		// Its keys are its template's type's: none of what it sets is unknown, nor is it a group.
+		assert.deepEqual(keysOf(desc, w).own.map((k) => k.key), typeOf(desc, tpl.type).keys.map((k) => k.key), w.id);
+		assert.deepEqual(unknownKeys(desc, w), [], w.id);
+		assert.equal(isGroup(desc, w), false, w.id);
+		assert.equal(spanOf(desc, w), typeof tpl.span === 'number' ? tpl.span : typeOf(desc, tpl.type).span, w.id);
+		assert.equal(nameOf(desc, w), w.label, w.id);
+	}
+	// Without a label of its own, the template's; a template the description doesn't have, its id.
+	const top = desc.templates.top_processes;
+	assert.equal(nameOf(desc, { use: 'top_processes' }), top.label);
+	assert.equal(nameOf(desc, { use: 'nowhere' }), 'nowhere');
+	assert.equal(templateOf(desc, { use: 'nowhere' }), null);
+	assert.equal(widgetType(desc, { use: 'nowhere' }), null);
+	assert.equal(widgetType(desc, { use: 'nowhere' }, 'gauge'), 'gauge', 'as the preview drew it');
+	// Its own type and width go over the template's.
+	assert.equal(widgetType(desc, { use: 'top_processes', type: 'list' }), 'list');
+	assert.equal(spanOf(desc, { use: 'top_processes', span: 2 }), 2);
+	assert.equal(templateOf(desc, { use: 'toString' }), null, "a name that isn't a template's");
 });
 
 test('where a dashboard comes from, and which of its keys can\'t be taken out', () => {

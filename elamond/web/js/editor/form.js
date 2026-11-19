@@ -10,8 +10,9 @@ import { isId } from './draft.js';
 /**
  * What every field is handed: the description, the mistakes the service found by key, the keys a
  * lower file sets with where (they can be changed, not taken out), and what to do after a change.
+ * A widget made from a template has the template's keys under `template`, to say what it sets.
  * @typedef {{ desc: import('./describe.js').Editor, changed: () => void, mistakes?: Map<string, string[]>,
- *   below?: Map<string, string>, addInto?: () => void }} FormCtx
+ *   below?: Map<string, string>, addInto?: () => void, template?: { name: string, keys: Record<string, any> } }} FormCtx
  */
 
 let seq = 0;
@@ -87,6 +88,10 @@ export function keyField(fc, key, obj) {
 			.filter(Boolean)
 			.join(' · ');
 		if (hint) el.append(h('p', { class: 'ed-hint muted' }, hint));
+		if (!has && fc.template && Object.hasOwn(fc.template.keys, name)) {
+			const v = fc.template.keys[name];
+			el.append(h('p', { class: 'ed-hint ed-template' }, v !== null && typeof v === 'object' ? fill(S.editor.templateSets, fc.template.name) : fill(S.editor.templateKey, fc.template.name, show(v))));
+		}
 		if (fromBelow && fc.below) el.append(h('p', { class: 'ed-hint ed-below' }, fill(S.editor.fromBelow, fc.below.get(name) || S.editor.theDefaults)));
 		markField(el, fc.mistakes ? fc.mistakes.get(name) || [] : []);
 	};

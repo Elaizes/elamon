@@ -731,6 +731,8 @@ export const S = {
 		unknownType: "The editor doesn't describe the type “{0}”: its keys are kept as they are.",
 		fromTemplate: 'From the template “{0}”',
 		templateAs: '{1}, from “{0}”',
+		templateKey: 'From the template “{0}”: {1}',
+		templateSets: 'Set by the template “{0}”.',
 		templateNote: "Made from the template “{0}”: its type and its other keys are the template's, and those set here go over them.",
 		removeThis: 'Take it out',
 		required: 'Needed',

@@ -331,10 +331,12 @@ function mistakesOf(id, dash) {
 	return out;
 }
 
-/** The `ui` a draft makes, roughly as elamond resolves it: ids by place, spans written out. */
+/** The `ui` a draft makes, roughly as elamond resolves it: templates applied, ids by place, spans written out. */
 function resolve(id, dash) {
 	const types = new Map(editor.desc.types.map((t) => [t.type, t]));
-	const walk = (list, prefix) => (Array.isArray(list) ? list : []).map((w, i) => {
+	const walk = (list, prefix) => (Array.isArray(list) ? list : []).map((raw, i) => {
+		const { use, ...own } = raw;
+		const w = use && editor.desc.templates[use] ? { ...editor.desc.templates[use], ...own } : raw;
 		const out = { ...w, id: `${prefix}${w.id || i}`, span: w.span ?? types.get(w.type)?.span ?? 4 };
 		if (Array.isArray(w.widgets)) out.widgets = walk(w.widgets, `${out.id}/`);
 		return out;

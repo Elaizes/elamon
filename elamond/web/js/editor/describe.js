@@ -65,14 +65,34 @@ export function typeOf(d, type) {
 }
 
 /**
+ * The template a widget is made from (`use`): its keys as the settings merge them, its type among
+ * them; null for none, or one the description doesn't have.
+ * @param {Editor} d @param {Record<string, any> | null | undefined} widget @returns {Record<string, any> | null}
+ */
+export function templateOf(d, widget) {
+	const t = widget && typeof widget.use === 'string' && Object.hasOwn(d.templates, widget.use) ? d.templates[widget.use] : null;
+	return t && typeof t === 'object' && !Array.isArray(t) ? t : null;
+}
+
+/**
+ * What a widget is: its own `type`, else its template's; `as` (the type the preview drew it as)
+ * for one whose template the description doesn't have.
+ * @param {Editor} d @param {Record<string, any> | null | undefined} widget @param {string | null} [as] @returns {string | null}
+ */
+export function widgetType(d, widget, as = null) {
+	if (widget && typeof widget.type === 'string') return widget.type;
+	const t = templateOf(d, widget);
+	return t && typeof t.type === 'string' ? t.type : as;
+}
+
+/**
  * The keys a widget takes: its type's, then those of every widget (`common`) its type doesn't
- * have. A widget made from a template (`use`) has no `type` of its own: `as` is the type the
- * preview drew it as, if known.
+ * have. One made from a template (`use`) takes its template's type's.
  * @param {Editor} d @param {Record<string, any>} widget @param {string | null} [as]
  * @returns {{ own: EditorKey[], common: EditorKey[] }}
  */
 export function keysOf(d, widget, as = null) {
-	const t = typeOf(d, widget.type ?? as);
+	const t = typeOf(d, widgetType(d, widget, as));
 	const own = t ? t.keys.filter((k) => k && k.key) : [];
 	const names = new Set(own.map((k) => k.key));
 	return { own, common: d.common.filter((k) => k && k.key && !names.has(k.key)) };
@@ -92,7 +112,7 @@ export function unknownKeys(d, widget, as = null) {
 
 /** The key of `kind` `widgets` a type holds its widgets in (a group's), or null. @param {Editor} d @param {Record<string, any>} widget */
 export function holdsWidgets(d, widget) {
-	const t = typeOf(d, widget && widget.type);
+	const t = typeOf(d, widgetType(d, widget));
 	const k = t ? t.keys.find((x) => x.kind === 'widgets') : null;
 	return k ? /** @type {string} */ (k.key) : null;
 }
@@ -116,14 +136,20 @@ export function spanRange(d) {
 }
 
 /**
- * How wide a widget is: its own `span`, else its type's (the type drawn, `as`, for one from a
- * template), else `span`'s default. @param {Editor} d @param {Record<string, any>} widget @param {string | null} [as]
+ * How wide a widget is: its own `span`, else its template's, else its type's, else `span`'s
+ * default. @param {Editor} d @param {Record<string, any>} widget @param {string | null} [as]
  */
 export function spanOf(d, widget, as = null) {
 	const { min, max } = spanRange(d);
-	const t = typeOf(d, widget.type ?? as);
+	const tpl = templateOf(d, widget);
+	const t = typeOf(d, widgetType(d, widget, as));
 	const k = commonKey(d, 'span');
-	const raw = typeof widget.span === 'number' ? widget.span : t && typeof t.span === 'number' ? t.span : k && typeof k.default === 'number' ? k.default : max;
+	const raw =
+		typeof widget.span === 'number' ? widget.span
+		: tpl && typeof tpl.span === 'number' ? tpl.span
+		: t && typeof t.span === 'number' ? t.span
+		: k && typeof k.default === 'number' ? k.default
+		: max;
 	return Math.max(min, Math.min(max, Math.round(raw)));
 }
 
@@ -133,9 +159,11 @@ export function exampleOf(d, type) {
 	return t && t.example && typeof t.example === 'object' ? { type, ...clone(t.example) } : { type };
 }
 
-/** What to call a widget: its label, else its type's, else its type. @param {Editor} d @param {Record<string, any>} widget */
+/** What to call a widget: its label, else its template's, else the template's id, else its type's label. @param {Editor} d @param {Record<string, any>} widget */
 export function nameOf(d, widget) {
 	if (typeof widget.label === 'string' && widget.label.trim()) return widget.label;
+	const tpl = templateOf(d, widget);
+	if (tpl && typeof tpl.label === 'string' && tpl.label.trim()) return tpl.label;
 	if (widget.type === undefined && typeof widget.use === 'string') return widget.use;
 	const t = typeOf(d, widget.type);
 	return (t && t.label) || String(widget.type ?? '?');

@@ -4,7 +4,7 @@
 import { h } from '../dom.js';
 import { S, fill } from '../strings.js';
 import { keyFields, otherField, markField } from './form.js';
-import { keysOf, unknownKeys, isGroup, nameOf, typeLabel, spanRange } from './describe.js';
+import { keysOf, unknownKeys, isGroup, nameOf, typeLabel, spanRange, templateOf } from './describe.js';
 import { allPaths, widgetAt, pathKey } from './draft.js';
 
 /**
@@ -25,11 +25,15 @@ export function widgetForm(o) {
 	const { desc, dash, path } = o;
 	const w = /** @type {Record<string, any>} */ (widgetAt(dash, path));
 	const name = nameOf(desc, w);
-	// A widget from a template has no type of its own: its keys are those of the type it was drawn as.
+	// A widget from a template has no type of its own: its keys are those of its template's type, and
+	// what the template sets is said under each key the widget doesn't set itself.
 	const { own, common } = keysOf(desc, w, o.as);
+	const tpl = templateOf(desc, w);
 	let type = w.type;
+	/** @type {import('./form.js').FormCtx} */
 	const fc = {
 		desc,
+		template: tpl && typeof w.use === 'string' ? { name: w.use, keys: tpl } : undefined,
 		changed: () => {
 			// A new type brings other keys: the form is drawn again for it.
 			const shape = w.type !== type;
@@ -48,7 +52,7 @@ export function widgetForm(o) {
 
 	// What it is: one of the types the service describes (one it doesn't is kept, and said).
 	const types = h('select', { id: 'ed-type' });
-	if (w.type === undefined) types.append(h('option', { value: '' }, fill(S.editor.fromTemplate, String(w.use ?? '?'))));
+	if (w.type === undefined) types.append(h('option', { value: '' }, o.as ? fill(S.editor.templateAs, String(w.use ?? '?'), typeLabel(desc, o.as)) : fill(S.editor.fromTemplate, String(w.use ?? '?'))));
 	for (const t of desc.types) types.append(h('option', { value: t.type }, t.label && t.label !== t.type ? `${t.label} (${t.type})` : t.type));
 	if (w.type !== undefined && !desc.types.some((t) => t.type === w.type)) types.append(h('option', { value: String(w.type) }, String(w.type)));
 	types.value = String(w.type ?? '');

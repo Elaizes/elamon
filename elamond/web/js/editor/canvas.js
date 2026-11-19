@@ -6,7 +6,7 @@ import { h, svg, clear, setStyle } from '../dom.js';
 import { S, fill } from '../strings.js';
 import { dashboardView } from '../panels.js';
 import { flow, pathKey, samePath, within, WIDGETS } from './draft.js';
-import { spanOf, spanRange, nameOf, typeLabel, isGroup, matchDrawn } from './describe.js';
+import { spanOf, spanRange, nameOf, typeLabel, isGroup, matchDrawn, widgetType } from './describe.js';
 
 /**
  * What the canvas asks of the editor.
@@ -172,15 +172,15 @@ export class Canvas {
 	}
 
 	/**
-	 * What a widget is and how wide: its own type and width, else (one made from a template, which
-	 * the description doesn't describe) as the preview drew it.
+	 * What a widget is and how wide: its own type and width, else its template's (`templates`), else
+	 * as the preview drew it; the width as the preview drew it where it hasn't one of its own.
 	 * @param {Record<string, any>} w @param {any[] | null} drawn
 	 * @returns {{ as: string | null, span: number, kind: string }}
 	 */
 	info(w, drawn) {
 		const desc = this.opts.desc();
 		const first = drawn && drawn.length ? drawn[0] : null;
-		const as = w.type === undefined && first && typeof first.type === 'string' ? first.type : null;
+		const as = w.type === undefined ? widgetType(desc, w, first && typeof first.type === 'string' ? first.type : null) : null;
 		const { min, max } = spanRange(desc);
 		const span = typeof w.span !== 'number' && first && typeof first.span === 'number' ? Math.max(min, Math.min(max, first.span)) : spanOf(desc, w, as);
 		const kind = w.type !== undefined ? typeLabel(desc, w.type) : as ? fill(S.editor.templateAs, w.use ?? '', typeLabel(desc, as)) : fill(S.editor.fromTemplate, w.use ?? '?');
