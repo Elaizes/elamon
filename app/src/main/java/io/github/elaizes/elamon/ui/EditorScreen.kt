@@ -300,11 +300,13 @@ fun EditorScreen(
 			)
 
 			if (board != null && desc != null) {
+				val add = stringResource(R.string.editor_add)
 				ExtendedFloatingActionButton(
 					onClick = { adding = true },
 					icon = { Icon(Icons.Default.Add, null) },
-					text = { Text(stringResource(R.string.editor_add)) },
-					modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(Space.l),
+					text = { Text(add) },
+					// Material's extended button hides its text from screen readers: the button says it instead.
+					modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(Space.l).semantics { contentDescription = add },
 				)
 			}
 			SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = FAB_ROOM))
