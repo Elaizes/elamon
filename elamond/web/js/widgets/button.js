@@ -3,7 +3,7 @@
 // a row. While it runs, a spinner in its icon's place; how a command ended, under its name.
 import { h, setText } from '../dom.js';
 import { icon } from '../icons.js';
-import { setAccent, stateEnabled } from './common.js';
+import { setAccent, stateEnabled, captionOf } from './common.js';
 import { showOutput, outcomePill, isCommandResult, isDanger } from '../actions.js';
 
 /** @param {import('./common.js').Widget} w @param {import('./common.js').Env} env @returns {import('./common.js').Instance} */
@@ -29,7 +29,7 @@ export function create(w, env) {
 		mark.replaceChildren(running ? h('span', { class: 'spinner', 'aria-hidden': 'true' }) : icon(tile ? iconName : opensOnly ? iconName : 'play', 'w-icon'));
 		button.disabled = !enabled() || running;
 		button.setAttribute('aria-busy', String(running));
-		const cap = typeof w.caption === 'string' && w.caption ? w.caption : last && last.caption ? last.caption : null;
+		const cap = captionOf(w, last);
 		caption.hidden = !cap;
 		setText(caption, cap || '');
 	};

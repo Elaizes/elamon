@@ -3,7 +3,7 @@
 // own, a time axis on those, and a finger or pointer reading the values at a moment.
 import { h, setText, setStyle } from '../dom.js';
 import { api } from '../api.js';
-import { card, captionLine, accent, chips } from './common.js';
+import { card, captionLine, accent, chips, captionOf } from './common.js';
 import { sharpCanvas, cssColor } from './canvas.js';
 import { drawChart } from './chart.js';
 import { Hist, keptHist, rangeChips, spanParts } from '../history.js';
@@ -307,7 +307,7 @@ export function create(w, env) {
 			setText(now, values[0] == null ? '' : F.number(values[0], first.format, first.unit));
 			setStyle(now, { color: colorOf(first) });
 		}
-		cap.set(typeof w.caption === 'string' && w.caption ? w.caption : s && s.caption ? s.caption : null);
+		cap.set(captionOf(w, s));
 		describe();
 		chart.redraw();
 	}

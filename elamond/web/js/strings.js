@@ -21,6 +21,25 @@ export const S = {
 		notFound: 'Nothing here.',
 	},
 
+	// ---------------------------------------------------------------- the roles (docs/protocol.md, "Roles")
+	roles: {
+		names: {
+			glance: 'Glance',
+			monitor: 'Monitor',
+			operate: 'Operate',
+			admin: 'Admin',
+			owner: 'Owner',
+		},
+		about: {
+			glance: 'the basics; runs nothing',
+			monitor: 'everything there is to read; runs nothing',
+			operate: 'also profiles, units, media and actions',
+			admin: 'also power and signals',
+			owner: 'also this admin panel',
+		},
+		with: '{0}: {1}',
+	},
+
 	// ---------------------------------------------------------------- pairing and dashboards (panels)
 	panels: {
 		// Pairing
@@ -47,11 +66,6 @@ export const S = {
 		// The computer's page
 		tabs: 'Dashboards',
 		chips: 'At a glance',
-		roleGlance: 'Glance',
-		roleMonitor: 'Monitor',
-		roleOperate: 'Operate',
-		roleAdmin: 'Admin',
-		roleOwner: 'Owner',
 		roleAbout: 'This browser’s role on the computer: {0}',
 		edit: 'Edit',
 		editThis: 'Edit this dashboard',
@@ -217,13 +231,6 @@ export const S = {
 			activity: 'Activity',
 			events: 'Events',
 			sources: 'Sources',
-		},
-		roleNames: {
-			glance: 'glance: the basics; runs nothing',
-			monitor: 'monitor: everything there is to read; runs nothing',
-			operate: 'operate: also profiles, units, media and actions',
-			admin: 'admin: also power and signals',
-			owner: 'owner: also this admin panel',
 		},
 		kinds: {
 			main: 'main',

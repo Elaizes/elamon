@@ -1,6 +1,6 @@
 // `gauge`: a ring, filled from `min` to `max` (the state's, where it changes), in the level's colour.
 import { svg, h, setText } from '../dom.js';
-import { card, captionLine, figureText, fraction, setLevel } from './common.js';
+import { card, captionLine, figureText, fraction, setLevel, captionOf } from './common.js';
 
 const R = 42;
 const CIRCUMFERENCE = 2 * Math.PI * R;
@@ -30,7 +30,7 @@ export function create(w, env) {
 		ring.setAttribute('aria-valuenow', String(Math.round(f * 100)));
 		ring.setAttribute('aria-valuetext', t);
 		setLevel(ring, s?.level, s?.blend);
-		cap.set(typeof w.caption === 'string' && w.caption ? w.caption : s && s.caption ? s.caption : null);
+		cap.set(captionOf(w, s));
 	};
 	show(undefined);
 	return { el, update: (s) => show(s), clear: () => show(undefined) };

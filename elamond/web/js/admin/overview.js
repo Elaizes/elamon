@@ -4,7 +4,9 @@ import { h } from '../dom.js';
 import { S, fill } from '../strings.js';
 import { loadInto, head, button, card, kv, chip, onOff, table } from './ui.js';
 import { duration, dateTime, nowS } from './time.js';
-import { fingerprint, sizeText } from './text.js';
+import { sizeText } from './text.js';
+import { isFingerprint, colonFingerprint } from '../fingerprint.js';
+import { roleName } from '../roles.js';
 import { fileHref } from './names.js';
 
 /** @typedef {import('./types.js').AdminState} AdminState */
@@ -31,10 +33,10 @@ function draw(main, st, reload) {
 					[T.version, s.version],
 					[T.up, s.started ? fill(T.upSince, duration(nowS() - s.started), dateTime(s.started)) : S.admin.none],
 					[T.features, h('span', { class: 'adm-chips' }, ...(s.features || []).map((f) => chip(f)))],
-					[T.fingerprint, h('span', { class: 'mono adm-fp' }, fingerprint(s.fingerprint))],
+					[T.fingerprint, h('span', { class: 'mono adm-fp' }, isFingerprint(s.fingerprint) ? colonFingerprint(s.fingerprint) : String(s.fingerprint ?? ''))],
 					[T.listening, lines(s.listening)],
 					[T.endpoints, lines(s.endpoints)],
-					[T.you, st.you ? fill(T.youAre, st.you.role, st.you.id) : null],
+					[T.you, st.you ? fill(T.youAre, roleName(st.you.role), st.you.id) : null],
 				]),
 			),
 			controlCard(st),
@@ -84,7 +86,7 @@ function webCard(st) {
 			[T.admin, onOff(w.admin)],
 			[T.write, onOff(w.write)],
 			[T.editor, onOff(w.editor)],
-			[T.role, w.role],
+			[T.role, roleName(w.role)],
 			[T.editorFile, w.editor_file ? h('a', { class: 'mono', href: fileHref(w.editor_file) }, w.editor_file) : S.admin.none],
 			[
 				T.certificate,

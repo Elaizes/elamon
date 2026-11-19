@@ -1,7 +1,7 @@
 // `toggle`: a switch, the action's `param` set to its `on` or `off` value; on while the state's
 // value is its `on` (read through its `map` by the service).
 import { h, setText } from '../dom.js';
-import { setAccent, stateEnabled } from './common.js';
+import { setAccent, stateEnabled, captionOf } from './common.js';
 import { togglePhrase } from '../actions.js';
 import { sameValue } from '../tables.js';
 import { icon } from '../icons.js';
@@ -27,7 +27,7 @@ export function create(w, env) {
 		button.setAttribute('aria-checked', String(checked()));
 		button.disabled = !action || !w.param || !env.controlOn || !stateEnabled(last) || running;
 		button.setAttribute('aria-busy', String(running));
-		const cap = typeof w.caption === 'string' && w.caption ? w.caption : last && last.caption ? last.caption : null;
+		const cap = captionOf(w, last);
 		caption.hidden = !cap;
 		setText(caption, cap || '');
 	};

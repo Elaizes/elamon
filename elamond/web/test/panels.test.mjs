@@ -101,3 +101,15 @@ test('the page asks for the types it has a module for, and no other', async () =
 	for (const f of ['ui.json', 'ui-default.json', '0.7/ui-ups.json', '0.8/ui-sources.json', '0.8.1/ui-legend.json', '0.9/ui-events.json', '0.10/ui-displays.json']) for (const d of fx(f).dashboards) walk(d.widgets);
 	for (const t of used) assert.ok(TYPES.includes(t), t);
 });
+
+test('a role in words, one of a newer service by its id', async () => {
+	const { roleName, roleChoice } = await import('../js/roles.js');
+	assert.equal(roleName('owner'), S.roles.names.owner);
+	assert.equal(roleName('steward'), 'Steward');
+	assert.equal(roleName(null), '');
+	assert.equal(roleChoice('monitor'), `${S.roles.names.monitor}: ${S.roles.about.monitor}`);
+	assert.equal(roleChoice('steward'), 'Steward');
+	assert.equal(roleName('toString'), 'ToString', "not a name of the table's");
+	// Every role the service lists has words.
+	for (const r of fx('0.11/admin-clients.json').roles) assert.notEqual(roleChoice(r), roleName(r), r);
+});

@@ -5,7 +5,7 @@
 // (`row_open`), or shows what `expand` adds and its actions (`row_actions`).
 import { h, setText, setStyle, safeUrl } from '../dom.js';
 import { icon } from '../icons.js';
-import { card, captionLine, chips, setLevel } from './common.js';
+import { card, captionLine, chips, setLevel, captionOf } from './common.js';
 import { searchFields, searchIn, sortRows, barFractions, fillParams, rowButtons, linkUrl } from '../tables.js';
 import { S, fill } from '../strings.js';
 import * as F from '../format.js';
@@ -234,7 +234,7 @@ export function create(w, env) {
 	function render() {
 		const s = last;
 		const all = s && Array.isArray(s.rows) ? s.rows : [];
-		cap.set(typeof w.caption === 'string' && w.caption ? w.caption : s && s.caption ? s.caption : null);
+		cap.set(captionOf(w, s));
 		const searched = w.search ? searchIn(all, searchFields(w), query) : all;
 		const rows = asked && asked !== own ? sortRows(searched, asked, true) : searched;
 		const most = w.search ? SEARCH_ROWS : CARD_ROWS;

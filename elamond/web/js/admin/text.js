@@ -1,5 +1,5 @@
 // Text the admin panel works with: a file's lines (for the editor's line numbers and going to a
-// line), a size, a fingerprint, a pairing code, and the dashboards a draft has.
+// line), a size, a pairing code, and the dashboards a draft has.
 import { S, fill } from '../strings.js';
 
 /** How many lines a text has, as an editor numbers them (a last empty one after a final newline too). @param {string} text */
@@ -42,13 +42,6 @@ export function sizeText(bytes) {
 	if (bytes < 1024) return fill(T.b, bytes);
 	if (bytes < 1024 * 1024) return fill(T.kib, (bytes / 1024).toFixed(1));
 	return fill(T.mib, (bytes / (1024 * 1024)).toFixed(1));
-}
-
-/** A certificate's SHA-256 as `AB:CD:…`, as `elamond pair` prints it; anything that isn't hex as it is. @param {string | null | undefined} hex */
-export function fingerprint(hex) {
-	const s = String(hex ?? '').trim();
-	if (!s || s.length % 2 || /[^0-9a-fA-F]/.test(s)) return s;
-	return (s.toUpperCase().match(/../g) || []).join(':');
 }
 
 /** A six-digit code in two groups, `123 456`, to read out; any other as it is. @param {string | null | undefined} code */

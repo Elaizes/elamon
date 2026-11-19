@@ -1,6 +1,6 @@
 // `list`: rows of a label and a value; a row with nothing to show is left out.
 import { h, setText } from '../dom.js';
-import { card, captionLine, setLevel } from './common.js';
+import { card, captionLine, setLevel, captionOf } from './common.js';
 import * as F from '../format.js';
 
 /** @param {import('./common.js').Widget} w @param {import('./common.js').Env} env @returns {import('./common.js').Instance} */
@@ -27,7 +27,7 @@ export function create(w, env) {
 			setText(value, text ?? F.DASH);
 			setLevel(value, st?.level, null);
 		});
-		cap.set(typeof w.caption === 'string' && w.caption ? w.caption : s && s.caption ? s.caption : null);
+		cap.set(captionOf(w, s));
 	};
 	show(undefined);
 	return { el, update: (s) => show(s), clear: () => show(undefined) };

@@ -1,6 +1,6 @@
 // `meter`: the figure, and a bar under it filled from `min` to `max`, in the level's colour.
 import { h, setStyle } from '../dom.js';
-import { card, captionLine, figure, figureText, fraction, setLevel } from './common.js';
+import { card, captionLine, figure, figureText, fraction, setLevel, captionOf } from './common.js';
 
 /** @param {import('./common.js').Widget} w @param {import('./common.js').Env} env @returns {import('./common.js').Instance} */
 export function create(w, env) {
@@ -21,7 +21,7 @@ export function create(w, env) {
 		setLevel(bar, s?.level, s?.blend);
 		bar.setAttribute('aria-valuenow', String(Math.round(f * 100)));
 		bar.setAttribute('aria-valuetext', figureText(w, s));
-		cap.set(typeof w.caption === 'string' && w.caption ? w.caption : s && s.caption ? s.caption : null);
+		cap.set(captionOf(w, s));
 	};
 	show(undefined);
 	return { el, update: (s) => show(s), clear: () => show(undefined) };

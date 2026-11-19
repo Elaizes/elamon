@@ -17,6 +17,7 @@ import { errorText } from './errors.js';
 import { isFingerprint, colonFingerprint, printedFingerprint } from './fingerprint.js';
 import * as F from './format.js';
 import { intervalOf, historyMsOf } from './consts.js';
+import { roleName } from './roles.js';
 
 /** Every widget type this page draws, as `ui`, the stream and a preview ask for them: keep it to the types widgets/ has. */
 export const DRAWS = 'value,gauge,meter,status,graph,list,bars,table,button,toggle,select,slider,text,group,media,timeline,log';
@@ -234,13 +235,6 @@ export function mountPair(root, ctx, code) {
  */
 /** @type {Session | null} */
 let session = null;
-
-/** A role by its name, which a newer service's may be. @param {string} role */
-function roleName(role) {
-	/** @type {Record<string, string>} */
-	const names = { glance: P.roleGlance, monitor: P.roleMonitor, operate: P.roleOperate, admin: P.roleAdmin, owner: P.roleOwner };
-	return names[role] || role.charAt(0).toUpperCase() + role.slice(1);
-}
 
 /** The theme button's words for this browser's choice. */
 function themeWords() {

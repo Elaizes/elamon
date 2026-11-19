@@ -1,6 +1,6 @@
 // `group`: a card around widgets in a grid of its own, as many columns as the group spans; one with
 // `collapsed` folds, as it started until folded or opened here.
-import { card, captionLine } from './common.js';
+import { card, captionLine, captionOf } from './common.js';
 import { makeGrid } from './grid.js';
 
 /** @param {import('./common.js').Widget} w @param {import('./common.js').Env} env @returns {import('./common.js').Instance} */
@@ -14,7 +14,7 @@ export function create(w, env) {
 	return {
 		el,
 		update(s, data) {
-			cap.set(typeof w.caption === 'string' && w.caption ? w.caption : s && s.caption ? s.caption : null);
+			cap.set(captionOf(w, s));
 			grid.update(data);
 		},
 		layout: (cols) => grid.layout(cols),

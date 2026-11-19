@@ -3,6 +3,7 @@
 // second or two while open and in sight, so whoever gave the code is let in or turned away here.
 import { h, clear, append } from '../dom.js';
 import { S, fill } from '../strings.js';
+import { roleName, roleChoice } from '../roles.js';
 import { head, button, card, chip, kv, failure, loading, checkbox } from './ui.js';
 import { qrMatrix, qrScale } from './qr.js';
 import { countdown, ago, nowS } from './time.js';
@@ -101,7 +102,6 @@ export function mountPairing(main, env) {
 		askShown = null;
 		clear(box);
 		const m = /** @type {AdminClients} */ (meta);
-		const roleNames = /** @type {Record<string, string>} */ (S.admin.roleNames);
 		const give = m.can_give || [];
 		// No role asked for, the service gives the settings' default: chosen first, unless it is
 		// one this client may not give.
@@ -109,8 +109,8 @@ export function mountPairing(main, env) {
 		const role = h(
 			'select',
 			{ id: 'adm-pair-role' },
-			byDefault ? h('option', { value: '', selected: true }, defaultRole ? fill(T.roleDefault, roleNames[defaultRole] || defaultRole) : T.roleDefaultUnknown) : null,
-			...give.map((r, i) => h('option', { value: r, selected: !byDefault && i === give.length - 1 }, roleNames[r] || r)),
+			byDefault ? h('option', { value: '', selected: true }, defaultRole ? fill(T.roleDefault, roleName(defaultRole)) : T.roleDefaultUnknown) : null,
+			...give.map((r, i) => h('option', { value: r, selected: !byDefault && i === give.length - 1 }, roleChoice(r))),
 		);
 		const profile = h('select', { id: 'adm-pair-profile' }, h('option', { value: '' }, S.admin.clients.defaultProfile), ...(m.profiles || []).map((p) => h('option', { value: p }, p)));
 		const make = h('button', { type: 'button', class: 'primary' }, T.make);
@@ -172,7 +172,6 @@ export function mountPairing(main, env) {
 				env.fail(e);
 			}
 		});
-		const roleNames = /** @type {Record<string, string>} */ (S.admin.roleNames);
 		box.append(
 			h(
 				'div',
@@ -182,7 +181,7 @@ export function mountPairing(main, env) {
 					h('p', { class: 'adm-code-num mono', 'aria-label': fill(T.codeIs, String(p.code).split('').join(' ')) }, groupCode(p.code)),
 					h('p', { class: 'adm-expiry' }, T.expiresIn, ' ', countEl),
 					kv([
-						[S.admin.clients.role, p.role ? roleNames[p.role] || p.role : S.admin.none],
+						[S.admin.clients.role, p.role ? roleChoice(p.role) : S.admin.none],
 						[S.admin.clients.profile, p.profile || S.admin.clients.defaultProfile],
 					]),
 					h('p', { class: 'muted' }, p.from_page === false ? T.fromComputer : T.fromPage),

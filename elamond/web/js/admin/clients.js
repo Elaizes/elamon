@@ -2,6 +2,7 @@
 // asker's own), their profile, revoking. "With the entries added with its key" where it has some.
 import { h } from '../dom.js';
 import { S, fill } from '../strings.js';
+import { roleName, roleChoice } from '../roles.js';
 import { loadInto, head, button, chip, kv, confirmed, checkbox } from './ui.js';
 import { ago, dateTime, nowS } from './time.js';
 
@@ -33,7 +34,6 @@ function draw(main, env, data, reload) {
  */
 function clientCard(env, data, c, names, reload) {
 	const T = S.admin.clients;
-	const roleNames = /** @type {Record<string, string>} */ (S.admin.roleNames);
 	const nameOf = (/** @type {string} */ id) => names.get(id) || id;
 	const added = Array.isArray(c.added) ? c.added : [];
 
@@ -42,7 +42,7 @@ function clientCard(env, data, c, names, reload) {
 	const role = h(
 		'select',
 		{ 'aria-label': fill(T.roleOf, c.name) },
-		...roles.map((r) => h('option', { value: r, selected: r === c.role, disabled: r !== c.role && !(data.can_give || []).includes(r) }, roleNames[r] || r)),
+		...roles.map((r) => h('option', { value: r, selected: r === c.role, disabled: r !== c.role && !(data.can_give || []).includes(r) }, roleChoice(r))),
 	);
 	const profiles = [...(data.profiles || [])];
 	if (c.profile && !profiles.includes(c.profile)) profiles.push(c.profile);
@@ -128,7 +128,7 @@ function clientCard(env, data, c, names, reload) {
 			'header',
 			{ class: 'adm-client-head' },
 			h('h3', null, c.name),
-			h('span', { class: 'adm-chips' }, c.you ? chip(T.thisBrowser, 'you') : null, chip(c.kind === 'web' ? T.kindWeb : T.kindAndroid), chip(c.role, `role-${c.role}`)),
+			h('span', { class: 'adm-chips' }, c.you ? chip(T.thisBrowser, 'you') : null, chip(c.kind === 'web' ? T.kindWeb : T.kindAndroid), chip(roleName(c.role), `role-${c.role}`)),
 		),
 		kv([
 			[T.app, c.app || S.admin.none],

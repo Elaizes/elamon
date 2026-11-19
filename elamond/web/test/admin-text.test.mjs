@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { lineCount, offsetOfLine, endOfLine, lineAt, sizeText, fingerprint, groupCode, draftDashboards } from '../js/admin/text.js';
+import { lineCount, offsetOfLine, endOfLine, lineAt, sizeText, groupCode, draftDashboards } from '../js/admin/text.js';
 import { previewUi, dashboardChoices, settingsId } from '../js/admin/preview.js';
 
 test("a text's lines, as the editor numbers them", () => {
@@ -26,17 +26,12 @@ test("a text's lines, as the editor numbers them", () => {
 	for (let l = 1; l <= 4; l++) assert.equal(lineAt(t, offsetOfLine(t, l)), l);
 });
 
-test('sizes, fingerprints, codes', () => {
+test('sizes and codes', () => {
 	assert.equal(sizeText(512), '512 B');
 	assert.equal(sizeText(1200), '1.2 KiB');
 	assert.equal(sizeText(30210), '29.5 KiB');
 	assert.equal(sizeText(3 * 1024 * 1024 + 1), '3.0 MiB');
 	assert.equal(sizeText(null), '');
-	assert.equal(fingerprint('1f0e8d2c'), '1F:0E:8D:2C');
-	assert.equal(fingerprint('1f0e8d2c3b4a59687766554433221100ffeeddccbbaa99887766554433221100').split(':').length, 32);
-	assert.equal(fingerprint('not hex'), 'not hex');
-	assert.equal(fingerprint('abc'), 'abc');
-	assert.equal(fingerprint(null), '');
 	assert.equal(groupCode('123456'), '123 456');
 	assert.equal(groupCode('12345'), '12345');
 	assert.equal(groupCode(null), '');

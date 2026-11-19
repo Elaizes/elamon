@@ -4,7 +4,7 @@
 // pointer on it reads one stretch.
 import { h, setText, setStyle } from '../dom.js';
 import { api } from '../api.js';
-import { card, captionLine, chips } from './common.js';
+import { card, captionLine, chips, captionOf } from './common.js';
 import { sharpCanvas, cssColor } from './canvas.js';
 import { rangeLabel, spanLabel, drawAxis } from './graph.js';
 import { rangeChips } from '../history.js';
@@ -194,7 +194,7 @@ export function create(w, env) {
 		live = s && Array.isArray(s.segments) ? s.segments : [];
 		if (data && (data.history || stale) && long && env.live) fetchLong();
 		if (data) stale = false;
-		cap.set(typeof w.caption === 'string' && w.caption ? w.caption : s && s.caption ? s.caption : null);
+		cap.set(captionOf(w, s));
 		redraw();
 	}
 	show(undefined, null);

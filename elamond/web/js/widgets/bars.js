@@ -1,6 +1,6 @@
 // `bars`: one bar per item of a collection, each in its level's colour, its figure under it.
 import { h, setText, setStyle } from '../dom.js';
-import { card, captionLine, setLevel } from './common.js';
+import { card, captionLine, setLevel, captionOf } from './common.js';
 import { S, fill } from '../strings.js';
 import * as F from '../format.js';
 
@@ -46,7 +46,7 @@ export function create(w, env) {
 			const avg = known.reduce((a, b) => a + b, 0) / known.length;
 			chart.setAttribute('aria-label', fill(S.panels.barsSummary, w.label || '', values.length, F.number(avg, w.format, w.unit), F.number(Math.max(...known), w.format, w.unit)));
 		} else chart.removeAttribute('aria-label');
-		cap.set(typeof w.caption === 'string' && w.caption ? w.caption : s && s.caption ? s.caption : null);
+		cap.set(captionOf(w, s));
 	};
 	show(undefined);
 	return { el, update: (s) => show(s), clear: () => show(undefined) };

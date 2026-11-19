@@ -1,6 +1,6 @@
 // `slider`: a number in an action's range, on its step, sent when let go.
 import { h, setText } from '../dom.js';
-import { card, captionLine, stateEnabled, numberOf } from './common.js';
+import { card, captionLine, stateEnabled, numberOf, captionOf } from './common.js';
 import { snap, asNumber } from '../actions.js';
 import { S } from '../strings.js';
 import * as F from '../format.js';
@@ -33,7 +33,7 @@ export function create(w, env) {
 		input.setAttribute('aria-valuetext', shown);
 		input.classList.toggle('empty', n == null && !dragging);
 		input.disabled = n == null || !action || !param || !env.controlOn || !stateEnabled(last) || running;
-		cap.set(typeof w.caption === 'string' && w.caption ? w.caption : last && last.caption ? last.caption : null);
+		cap.set(captionOf(w, last));
 	};
 	input.addEventListener('input', () => {
 		dragging = true;

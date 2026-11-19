@@ -1,7 +1,7 @@
 // `select`: one of an action's choices, side by side, the one now marked: as the power profiles.
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { card, captionLine, stateEnabled } from './common.js';
+import { card, captionLine, stateEnabled, captionOf } from './common.js';
 import { S } from '../strings.js';
 
 /** The power profiles' pictures, as the app draws them. @param {string} p */
@@ -56,7 +56,7 @@ export function create(w, env) {
 			b.disabled = !enabled;
 		});
 		group.setAttribute('aria-busy', String(running));
-		cap.set(typeof w.caption === 'string' && w.caption ? w.caption : last && last.caption ? last.caption : null);
+		cap.set(captionOf(w, last));
 	};
 	show();
 	return {

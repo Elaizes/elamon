@@ -1,5 +1,5 @@
 // `value`: a number or text, large, coloured by its level; with `spark`, a small graph of it under it.
-import { card, captionLine, figure, setLevel, numberOf, accent } from './common.js';
+import { card, captionLine, figure, setLevel, numberOf, accent, captionOf } from './common.js';
 import { sharpCanvas, cssColor, levelColor } from './canvas.js';
 import { drawChart } from './chart.js';
 import { keptHist } from '../history.js';
@@ -39,14 +39,14 @@ export function create(w, env) {
 			last = s;
 			fig.set(w, s);
 			setLevel(fig.el, s?.level, s?.blend);
-			cap.set(captionOf(s));
+			cap.set(captionOf(w, s));
 			if (spark) {
 				const entry = data.history ? data.history[w.id] : undefined;
 				if (entry) hist.take(data.t, [numberOf(s)], entry);
 				else if (s) hist.append(data.t, [numberOf(s)]);
 				spark.redraw();
 			}
-			el.setAttribute('aria-description', [F.format(s?.v, w.format, w.unit), captionOf(s)].filter(Boolean).join(', '));
+			el.setAttribute('aria-description', [F.format(s?.v, w.format, w.unit), captionOf(w, s)].filter(Boolean).join(', '));
 		},
 		clear() {
 			last = undefined;
@@ -60,9 +60,4 @@ export function create(w, env) {
 			spark?.destroy();
 		},
 	};
-
-	/** @param {import('./common.js').WidgetState | undefined} s */
-	function captionOf(s) {
-		return typeof w.caption === 'string' && w.caption ? w.caption : s && typeof s.caption === 'string' && s.caption ? s.caption : null;
-	}
 }
