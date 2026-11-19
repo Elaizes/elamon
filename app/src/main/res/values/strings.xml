@@ -501,7 +501,7 @@
 	<string name="editor_back_to">Back to %1$s</string>
 	<string name="editor_preview_mistakes">The preview shows the dashboard as it was before the mistakes marked.</string>
 	<string name="editor_preview_empty">Nothing to preview yet: add a widget this phone can see.</string>
-	<string name="editor_preview_for_each">The computer previews no dashboard made for each item of a collection: its widgets show as cards to edit here, and on its tabs once saved.</string>
+	<string name="editor_preview_for_each">This dashboard is made for each item of a collection that has none on this computer now, so there is nothing to preview: its widgets show as cards to edit here.</string>
 	<string name="editor_dashboard_keys">Dashboard details</string>
 	<string name="editor_dashboard_id">Id: %1$s</string>
 	<!-- The files and lines that set a dashboard: "elamond.d/dashboards.toml:3". -->

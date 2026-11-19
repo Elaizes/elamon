@@ -1573,8 +1573,9 @@ the browser, it's another address.
 
 - The service presents that certificate only to connections that ask for that name. Every other
   one, by an address or by another name, gets the service's own. The app takes only the
-  certificate it pinned when it paired, and it reaches the computer by its addresses too, where it
-  gets that one.
+  certificate it pinned when it paired, so phones are never told that name: it is left out of the
+  pairing link and of where the computer is (`endpoints`), and the app reaches it by its addresses
+  and other names.
 - `elamond check` and `elamond setup --check` say whether it loads, and until when:
 
   ```
