@@ -12,10 +12,11 @@ const fx = (name) => JSON.parse(readFileSync(new URL(`../../fixtures/0.11/${name
 const desc = normalise(fx('editor.json'));
 
 test('a widget takes its type\'s keys, then the common ones its type doesn\'t have', () => {
+	const table = typeOf(desc, 'table');
 	const { own, common } = keysOf(desc, { type: 'table' });
-	assert.deepEqual(own.map((k) => k.key), ['source', 'columns', 'limit', 'collapsed']);
+	assert.deepEqual(own.map((k) => k.key), table.keys.map((k) => k.key));
 	assert.ok(common.some((k) => k.key === 'label'));
-	assert.ok(!common.some((k) => k.key === 'collapsed'), 'a key is offered once');
+	for (const k of common) assert.ok(!own.some((o) => o.key === k.key), `${k.key} is offered once`);
 	// A type the description doesn't have: the common keys, the rest as they are.
 	const odd = { type: 'sparkle', label: 'x', glitter: 1 };
 	assert.equal(typeOf(desc, 'sparkle'), null);
@@ -24,10 +25,26 @@ test('a widget takes its type\'s keys, then the common ones its type doesn\'t ha
 	assert.equal(holdsWidgets(desc, { type: 'group' }), 'widgets');
 	assert.equal(holdsWidgets(desc, { type: 'gauge' }), null);
 	assert.deepEqual(spanRange(desc), { min: 1, max: 4 });
-	assert.equal(nameOf(desc, { type: 'gauge' }), 'Gauge');
+	assert.equal(nameOf(desc, { type: 'gauge' }), typeOf(desc, 'gauge').label);
 	assert.equal(nameOf(desc, { type: 'gauge', label: 'CPU' }), 'CPU');
-	assert.equal(typeLabel(desc, 'toggle'), 'Switch');
+	assert.equal(typeLabel(desc, 'toggle'), typeOf(desc, 'toggle').label);
 	assert.equal(typeLabel(desc, 'sparkle'), 'sparkle');
+});
+
+test('the description: every key has a kind, and every record and reference it names is there', () => {
+	const refs = new Set(['action', 'dashboard', 'collection', 'link', 'source']);
+	/** @param {any} k @param {string} where */
+	const check = (k, where) => {
+		assert.equal(typeof k.kind, 'string', where);
+		if (k.kind === 'record') assert.ok(Array.isArray(desc.records[k.record]), `${where}: record ${k.record}`);
+		if (k.kind === 'ref') assert.ok(refs.has(k.to), `${where}: ref to ${k.to}`);
+		if (k.kind === 'enum') assert.ok(Array.isArray(k.choices) && k.choices.length, `${where}: choices`);
+		for (const o of anyOf(k)) if (k.kind === 'any' || k.kind === 'list' || k.kind === 'map') check(o, `${where} of`);
+	};
+	for (const t of desc.types) for (const k of t.keys) check(k, `${t.type}.${k.key}`);
+	for (const k of desc.common) check(k, `common.${k.key}`);
+	for (const k of desc.dashboard.keys) check(k, `dashboard.${k.key}`);
+	for (const [name, keys] of Object.entries(desc.records)) for (const k of keys) check(k, `${name}.${k.key}`);
 });
 
 test('an older or partial description still has every list', () => {
@@ -39,16 +56,15 @@ test('an older or partial description still has every list', () => {
 });
 
 test('what a reference may name, by its `to`', () => {
-	assert.deepEqual(refOptions(desc, 'action'), [
-		{ value: 'power.lock', label: 'Lock', detail: 'power' },
-		{ value: 'mode', label: 'Server mode', detail: 'actions' },
-	]);
-	assert.deepEqual(refOptions(desc, 'dashboard').map((o) => o.value), ['overview', 'mine']);
-	assert.deepEqual(refOptions(desc, 'collection').map((o) => o.value), ['disks', 'processes']);
-	assert.deepEqual(refOptions(desc, 'link'), [{ value: 'music', label: 'Music' }]);
-	assert.deepEqual(refOptions(desc, 'source'), [{ value: 'ups', label: 'ups', detail: 'nut' }]);
+	assert.deepEqual(refOptions(desc, 'action'), desc.actions.map((a) => ({ value: a.id, label: a.name || a.id, detail: a.kind })));
+	assert.deepEqual(refOptions(desc, 'dashboard').map((o) => o.value), desc.dashboards.map((d) => d.id));
+	assert.deepEqual(refOptions(desc, 'collection').map((o) => o.value), desc.collections.map((c) => c.name));
+	assert.deepEqual(refOptions(desc, 'link').map((o) => o.value), desc.links.map((l) => l.id));
+	assert.deepEqual(refOptions(desc, 'source').map((o) => o.value), desc.sources.map((x) => x.id));
 	assert.deepEqual(refOptions(desc, 'rule'), []);
-	assert.deepEqual(valueOptions(desc)[0], { value: 'cpu.usage', label: 'cpu.usage', detail: '12 %' });
+	const v = desc.values[0];
+	assert.deepEqual(valueOptions(desc)[0], { value: v.address, label: v.address, detail: v.now == null ? '' : String(v.now) });
+	assert.deepEqual(refOptions(normalise({ actions: [{ id: 'mode', name: 'Server mode', kind: 'actions' }] }), 'action'), [{ value: 'mode', label: 'Server mode', detail: 'actions' }]);
 });
 
 test('a search finds what starts with it first', () => {
@@ -76,19 +92,22 @@ test('an `any` key: which of its shapes a value has', () => {
 });
 
 test('where a dashboard comes from, and which of its keys can\'t be taken out', () => {
-	const [overview, mine] = desc.dashboards;
-	assert.deepEqual(origins(desc, overview), [{ kind: 'file', file: 'elamond.d/dashboards.toml', line: 3 }]);
-	assert.deepEqual(origins(desc, mine), [{ kind: 'editor', file: 'elamond.d/zz-editor.toml', line: 5 }]);
+	const file = desc.dashboards.find((d) => !d.editor && d.from && d.from.length);
+	assert.ok(file, 'a dashboard from the files');
+	const last = file.from[file.from.length - 1];
+	assert.deepEqual(origins(desc, file).at(-1), { kind: 'file', file: last.file, line: last.line });
+	assert.deepEqual(origins(desc, { from: [{ file: desc.file, line: 5 }] }), [{ kind: 'editor', file: desc.file, line: 5 }]);
 	assert.deepEqual(origins(desc, { from: [] }), [{ kind: 'defaults', file: '', line: null }]);
 	assert.equal(origins(desc, { from: [{ file: '/nix/store/abc-elamond.toml', line: 9 }] })[0].kind, 'nix');
-	const below = keysFromBelow(desc, overview);
-	assert.deepEqual([...below.keys].sort(), ['icon', 'title']);
-	assert.equal(below.where, 'elamond.d/dashboards.toml:3');
+	const below = keysFromBelow(desc, file);
+	assert.deepEqual([...below.keys].sort(), Object.keys(file.def).filter((k) => k !== 'widgets').sort());
+	assert.equal(below.where, `${last.file}:${last.line}`);
 	assert.equal(below.sure, true);
-	assert.equal(keysFromBelow(desc, mine).keys.size, 0, 'the editor\'s own: everything can go');
-	const both = keysFromBelow(desc, { ...overview, editor: true, from: [...overview.from, { file: desc.file, line: 20 }] });
+	const own = { id: 'mine', def: { title: 'Mine', icon: 'gauge' }, from: [{ file: desc.file, line: 5 }], editor: true, own: true };
+	assert.equal(keysFromBelow(desc, own).keys.size, 0, 'the editor\'s own: everything can go');
+	const both = keysFromBelow(desc, { ...file, editor: true, from: [...file.from, { file: desc.file, line: 20 }] });
 	assert.equal(both.sure, false, 'the editor overrides it: any key might be from below');
-	assert.equal(both.where, 'elamond.d/dashboards.toml:3');
+	assert.equal(both.where, `${last.file}:${last.line}`);
 	assert.equal(keysFromBelow(desc, null).keys.size, 0);
 });
 

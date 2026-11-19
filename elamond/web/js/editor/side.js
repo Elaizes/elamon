@@ -38,10 +38,22 @@ export function widgetForm(o) {
 		addInto: o.addInto || undefined,
 	};
 	// `span` has its own buttons above; every other key is a field.
-	const ownFields = keyFields(fc, own.filter((k) => k.key !== 'span'), w);
-	const commonFields = keyFields(fc, common.filter((k) => k.key !== 'span'), w);
+	// `type` and `span` have their own controls above; every other key is a field (a description
+	// that still lists `type` among the common keys doesn't make it twice).
+	const ownFields = keyFields(fc, own.filter((k) => k.key !== 'span' && k.key !== 'type'), w);
+	const commonFields = keyFields(fc, common.filter((k) => k.key !== 'span' && k.key !== 'type'), w);
 	const others = unknownKeys(desc, w).map((k) => otherField(fc, k, w));
 	const whole = h('div', { class: 'ed-whole' });
+
+	// What it is: one of the types the service describes (one it doesn't is kept, and said).
+	const types = h('select', { id: 'ed-type' });
+	for (const t of desc.types) types.append(h('option', { value: t.type }, t.label && t.label !== t.type ? `${t.label} (${t.type})` : t.type));
+	if (!desc.types.some((t) => t.type === w.type)) types.append(h('option', { value: String(w.type ?? '') }, String(w.type ?? '')));
+	types.value = String(w.type ?? '');
+	types.addEventListener('change', () => {
+		w.type = types.value;
+		fc.changed();
+	});
 
 	const { min, max } = spanRange(desc);
 	const span = spanOf(desc, w);
@@ -71,6 +83,7 @@ export function widgetForm(o) {
 			h('button', { type: 'button', class: 'quiet', onclick: o.close }, S.core.close),
 		),
 		whole,
+		h('div', { class: 'ed-field' }, h('label', { for: 'ed-type' }, S.editor.type), types, h('p', { class: 'ed-hint muted' }, S.editor.typeHint)),
 		h('div', { class: 'ed-field' }, h('span', { class: 'ed-label' }, S.editor.width), widths),
 		h(
 			'div',

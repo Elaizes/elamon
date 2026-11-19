@@ -859,6 +859,30 @@ fn failed(items: &[Item]) -> bool {
 }
 
 fn check(init: &dyn InitSystem) -> Result<(), String> {
+	let items = check_items(init);
+	print!("{}", format_items(&items));
+	if failed(&items) {
+		return Err("the service can't run or be reached as it is; see the lines marked !".into());
+	}
+	Ok(())
+}
+
+/// What `elamond setup --check` says, for the admin API: each line, `true` for one marked OK, with
+/// its hint after it.
+pub fn check_lines() -> Vec<(bool, String)> {
+	check_items(&Systemd)
+		.into_iter()
+		.map(|i| {
+			let text = match &i.hint {
+				Some(h) => format!("{} ({})", i.what.lines().next().unwrap_or_default(), h.lines().next().unwrap_or_default()),
+				None => i.what.lines().next().unwrap_or_default().to_string(),
+			};
+			(i.mark == Mark::Ok, text)
+		})
+		.collect()
+}
+
+fn check_items(init: &dyn InitSystem) -> Vec<Item> {
 	let user = user_name().unwrap_or_else(|| "YOUR_USER".into());
 	let settings = Settings::read(&store::config_files());
 	let mut items = Vec::new();
@@ -894,12 +918,12 @@ fn check(init: &dyn InitSystem) -> Result<(), String> {
 	items.push(check_nvml());
 	items.extend(crate::displays::Displays::quiet().check().into_iter().map(|(ok, line)| Item::new(if ok { Mark::Ok } else { Mark::Absent }, line)));
 	items.push(journal_item(&user, crate::update::which("journalctl").is_some(), crate::journal::system_readable()));
-
-	print!("{}", format_items(&items));
-	if failed(&items) {
-		return Err("the service can't run or be reached as it is; see the lines marked !".into());
+	if let Ok(c) = store::load_config()
+		&& let Some((ok, line)) = crate::webcert::check(&c.web)
+	{
+		items.push(Item::new(if ok { Mark::Ok } else { Mark::Bad }, line));
 	}
-	Ok(())
+	items
 }
 
 fn check_unit(init: &dyn InitSystem) -> Vec<Item> {

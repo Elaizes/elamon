@@ -1,18 +1,17 @@
 // A stand-in for elamond while the page is written: the page's files, and the API answered from
 // elamond/fixtures. Development only; never built into elamond. `node test/mock.mjs [port]`, then
-// http://127.0.0.1:<port>/ (code 123456 pairs). Not the service's behaviour: its tests are its own.
+// http://127.0.0.1:<port>/ (code 123456 pairs; `--paired` after the port: every request is paired,
+// for a headless browser). Not the service's behaviour: its tests are its own.
 import { createServer } from 'node:http';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, extname, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { adminPanel } from './mock-admin.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const web = join(here, '..');
 const fixtures = join(web, '..', 'fixtures');
-const args = process.argv.slice(2);
-const port = Number(args.find((a) => /^\d+$/.test(a)) || 47899);
-// `--paired`: every request is taken as a paired browser's (for a headless browser without the code).
-const everyonePaired = args.includes('--paired');
+const port = Number(process.argv[2] || 47899);
 const fx = (name) => JSON.parse(readFileSync(join(fixtures, name), 'utf8'));
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.json': 'application/json' };
 
@@ -20,7 +19,7 @@ const json = (res, status, body, headers = {}) => {
 	res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers });
 	res.end(JSON.stringify(body));
 };
-const paired = (req) => everyonePaired || /(?:^|;\s*)elamon-mock=1/.test(req.headers.cookie || '');
+const paired = (req) => process.argv.includes('--paired') || /(?:^|;\s*)elamon-mock=1/.test(req.headers.cookie || '');
 const body = (req) => new Promise((ok) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { try { ok(b ? JSON.parse(b) : {}); } catch { ok({}); } }); });
 
 function ui() {
@@ -182,12 +181,14 @@ createServer(async (req, res) => {
 	if (p === '/api/v1/snapshot') { const d = fx('stream-data.json'); delete d.type; return json(res, 200, d); }
 	if (p.startsWith('/api/v1/actions/')) return json(res, 200, fx('action-result.json'));
 	if (p.startsWith('/api/v1/admin/')) {
-		const name = p.slice('/api/v1/admin/'.length);
-		const route = admin[`${req.method} ${name}`];
+		const route = admin[`${req.method} ${p.slice('/api/v1/admin/'.length)}`];
 		const b = req.method === 'POST' ? await body(req) : {};
-		if (req.method === 'GET' && name === 'editor') return json(res, 200, editor.desc);
-		if (req.method === 'POST' && name === 'preview' && b.editor) return json(res, ...editorPreview(b));
-		if (req.method === 'POST' && name.startsWith('editor/')) return json(res, ...editorWrite(name.slice('editor/'.length), b));
+		const sub = p.slice('/api/v1/admin/'.length);
+		if (req.method === 'GET' && sub === 'editor') return json(res, 200, editor.desc);
+		if (req.method === 'POST' && sub === 'preview' && b.editor) return json(res, ...editorPreview(b));
+		if (req.method === 'POST' && sub.startsWith('editor/')) return json(res, ...editorWrite(sub.slice('editor/'.length), b));
+		const panel = adminPanel(req.method, p.slice('/api/v1/admin/'.length), b, url.searchParams);
+		if (panel) return json(res, panel.status, panel.body);
 		return route ? json(res, 200, route(b)) : json(res, 404, { error: 'not_found' });
 	}
 	json(res, 404, { error: 'not_found' });

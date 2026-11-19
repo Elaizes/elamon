@@ -36,6 +36,9 @@ mod stream;
 mod ui;
 mod update;
 mod values;
+mod web;
+mod webcert;
+mod admin;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::IsTerminal;
@@ -222,7 +225,7 @@ fn serve() -> Result<(), String> {
 	for n in notes {
 		eprintln!("settings: {n}");
 	}
-	let tls = tls_config(&identity, &dir)?;
+	let (tls, certs) = tls_serving(&identity, &dir)?;
 
 	// The port first: if it's taken, nothing else is started or announced. An address that isn't
 	// the computer's yet, like an interface without one, is waited for.
@@ -266,6 +269,7 @@ fn serve() -> Result<(), String> {
 		dir.clone(),
 		place,
 	));
+	hub.set_fingerprint(&identity.fingerprint);
 
 	let runtime = tokio::runtime::Builder::new_multi_thread()
 		.worker_threads(2)
@@ -298,7 +302,7 @@ fn serve() -> Result<(), String> {
 		tokio::spawn(watch_settings(hub.clone()));
 		let app = server::router(hub.clone()).into_make_service_with_connect_info::<SocketAddr>();
 		let tls = RustlsConfig::from_config(Arc::new(tls));
-		let mut listeners = listen::Listeners::new(config.port, tls.clone(), app, listen::Timeouts::SERVICE);
+		let mut listeners = listen::Listeners::new(config.port, tls, app, listen::Timeouts::SERVICE);
 		for (spot, l) in ready {
 			listeners.serve(spot, l);
 		}
@@ -306,7 +310,7 @@ fn serve() -> Result<(), String> {
 			listeners,
 			announcer: config.mdns.then(|| mdns::Announcer::new(&name, &identity.id, &identity.fingerprint, config.port)),
 			targets: config.listen.clone(),
-			tls,
+			certs,
 			hub,
 			stamp: identity::stamp(&dir),
 			failed: None,
@@ -359,6 +363,23 @@ fn tls_config(identity: &identity::Identity, dir: &std::path::Path) -> Result<ru
 	})
 }
 
+/// TLS as the service serves it: its own certificate from `identity` to every client, and a real one
+/// from `[web]`'s files to a browser that asks for its name (`webcert::Resolver`), which `Upkeep`
+/// keeps up to date.
+fn tls_serving(identity: &identity::Identity, dir: &std::path::Path) -> Result<(rustls::ServerConfig, Arc<webcert::Resolver>), String> {
+	tls_config(identity, dir)?;
+	let own = webcert::own_key(&identity.cert_der, &identity.key_der)?;
+	let certs = Arc::new(webcert::Resolver::new(own));
+	let provider = Arc::new(rustls::crypto::ring::default_provider());
+	let mut tls = rustls::ServerConfig::builder_with_provider(provider)
+		.with_safe_default_protocol_versions()
+		.map_err(|e| e.to_string())?
+		.with_no_client_auth()
+		.with_cert_resolver(certs.clone());
+	tls.alpn_protocols = vec![b"http/1.1".to_vec()];
+	Ok((tls, certs))
+}
+
 /// TLS presenting the certificate `cert` with its key `key`, both DER: refused when the key isn't
 /// the certificate's.
 fn tls_with(cert: &[u8], key: &[u8]) -> Result<rustls::ServerConfig, String> {
@@ -382,7 +403,8 @@ struct Upkeep {
 	listeners: listen::Listeners,
 	announcer: Option<mdns::Announcer>,
 	targets: Vec<listen::Target>,
-	tls: RustlsConfig,
+	/// The certificates presented: the service's own, and a real one for browsers.
+	certs: Arc<webcert::Resolver>,
 	hub: Arc<server::Hub>,
 	dir: PathBuf,
 	/// cert.der as last taken up, and as last found not to load.
@@ -410,7 +432,22 @@ impl Upkeep {
 				_ = hup => true,
 			};
 			self.certificate();
+			self.web_certificate();
 			self.network(&listen::interfaces(), asked).await;
+		}
+	}
+
+	/// Reads the real certificate for browsers again when `[web]` names other files or they changed,
+	/// and says what became of it.
+	fn web_certificate(&mut self) {
+		let Some(now) = self.certs.refresh(&self.hub.config().web, store::now()) else { return };
+		match &now {
+			Some(s) if s.ok => eprintln!("certificate: browsers that reach this computer as {} get the one from [web]: {}", s.name, s.message),
+			Some(s) => eprintln!("certificate: the one from [web] for {}: {}; browsers get the service's own meanwhile", s.name, s.message),
+			None => eprintln!("certificate: [web] names no certificate any more; every client gets the service's own"),
+		}
+		if let Ok(mut c) = self.hub.web_cert.write() {
+			*c = now;
 		}
 	}
 
@@ -420,6 +457,8 @@ impl Upkeep {
 	async fn network(&mut self, ifaces: &[listen::Iface], asked: bool) {
 		let plan = listen::Plan::of(&self.targets, ifaces);
 		self.listeners.update(&plan);
+		let port = self.listeners.port();
+		self.hub.set_listening(plan.spots.iter().map(|s| SocketAddr::new(s.addr, port)).collect());
 		if let Some(a) = &mut self.announcer {
 			a.update(plan.mdns(ifaces));
 		}
@@ -439,10 +478,14 @@ impl Upkeep {
 		if now == self.stamp || now == self.failed {
 			return;
 		}
-		let loaded = identity::Identity::load(&self.dir).and_then(|id| Ok((tls_config(&id, &self.dir)?, id)));
+		let loaded = identity::Identity::load(&self.dir).and_then(|id| {
+			tls_config(&id, &self.dir)?;
+			Ok((webcert::own_key(&id.cert_der, &id.key_der)?, id))
+		});
 		match loaded {
-			Ok((tls, id)) => {
-				self.tls.reload_from_config(Arc::new(tls));
+			Ok((own, id)) => {
+				self.certs.set_own(own);
+				self.hub.set_fingerprint(&id.fingerprint);
 				if let Some(a) = &mut self.announcer {
 					a.set_fingerprint(&id.fingerprint);
 				}
@@ -1041,13 +1084,17 @@ fn service_running(addrs: &[IpAddr], port: u16) -> bool {
 /// The link in the QR code: what the app needs to find this computer at one of `hosts`, know its
 /// certificate and pair with `code`. Addresses and names need no encoding.
 fn pair_link(identity: &identity::Identity, name: &str, port: u16, code: &str, hosts: &[String]) -> String {
-	format!(
-		"elamon://pair?v=1&id={}&name={}&port={port}&fp={}&code={code}&h={}",
-		identity.id,
-		percent_encode(name),
-		identity.fingerprint,
-		hosts.join(",")
-	)
+	link_of(&identity.id, name, port, &identity.fingerprint, code, hosts)
+}
+
+fn link_of(id: &str, name: &str, port: u16, fingerprint: &str, code: &str, hosts: &[String]) -> String {
+	format!("elamon://pair?v=1&id={id}&name={}&port={port}&fp={fingerprint}&code={code}&h={}", percent_encode(name), hosts.join(","))
+}
+
+/// The pairing link of the service `id` for the admin panel's QR code; none without anywhere to
+/// reach it, which the app would refuse.
+pub(crate) fn pairing_link(id: &str, name: &str, port: u16, fingerprint: &str, code: &str, hosts: &[String]) -> Option<String> {
+	(!hosts.is_empty()).then(|| link_of(id, name, port, fingerprint, code, hosts))
 }
 
 fn percent_encode(s: &str) -> String {
@@ -1089,7 +1136,7 @@ fn with_added(args: &[String]) -> (Vec<&str>, bool) {
 /// The phones `which` names ("all", or an id) among `clients`, and with `with_added` those added
 /// with its key, one step or more: the ids to act on, and the phones added with its key that are
 /// left out. The id of a phone unpaired before still leads to those added with its key.
-fn choose<'a>(clients: &'a [store::Client], which: &str, with_added: bool) -> Result<(Vec<String>, Vec<&'a store::Client>), String> {
+pub(crate) fn choose<'a>(clients: &'a [store::Client], which: &str, with_added: bool) -> Result<(Vec<String>, Vec<&'a store::Client>), String> {
 	if which == "all" {
 		return Ok((clients.iter().map(|c| c.id.clone()).collect(), Vec::new()));
 	}

@@ -70,10 +70,15 @@ export function keysOf(d, widget) {
 	return { own, common: d.common.filter((k) => k && k.key && !names.has(k.key)) };
 }
 
-/** The keys of a widget no description names, in the order it has them. @param {Editor} d @param {Record<string, any>} widget */
+/**
+ * The keys of a widget no description names, in the order it has them. `type` is the protocol's
+ * own (what the widget is), offered on its own, never as one of these.
+ * @param {Editor} d @param {Record<string, any>} widget
+ */
 export function unknownKeys(d, widget) {
 	const { own, common } = keysOf(d, widget);
 	const known = new Set([...own, ...common].map((k) => k.key));
+	known.add('type');
 	return Object.keys(widget).filter((k) => !known.has(k));
 }
 

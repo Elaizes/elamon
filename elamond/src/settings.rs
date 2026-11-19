@@ -40,7 +40,7 @@ pub const ICONS: [&str; 32] = [
 ];
 pub const COLORS: [&str; 15] =
 	["cpu", "memory", "swap", "gpu", "rx", "tx", "read", "write", "battery", "good", "warn", "hot", "primary", "secondary", "tertiary"];
-pub const ROLES: [&str; 4] = ["glance", "monitor", "operate", "admin"];
+pub const ROLES: [&str; 5] = ["glance", "monitor", "operate", "admin", "owner"];
 pub const LEVELS: [&str; 3] = ["normal", "warning", "critical"];
 pub const THEMES: [&str; 3] = ["system", "light", "dark"];
 pub const GRACES: [&str; 3] = ["every_time", "1m", "5m"];
@@ -99,6 +99,8 @@ pub struct Config {
 	pub history: HistoryDef,
 	/// `[displays]`: the monitors' actions, through Hyprland, logind and DDC.
 	pub displays: DisplaysDef,
+	/// `[web]`: the page elamond serves, its admin API and dashboard editor, a certificate for browsers.
+	pub web: WebDef,
 	/// `[events]`: how events are kept and shown, and what a rule or a target leaves out.
 	pub events: crate::events::def::EventsDef,
 	/// `[rules.<id>]`: what makes an event.
@@ -144,6 +146,68 @@ impl Default for DisplaysDef {
 	fn default() -> Self {
 		DisplaysDef { role: Role::Operate, every: 2, wait: 5, headless: false, panel_min: 5, brightness_step: 5, ddc_every: 60 }
 	}
+}
+
+/// `[web]`: whether elamond serves its web page, opens its admin API (the page's admin panel and the
+/// dashboard editor of the page and the app) and lets it write the settings; to which role; how long
+/// a browser stays paired; and a real certificate for one name, presented to browsers that ask for
+/// it. The starter file says each of these; settings from before 0.11, without the table, get the
+/// same.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct WebDef {
+	/// Serve the page at `/`.
+	pub page: bool,
+	/// The admin API at all.
+	pub admin: bool,
+	/// Let the admin API write the settings: the files and the dashboard editor.
+	pub write: bool,
+	/// The dashboard editor, in the page and in the app.
+	pub editor: bool,
+	/// The least role the admin API is open to.
+	pub role: Role,
+	/// How long a browser's cookie lasts unused, in days.
+	pub cookie_days: u64,
+	/// Backups kept of each settings file the admin API writes.
+	pub backups: u64,
+	/// The drop-in the dashboard editor writes, in elamond.d/.
+	pub editor_file: String,
+	/// The name a real certificate is for, and its files (PEM).
+	pub cert_name: Option<String>,
+	pub cert_file: Option<PathBuf>,
+	pub key_file: Option<PathBuf>,
+}
+
+impl Default for WebDef {
+	fn default() -> Self {
+		WebDef {
+			page: true,
+			admin: true,
+			write: true,
+			editor: true,
+			role: Role::Owner,
+			cookie_days: 30,
+			backups: 10,
+			editor_file: "zz-editor.toml".into(),
+			cert_name: None,
+			cert_file: None,
+			key_file: None,
+		}
+	}
+}
+
+/// The roles `[web] role` may name.
+pub const WEB_ROLES: [&str; 2] = ["admin", "owner"];
+
+/// A settings file's name the admin API and `editor_file` take: of letters, digits, `_`, `.` and `-`,
+/// starting with a letter or a digit, at most 64 characters before `.toml`.
+pub fn is_settings_file_name(name: &str) -> bool {
+	let Some(stem) = name.strip_suffix(".toml") else { return false };
+	let mut chars = stem.chars();
+	matches!(chars.next(), Some(c) if c.is_ascii_alphanumeric())
+		&& stem.len() <= 64
+		&& chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+		&& !stem.contains("..")
 }
 
 /// `[history]`.
@@ -278,6 +342,16 @@ pub enum FeedKind {
 	Command,
 	Http,
 	File,
+}
+
+impl FeedKind {
+	pub fn as_str(&self) -> &'static str {
+		match self {
+			FeedKind::Command => "command",
+			FeedKind::Http => "http",
+			FeedKind::File => "file",
+		}
+	}
 }
 
 /// How what a source reads is taken: as JSON, as one text, or as `key = value` lines.
@@ -678,6 +752,7 @@ impl Config {
 			feeds: BTreeMap::new(),
 			history: HistoryDef::default(),
 			displays: DisplaysDef::default(),
+			web: WebDef::default(),
 			events: crate::events::def::EventsDef::starting(),
 			rules: BTreeMap::new(),
 			notify: BTreeMap::new(),
@@ -1026,6 +1101,35 @@ pub fn secret_file_warning(key: &str, p: &std::path::Path, then: &str) -> Vec<St
 	out
 }
 
+/// Where each part of the settings `sources` make came from: the last of them (by its index) that set
+/// it, and the line there; the parts at most `depth` keys deep (`dashboards.cpu.title` is three, and
+/// so is `dashboards.cpu.widgets[2]`).
+pub fn whence_of(sources: &[Source], depth: usize) -> HashMap<String, (usize, usize)> {
+	let mut out = HashMap::new();
+	for (i, s) in sources.iter().enumerate() {
+		for (path, line) in lines_of(&s.text) {
+			if keys_in(&path) <= depth {
+				out.insert(path, (i, line));
+			}
+		}
+	}
+	out
+}
+
+/// How many keys deep `path` is: `a.b[2]` is two.
+fn keys_in(path: &str) -> usize {
+	let mut n = usize::from(!path.is_empty());
+	let mut quoted = false;
+	for c in path.chars() {
+		match c {
+			'"' => quoted = !quoted,
+			'.' if !quoted => n += 1,
+			_ => {}
+		}
+	}
+	n
+}
+
 /// Tables merge key by key; anything else, lists included, replaces what was there.
 pub fn merge(into: &mut Map<String, Value>, from: Map<String, Value>) {
 	for (key, value) in from {
@@ -1044,7 +1148,7 @@ fn line_at(text: &str, at: usize) -> usize {
 }
 
 /// The line each part of a file is on, by its path.
-fn lines_of(text: &str) -> HashMap<String, usize> {
+pub fn lines_of(text: &str) -> HashMap<String, usize> {
 	use toml::de::{DeTable, DeValue};
 	fn value(path: String, v: &toml::Spanned<DeValue>, text: &str, out: &mut HashMap<String, usize>) {
 		out.entry(path.clone()).or_insert_with(|| line_at(text, v.span().start));
@@ -1138,6 +1242,10 @@ pub enum Ty {
 	Widget,
 	/// A source: the keys of its `kind`'s record.
 	Source,
+	/// A string naming something the settings or the computer have: an `action`, a `dashboard`, a
+	/// `collection`, a `link` or a `source`. Checked as a string here, and further where it is used;
+	/// the dashboard editor offers what there is.
+	Ref(&'static str),
 }
 
 #[derive(Clone, Debug)]
@@ -1188,8 +1296,8 @@ fn role() -> Ty {
 }
 
 /// The records the settings are made of, by name.
-pub const RECORDS: [&str; 28] = [
-	"settings", "history", "displays", "events", "events_notify", "rule", "also", "target", "target_defaults", "source_nut", "source_command", "source_http", "source_file", "outlet", "link", "action", "param", "profile", "unlock", "android", "web",
+pub const RECORDS: [&str; 29] = [
+	"settings", "history", "displays", "web_service", "events", "events_notify", "rule", "also", "target", "target_defaults", "source_nut", "source_command", "source_http", "source_file", "outlet", "link", "action", "param", "profile", "unlock", "android", "web",
 	"dashboard", "item", "column", "expand", "bar", "sort", "row_action",
 ];
 
@@ -1258,6 +1366,7 @@ pub fn record(name: &str) -> Vec<Key> {
 			k("history", Ty::Rec("history")),
 			k("events", Ty::Rec("events")),
 			k("displays", Ty::Rec("displays")),
+			k("web", Ty::Rec("web_service")),
 			k("rules", id_map(Ty::Rec("rule"))),
 			k("notify", id_map(Ty::Rec("target"))),
 		],
@@ -1348,6 +1457,19 @@ pub fn record(name: &str) -> Vec<Key> {
 			k("brightness_step", Ty::Int(1, 50)),
 			k("ddc_every", Ty::Int(10, 3600)),
 		],
+		"web_service" => vec![
+			k("page", Ty::Bool),
+			k("admin", Ty::Bool),
+			k("write", Ty::Bool),
+			k("editor", Ty::Bool),
+			k("role", Ty::Enum("role", &WEB_ROLES)),
+			k("cookie_days", Ty::Int(1, 400)),
+			k("backups", Ty::Int(0, 100)),
+			k("editor_file", Ty::Str),
+			k("cert_name", Ty::Str),
+			k("cert_file", Ty::Str),
+			k("key_file", Ty::Str),
+		],
 		"source_command" => [req("kind", Ty::Enum("source kind", &["command"])), req("command", list(Ty::Str))].into_iter().chain(feed_keys()).collect(),
 		"source_http" => [req("kind", Ty::Enum("source kind", &["http"])), req("url", Ty::Str), k("token_file", Ty::Str), k("header", Ty::Str)]
 			.into_iter()
@@ -1404,8 +1526,8 @@ pub fn record(name: &str) -> Vec<Key> {
 			k("network_bits", Ty::Bool),
 			k("confirm_actions", Ty::Bool),
 			k("unlock", Ty::Rec("unlock")),
-			k("dashboards", list(Ty::Str)),
-			k("header", Ty::Str),
+			k("dashboards", list(Ty::Ref("dashboard"))),
+			k("header", Ty::Ref("dashboard")),
 			k("android", Ty::Rec("android")),
 			k("web", Ty::Rec("web")),
 		],
@@ -1413,11 +1535,11 @@ pub fn record(name: &str) -> Vec<Key> {
 		"android" => ANDROID
 			.iter()
 			.map(|(n, _)| k(n, Ty::Bool))
-			.chain([k("widget", Ty::Str), k("widget_minutes", Ty::Int(15, 1440)), k("tiles", Ty::Str), k("card", Ty::Str)])
+			.chain([k("widget", Ty::Ref("dashboard")), k("widget_minutes", Ty::Int(15, 1440)), k("tiles", Ty::Ref("dashboard")), k("card", Ty::Ref("dashboard"))])
 			.collect(),
 		"web" => vec![],
 		"dashboard" => {
-			vec![req("title", Ty::Text), k("icon", icon()), k("role", role()), k("for_each", Ty::Str), k("widgets", list(Ty::Widget))]
+			vec![req("title", Ty::Text), k("icon", icon()), k("role", role()), k("for_each", Ty::Ref("collection")), k("widgets", list(Ty::Widget))]
 		}
 		"item" => vec![
 			k("label", Ty::Text),
@@ -1442,7 +1564,7 @@ pub fn record(name: &str) -> Vec<Key> {
 		"expand" => vec![req("field", Ty::Str), k("label", Ty::Str), k("format", Ty::Format), k("unit", Ty::Str), k("map", map(Ty::Str))],
 		"bar" => vec![req("max", Ty::Any(vec![Ty::Num, Ty::Str]))],
 		"sort" => vec![req("field", Ty::Str), k("desc", Ty::Bool)],
-		"row_action" => vec![k("action", Ty::Str), k("open", Ty::Str), k("label", Ty::Str), k("params", map(Ty::Scalar))],
+		"row_action" => vec![k("action", Ty::Ref("action")), k("open", Ty::Ref("dashboard")), k("label", Ty::Str), k("params", map(Ty::Scalar))],
 		_ => vec![],
 	}
 }
@@ -1458,7 +1580,7 @@ pub fn common_keys() -> Vec<Key> {
 		k("color", color()),
 		k("role", role()),
 		k("when", Ty::Address),
-		k("open", Ty::Str),
+		k("open", Ty::Ref("dashboard")),
 		k("caption", Ty::Text),
 		k("use", Ty::Id),
 		k("with", map(Ty::Scalar)),
@@ -1485,7 +1607,7 @@ fn value_keys() -> Vec<Key> {
 
 /// A widget type's own keys.
 pub fn type_keys(kind: &str) -> Vec<Key> {
-	let action = || vec![k("value", Ty::Address), k("action", Ty::Str), k("param", Ty::Str)];
+	let action = || vec![k("value", Ty::Address), k("action", Ty::Ref("action")), k("param", Ty::Str)];
 	let scale = || vec![k("min", num_or_address()), k("max", num_or_address())];
 	match kind {
 		"value" => value_keys().into_iter().chain([k("spark", Ty::Bool)]).collect(),
@@ -1507,7 +1629,7 @@ pub fn type_keys(kind: &str) -> Vec<Key> {
 		],
 		"list" => vec![k("items", list(Ty::Rec("item")))],
 		"bars" => vec![
-			k("source", Ty::Str),
+			k("source", Ty::Ref("collection")),
 			k("field", Ty::Str),
 			k("max", num_or_address()),
 			k("labels", Ty::Str),
@@ -1515,7 +1637,7 @@ pub fn type_keys(kind: &str) -> Vec<Key> {
 			k("format", Ty::Format),
 		],
 		"table" => vec![
-			k("source", Ty::Str),
+			k("source", Ty::Ref("collection")),
 			k("columns", list(Ty::Rec("column"))),
 			k("sort", Ty::Rec("sort")),
 			k("sorts", list(Ty::Str)),
@@ -1529,13 +1651,13 @@ pub fn type_keys(kind: &str) -> Vec<Key> {
 			k("expand", list(Ty::Rec("expand"))),
 			k("collapsed", Ty::Bool),
 		],
-		"button" => vec![k("action", Ty::Str), k("params", map(Ty::Scalar))],
+		"button" => vec![k("action", Ty::Ref("action")), k("params", map(Ty::Scalar))],
 		"toggle" => action().into_iter().chain([k("on", Ty::Scalar), k("off", Ty::Scalar), k("map", map(Ty::Str))]).collect(),
 		"select" | "slider" => action(),
 		"text" => vec![k("text", Ty::Text), k("level", Ty::Enum("level", &LEVELS))],
 		"group" => vec![k("widgets", list(Ty::Widget)), k("collapsed", Ty::Bool)],
 		"timeline" => vec![
-			k("source", Ty::Str),
+			k("source", Ty::Ref("source")),
 			k("range", Ty::Int(600, 2_592_000)),
 			k("ranges", Ty::Bool),
 			k("legend", Ty::Enum("legend", &LEGENDS)),
@@ -1564,6 +1686,114 @@ pub fn widget_keys(kind: Option<&str>) -> Vec<Key> {
 	keys
 }
 
+/// A key's name as a person reads it in a form: `warning_above` → "Warning above".
+pub fn label(key: &str) -> String {
+	let own = match key {
+		"span" => "Width",
+		"type" => "Type",
+		"use" => "Template",
+		"with" => "Template values",
+		"for_each" => "For each",
+		"when" => "Shown when",
+		"open" => "Opens",
+		"spark" => "Small graph",
+		"ranges" => "Longer ranges",
+		"collapsed" => "Folded",
+		"hide_empty" => "Hidden while empty",
+		"row_open" => "Row opens",
+		"row_actions" => "Row actions",
+		"sort_labels" => "Sort chip labels",
+		"map" => "Words for values",
+		"empty" => "When empty",
+		"param" => "Parameter",
+		"params" => "Parameters",
+		"min" => "Least",
+		"max" => "Most",
+		"floor" => "Scale's least",
+		_ => "",
+	};
+	if !own.is_empty() {
+		return own.into();
+	}
+	let words = key.replace('_', " ");
+	let mut c = words.chars();
+	c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+}
+
+/// What a key of a widget, dashboard, profile or their records is for, in a line: the dashboard
+/// editor's hints and the JSON Schema's descriptions (docs/config.md says it at length).
+pub fn hint(key: &str) -> &'static str {
+	match key {
+		"type" => "What the widget is",
+		"id" => "Names the widget among the dashboard's, for its history and a row's dashboard",
+		"span" => "Columns it takes of four (of two on a narrow screen)",
+		"label" => "Its name on screen; may hold values, like {cpu.usage}",
+		"icon" => "An icon beside its name",
+		"color" => "The colour it is drawn in",
+		"role" => "The least role that sees it",
+		"when" => "Shown only while this value is there and isn't false or 0",
+		"open" => "A dashboard a tap opens",
+		"caption" => "A line under it; may hold values",
+		"use" => "A template it starts from",
+		"with" => "What the template's placeholders become",
+		"for_each" => "One for each item of a collection, or of a list of strings",
+		"value" => "The value it shows, by its address: cpu.usage",
+		"unit" => "The value's unit, for formatting it",
+		"format" => "How the number is written: percent, bytes, temp …, or a pattern like {:.1}",
+		"empty" => "What it says while there is no value",
+		"map" => "Words for values, by value: discharging = \"On battery\"",
+		"warning_above" | "critical_above" | "warning_below" | "critical_below" => "A threshold: a number, or the address of one",
+		"soft" => "How far past a threshold the colour blends into the next",
+		"levels" => "A level for each word of the value: warning, critical",
+		"spark" => "A small graph of the value under it",
+		"min" => "The least of its scale: a number or an address",
+		"max" => "The most of its scale: a number or an address",
+		"values" => "The values it draws, each by its address",
+		"labels" => "A label for each value, or the field under each bar",
+		"colors" => "A colour for each value",
+		"range" => "Seconds shown back from now",
+		"height" => "small, medium or large",
+		"floor" => "The least its scale goes down to",
+		"ranges" => "Offers the long history: an hour up to all of it",
+		"items" => "Its rows: a label and a value or a text each",
+		"source" => "What it reads: a collection (table, bars) or a source (timeline)",
+		"field" => "A field of the collection's items",
+		"columns" => "The table's columns, each a field of its rows",
+		"sort" => "The order rows come in",
+		"sorts" => "Other orders a client may pick",
+		"sort_labels" => "What the chips that pick an order say, by field",
+		"search" => "A search field: true, or the fields it searches",
+		"limit" => "Rows sent at most",
+		"filter" => "Only rows whose fields have these values",
+		"hide_empty" => "Hidden while it has no rows",
+		"row_open" => "A field holding a URL a row opens",
+		"row_actions" => "What a row offers: an action with the row's fields, or its own dashboard",
+		"expand" => "What a row shows when opened",
+		"collapsed" => "Starts folded",
+		"action" => "The action it runs: one of the settings' (it writes no command)",
+		"params" => "Fixed values of the action's parameters",
+		"param" => "The parameter of the action it sets",
+		"on" => "The value it sends when switched on",
+		"off" => "The value it sends when switched off",
+		"text" => "Words; may hold values, like {cpu.usage}",
+		"level" => "Its level: normal, warning, critical (a log: the least it shows)",
+		"widgets" => "The widgets in it, in order",
+		"scope" => "Which journal: system, user, unit, events",
+		"lines" => "Lines a client keeps",
+		"legend" => "What the legend tells of each state: duration, percent or both",
+		"title" => "The dashboard's name, on its tab",
+		"dashboards" => "The tabs, in order",
+		"header" => "A dashboard shown as chips under the computer's name",
+		"widget" => "The dashboard the app's home-screen widget shows",
+		"tiles" => "The dashboard whose first four buttons and switches are the app's tiles",
+		"card" => "The dashboard the computer's card on the app's home screen shows",
+		"bar" => "Draws the cell as a bar, full at max",
+		"grow" => "Takes the room left",
+		"desc" => "Largest first",
+		_ => "",
+	}
+}
+
 /// What a value of `ty` is, to say what was expected.
 fn describe(ty: &Ty) -> String {
 	match ty {
@@ -1582,6 +1812,7 @@ fn describe(ty: &Ty) -> String {
 		Ty::Any(ts) => ts.iter().map(describe).collect::<Vec<_>>().join(" or "),
 		Ty::Widget => "a widget (a table with a type)".into(),
 		Ty::Source => "a source (a table with a kind)".into(),
+		Ty::Ref(to) => format!("the id of a {to}"),
 	}
 }
 
@@ -1593,6 +1824,7 @@ fn plural_of(ty: &Ty) -> String {
 		Ty::Widget => "widgets".into(),
 		Ty::Enum(what, _) => format!("{what}s"),
 		Ty::Rec(_) => "tables".into(),
+		Ty::Ref(to) => format!("ids of {to}s"),
 		other => describe(other),
 	}
 }
@@ -1710,7 +1942,7 @@ fn check_top(v: &Value, partial: bool, out: &mut Found) {
 fn check(v: &Value, ty: &Ty, path: &str, partial: bool, out: &mut Found) {
 	let wrong = |out: &mut Found| out.push((path.to_string(), format!("should be {}, not {}", describe(ty), found(v))));
 	match ty {
-		Ty::Str | Ty::Text => {
+		Ty::Str | Ty::Text | Ty::Ref(_) => {
 			if !v.is_string() {
 				wrong(out);
 			}
@@ -1909,6 +2141,7 @@ fn semantics(c: &Config) -> Found {
 	for (id, a) in &c.actions {
 		check_action(id, a, &mut push);
 	}
+	check_web(&c.web, &mut push);
 	for (id, p) in &c.profiles {
 		let path = join("profiles", id);
 		if let Some(base) = &p.base {
@@ -1983,6 +2216,25 @@ fn check_source_id(id: &str, push: &mut impl FnMut(String, String)) {
 
 /// A `command`, `http` or `file` source as the settings can tell it is sound, without running,
 /// asking or reading anything.
+/// `[web]`: the editor's file a drop-in's name, and a real certificate's three keys all or none.
+fn check_web(w: &WebDef, push: &mut impl FnMut(String, String)) {
+	if !is_settings_file_name(&w.editor_file) {
+		push(
+			"web.editor_file".into(),
+			format!("\"{}\" isn't a drop-in's name: letters, digits, _, . and -, starting with a letter or a digit, ending .toml", w.editor_file),
+		);
+	}
+	let set = [w.cert_name.is_some(), w.cert_file.is_some(), w.key_file.is_some()];
+	if set.iter().any(|s| *s) && !set.iter().all(|s| *s) {
+		push("web".into(), "cert_name, cert_file and key_file go together: a real certificate needs all three".into());
+	}
+	if let Some(n) = &w.cert_name
+		&& !crate::names::is_name(n)
+	{
+		push("web.cert_name".into(), format!("\"{n}\" isn't a host name"));
+	}
+}
+
 fn check_feed(id: &str, f: &Feed, push: &mut impl FnMut(String, String)) {
 	let path = join("sources", id);
 	let at = |key: &str| join(&path, key);
@@ -2576,11 +2828,24 @@ fn check_source(c: &Config, source: &str, w: &Widget, kind: &str, path: &str, pu
 
 // ---- the JSON Schema ------------------------------------------------------------------------
 
+/// A key's schema with its hint as its description.
+fn described(k: &Key) -> Value {
+	let mut s = schema_of(&k.ty);
+	let hint = hint(k.name);
+	if !hint.is_empty()
+		&& let Some(o) = s.as_object_mut()
+	{
+		o.insert("description".into(), hint.into());
+	}
+	s
+}
+
 fn schema_of(ty: &Ty) -> Value {
 	use serde_json::json;
 	let placeholder = json!({ "type": "string", "pattern": "\\{" });
 	match ty {
 		Ty::Str | Ty::Text | Ty::Address => json!({ "type": "string" }),
+		Ty::Ref(to) => json!({ "type": "string", "description": format!("the id of a {to}") }),
 		Ty::Id => json!({ "type": "string", "pattern": ID_PATTERN }),
 		Ty::Bool => json!({ "type": "boolean" }),
 		Ty::Int(lo, i64::MAX) => json!({ "type": "integer", "minimum": lo }),
@@ -2600,7 +2865,7 @@ fn schema_of(ty: &Ty) -> Value {
 }
 
 fn object_schema(keys: &[Key]) -> Value {
-	let props: Map<String, Value> = keys.iter().map(|k| (k.name.to_string(), schema_of(&k.ty))).collect();
+	let props: Map<String, Value> = keys.iter().map(|k| (k.name.to_string(), described(k))).collect();
 	serde_json::json!({ "type": "object", "properties": props, "additionalProperties": false })
 }
 
@@ -2618,7 +2883,7 @@ pub fn json_schema() -> Value {
 		.map(|t| {
 			let keys = widget_keys(Some(t));
 			let names: Vec<&str> = keys.iter().map(|k| k.name).collect();
-			let props: Map<String, Value> = keys.iter().map(|k| (k.name.to_string(), schema_of(&k.ty))).collect();
+			let props: Map<String, Value> = keys.iter().map(|k| (k.name.to_string(), described(k))).collect();
 			json!({
 				"if": { "properties": { "type": { "const": t } }, "required": ["type"] },
 				"then": { "propertyNames": { "enum": names }, "properties": props }

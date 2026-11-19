@@ -49,15 +49,32 @@ pub enum ErrorCode {
 	Storage,
 	/// What was asked failed; `message` says why.
 	Failed,
+	/// A request by a browser's cookie that changes something, not from the page itself.
+	BadOrigin,
+	/// `[web] admin = false`: the admin API is closed to every role.
+	AdminOff,
+	/// The admin API may not write the settings: `[web] write = false`, or `elamond control off`.
+	WritesOff,
+	/// A settings file in the Nix store, or one that leads out of the settings' folder.
+	ReadOnly,
+	/// Done at the computer only: `elamond control on`.
+	AtComputer,
+	/// A settings file's name the admin API doesn't take.
+	BadName,
+	/// A settings file changed on disk since the client read it.
+	ChangedOnDisk,
+	/// The settings with the change don't parse; each mistake in `mistakes`.
+	BadSettings,
 }
 
 impl ErrorCode {
 	/// Every code, in the order of docs/protocol.md, for elamond/fixtures/errors.json.
 	#[cfg(test)]
-	pub const ALL: [ErrorCode; 23] = [
+	pub const ALL: [ErrorCode; 31] = [
 		ErrorCode::BadParam,
 		ErrorCode::BadSort,
 		ErrorCode::UnknownSignal,
+		ErrorCode::BadName,
 		ErrorCode::Unauthorized,
 		ErrorCode::NoPairing,
 		ErrorCode::WrongCode,
@@ -68,6 +85,11 @@ impl ErrorCode {
 		ErrorCode::NotPermitted,
 		ErrorCode::NotAllowed,
 		ErrorCode::ConfirmRequired,
+		ErrorCode::BadOrigin,
+		ErrorCode::AdminOff,
+		ErrorCode::WritesOff,
+		ErrorCode::ReadOnly,
+		ErrorCode::AtComputer,
 		ErrorCode::NotFound,
 		ErrorCode::NoSuchProcess,
 		ErrorCode::NoSuchAction,
@@ -76,6 +98,8 @@ impl ErrorCode {
 		ErrorCode::NoSuchStream,
 		ErrorCode::NoArt,
 		ErrorCode::ProcessChanged,
+		ErrorCode::ChangedOnDisk,
+		ErrorCode::BadSettings,
 		ErrorCode::Storage,
 		ErrorCode::Failed,
 	];
@@ -105,6 +129,14 @@ impl ErrorCode {
 			ErrorCode::ProcessChanged => ("process_changed", StatusCode::CONFLICT),
 			ErrorCode::Storage => ("storage", StatusCode::INTERNAL_SERVER_ERROR),
 			ErrorCode::Failed => ("failed", StatusCode::BAD_GATEWAY),
+			ErrorCode::BadOrigin => ("bad_origin", StatusCode::FORBIDDEN),
+			ErrorCode::AdminOff => ("admin_off", StatusCode::FORBIDDEN),
+			ErrorCode::WritesOff => ("writes_off", StatusCode::FORBIDDEN),
+			ErrorCode::ReadOnly => ("read_only", StatusCode::FORBIDDEN),
+			ErrorCode::AtComputer => ("at_computer", StatusCode::FORBIDDEN),
+			ErrorCode::BadName => ("bad_name", StatusCode::BAD_REQUEST),
+			ErrorCode::ChangedOnDisk => ("changed_on_disk", StatusCode::CONFLICT),
+			ErrorCode::BadSettings => ("bad_settings", StatusCode::UNPROCESSABLE_ENTITY),
 		}
 	}
 

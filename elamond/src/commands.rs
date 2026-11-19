@@ -17,7 +17,7 @@ use crate::{collect, values};
 /// them: in place of the one it is, as a drop-in when it is in a folder named elamond.d, else in
 /// place of the main file. Its text comes from `text` when given (an edited copy), from the file
 /// otherwise.
-fn sources_with(place: &Place, file: Option<&Path>, text: Option<String>) -> Result<Vec<Source>, Vec<Mistake>> {
+pub(crate) fn sources_with(place: &Place, file: Option<&Path>, text: Option<String>) -> Result<Vec<Source>, Vec<Mistake>> {
 	let mut files = place.files();
 	let Some(file) = file else {
 		return settings::read_files(&files);
@@ -304,7 +304,7 @@ pub enum Kind {
 }
 
 impl Kind {
-	fn word(self) -> &'static str {
+	pub fn word(self) -> &'static str {
 		match self {
 			Kind::Changed => "changed",
 			Kind::Added => "added",
@@ -377,7 +377,7 @@ pub fn diff(yours: &Map<String, Value>, base: &Map<String, Value>) -> Vec<Change
 }
 
 /// A settings file as JSON, its tables as they are: one file needs no merging.
-fn as_json(text: &str) -> Result<Map<String, Value>, String> {
+pub(crate) fn as_json(text: &str) -> Result<Map<String, Value>, String> {
 	let t: toml::Table = text.parse().map_err(|e: toml::de::Error| e.message().trim().to_string())?;
 	match serde_json::to_value(t) {
 		Ok(Value::Object(o)) => Ok(o),
