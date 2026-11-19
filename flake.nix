@@ -796,6 +796,20 @@
 					GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${sdk}/build-tools/37.0.0/aapt2";
 				};
 
+				# `nix develop .#browser -c elamond/web/test/browser.sh`: the page in a headless Chromium,
+				# driven by Playwright against a throwaway elamond built here. The browser comes from
+				# nixpkgs (Chromium alone); Playwright downloads nothing of its own.
+				browser = dev.mkShell {
+					packages = [
+						(dev.python3.withPackages (p: [ p.playwright ]))
+						dev.cargo dev.rustc
+						# ss, which picks the test's free port.
+						dev.iproute2
+					];
+					PLAYWRIGHT_BROWSERS_PATH = dev.playwright-driver.browsers-chromium;
+					PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
+				};
+
 				# `nix develop .#emulator`: an x86_64 emulator to try the app without a phone.
 				emulator =
 					let
