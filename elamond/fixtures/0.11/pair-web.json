@@ -2,7 +2,7 @@
   "request": {
     "headers": {
       "Elamon-Client": "web/0.11.0",
-      "Origin": "https://192.0.2.10:47823",
+      "Origin": "https://192.0.2.7:47823",
       "Content-Type": "application/json"
     },
     "body": {
@@ -13,16 +13,13 @@
   "response": {
     "status": 200,
     "headers": {
-      "Set-Cookie": "__Host-elamon=token; Max-Age=2592000; Path=/; Secure; HttpOnly; SameSite=Strict"
+      "Set-Cookie": "__Host-elamon-id=token; Max-Age=2592000; Path=/; Secure; HttpOnly; SameSite=Strict"
     },
     "body": {
       "client_id": "89abcdef",
-      "endpoints": [
-        "192.0.2.10",
-        "desk.example.net"
-      ],
-      "id": "0123456789abcdef0123456789abcdef",
-      "name": "fixture",
+      "endpoints": [],
+      "id": "id",
+      "name": "test",
       "profile": "firefox-on-linux",
       "role": "admin"
     }
@@ -36,7 +33,7 @@
   "forget": {
     "status": 200,
     "headers": {
-      "Set-Cookie": "__Host-elamon=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict"
+      "Set-Cookie": "__Host-elamon-id=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict"
     },
     "body": {
       "ok": true

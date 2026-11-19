@@ -1,31 +1,19 @@
 {
   "request": {
-    "id": "pixel-9",
+    "id": "default",
     "profile": {
       "dashboards": [
         "overview",
         "mine"
-      ],
-      "header": "header",
-      "android": {
-        "widget": "phone",
-        "tiles": "tiles",
-        "card": ""
-      }
+      ]
     },
-    "base": "9a8b7c6d5e4f3021"
+    "base": "c4b93118a3d32998"
   },
-  "file": "[profiles.pixel-9]\ndashboards = [\"overview\", \"mine\"]\nheader = \"header\"\n\n[profiles.pixel-9.android]\nwidget = \"phone\"\ntiles = \"tiles\"\ncard = \"\"\n",
-  "revert": {
-    "request": {
-      "profile": "pixel-9",
-      "base": "0a1b2c3d4e5f6071"
-    },
-    "response": {
-      "ok": true,
-      "hash": "1b2c3d4e5f607182",
-      "backup": "1763550300789",
-      "generation": 6
-    }
+  "file": "# Written by Elamon's dashboard editor (the web page and the app): dashboards, and the tabs,\n# header and Android dashboards of profiles. A change by hand here is kept: elamond rewrites only\n# the tables it is asked to. Read after the other drop-ins whose names sort before this one's.\n\n[dashboards.mine]\ntitle = \"Mine\"\nicon = \"gauge\"\n\n[[dashboards.mine.widgets]]\ntype = \"gauge\"\nlabel = \"CPU\"\nvalue = \"cpu.usage\"\nmax = 100\nspan = 2\n\n[[dashboards.mine.widgets]]\ntype = \"button\"\nlabel = \"Echo\"\naction = \"echo\"\nparams = { word = \"hi\" }\n\n[[dashboards.mine.widgets]]\ntype = \"graph\"\nlabel = \"Memory\"\nvalues = [\"mem.percent\"]\n\n[profiles.default]\ndashboards = [\"overview\", \"mine\"]\n",
+  "response": {
+    "ok": true,
+    "hash": "8f5a6eddf3966c9a",
+    "backup": "1763550300789",
+    "generation": 2
   }
 }

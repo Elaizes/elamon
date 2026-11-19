@@ -1,20 +1,4 @@
 {
-  "saved": {
-    "status": 200,
-    "body": {
-      "ok": true,
-      "hash": "9a8b7c6d5e4f3021",
-      "backup": "1763550200456",
-      "generation": 4
-    }
-  },
-  "changed_on_disk": {
-    "status": 409,
-    "body": {
-      "error": "changed_on_disk",
-      "hash": "0000111122223333"
-    }
-  },
   "bad_settings": {
     "status": 422,
     "body": {
@@ -23,10 +7,41 @@
         {
           "file": "elamond.d/mine.toml",
           "line": 3,
-          "path": "dashboards.mine.widgets[0].max",
-          "message": "expected a number or an address, like \"cpu.usage\", found \"lots\""
+          "path": "dashboards.mine.widgets[0].span",
+          "message": "should be an integer from 1 to 4, not 9"
         }
       ]
+    }
+  },
+  "saved": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "hash": "5823969c3c3dacdf",
+      "backup": null,
+      "generation": 1
+    }
+  },
+  "changed_on_disk": {
+    "status": 409,
+    "body": {
+      "error": "changed_on_disk",
+      "hash": "5823969c3c3dacdf"
+    }
+  },
+  "saved_over": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "hash": "5f14ce8f4f298a25",
+      "backup": "1763550200456",
+      "generation": 2
+    }
+  },
+  "bad_name": {
+    "status": 400,
+    "body": {
+      "error": "bad_name"
     }
   },
   "read_only": {
@@ -43,10 +58,11 @@
       "message": "held_off"
     }
   },
-  "bad_name": {
-    "status": 400,
+  "writes_off_control": {
+    "status": 403,
     "body": {
-      "error": "bad_name"
+      "error": "writes_off",
+      "message": "control"
     }
   },
   "not_allowed": {
