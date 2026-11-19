@@ -278,37 +278,41 @@ class EditorTest {
 		// An editor's file that isn't there yet: no hash, said as null.
 		assertEquals(JsonNull, dashboardBody("mine", obj("{}"), null)["base"])
 		assertEquals(obj("""{"dashboard":"mine","base":"x"}"""), tableBody("dashboard", "mine", "x"))
-		// A preview: the draft as the editor's write would send it, its dashboard, the types the app draws.
+		// A preview: the draft as the editor's write would send it and its dashboard, as the service's tests send them.
 		val preview = fixture("admin-preview").getValue("request").jsonObject
-		val draft = preview.getValue("editor").jsonObject.getValue("dashboards").jsonObject.getValue("mine").jsonObject
-		val body = previewBody(mapOf("mine" to draft), emptyMap(), "mine")
-		assertEquals(JsonObject(preview - "widgets"), JsonObject(body - "widgets"))
-		// The same types, in the app's order.
-		assertEquals(preview.getValue("widgets").jsonPrimitive.content.split(",").toSet(), body.getValue("widgets").jsonPrimitive.content.split(",").toSet())
-		val withTabs = previewBody(mapOf("mine" to draft), mapOf("pixel-9" to p.getValue("profile").jsonObject), "mine")
+		val draft = preview.getValue("editor").jsonObject.getValue("dashboards").jsonObject.getValue("draft").jsonObject
+		val body = previewBody(mapOf("draft" to draft), emptyMap(), "draft")
+		assertEquals(preview, JsonObject(body - "widgets"))
+		// And the types the app draws, as it asks for its `ui`.
+		assertEquals(WIDGET_TYPES.joinToString(","), body.getValue("widgets").jsonPrimitive.content)
+		val withTabs = previewBody(mapOf("draft" to draft), mapOf("pixel-9" to p.getValue("profile").jsonObject), "draft")
 		assertEquals(setOf("dashboards", "profiles"), withTabs.getValue("editor").jsonObject.keys)
 	}
 
 	@Test
 	fun thePreviewIsReadAsTheUi() {
-		val answer = fixture("admin-preview").getValue("response").jsonObject
-		// The fixture's ui leaves out what the app keeps of the computer: taken from the ui kept.
-		val kept = ProtocolJson.decodeFromString(UiDoc.serializer(), File(dir, "ui.json").readText())
-		val p = previewFrom(answer, kept)
+		val preview = fixture("admin-preview")
+		val p = previewFrom(preview.getValue("response").jsonObject)
+		// The ui the asking client would get with the draft: the computer, its control and the profile its own.
 		assertEquals("owner", p.ui.role)
-		assertEquals(kept.service, p.ui.service)
-		assertEquals(kept.profile.id, p.ui.profile.id)
-		val mine = p.ui.dashboard("mine")!!
-		assertEquals("gauge", mine.widgets.single().type)
+		assertEquals("0.11.0", p.ui.service.version)
+		assertTrue("editor" in p.ui.service.features)
+		assertTrue(p.ui.control.enabled)
+		assertEquals("default", p.ui.profile.id)
+		// The draft's dashboard among the tabs, its widgets by place.
+		assertTrue("draft" in p.ui.tabs)
+		val shown = p.ui.dashboard("draft")!!
+		assertEquals(listOf("draft/0"), shown.widgets.map { it.id })
+		assertEquals("gauge", shown.widgets.single().type)
 		val line = p.line!!
-		assertEquals("mine", line.dashboard)
-		assertEquals(12.5, line.widgets.getValue("mine/w0").number)
+		assertEquals("draft", line.dashboard)
+		assertEquals(12.5, line.widgets.getValue("draft/0").number)
 		// Each widget of the draft and what the preview drew of it.
-		val draft = Drafts.widgets(fixture("admin-preview").getValue("request").jsonObject.getValue("editor").jsonObject.getValue("dashboards").jsonObject.getValue("mine").jsonObject)
-		assertEquals(listOf(listOf("mine/w0")), previewOf(draft, mine).map { cell -> cell.map { it.id } })
-		// Without a ui kept, one that says nothing of the computer isn't one.
-		val e = runCatching { previewFrom(answer, null) }.exceptionOrNull()
-		assertIs<ElamondException>(e)
+		val draft = Drafts.widgets(preview.getValue("request").jsonObject.getValue("editor").jsonObject.getValue("dashboards").jsonObject.getValue("draft").jsonObject)
+		assertEquals(listOf(listOf("draft/0")), previewOf(draft, shown).map { cell -> cell.map { it.id } })
+		// An answer without a ui, or one that isn't a ui, isn't a preview.
+		assertIs<ElamondException>(runCatching { previewFrom(obj("""{"data":{}}""")) }.exceptionOrNull())
+		assertIs<ElamondException>(runCatching { previewFrom(obj("""{"ui":{"dashboards":[]}}""")) }.exceptionOrNull())
 	}
 
 	@Test

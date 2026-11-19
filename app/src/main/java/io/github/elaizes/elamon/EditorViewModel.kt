@@ -124,7 +124,7 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 	/** The graphs' and sparks' points in the preview, by widget id. */
 	private val hists = HashMap<String, Hist>()
 
-	/** The `ui` kept of the computer: its interval, and what a preview's `ui` leaves out. */
+	/** The `ui` kept of the computer: its interval, until a preview has one. */
 	private var kept: UiDoc? = null
 	private var client: ElamondClient? = null
 
@@ -281,7 +281,7 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 	private suspend fun previewOnce(a: PreviewAsk): Boolean {
 		return try {
 			// Asked for by its id in the settings, as the computer takes it.
-			val p = client().preview(previewBody(mapOf(a.dashboard to a.draft), emptyMap(), a.dashboard), kept)
+			val p = client().preview(previewBody(mapOf(a.dashboard to a.draft), emptyMap(), a.dashboard))
 			p.line?.let { takeHists(p.ui, it) }
 			val logs = p.line?.let { line -> logsOf(p.ui, line) }.orEmpty()
 			_state.update { it.copy(preview = PreviewView(p, logs, System.currentTimeMillis()), previewNote = null, previewMistakes = emptyList()) }

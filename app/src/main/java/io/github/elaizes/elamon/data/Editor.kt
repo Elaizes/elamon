@@ -329,8 +329,8 @@ object Drafts {
 
 /**
  * Which widgets of the preview's [dashboard] each of [draft]'s widgets became, in order. A widget is
- * `<dashboard>/<its id>`, or by its place without one, and `<…>.<item>` for each item of a
- * `for_each`; one the preview hasn't (not shown, as its `when` or the role decides) became none.
+ * `<dashboard>/<its id>`, or `<dashboard>/<its place>` without one, and `<…>.<item>` for each item
+ * of a `for_each`; one the preview hasn't (not shown, as its `when` or the role decides) became none.
  * Where no id matches at all and there are as many of each, they are taken place by place.
  */
 fun previewOf(draft: List<JsonElement>, dashboard: Dashboard?): List<List<Widget>> {
@@ -338,11 +338,10 @@ fun previewOf(draft: List<JsonElement>, dashboard: Dashboard?): List<List<Widget
 	val prefix = dashboard?.id.orEmpty() + "/"
 	val taken = HashSet<String>()
 	val byId = draft.mapIndexed { i, raw ->
-		val own = ((raw as? JsonObject)?.get("id") as? JsonPrimitive)?.takeIf { it.isString }?.content
-		val names = if (own != null) listOf(own) else listOf(i.toString(), "w$i")
+		val name = ((raw as? JsonObject)?.get("id") as? JsonPrimitive)?.takeIf { it.isString }?.content ?: i.toString()
 		shown.filter { w ->
 			val tail = w.id.removePrefix(prefix).takeIf { w.id.startsWith(prefix) } ?: return@filter false
-			w.id !in taken && names.any { n -> tail == n || tail.startsWith("$n.") }
+			w.id !in taken && (tail == name || tail.startsWith("$name."))
 		}.also { found -> taken += found.map { it.id } }
 	}
 	if (byId.all { it.isEmpty() } && shown.size == draft.size) return shown.map { listOf(it) }
@@ -403,22 +402,14 @@ suspend fun ElamondClient.editor(): EditorDescription = get(EDITOR_PATH)
 suspend fun ElamondClient.editorWrite(path: String, body: JsonObject): EditorSaved =
 	decode(request("POST", path, body.toString(), finishOnCancel = true))
 
-/**
- * What the computer would show with [body]'s drafts: the `ui` and a reading. A `ui` that leaves out
- * what the app keeps of the computer ([fallback]'s service, its control and profile) gets them from
- * there.
- */
-suspend fun ElamondClient.preview(body: JsonObject, fallback: UiDoc?): Preview {
-	val answer = decode<JsonObject>(request("POST", ADMIN_PREVIEW_PATH, body.toString()))
-	return previewFrom(answer, fallback)
-}
+/** What the computer would show with [body]'s drafts: the `ui` and a reading. */
+suspend fun ElamondClient.preview(body: JsonObject): Preview =
+	previewFrom(decode<JsonObject>(request("POST", ADMIN_PREVIEW_PATH, body.toString())))
 
-/** [answer] of a preview read as the app reads a `ui` and a data line; see [preview]. */
-fun previewFrom(answer: JsonObject, fallback: UiDoc?): Preview {
+/** [answer] of a preview read as the app reads a `ui` (its service, control and profile its own) and a data line. */
+fun previewFrom(answer: JsonObject): Preview {
 	val raw = answer["ui"] as? JsonObject ?: throw ElamondException(ElamondException.Kind.Protocol, "no ui")
-	val kept = fallback?.let { ProtocolJson.encodeToJsonElement(UiDoc.serializer(), it) as JsonObject }
-	val filled = if (kept == null) raw else JsonObject(raw + listOf("service", "control", "profile").filter { it !in raw }.mapNotNull { k -> kept[k]?.let { k to it } })
-	val ui = decodeChecked(UiDoc.serializer(), filled.toString())
+	val ui = decodeChecked(UiDoc.serializer(), raw.toString())
 	val line = (answer["data"] as? JsonObject)?.let { d ->
 		runCatching { ProtocolJson.decodeFromJsonElement(DataLine.serializer(), d) }.getOrNull()
 	}
