@@ -1,6 +1,7 @@
 // A preview of drafts (`POST admin/preview`): the `ui` the settings would give with them, and one
 // dashboard's data from the reading there is now, drawn as the dashboards are and asked again at
-// the profile's interval while it is open. Nothing is written, nothing of the drafts is run.
+// the profile's interval while it is open and in sight. Nothing is written, nothing of the drafts
+// is run.
 import { h, clear } from '../dom.js';
 import { S, fill } from '../strings.js';
 import { dashboardView, DRAWS } from '../panels.js';
@@ -112,14 +113,30 @@ export function openPreview(env, files, openMistake) {
 		picker.disabled = !choices.length;
 	};
 
+	/** A next ask waits for the page to be in sight again. */
+	let due = false;
 	const later = (/** @type {number} */ ms) => {
 		clearTimeout(timer);
-		if (!closed) timer = window.setTimeout(ask, ms);
+		timer = 0;
+		if (closed) return;
+		if (document.hidden) due = true;
+		else timer = window.setTimeout(ask, ms);
 	};
+	// Out of sight, nothing is asked; in sight again, what was due at once.
+	const onVisible = () => {
+		if (document.hidden) {
+			if (timer) later(0);
+		} else if (due) {
+			due = false;
+			later(0);
+		}
+	};
+	document.addEventListener('visibilitychange', onVisible);
 
 	const interval = () => Math.max(PREVIEW_MIN_MS, Number(last?.service?.interval_ms) || PREVIEW_FALLBACK_MS);
 
 	async function ask() {
+		timer = 0;
 		if (closed) return;
 		const my = ++seq;
 		if (!dashboard) {
@@ -187,6 +204,7 @@ export function openPreview(env, files, openMistake) {
 	dlg.addEventListener('close', () => {
 		closed = true;
 		clearTimeout(timer);
+		document.removeEventListener('visibilitychange', onVisible);
 		view?.destroy();
 		view = null;
 		dlg.remove();

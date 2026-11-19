@@ -1,6 +1,6 @@
 // Pairing from the page (`admin/pairing`): a code for a role up to the asker's and a profile, shown
 // big with its expiry and two QR codes (the app's scanner, a phone's browser); asked again every
-// second or two while open, so whoever gave the code is let in or turned away here.
+// second or two while open and in sight, so whoever gave the code is let in or turned away here.
 import { h, clear, append } from '../dom.js';
 import { S, fill } from '../strings.js';
 import { head, button, card, chip, kv, failure, loading, checkbox } from './ui.js';
@@ -21,6 +21,7 @@ export function mountPairing(main, env) {
 	const T = S.admin.pairing;
 	let destroyed = false;
 	let poll = 0;
+	let asking = false;
 	let tick = 0;
 	/** What is drawn: the form, or a code (by the code and its links, so it is drawn again only when they change). */
 	let shown = '';
@@ -54,17 +55,29 @@ export function mountPairing(main, env) {
 		drawCount();
 	};
 
+	// Asked while the page is in sight only; again at once when it shows.
 	const ask = async () => {
-		if (destroyed) return;
+		poll = 0;
+		if (destroyed || asking || document.hidden) return;
+		asking = true;
 		try {
 			show(await env.call('pairing'));
 			status.textContent = '';
 		} catch (e) {
 			if (env.quiet(e)) return;
 			status.textContent = fill(T.pollFailed, errorSentence(e));
+		} finally {
+			asking = false;
 		}
-		if (!destroyed) poll = window.setTimeout(ask, PAIRING_POLL_MS);
+		if (!destroyed && !document.hidden) poll = window.setTimeout(ask, PAIRING_POLL_MS);
 	};
+	const onVisible = () => {
+		if (document.hidden) {
+			clearTimeout(poll);
+			poll = 0;
+		} else if (meta && !poll) ask();
+	};
+	document.addEventListener('visibilitychange', onVisible);
 
 	const start = async () => {
 		try {
@@ -220,6 +233,7 @@ export function mountPairing(main, env) {
 		destroyed = true;
 		clearTimeout(poll);
 		clearInterval(tick);
+		document.removeEventListener('visibilitychange', onVisible);
 	};
 }
 
