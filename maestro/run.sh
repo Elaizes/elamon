@@ -86,6 +86,27 @@ for _ in $(seq 20); do
 done
 upsd_port=$(sed -n 's/^.*:\([0-9][0-9]*\)$/\1/p' "$work/upsd.addr" | head -n 1)
 [[ -n "$upsd_port" ]] || { echo "maestro/run.sh: the simulated upsd printed no address" >&2; exit 1; }
+# A stand-in Hyprland and ddcutil, first on the service's PATH, and a sysfs and /dev of the test's
+# own: the service never sees this computer's real monitors, their backlight or their buses.
+# eDP-1 is off, DP-1 the one screen showing a picture, its brightness 60 over DDC on i2c-14.
+hypr=$work/hypr
+mkdir -p "$hypr/outputs" "$work/sys/class/drm/card1-DP-1" "$work/dev"
+install -m 755 elamond/src/displays/hyprctl-stand-in.sh "$hypr/hyprctl"
+echo '[{"instance": "test_1", "time": 1, "pid": 1}]' > "$hypr/instances"
+printf 'disabled=true\ndpms=true\nbackend=drm\n' > "$hypr/outputs/eDP-1"
+printf 'disabled=false\ndpms=true\nbackend=drm\n' > "$hypr/outputs/DP-1"
+cat > "$hypr/ddcutil" <<'SH'
+#!/bin/sh
+here=$(dirname "$0")
+case "$3" in
+getvcp) printf 'VCP 10 C %s 100\n' "$(cat "$here/vcp")" ;;
+setvcp) printf '%s' "$5" > "$here/vcp" ;;
+esac
+SH
+chmod 755 "$hypr/ddcutil"
+echo 60 > "$hypr/vcp"
+ln -s ../../i2c-14 "$work/sys/class/drm/card1-DP-1/ddc"
+: > "$work/dev/i2c-14"
 # Any password does for the demo; the service reads it from a file, as it does anywhere.
 echo "demo" > "$work/nut.password"
 chmod 600 "$work/nut.password"
@@ -205,7 +226,8 @@ TOML
 # Always started in the background: exec makes $! elamond itself, so the trap can stop it. No
 # system bus: power, units and the rest of this computer stay out of the test's reach.
 run_elamond() {
-	exec env -i PATH="$PATH" HOME="$work" ELAMON_CONFIG_DIR="$work/cfg" ELAMON_DATA_DIR="$work/data" \
+	exec env -i PATH="$hypr:$PATH" HOME="$work" ELAMON_CONFIG_DIR="$work/cfg" ELAMON_DATA_DIR="$work/data" \
+		ELAMON_SYSFS="$work/sys" ELAMON_DEV="$work/dev" \
 		DBUS_SYSTEM_BUS_ADDRESS=unix:path=/nonexistent \
 		${ELAMON_PCI_IDS:+ELAMON_PCI_IDS="$ELAMON_PCI_IDS"} \
 		"$ELAMOND" "$@"
