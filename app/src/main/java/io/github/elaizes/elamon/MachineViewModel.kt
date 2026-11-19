@@ -805,7 +805,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 			} catch (e: Exception) {
 				say(messageFor(e))
 				// The role, control or the action changed on the computer since the ui was read.
-				if ((e as? ElamondException)?.code in REREAD) refreshUi()
+				if ((e as? ElamondException)?.code in UI_CHANGED) refreshUi()
 			} finally {
 				_actions.update { it.copy(running = it.running - key) }
 			}
@@ -841,9 +841,6 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 
 	private companion object {
 		const val MS_PER_SECOND = 1000L
-
-		/** Refusals after which the ui is read again: what this phone may do changed on the computer. */
-		val REREAD = setOf("not_allowed", "control_disabled", "no_such_action", "confirm_required")
 	}
 }
 

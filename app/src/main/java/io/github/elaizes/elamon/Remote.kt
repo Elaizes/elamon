@@ -1,9 +1,11 @@
 package io.github.elaizes.elamon
 
+import android.os.SystemClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import io.github.elaizes.elamon.data.APP_API
 import io.github.elaizes.elamon.data.Action
@@ -114,17 +116,47 @@ suspend fun readDashboard(
 private val HTTP_CLIENT_ERRORS = 400..499
 
 /**
+ * Refusals after which the `ui` is read again: what this phone may do there changed since it was
+ * read (its role, control, an action gone, or a monitor that has become the last one showing a
+ * picture, whose name is now to be typed).
+ */
+val UI_CHANGED = setOf("not_allowed", "control_disabled", "no_such_action", "confirm_required")
+
+/** How long after the tap an action outside the app may still be sent: a process frozen meanwhile doesn't send it late. */
+const val OUTSIDE_DEADLINE_MS = 20_000L
+
+/**
  * Runs [action] of [machine] with [params] (and [typed], the text a choice asks to be typed), once
  * whatever asks before it has been answered: from the home screen's card, or a Quick Settings tile.
- * Its answer, or the failure, thrown, as [messageFor] tells it.
+ * Not sent once [deadline] (elapsed realtime) has passed: a request left waiting for an address,
+ * the app's process frozen in the background meanwhile, isn't sent minutes after the tap. Refused
+ * as [UI_CHANGED] says, the `ui` is read again for the next try. Its answer, or the failure, thrown,
+ * as [messageFor] tells it.
  */
-suspend fun runAction(machine: Machine, store: MachineStore, action: Action, params: JsonObject, typed: String?): ActionResult =
-	when (val r = reach(machine, store)) {
-		is Reach.Reached -> r.client.action(action.id, params, typed)
+suspend fun runAction(
+	machine: Machine,
+	store: MachineStore,
+	cache: UiCache,
+	action: Action,
+	params: JsonObject,
+	typed: String?,
+	deadline: Long = SystemClock.elapsedRealtime() + OUTSIDE_DEADLINE_MS,
+): ActionResult {
+	val ticket = cache.ticket(machine.id)
+	val client = when (val r = withTimeoutOrNull(OUTSIDE_DEADLINE_MS) { reach(machine, store) }) {
+		is Reach.Reached -> r.client
 		Reach.Unpaired -> throw ElamondException(ElamondException.Kind.Unauthorized)
 		Reach.Outdated -> throw ElamondException(ElamondException.Kind.Protocol)
-		Reach.Offline -> throw ElamondException(ElamondException.Kind.Unreachable)
+		Reach.Offline, null -> throw ElamondException(ElamondException.Kind.Unreachable)
 	}
+	if (SystemClock.elapsedRealtime() > deadline) throw ElamondException(ElamondException.Kind.Unreachable)
+	return try {
+		client.action(action.id, params, typed)
+	} catch (e: ElamondException) {
+		if (e.code in UI_CHANGED) orNull { uiOf(machine, client, cache, store, fresh = true, ticket) }
+		throw e
+	}
+}
 
 /**
  * Work outside any screen that outlives the one that started it: an action a tile runs goes on

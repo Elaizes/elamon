@@ -3,6 +3,7 @@ package io.github.elaizes.elamon.tiles
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
@@ -84,6 +85,8 @@ class TileActionActivity : FragmentActivity() {
 					GuardDialog(guard)
 					ask.form.value?.let { req -> ParamForm(req, onDismiss = { ask.form.value = null }) { params -> launcher.submit(req, params) } }
 				}
+				// Why unlocking failed (locked out, no biometrics), said over whatever is on screen as this goes.
+				LaunchedEffect(guard) { guard.messages.collect { Toast.makeText(applicationContext, it, Toast.LENGTH_LONG).show() } }
 				// Nothing asked any more: run, or cancelled.
 				val idle = guardState.confirming == null && guardState.unlocking == null && ask.form.value == null
 				LaunchedEffect(idle) { if (idle) finish() }

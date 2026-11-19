@@ -245,9 +245,10 @@ fun cardQuick(ui: UiDoc, card: String, states: Map<String, WidgetState>): List<Q
  * through a rotation, as a computer's screen keeps its own.
  */
 class HomeActions(app: Application) : AndroidViewModel(app) {
-	/** An action's form, open over the home screen, and the computer it is for. */
+	/** An action's form, open over the home screen, the computer it is for, and the ui its card was read by. */
 	val form = mutableStateOf<FormRequest?>(null)
 	var formFor: String? = null
+	var formQuick: QuickActions? = null
 
 	private val _running = MutableStateFlow(emptySet<String>())
 
@@ -267,7 +268,7 @@ class HomeActions(app: Application) : AndroidViewModel(app) {
 		_running.update { it + key }
 		viewModelScope.launch {
 			try {
-				val r = runAction(machine, MachineStore.get(getApplication()), action, params, typed)
+				val r = runAction(machine, MachineStore.get(getApplication()), UiCache.get(getApplication()), action, params, typed)
 				afterRun(action, params, r)?.let { messages.trySend(it) }
 			} catch (e: CancellationException) {
 				throw e
@@ -371,6 +372,7 @@ fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: 
 					items(machines, key = { it.id }) { s ->
 						ComputerCard(s, live[s.id] ?: Live.Unknown, running, onClick = { onOpen(s) }) { quick, q ->
 							actions.formFor = s.id
+							actions.formQuick = quick
 							val tap = tapOf(q.widget, q.action, q.on)
 							launcher(s, quick).launch(q.action, tap.params, tap.phrase, key = quickKey(s.id, q.widget.id))
 						}
@@ -400,8 +402,9 @@ fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: 
 	// A quick action's values, where its button leaves some open: asked as on the computer's screen.
 	actions.form.value?.let { req ->
 		val s = machines.find { it.id == actions.formFor }
-		val quick = s?.let { (live[it.id] as? Live.Online)?.quick }
-		// The computer gone, or out of reach since: nothing to run it on.
+		// By the ui the card was read by when tapped: kept through a rotation, and a reading that fails meanwhile.
+		val quick = actions.formQuick
+		// The computer forgotten since: nothing to run it on.
 		if (s == null || quick == null) {
 			SideEffect { actions.form.value = null }
 		} else {

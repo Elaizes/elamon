@@ -4,9 +4,11 @@ import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import io.github.elaizes.elamon.Message
 import io.github.elaizes.elamon.data.Dashboard
 import io.github.elaizes.elamon.data.ProtocolJson
 import io.github.elaizes.elamon.data.UiDoc
@@ -45,6 +47,23 @@ class TileSlotsTest {
 		val doc = ui.copy(dashboards = ui.dashboards.map { if (it.id == "tiles") Dashboard("tiles", widgets = more) else it })
 		// Groups opened out in place; four at most.
 		assertEquals(listOf("t/lock", "t/1", "t/2", "t/3"), tileSlots(doc).map { it.widget.id })
+	}
+
+	@Test
+	fun aReadingFromBeforeAnActionDoesntTurnItsToggleBack() {
+		val a = "a".repeat(32)
+		val key = tileKey(a, "tiles/panel")
+		// One computer's toggle is never another's, the same dashboard as it may be.
+		assertNotEquals(key, tileKey("b".repeat(32), "tiles/panel"))
+		assertTrue(TileMemory.readable(key, 100))
+		// While its action runs, and from a reading begun before it ended, its state isn't taken.
+		TileMemory.running += key
+		assertFalse(TileMemory.readable(key, 100))
+		TileMemory.running -= key
+		TileMemory.notes[key] = TileNote(Message.Res(0), at = 200, failed = false)
+		assertFalse(TileMemory.readable(key, 150))
+		assertTrue(TileMemory.readable(key, 250))
+		TileMemory.notes.remove(key)
 	}
 
 	@Test

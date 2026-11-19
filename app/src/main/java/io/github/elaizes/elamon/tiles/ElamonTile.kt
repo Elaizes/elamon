@@ -84,7 +84,7 @@ abstract class ElamonTile : TileService() {
 	}
 
 	private fun tap(machine: Machine, slot: TileSlot) {
-		val on = TileMemory.on[slot.widget.id] == true
+		val on = TileMemory.on[tileKey(machine.id, slot.widget.id)] == true
 		val tap = tapOf(slot.widget, slot.action, on)
 		if (asksFirst(slot, tap.params)) {
 			open(TileActionActivity.intent(this, machine.id, slot.widget.id, on))
@@ -117,18 +117,20 @@ abstract class ElamonTile : TileService() {
 			tile.state = Tile.STATE_UNAVAILABLE
 			subtitle = getString(R.string.tile_no_action)
 		} else {
-			val id = s.widget.id
-			val note = TileMemory.note(id, System.currentTimeMillis())
-			val on = s.toggle && TileMemory.on[id] == true
+			val key = tileKey(machine.id, s.widget.id)
+			val note = TileMemory.note(key, System.currentTimeMillis())
+			val on = s.toggle && TileMemory.on[key] == true
+			// Control off, or the widget disabled where the computer says so (a monitor's picture while it is off).
+			val usable = ui.control.enabled && key !in TileMemory.disabled
 			tile.label = s.label
 			tile.icon = Icon.createWithResource(this, iconRes(s.icon))
 			tile.state = when {
-				!ui.control.enabled -> Tile.STATE_UNAVAILABLE
+				!usable -> Tile.STATE_UNAVAILABLE
 				on -> Tile.STATE_ACTIVE
 				else -> Tile.STATE_INACTIVE
 			}
 			subtitle = when {
-				id in TileMemory.running -> getString(R.string.tile_running)
+				key in TileMemory.running -> getString(R.string.tile_running)
 				note != null -> note.text.text(resources)
 				!ui.control.enabled -> getString(R.string.control_off)
 				else -> machine.name
@@ -161,23 +163,46 @@ class Tile4 : ElamonTile() {
 /**
  * One short reading for the tiles as the panel opens: the computer's `ui` as kept (its own where
  * that is out of date or names no tiles dashboard) and a snapshot of the tiles' dashboard, for the
- * toggles' states. The four tiles share it.
+ * toggles' states and whether each widget is enabled. The four tiles share it, and that it failed.
  */
 object TileReading {
 	private val lock = Mutex()
-	private var last: Triple<String, Long, Reading>? = null
+
+	/** The last reading: of which computer, when (the phone's clock), and what it gave (null: none). */
+	private var last: Triple<String, Long, Reading?>? = null
 
 	/** A reading as fresh as this is shared rather than asked for again. */
 	private const val SHARED_MS = 5_000L
 
+	/** The next tile asks again: an action ran, which may change what the computer says. */
+	fun forget() {
+		last = null
+	}
+
 	suspend fun read(context: Context, machine: Machine): Reading? = lock.withLock {
 		val now = System.currentTimeMillis()
 		last?.takeIf { (id, at, _) -> id == machine.id && now - at in 0 until SHARED_MS }?.let { return it.third }
+		val r = ask(context, machine)
+		r?.line?.widgets?.let { states ->
+			for (s in tileSlots(r.ui)) {
+				val key = tileKey(machine.id, s.widget.id)
+				val state = states[s.widget.id] ?: continue
+				// Not what a reading from before an action of its own says.
+				if (!TileMemory.readable(key, now)) continue
+				if (s.toggle) TileMemory.on[key] = toggledOn(s.widget, state)
+				if (state.enabled == false) TileMemory.disabled += key else TileMemory.disabled -= key
+			}
+		}
+		last = Triple(machine.id, now, r)
+		r
+	}
+
+	private suspend fun ask(context: Context, machine: Machine): Reading? {
 		val store = MachineStore.get(context)
 		val cache = UiCache.get(context)
 		// Taken before asking: forgotten meanwhile, the computer's answer isn't kept.
 		val ticket = cache.ticket(machine.id)
-		val r = try {
+		return try {
 			val client = (reach(machine, store) as? Reach.Reached)?.client ?: return null
 			readDashboard(
 				ui = { fresh -> uiOf(machine, client, cache, store, fresh, ticket) },
@@ -188,11 +213,7 @@ object TileReading {
 		} catch (e: CancellationException) {
 			throw e
 		} catch (e: Exception) {
-			return null
+			null
 		}
-		val states = r.line?.widgets.orEmpty()
-		for (s in tileSlots(r.ui)) if (s.toggle && s.widget.id in states) TileMemory.on[s.widget.id] = toggledOn(s.widget, states[s.widget.id])
-		last = Triple(machine.id, now, r)
-		r
 	}
 }

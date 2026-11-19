@@ -18,6 +18,7 @@ import io.github.elaizes.elamon.data.Action
 import io.github.elaizes.elamon.data.Machine
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.Params
+import io.github.elaizes.elamon.data.UiCache
 import io.github.elaizes.elamon.data.UiDoc
 import io.github.elaizes.elamon.data.Widget
 import io.github.elaizes.elamon.messageFor
@@ -69,17 +70,21 @@ fun tilesMachine(context: Context): Machine? = shownMachine(Settings.get(context
 data class TileNote(val text: Message, val at: Long, val failed: Boolean)
 
 /**
- * What the tiles know between their listening: each toggle's state as last read, and how each
- * slot's action ended. For as long as the app runs; read again when a tile starts listening.
+ * What the tiles know between their listening, each by its computer and widget ([tileKey]): a
+ * toggle's state as last read, whether the computer says the widget is disabled, and how the last
+ * run of its action ended. For as long as the app runs; read again when a tile starts listening.
  */
 object TileMemory {
-	/** A toggle's state, by its widget's id. */
+	/** A toggle's state. */
 	val on = ConcurrentHashMap<String, Boolean>()
 
-	/** How the last run of each slot ended, by its widget's id. */
+	/** Widgets the computer says are disabled now (a monitor's picture, the monitor being off). */
+	val disabled: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+	/** How the last run of each ended. */
 	val notes = ConcurrentHashMap<String, TileNote>()
 
-	/** The slots' widgets running now. */
+	/** Those whose action runs now. */
 	val running: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
 	/** How long what a tile ran stays said under its name. */
@@ -90,40 +95,53 @@ object TileMemory {
 
 	fun changed() = changes.update { it + 1 }
 
-	fun note(widget: String, now: Long): TileNote? = notes[widget]?.takeIf { now - it.at < NOTE_MS }
+	fun note(key: String, now: Long): TileNote? = notes[key]?.takeIf { now - it.at < NOTE_MS }
+
+	/**
+	 * Whether a reading begun at [since] may say what [key] is now: not while its action runs, nor
+	 * once one ended after the reading began (the reading may be from before it).
+	 */
+	fun readable(key: String, since: Long): Boolean = key !in running && (notes[key]?.at ?: 0L) < since
 }
+
+/** What tells a tile's widget apart: its computer's id and its own. One computer's toggle is never another's. */
+fun tileKey(machine: String, widget: String): String = "$machine/$widget"
 
 /** The tiles' services, slot by slot. */
 private val SERVICES = listOf(Tile1::class.java, Tile2::class.java, Tile3::class.java, Tile4::class.java)
 
-/** Asks every tile to draw itself again: their computer, or what its profile names, changed. */
+/**
+ * Asks every tile to draw itself again: their computer, or what its profile names, changed. A tile
+ * that isn't listening draws itself anew as the panel opens anyway.
+ */
 fun refreshTiles(context: Context) {
+	TileMemory.changed()
 	for (s in SERVICES) runCatching { TileService.requestListeningState(context, ComponentName(context, s)) }
 }
 
 /**
  * Runs [action] of [machine], a tile's ([widget]), once whatever asks before it has been answered:
  * outside any screen, so it goes on after the panel closes. How it ended is the tile's to show; a
- * toggle's, done, [turnsTo] on or off.
+ * toggle's, done, [turnsTo] on or off. Refused as the `ui` changed, the next reading reads it anew.
  */
 fun runForTile(context: Context, machine: Machine, widget: String, action: Action, params: JsonObject, typed: String?, turnsTo: Boolean? = null) {
 	val ctx = context.applicationContext
-	if (!TileMemory.running.add(widget)) return
-	TileMemory.changed()
+	val key = tileKey(machine.id, widget)
+	if (!TileMemory.running.add(key)) return
 	refreshTiles(ctx)
 	Outside.scope.launch {
 		val note = try {
-			val r = runAction(machine, MachineStore.get(ctx), action, params, typed)
-			turnsTo?.let { TileMemory.on[widget] = it }
+			val r = runAction(machine, MachineStore.get(ctx), UiCache.get(ctx), action, params, typed)
+			turnsTo?.let { TileMemory.on[key] = it }
 			TileNote(afterRun(action, params, r) ?: Message.Res(io.github.elaizes.elamon.R.string.control_done), System.currentTimeMillis(), failed = false)
 		} catch (e: CancellationException) {
 			throw e
 		} catch (e: Exception) {
 			TileNote(messageFor(e), System.currentTimeMillis(), failed = true)
 		}
-		TileMemory.notes[widget] = note
-		TileMemory.running.remove(widget)
-		TileMemory.changed()
+		TileMemory.notes[key] = note
+		TileMemory.running.remove(key)
+		TileReading.forget()
 		refreshTiles(ctx)
 	}
 }
