@@ -43,7 +43,7 @@ class HomeCardTest {
 	@Test
 	fun theKeptUiWhileItsTabIsThere() = runTest {
 		val c = Computer(setOf("home"), data)
-		val live = cardReading(ui = { fresh -> c.asked += fresh; ui }, snapshot = c::snapshot)
+		val live = cardReading(ui = { fresh -> c.asked += fresh; ui }, snapshot = c::snapshot, fresh = false)
 		assertEquals(listOf("CPU", "Memory", "Temperature"), assertIs<Live.Online>(live).stats.map { it.label })
 		assertEquals(listOf(false), c.asked)
 	}
@@ -53,7 +53,7 @@ class HomeCardTest {
 		// The kept ui's first tab was renamed on the computer: the snapshot is refused (404), which isn't
 		// the computer being offline. The ui is read again, and its first tab gives the figures.
 		val c = Computer(setOf("home"), data)
-		val live = cardReading(ui = { fresh -> c.asked += fresh; if (fresh) ui else kept }, snapshot = c::snapshot)
+		val live = cardReading(ui = { fresh -> c.asked += fresh; if (fresh) ui else kept }, snapshot = c::snapshot, fresh = false)
 		assertEquals(3, assertIs<Live.Online>(live).stats.size)
 		assertEquals(listOf(false, true), c.asked)
 		assertEquals(listOf("start", "home"), c.read)
@@ -65,7 +65,7 @@ class HomeCardTest {
 		// doesn't know. The ui is read again, and its figures are the computer's own.
 		val c = Computer(setOf("home"), data)
 		val older = ui.copy(version = "old", dashboards = ui.dashboards.map { if (it.id == "home") it.copy(widgets = it.widgets.drop(1)) else it })
-		val live = cardReading(ui = { fresh -> c.asked += fresh; if (fresh) ui else older }, snapshot = c::snapshot)
+		val live = cardReading(ui = { fresh -> c.asked += fresh; if (fresh) ui else older }, snapshot = c::snapshot, fresh = false)
 		assertEquals(listOf("CPU", "Memory", "Temperature"), assertIs<Live.Online>(live).stats.map { it.label })
 		assertEquals(listOf(false, true), c.asked)
 	}
@@ -73,7 +73,7 @@ class HomeCardTest {
 	@Test
 	fun readAgainOnceOnly() = runTest {
 		val c = Computer(emptySet(), data)
-		val e = assertFailsWith<ElamondException> { cardReading(ui = { fresh -> c.asked += fresh; kept }, snapshot = c::snapshot) }
+		val e = assertFailsWith<ElamondException> { cardReading(ui = { fresh -> c.asked += fresh; kept }, snapshot = c::snapshot, fresh = false) }
 		assertEquals("no_such_dashboard", e.code)
 		assertEquals(listOf(false, true), c.asked)
 		// And it says the computer answers.
@@ -85,9 +85,24 @@ class HomeCardTest {
 		for (refusal in listOf(refused(401, "unauthorized"), refused(500, "failed"), ElamondException(ElamondException.Kind.Unreachable))) {
 			val c = Computer(emptySet(), data)
 			c.refusal = { refusal }
-			assertFailsWith<ElamondException> { cardReading(ui = { fresh -> c.asked += fresh; ui }, snapshot = c::snapshot) }
+			assertFailsWith<ElamondException> { cardReading(ui = { fresh -> c.asked += fresh; ui }, snapshot = c::snapshot, fresh = false) }
 			assertEquals(listOf(false), c.asked)
 		}
+	}
+
+	@Test
+	fun theCardReadsTheComputersOwnUiOnce() = runTest {
+		// No snapshot says the kept ui is out of date (an unlock or a confirmation added to the profile
+		// since, which the card's quick actions must ask): the card reads the computer's own, and once.
+		val c = Computer(setOf("home"), data)
+		val live = cardReading(ui = { fresh -> c.asked += fresh; if (fresh) ui else kept }, snapshot = c::snapshot)
+		assertEquals(3, assertIs<Live.Online>(live).stats.size)
+		assertEquals(listOf(true), c.asked)
+		assertEquals(listOf("home"), c.read)
+		// Refused all the same: the ui is the computer's already, and isn't asked for again.
+		val gone = Computer(emptySet(), data)
+		assertFailsWith<ElamondException> { cardReading(ui = { fresh -> gone.asked += fresh; ui }, snapshot = gone::snapshot) }
+		assertEquals(listOf(true), gone.asked)
 	}
 
 	@Test

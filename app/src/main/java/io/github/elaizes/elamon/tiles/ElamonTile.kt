@@ -11,12 +11,15 @@ import android.service.quicksettings.TileService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import io.github.elaizes.elamon.R
+import io.github.elaizes.elamon.data.ElamondException
+import io.github.elaizes.elamon.messageFor
 import io.github.elaizes.elamon.Reach
 import io.github.elaizes.elamon.Reading
 import io.github.elaizes.elamon.data.Machine
@@ -47,11 +50,19 @@ abstract class ElamonTile : TileService() {
 	/** What a tap runs, as last drawn: the computer and the widget; null for nothing. */
 	private var shown: Pair<Machine, TileSlot>? = null
 
+	/**
+	 * The computer's own `ui`, read as the tile began listening: what a tap runs by, so that it asks
+	 * before the action as the profile says now (an unlock or a confirmation added since included),
+	 * not as the `ui` kept from before said. Null until it is read.
+	 */
+	private var fresh: UiDoc? = null
+
 	override fun onStartListening() {
 		super.onStartListening()
 		val s = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 		scope?.cancel()
 		scope = s
+		fresh = null
 		s.launch {
 			val machine = tilesMachine(this@ElamonTile)
 			// At once, as last read; then as the computer says now, toggles and profile alike.
@@ -61,6 +72,7 @@ abstract class ElamonTile : TileService() {
 			// An action that starts or ends meanwhile (this tile's, or another's on the same toggle) is shown.
 			s.launch { TileMemory.changes.collect { draw(machine, ui) } }
 			ui = TileReading.read(this@ElamonTile, machine)?.ui ?: return@launch
+			fresh = ui
 			draw(machine, ui)
 		}
 	}
@@ -79,12 +91,37 @@ abstract class ElamonTile : TileService() {
 	override fun onClick() {
 		super.onClick()
 		val (machine, slot) = shown ?: return
+		val widget = slot.widget.id
 		// A locked phone is unlocked first, whatever the action asks after.
-		if (isLocked) unlockAndRun { tap(machine, slot) } else tap(machine, slot)
+		if (isLocked) unlockAndRun { act(machine, widget) } else act(machine, widget)
 	}
 
-	private fun tap(machine: Machine, slot: TileSlot) {
-		val on = TileMemory.on[tileKey(machine.id, slot.widget.id)] == true
+	/**
+	 * Runs the tile's [widget] of [machine] by the computer's own `ui`: the one read as the tile began
+	 * listening, or, tapped before that came, one read now; never by the `ui` kept from before, whose
+	 * `confirm` and `unlock` may be out of date. Out of reach, nothing runs, and the tile says so.
+	 */
+	private fun act(machine: Machine, widget: String) {
+		fresh?.let { return tap(machine, widget, it) }
+		(scope ?: MainScope()).launch {
+			val ui = TileReading.read(this@ElamonTile, machine)?.ui
+			if (ui == null) {
+				TileMemory.notes[tileKey(machine.id, widget)] = TileNote(messageFor(ElamondException(ElamondException.Kind.Unreachable)), System.currentTimeMillis(), failed = true)
+				TileMemory.changed()
+				return@launch
+			}
+			fresh = ui
+			draw(machine, ui)
+			tap(machine, widget, ui)
+		}
+	}
+
+	/** The tap on [widget], as [ui] has it in this tile's place; none where it no longer is, or can't run now. */
+	private fun tap(machine: Machine, widget: String, ui: UiDoc) {
+		val slot = tileSlots(ui).getOrNull(this.slot)?.takeIf { it.widget.id == widget } ?: return
+		val key = tileKey(machine.id, widget)
+		if (!ui.control.enabled || key in TileMemory.disabled) return
+		val on = TileMemory.on[key] == true
 		val tap = tapOf(slot.widget, slot.action, on)
 		if (asksFirst(slot, tap.params)) {
 			open(TileActionActivity.intent(this, machine.id, slot.widget.id, on))
@@ -161,8 +198,8 @@ class Tile4 : ElamonTile() {
 }
 
 /**
- * One short reading for the tiles as the panel opens: the computer's `ui` as kept (its own where
- * that is out of date or names no tiles dashboard) and a snapshot of the tiles' dashboard, for the
+ * One short reading for the tiles as the panel opens: the computer's own `ui` (a snapshot doesn't
+ * say whether the one kept is out of date) and a snapshot of the tiles' dashboard, for the
  * toggles' states and whether each widget is enabled. The four tiles share it, and that it failed.
  */
 object TileReading {
@@ -209,6 +246,8 @@ object TileReading {
 				pick = ::tilesDashboard,
 				snapshot = { client.snapshot(it, history = false) },
 				freshWithout = true,
+				// The computer's own: what the tiles run asks as the profile says now.
+				fresh = true,
 			)
 		} catch (e: CancellationException) {
 			throw e

@@ -50,6 +50,17 @@ class HomeCardProfileTest {
 	}
 
 	@Test
+	fun aQuickActionAsksAsTheProfileSaysNow() = runTest {
+		// The ui kept from before the profile asked to confirm and to unlock for the lock: the card's
+		// quick action asks as the computer says now, not as it said then.
+		val kept = ui.copy(version = "old", actions = ui.actions.map { if (it.id == "power.lock") it.copy(confirm = false, unlock = false) else it })
+		val live = assertIs<Live.Online>(cardReading(ui = { fresh -> if (fresh) ui else kept }, snapshot = { card }))
+		val lock = live.quick!!.items.single().action
+		assertEquals(listOf(true, true), listOf(lock.confirm, lock.unlock))
+		assertEquals(ui.version, live.quick!!.ui.version)
+	}
+
+	@Test
 	fun withoutACardTheFirstTabAsBefore() = runTest {
 		// A profile without `card`, or one whose card this phone's role sees none of: the first tab's figures, no quick actions.
 		for (doc in listOf(ui.copy(profile = ui.profile.copy(android = ui.profile.android.copy(card = ""))), ui.copy(dashboards = ui.dashboards.filter { it.id != "card" }))) {
