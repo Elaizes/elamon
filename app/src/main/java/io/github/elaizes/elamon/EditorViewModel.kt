@@ -95,6 +95,16 @@ private enum class PreviewTry {
 fun previewWaitMs(failures: Int, intervalMs: Int): Long =
 	if (failures <= 0) intervalMs.toLong() else maxOf(intervalMs.toLong(), Limits.backoffMs(failures - 1))
 
+/** [s] with the draft changed to [draft]: the last write's mistakes go, with what they were about. */
+fun edited(s: EditorState, draft: JsonObject): EditorState = s.copy(draft = draft, mistakes = emptyList())
+
+/**
+ * [s] when what it was to open (at first, or read again) isn't in the computer's settings, [why]:
+ * with nothing open, the screen says so; with something open, that stays as it was, and [why] is
+ * to be said instead (the second).
+ */
+fun notInSettings(s: EditorState, why: Message): Pair<EditorState, Message?> = if (s.editing == null) s.copy(failed = why) to null else s to why
+
 /** [s] after asking for its preview failed with [note]: the last one that worked stays, marked old. */
 fun previewFailed(s: EditorState, note: Message?): EditorState = s.copy(preview = s.preview?.copy(stale = true), previewNote = note)
 
@@ -111,7 +121,7 @@ data class EditorState(
 	val preview: PreviewView? = null,
 	/** Why there is no preview, or an old one, now. */
 	val previewNote: Message? = null,
-	/** What the computer didn't take of the last write: until the next write. */
+	/** What the computer didn't take of the last write: until the draft changes, or the next write. */
 	val mistakes: List<Mistake> = emptyList(),
 	/** What the last preview found wrong with the draft: until one finds nothing. */
 	val previewMistakes: List<Mistake> = emptyList(),
@@ -218,7 +228,10 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 				is Editing.Board -> editing.id
 				is Editing.Tabs -> editing.profile
 			}
-			_state.update { it.copy(failed = Message.Res(R.string.editor_not_in_settings, listOf(name))) }
+			// Read again (Reload) and gone meanwhile: what is open stays, and the snackbar says why.
+			val (next, why) = notInSettings(_state.value, Message.Res(R.string.editor_not_in_settings, listOf(name)))
+			_state.value = next
+			why?.let(::say)
 			return
 		}
 		_state.update { it.copy(editing = editing, draft = def, base = def, mistakes = emptyList(), conflict = null, failed = null) }
@@ -249,13 +262,13 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 
 	/** The draft changed by [change]. */
 	fun change(change: (JsonObject) -> JsonObject) {
-		_state.update { it.copy(draft = change(it.draft)) }
+		_state.update { edited(it, change(it.draft)) }
 		ask()
 	}
 
 	/** The draft as it was: what an undo puts back. */
 	fun restore(draft: JsonObject) {
-		_state.update { it.copy(draft = draft) }
+		_state.update { edited(it, draft) }
 		ask()
 	}
 
