@@ -9,7 +9,7 @@ import { qrMatrix, qrScale } from './qr.js';
 import { countdown, ago, nowS } from './time.js';
 import { groupCode } from './text.js';
 import { errorSentence } from './errors.js';
-import { PAIRING_POLL_MS, TICK_MS, QR_QUIET, QR_PIXELS, QR_DARK, QR_LIGHT } from './consts.js';
+import { PAIRING_POLL_MS, TICK_MS, QR_QUIET, QR_PIXELS, QR_DARK, QR_LIGHT } from '../consts.js';
 
 /** @typedef {import('./types.js').Pending} Pending */
 /** @typedef {import('./types.js').AdminClients} AdminClients */

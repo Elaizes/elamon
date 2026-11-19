@@ -2,8 +2,8 @@
 // reset, after pages of older ones from `/api/v1/log`; "… n more" where the stream left some out.
 // Each change makes a new value. Pure.
 
-/** Lines a log keeps when its widget doesn't say. */
-export const LOG_LINES_DEFAULT = 200;
+import { LOG_LINES_DEFAULT } from './consts.js';
+
 /** Lines a log keeps at most, older pages included. */
 export const LOG_LINES_MAX = 2000;
 /** A search's length at most, as the service takes it. */

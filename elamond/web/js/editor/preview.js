@@ -3,10 +3,12 @@
 // makes and the dashboard's data from the reading there is now, and writes nothing.
 import { api } from '../api.js';
 import { DRAWS } from '../panels.js';
+import { PREVIEW_SOON_MS } from '../consts.js';
 
 export class Previewer {
 	/**
-	 * @param {{ body: () => Record<string, unknown>, interval: number, done: (answer: any) => void, failed: (e: unknown) => void }} opts
+	 * @param {{ body: () => Record<string, unknown>, interval: () => number, done: (answer: any) => void, failed: (e: unknown) => void }} opts
+	 * `interval` is read each time, so a profile's new interval counts at once
 	 */
 	constructor(opts) {
 		this.opts = opts;
@@ -27,7 +29,7 @@ export class Previewer {
 	}
 
 	/** Asks again a moment from now (each change puts it off, so typing sends one). @param {number} [ms] */
-	soon(ms = 350) {
+	soon(ms = PREVIEW_SOON_MS) {
 		clearTimeout(this.wait);
 		this.wait = setTimeout(() => this.run(), ms);
 	}
@@ -58,7 +60,7 @@ export class Previewer {
 
 	schedule() {
 		clearTimeout(this.timer);
-		if (!this.stopped && !document.hidden) this.timer = setTimeout(() => this.run(), this.opts.interval);
+		if (!this.stopped && !document.hidden) this.timer = setTimeout(() => this.run(), this.opts.interval());
 	}
 
 	stop() {

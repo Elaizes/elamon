@@ -1,6 +1,7 @@
 // The editor's drafts: a dashboard and a profile as the service will write them, changed by the
 // forms and the canvas. Pure (no DOM), tested under node. A draft keeps every key it was given,
 // those no form knows included: what is sent back holds them all.
+import { COLUMNS, SPAN_MIN } from '../consts.js';
 
 /**
  * A widget of a draft: the settings' own table, any keys.
@@ -201,8 +202,8 @@ export function nudge(dash, path, delta) {
 	return moveWidget(dash, path, groupParent, delta > 0 ? g + 1 : g) || path;
 }
 
-/** Clamps a width to `min`–`max` and sets it. @param {DraftWidget} widget @param {number} span @param {number} [min] @param {number} [max] */
-export function setSpan(widget, span, min = 1, max = 4) {
+/** Clamps a width to `min`–`max` (the grid's, unless the description says) and sets it. @param {DraftWidget} widget @param {number} span @param {number} [min] @param {number} [max] */
+export function setSpan(widget, span, min = SPAN_MIN, max = COLUMNS) {
 	widget.span = Math.max(min, Math.min(max, Math.round(span)));
 	return widget.span;
 }
@@ -262,38 +263,6 @@ export function addTab(p, id, index) {
 	if (tabs.includes(id)) return false;
 	tabs.splice(index == null ? tabs.length : Math.max(0, Math.min(index, tabs.length)), 0, id);
 	return true;
-}
-
-// ---------------------------------------------------------------- the grid
-
-/**
- * The widths a grid of `cols` columns draws widgets of these spans at, as the app does: on two
- * columns each span is halved rounding up, on one every widget is the whole width; a widget that
- * doesn't fit beside the one before starts a row, and the last of a row takes the columns left.
- * @param {number[]} spans in columns of four @param {number} cols 4, 2 or 1 @returns {number[]}
- */
-export function flow(spans, cols) {
-	const s = spans.map((x) => {
-		const n = Math.max(1, Math.min(4, Math.round(Number(x) || 1)));
-		return cols >= 4 ? n : cols === 2 ? Math.ceil(n / 2) : 1;
-	});
-	const out = s.slice();
-	let used = 0;
-	let last = -1;
-	for (let i = 0; i < s.length; i++) {
-		if (used + s[i] > cols && last >= 0) {
-			out[last] += cols - used;
-			used = 0;
-		}
-		used += s[i];
-		last = i;
-		if (used >= cols) {
-			used = 0;
-			last = -1;
-		}
-	}
-	if (last >= 0) out[last] += cols - used;
-	return out;
 }
 
 // ---------------------------------------------------------------- mistakes

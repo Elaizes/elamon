@@ -16,7 +16,7 @@ import { actionRunner, confirmDialog } from './actions.js';
 import { errorText } from './errors.js';
 import { isFingerprint, colonFingerprint, printedFingerprint } from './fingerprint.js';
 import * as F from './format.js';
-import { intervalOf, historyMsOf } from './consts.js';
+import { intervalOf, historyMsOf, PAIR_WAIT_MS, ADOPT_MS } from './consts.js';
 import { roleName } from './roles.js';
 
 /** Every widget type this page draws, as `ui`, the stream and a preview ask for them: keep it to the types widgets/ has. */
@@ -24,10 +24,6 @@ export const DRAWS = 'value,gauge,meter,status,graph,list,bars,table,button,togg
 
 const P = S.panels;
 
-/** How long the page waits for the person at the computer to let a browser in (the service waits 90 s). */
-const PAIR_WAIT_MS = 100_000;
-/** How long a stream outlives its page when the address changes, for the next page to take it over. */
-const ADOPT_MS = 10_000;
 
 /**
  * @typedef {import('./types.js').Ui} Ui

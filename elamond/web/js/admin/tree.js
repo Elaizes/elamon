@@ -1,7 +1,7 @@
 // The merged settings as a tree to fold and filter, each part with the file and line that set it.
 // `whence` names paths up to three parts deep (`dashboards.cpu.title`, `dashboards.cpu.widgets[2]`)
 // as [index in `files`, line]; a deeper part has none of its own, and its nearest part above has it.
-import { INLINE_LIST_MAX } from './consts.js';
+import { INLINE_LIST_MAX } from '../consts.js';
 
 /** @typedef {{ file: string, line: number }} Where */
 

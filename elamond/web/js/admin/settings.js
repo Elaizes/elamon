@@ -5,7 +5,7 @@ import { h, clear } from '../dom.js';
 import { S, fill } from '../strings.js';
 import { loadInto, head, button, card, chip, whereLink, mistakeLinks, debounce } from './ui.js';
 import { buildTree, filterTree, countNodes, countHits } from './tree.js';
-import { FILTER_DEBOUNCE_MS } from './consts.js';
+import { FILTER_DEBOUNCE_MS } from '../consts.js';
 
 /** @typedef {import('./tree.js').TreeNode} TreeNode */
 

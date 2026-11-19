@@ -7,6 +7,7 @@ import { api, ApiError } from '../api.js';
 import { icon } from '../icons.js';
 import { card, chips } from './common.js';
 import * as L from '../logs.js';
+import { LOG_LINES_DEFAULT } from '../consts.js';
 import { S, fill } from '../strings.js';
 import * as F from '../format.js';
 
@@ -29,7 +30,7 @@ const LEVEL_WORDS = {
 export function create(w, env) {
 	const events = w.scope === 'events';
 	const own = typeof w.level === 'string' ? w.level : L.DEFAULT_LOG_LEVEL;
-	const keep = typeof w.lines === 'number' ? w.lines : L.LOG_LINES_DEFAULT;
+	const keep = typeof w.lines === 'number' ? w.lines : LOG_LINES_DEFAULT;
 	const kept = env.asked.log[w.id];
 	let level = kept ? kept.level : own;
 	let search = kept && kept.search ? kept.search : '';

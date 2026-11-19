@@ -1,6 +1,6 @@
 // Times as the admin panel says them: "5 min ago", "3 h 12 min", "4:59", "2026-11-19 14:05".
 import { S, fill } from '../strings.js';
-import { JUST_NOW_S } from './consts.js';
+import { JUST_NOW_S } from '../consts.js';
 
 const MINUTE = 60;
 const HOUR = 3600;

@@ -4,7 +4,7 @@ import { h, append } from '../dom.js';
 import { S, fill } from '../strings.js';
 import { loadInto, head, button, card, chip, table, plain } from './ui.js';
 import { dateTimeMs } from './time.js';
-import { LIST_LIMIT } from './consts.js';
+import { LIST_LIMIT } from '../consts.js';
 
 /** The source the monitors are asked for by (`elamond values displays`), where the computer has them. */
 const DISPLAYS = 'displays';

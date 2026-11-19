@@ -11,9 +11,9 @@ import { rangeChips } from '../history.js';
 import { stretches, stretchAt, timeIn, legendEntries, legendMode, splice, TIMELINE_STATES } from '../timeline.js';
 import { S, fill } from '../strings.js';
 import * as F from '../format.js';
+import { TIMELINE_DEFAULT_S } from '../consts.js';
 
 /** A timeline's range while the service doesn't say: a day. */
-const DEFAULT_S = 86_400;
 /** The least width a stretch is drawn, to be seen at all. */
 const STRETCH_MIN_PX = 2;
 
@@ -35,7 +35,7 @@ export function legendText(e) {
 
 /** @param {import('./common.js').Widget} w @param {import('./common.js').Env} env @returns {import('./common.js').Instance} */
 export function create(w, env) {
-	const liveMs = (typeof w.range === 'number' && w.range > 0 ? w.range : DEFAULT_S) * 1000;
+	const liveMs = (typeof w.range === 'number' && w.range > 0 ? w.range : TIMELINE_DEFAULT_S) * 1000;
 	const chipsOf = rangeChips(liveMs, w.ranges);
 	const rangeKey = `${w.id}#range`;
 	const mode = legendMode(w.legend);

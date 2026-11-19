@@ -4,6 +4,7 @@
 // of its own: all of it is the description's.
 import { clone, WIDGETS } from './draft.js';
 import { S, fill } from '../strings.js';
+import { COLUMNS, SPAN_MIN } from '../consts.js';
 
 /**
  * A key a form offers, or (without `key`) the shape of a list's, map's or `any`'s items.
@@ -127,11 +128,11 @@ export function commonKey(d, name) {
 	return d.common.find((k) => k.key === name) || null;
 }
 
-/** The widths a widget may take: `span`'s `min` and `max`, 1–4 when the description doesn't say. @param {Editor} d */
+/** The widths a widget may take: `span`'s `min` and `max`, the grid's when the description doesn't say. @param {Editor} d */
 export function spanRange(d) {
 	const k = commonKey(d, 'span');
-	const min = k && typeof k.min === 'number' ? k.min : 1;
-	const max = k && typeof k.max === 'number' ? k.max : 4;
+	const min = k && typeof k.min === 'number' ? k.min : SPAN_MIN;
+	const max = k && typeof k.max === 'number' ? k.max : COLUMNS;
 	return { min, max };
 }
 

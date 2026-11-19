@@ -3,14 +3,7 @@
 // rounding up where there are half as many columns; one that doesn't fit beside the one before
 // starts a row, and the last of a row takes the columns left free, so no row ends in a gap. Pure.
 
-/** The grid's columns on a wide screen; a narrow one has half. */
-export const COLUMNS = 4;
-
-/** Narrower than this (CSS px), the grid has two columns. */
-export const NARROW_PX = 600;
-
-/** Narrower than this, one: two would leave a tile too narrow for a name beside its icon. */
-export const ONE_COLUMN_PX = 320;
+import { COLUMNS, NARROW_PX, ONE_COLUMN_PX, SPAN_MIN } from './consts.js';
 
 /** The columns for a grid `width` px wide. @param {number} width */
 export function columns(width) {
@@ -21,7 +14,7 @@ export function columns(width) {
 
 /** A widget's `span` in a grid of `cols`: halved, rounding up, where there are half as many. @param {number} span @param {number} cols */
 export function span(span, cols) {
-	const s = Math.min(Math.max(Math.trunc(Number(span) || 0), 1), COLUMNS);
+	const s = Math.min(Math.max(Math.trunc(Number(span) || 0), SPAN_MIN), COLUMNS);
 	return Math.min(Math.max(Math.trunc((s * cols + COLUMNS - 1) / COLUMNS), 1), cols);
 }
 

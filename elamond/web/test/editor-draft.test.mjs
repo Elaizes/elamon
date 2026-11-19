@@ -5,8 +5,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
 	draft, isDirty, rebase, clone, stable, setKey, listAt, widgetAt, addWidget, removeWidget, moveWidget, nudge,
-	setSpan, allPaths, addTab, changes, writeInTurn, flow, isId,
+	setSpan, allPaths, addTab, changes, writeInTurn, isId,
 } from '../js/editor/draft.js';
+import { placedSpans } from '../js/layout.js';
 import { normalise, exampleOf, unknownKeys, spanOf, isGroup } from '../js/editor/describe.js';
 
 const fx = (name) => JSON.parse(readFileSync(new URL(`../../fixtures/0.11/${name}`, import.meta.url), 'utf8'));
@@ -162,14 +163,14 @@ test('widths: the widget\'s own, else its type\'s, clamped', () => {
 });
 
 test('the grid: rows filled, the last of a row taking the columns left', () => {
-	assert.deepEqual(flow([2, 2, 2, 2], 4), [2, 2, 2, 2]);
-	assert.deepEqual(flow([2, 1], 4), [2, 2]);
-	assert.deepEqual(flow([2, 2, 2], 4), [2, 2, 4]);
-	assert.deepEqual(flow([1, 1, 1, 4, 3, 3], 4), [1, 1, 2, 4, 4, 4]);
-	assert.deepEqual(flow([2, 1, 1, 3], 2), [1, 1, 2, 2]);
-	assert.deepEqual(flow([4, 1], 2), [2, 2]);
-	assert.deepEqual(flow([1, 2, 3], 1), [1, 1, 1]);
-	assert.deepEqual(flow([], 4), []);
+	assert.deepEqual(placedSpans([2, 2, 2, 2], 4), [2, 2, 2, 2]);
+	assert.deepEqual(placedSpans([2, 1], 4), [2, 2]);
+	assert.deepEqual(placedSpans([2, 2, 2], 4), [2, 2, 4]);
+	assert.deepEqual(placedSpans([1, 1, 1, 4, 3, 3], 4), [1, 1, 2, 4, 4, 4]);
+	assert.deepEqual(placedSpans([2, 1, 1, 3], 2), [1, 1, 2, 2]);
+	assert.deepEqual(placedSpans([4, 1], 2), [2, 2]);
+	assert.deepEqual(placedSpans([1, 2, 3], 1), [1, 1, 1]);
+	assert.deepEqual(placedSpans([], 4), []);
 });
 
 test("a profile's write holds what was changed here, never what the files set", () => {

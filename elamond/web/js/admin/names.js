@@ -1,7 +1,7 @@
 // Settings files' names: a new drop-in's, as the protocol takes it (`elamond.d/<name>.toml`, the
 // name of letters, digits, `_`, `.` and `-`, starting with a letter or a digit, at most 64
 // characters before `.toml`), and a file's place in the page's address.
-import { DROPIN_STEM_MAX } from './consts.js';
+import { DROPIN_STEM_MAX } from '../consts.js';
 
 export const DROPIN_DIR = 'elamond.d/';
 export const SUFFIX = '.toml';

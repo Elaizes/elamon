@@ -8,6 +8,7 @@ import { mountPair, mountMachine, DRAWS } from './panels.js';
 import { mountAdmin } from './admin/index.js';
 import { mountEditor } from './editor/index.js';
 import { pairCode, hashParts, once, generations } from './route.js';
+import { TOAST_MS, TOAST_LOUD_MS } from './consts.js';
 
 /** The API this page speaks. */
 const API = 2;
@@ -57,7 +58,7 @@ function toast(text, level = 'normal') {
 	}
 	const t = h('div', { class: `toast ${level}` }, text);
 	box.append(t);
-	setTimeout(() => t.remove(), level === 'normal' ? 4000 : 8000);
+	setTimeout(() => t.remove(), level === 'normal' ? TOAST_MS : TOAST_LOUD_MS);
 }
 
 /**

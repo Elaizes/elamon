@@ -5,7 +5,9 @@
 import { h, svg, clear, setStyle } from '../dom.js';
 import { S, fill } from '../strings.js';
 import { dashboardView } from '../panels.js';
-import { flow, pathKey, samePath, within, WIDGETS } from './draft.js';
+import { pathKey, samePath, within, WIDGETS } from './draft.js';
+import { placedSpans } from '../layout.js';
+import { COLUMNS, NARROW_PX, ONE_COLUMN_PX } from '../consts.js';
 import { spanOf, spanRange, nameOf, typeLabel, isGroup, matchDrawn, widgetType } from './describe.js';
 
 /**
@@ -26,11 +28,11 @@ import { spanOf, spanRange, nameOf, typeLabel, isGroup, matchDrawn, widgetType }
 /** @param {string} key @returns {import('./draft.js').WidgetPath} */
 const parsePath = (key) => (key ? key.split('/').map(Number) : []);
 
-/** The columns the page's grid has now (style.css: four, two under 600 px, one under 320). */
+/** The columns the editor's grid has now, as editor.css's media queries give it. */
 function columns() {
-	if (window.matchMedia('(max-width: 320px)').matches) return 1;
-	if (window.matchMedia('(max-width: 600px)').matches) return 2;
-	return 4;
+	if (window.matchMedia(`(max-width: ${ONE_COLUMN_PX}px)`).matches) return 1;
+	if (window.matchMedia(`(max-width: ${NARROW_PX}px)`).matches) return COLUMNS / 2;
+	return COLUMNS;
 }
 
 /** @param {'grip' | 'close' | 'resize'} name */
@@ -157,9 +159,9 @@ export class Canvas {
 		const drawn = list.map((w, i) => this.assigned.get(pathKey([...parent, i])) ?? null);
 		const spans = list.map((w, i) => this.info(w && typeof w === 'object' ? w : {}, drawn[i]).span);
 		// A widget made for each item of something takes the whole width: its items flow inside.
-		const cells = spans.map((n, i) => (drawn[i] && /** @type {any[]} */ (drawn[i]).length > 1 ? 4 : n));
-		const wide = flow(cells, 4);
-		const narrow = flow(cells, 2);
+		const cells = spans.map((n, i) => (drawn[i] && /** @type {any[]} */ (drawn[i]).length > 1 ? COLUMNS : n));
+		const wide = placedSpans(cells, COLUMNS);
+		const narrow = placedSpans(cells, COLUMNS / 2);
 		list.forEach((w, i) => g.append(this.cell(w && typeof w === 'object' ? w : {}, [...parent, i], drawn[i], wide[i], narrow[i])));
 		g.append(
 			h(
@@ -482,7 +484,7 @@ export class Canvas {
 	 * @param {PointerEvent} e @param {import('./draft.js').WidgetPath} path @param {HTMLElement} cell @param {number} span
 	 */
 	resize(e, path, cell, span) {
-		if (e.button !== 0 || columns() < 4 || !cell.parentElement) return;
+		if (e.button !== 0 || columns() < COLUMNS || !cell.parentElement) return;
 		e.preventDefault();
 		e.stopPropagation();
 		const handle = /** @type {HTMLElement} */ (e.currentTarget);
@@ -498,7 +500,7 @@ export class Canvas {
 		const move = (/** @type {PointerEvent} */ ev) => {
 			const gr = grid.getBoundingClientRect();
 			const gap = parseFloat(getComputedStyle(grid).columnGap) || 0;
-			const col = (gr.width - gap * 3) / 4;
+			const col = (gr.width - gap * (COLUMNS - 1)) / COLUMNS;
 			const r = cell.getBoundingClientRect();
 			now = Math.max(min, Math.min(max, Math.round((ev.clientX - r.left + gap) / (col + gap))));
 			cell.classList.remove(...[...cell.classList].filter((c) => c.startsWith('ed-w4-')));

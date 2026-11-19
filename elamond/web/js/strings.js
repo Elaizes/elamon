@@ -50,7 +50,7 @@ export const S = {
 		pairDevice: 'Name of this browser (optional)',
 		pairDeviceHint: 'Left empty, the computer names it after the browser, as “Firefox on Linux”.',
 		pairSubmit: 'Pair',
-		pairWaiting: 'Confirm on the computer: elamond pair asks there whether to allow this browser. Answer y; it waits up to 90 seconds.',
+		pairWaiting: 'Confirm on the computer: elamond pair asks there whether to allow this browser. Answer y there; this page waits while the person at the computer answers.',
 		pairCertificate: 'This computer’s certificate',
 		pairCompare: 'Compare it with the certificate your browser shows for this page, and with the Certificate line elamond pair printed: they must be the same.',
 		pairPrinted: 'As elamond pair prints it: {0}',

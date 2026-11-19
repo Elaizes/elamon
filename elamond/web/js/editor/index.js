@@ -19,6 +19,7 @@ import { widgetForm } from './side.js';
 import { addDialog } from './add.js';
 import { confirmDialog } from '../actions.js';
 import { errorSentence } from '../admin/errors.js';
+import { PREVIEW_MIN_MS, PREVIEW_AFTER_SHAPE_MS, PREVIEW_AFTER_TYPING_MS, intervalOf } from '../consts.js';
 
 /**
  * A dashboard made on `#/edit` and not saved yet, which the editor it goes to takes up.
@@ -181,7 +182,7 @@ class Editor {
 		});
 		this.previewer = new Previewer({
 			body: () => this.previewBody(),
-			interval: Math.max(1000, (ctx.ui() && ctx.ui()?.service.interval_ms) || 1000),
+			interval: () => Math.max(PREVIEW_MIN_MS, intervalOf(ctx.ui())),
 			done: (a) => this.previewed(a),
 			failed: (e) => this.previewFailed(e),
 		});
@@ -472,7 +473,7 @@ class Editor {
 			this.canvas.render();
 		}
 		this.renderDirty();
-		this.previewer.soon(shape ? 150 : 400);
+		this.previewer.soon(shape ? PREVIEW_AFTER_SHAPE_MS : PREVIEW_AFTER_TYPING_MS);
 	}
 
 	/**

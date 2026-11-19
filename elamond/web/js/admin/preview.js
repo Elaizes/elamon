@@ -9,7 +9,7 @@ import { failure } from './ui.js';
 import { errorSentence, isRefusal, mistakesOf } from './errors.js';
 import { draftDashboards } from './text.js';
 import { dateTimeMs } from './time.js';
-import { PREVIEW_MIN_MS, PREVIEW_FALLBACK_MS } from './consts.js';
+import { PREVIEW_MIN_MS, intervalOf } from '../consts.js';
 
 /** @typedef {import('../types.js').Ui} Ui */
 
@@ -133,7 +133,7 @@ export function openPreview(env, files, openMistake) {
 	};
 	document.addEventListener('visibilitychange', onVisible);
 
-	const interval = () => Math.max(PREVIEW_MIN_MS, Number(last?.service?.interval_ms) || PREVIEW_FALLBACK_MS);
+	const interval = () => Math.max(PREVIEW_MIN_MS, intervalOf(last));
 
 	async function ask() {
 		timer = 0;

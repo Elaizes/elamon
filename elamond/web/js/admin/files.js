@@ -11,7 +11,7 @@ import { lineCount, offsetOfLine, endOfLine, lineAt, sizeText } from './text.js'
 import { dateTime } from './time.js';
 import { filesCard } from './overview.js';
 import { openPreview, mistakesList } from './preview.js';
-import { CHECK_DEBOUNCE_MS } from './consts.js';
+import { CHECK_DEBOUNCE_MS } from '../consts.js';
 
 /** @typedef {import('./types.js').Env} Env */
 /** @typedef {import('./types.js').AdminFile} AdminFile */
