@@ -49,7 +49,8 @@ test('bad_settings counts its mistakes, and carries them', () => {
 	const e = from(save.bad_settings);
 	assert.equal(errorSentence(e), "The settings with this change don't parse (1 mistake): nothing was written.");
 	assert.equal(mistakesOf(e).length, 1);
-	assert.equal(mistakesOf(e)[0].path, 'dashboards.mine.widgets[0].max');
+	assert.equal(mistakesOf(e)[0].path, save.bad_settings.body.mistakes[0].path);
+	assert.match(mistakesOf(e)[0].path, /^dashboards\.mine\.widgets\[0\]\./);
 	const two = new ApiError(422, 'bad_settings', null, { error: 'bad_settings', mistakes: [{}, {}] });
 	assert.equal(errorSentence(two), "The settings with this change don't parse (2 mistakes): nothing was written.");
 	assert.equal(errorSentence(new ApiError(422, 'bad_settings', null, null)), S.admin.errors.bad_settings);

@@ -174,13 +174,16 @@ test('the grid: rows filled, the last of a row taking the columns left', () => {
 });
 
 test("a profile's write holds what was changed here, never what the files set", () => {
-	// The fixture's request, from a profile whose tabs and tiles were changed in the forms.
+	// The fixture's request: a tab added to a profile whose header and app's dashboards stay as the
+	// files say, so its tabs alone.
 	const want = fx('editor-profile.json').request.profile;
-	const p = draft({ dashboards: ['overview'], header: 'header', android: { widget: 'phone', tiles: '', card: '' } });
-	p.value.dashboards.push('mine');
-	p.value.android.tiles = 'tiles';
+	const p = draft({ dashboards: want.dashboards.slice(0, -1), header: 'header', android: { widget: 'phone', tiles: '', card: '' } });
+	p.value.dashboards.push(want.dashboards[want.dashboards.length - 1]);
 	assert.equal(isDirty(p), true);
-	assert.deepEqual(changes(p.start, p.value), { dashboards: want.dashboards, android: { tiles: want.android.tiles } });
+	assert.deepEqual(changes(p.start, p.value), want);
+	// One of the app's changed too: that key of `android` alone.
+	p.value.android.tiles = 'tiles';
+	assert.deepEqual(changes(p.start, p.value), { ...want, android: { tiles: 'tiles' } });
 	// "Add it to my tabs": the tabs alone.
 	const own = desc.profiles.find((x) => x.id === desc.profile) || desc.profiles[0];
 	const q = draft(own.def);

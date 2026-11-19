@@ -166,7 +166,10 @@ test('the service\'s mistakes, sorted to the widgets, keys and profile they name
 		{ message: 'no path' },
 	];
 	const m = sortMistakes(all, 'mine', 'pixel-9');
-	assert.deepEqual(m.widgets.get('0').get('max'), [save[0].message]);
+	// The fixture's: a key of the first widget, by the key its path names.
+	const first = locate(save[0].path);
+	assert.deepEqual(first.widget, [0]);
+	assert.deepEqual(m.widgets.get('0').get(/** @type {string} */ (first.key)), [save[0].message]);
 	assert.deepEqual(m.widgets.get('1/0').get('max'), ['too much']);
 	assert.deepEqual(m.widgets.get('2').get('columns'), ['[0].field: no such field']);
 	assert.deepEqual(m.dash.get('command'), [cmd[0].message]);
