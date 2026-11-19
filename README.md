@@ -13,7 +13,7 @@ Watch and control a Linux computer from your Android phone, live.
 - **Elamon**, the Android app (Android 8 and newer). No Google services, no trackers, no ads.
 - **elamond**, the Elamon service, a small program on the computer (Linux, any distribution, any
   desktop or none). It reads the kernel's own counters and serves them over HTTPS, only to phones
-  paired with it.
+  and browsers paired with it.
 
 **Setting it up and using it: [the user guide](docs/guide.md).**
 
@@ -63,9 +63,16 @@ Controlling, once the computer allows it:
   panel, or an external monitor over DDC/CI); turning off the last one that shows a picture asks
   for its name.
 
-Each phone has a role, set on the computer: glancing at the basics, watching everything, everyday
-control, or all of it. Every request to act is kept in an activity log, and `elamond control off`
-stops every phone at once.
+In a browser too: the service serves a web page of its own, paired with the same code, that shows
+the same dashboards and runs the same actions. Given the role `owner`, your own browser also has an
+admin panel (the service's state, the settings merged with where each part comes from, the paired
+clients and their roles, pairing, holding control off, and the settings files, checked before
+they're saved and backed up) and, in the page and the app, a dashboard editor: forms the service
+describes, saved to a drop-in of its own, never a command.
+
+Each phone or browser has a role, set on the computer: glancing at the basics, watching everything,
+everyday control, all of it, or, for your own, the settings too. Every request to act is kept in an
+activity log, and `elamond control off` stops every phone at once.
 
 Moving is kept simple: `elamond backup` saves the computer's identity and its paired phones in one
 file only you can read, which `elamond restore` puts back on a reinstalled or new computer without
@@ -118,6 +125,9 @@ four Quick Settings tiles that run its actions; which, the computer's profile sa
 6. For notifications, name an ntfy topic's file in the settings, `[notify.<id>]`
    ([details](docs/guide.md#10-events-and-notifications)).
 
+7. For a browser, open `https://<computer>:47823/` and type in the code of `elamond pair`
+   ([details](docs/guide.md#11-in-a-browser)).
+
 The phone and the computer talk directly, over the local network or a VPN they share: TCP 47823,
 and UDP 5353 for finding the computer by itself. The service can listen on chosen interfaces only
 (`listen = ["tailscale0"]`), and announces itself only on the local network. Its pairing QR code
@@ -125,7 +135,7 @@ carries the computer's Tailscale name and names you give (`names = [...]`) after
 the phone still finds it when they change. Everything is encrypted, a phone is paired only when
 you let it in at the computer, each phone has its own key that the computer can revoke, and the
 service only acts on the computer when told it may, starting and stopping only the units its
-settings name ([security](docs/guide.md#14-security)). Nothing goes through a server of anyone's,
+settings name ([security](docs/guide.md#17-security)). Nothing goes through a server of anyone's,
 with one exception that is yours to make: name an ntfy topic, and the service posts its events to
 that ntfy server, without names of units, disks or the computer unless you ask for them.
 
@@ -192,8 +202,9 @@ dashboards and profiles: [docs/config.md](docs/config.md).
 UPSes and power stations came with 0.7, your own readings and the system journal with 0.8, the
 phone's own scale and theme with 0.8.1, events and notifications through ntfy with 0.9, monitors
 under Hyprland, a home-screen widget and Quick Settings tiles with 0.10, the widget's rings with
-0.10.1. Next: a web version with an admin page. Not planned: the service for Windows or macOS, app
-stores (the app is the APK in each release).
+0.10.1, the web page with its admin panel and the dashboard editor with 0.11. Next: 1.0, once a
+month of use goes by without a change to the settings or the protocol. Not planned: the service
+for Windows or macOS, app stores (the app is the APK in each release).
 
 ## License
 

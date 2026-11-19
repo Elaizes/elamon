@@ -164,9 +164,9 @@ editor_file = "zz-editor.toml"
 | `cookie_days` | integer, 1–400 | 30 | how long a browser stays paired without opening the page |
 | `backups` | integer, 0–100 | 10 | backups kept of each settings file the admin API writes, in `~/.config/elamon/backups/` |
 | `editor_file` | file name | `zz-editor.toml` | the drop-in in `elamond.d/` the dashboard editor writes; it is read after the others whose names sort before it |
-| `cert_name` | host name | | the name a real certificate is for; browsers that reach the computer by it get that certificate, every other client the service's own |
+| `cert_name` | host name | | the name a real certificate is for; browsers that reach the computer by it get that certificate, every other client the service's own; phones are never told it (`endpoints`, the pairing link), as the app pins the service's own |
 | `cert_file` | path | | that certificate and its chain, PEM |
-| `key_file` | path | | its private key, PEM, readable by you alone (`chmod 600`) |
+| `key_file` | path | | its private key, PEM, readable by you alone (`chmod 600`): one others may read isn't presented |
 
 `elamond pair --role owner` pairs a client with the role `owner`; `elamond clients role ID owner`
 gives it to one paired. A client of the role may give any role up to its own from the admin panel.

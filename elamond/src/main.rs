@@ -908,7 +908,10 @@ fn pair(args: &[String]) -> Result<(), String> {
 	// names that stay when addresses change.
 	let ifaces = listen::interfaces();
 	let plan = listen::Plan::of(&config.listen, &ifaces);
-	let offered = names::Offered::of(&plan.pairing_hosts(&ifaces), &config.names, names::tailscale(&plan, &ifaces).as_deref());
+	// Not the name a real certificate is for: the app, pinning the service's own, would refuse it.
+	let not_web = |n: &String| config.web.cert_name.as_ref().is_none_or(|w| !webcert::same_name(n, w));
+	let own_names: Vec<String> = config.names.iter().filter(|n| not_web(n)).cloned().collect();
+	let offered = names::Offered::of(&plan.pairing_hosts(&ifaces), &own_names, names::tailscale(&plan, &ifaces).filter(|n| not_web(n)).as_deref());
 	let hosts = offered.hosts();
 	// The page's address, the code in its fragment (which a browser never sends): for a phone's
 	// browser to scan instead of the app.

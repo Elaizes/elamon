@@ -55,12 +55,17 @@ impl ResolvesServerCert for Resolver {
 		if let Some(sni) = hello.server_name()
 			&& let Ok(web) = self.web.read()
 			&& let Some((name, key)) = web.as_ref()
-			&& sni.trim_end_matches('.').eq_ignore_ascii_case(name.trim_end_matches('.'))
+			&& same_name(sni, name)
 		{
 			return Some(key.clone());
 		}
 		self.own.read().ok().map(|k| k.clone())
 	}
+}
+
+/// Whether two host names are one: case and a final dot aside.
+pub fn same_name(a: &str, b: &str) -> bool {
+	a.trim_end_matches('.').eq_ignore_ascii_case(b.trim_end_matches('.'))
 }
 
 fn provider() -> Arc<CryptoProvider> {
@@ -124,6 +129,11 @@ pub fn load(name: &str, cert: &Path, key: &Path, now: u64) -> (State, Option<Cer
 		Err(e) => return bad(format!("{} can't be read: {e}", cert.display())),
 	};
 	let Some(first) = chain.first() else { return bad(format!("{} holds no certificate (PEM)", cert.display())) };
+	// A key others may read is no secret any more (principle 14): not presented until it is 600.
+	use std::os::unix::fs::PermissionsExt;
+	if fs::metadata(key).is_ok_and(|m| m.permissions().mode() & 0o077 != 0) {
+		return bad(format!("{} may be read by others: chmod 600 it", key.display()));
+	}
 	let until = not_after(first);
 	let key_der = match fs::read(key) {
 		Ok(b) => match PrivateKeyDer::from_pem_slice(&b) {
@@ -152,11 +162,7 @@ pub fn check(web: &WebDef) -> Option<(bool, String)> {
 	if state.ok {
 		line.push_str(" (browsers that reach the computer by that name get it; others the service's own)");
 	} else {
-		line.push_str("; the service presents its own meanwhile");
-	}
-	let secret = crate::settings::secret_file_warning("web.key_file", key, "the certificate isn't presented until it is");
-	if let Some(w) = secret.into_iter().next() {
-		return Some((false, format!("{line}; {w}")));
+		line.push_str("; browsers get the one before it, or the service's own, meanwhile");
 	}
 	Some((state.ok, line))
 }
@@ -284,6 +290,11 @@ mod tests {
 		assert!(!state.ok && k.is_none());
 		let (state, k) = load("late.example.net", &late_cert, &late_key, 70_000_000_000);
 		assert!(!state.ok && state.message.starts_with("expired on") && k.is_none(), "{state:?}");
+		// A key others may read isn't presented.
+		use std::os::unix::fs::PermissionsExt;
+		fs::set_permissions(&late_key, fs::Permissions::from_mode(0o644)).unwrap();
+		let (state, k) = load("late.example.net", &late_cert, &late_key, 1_800_000_000);
+		assert!(!state.ok && state.message.contains("chmod 600") && k.is_none(), "{state:?}");
 		// Without a certificate in the settings, none.
 		assert_eq!(resolver.refresh(&WebDef::default(), 0), Some(None));
 		assert!(resolver.web.read().unwrap().is_none());

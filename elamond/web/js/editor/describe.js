@@ -12,7 +12,7 @@ import { clone, WIDGETS } from './draft.js';
  *
  * @typedef {{ type: string, label?: string, span?: number, keys: EditorKey[], example?: Record<string, any> }} EditorType
  *
- * @typedef {{ file: string, line?: number | null }} Whence
+ * @typedef {{ file: string, line?: number | null, nix?: boolean }} Whence
  *
  * @typedef {{ id: string, title?: string, def: Record<string, any>, from?: Whence[], editor?: boolean, own?: boolean }} EditorDashboard
  *
@@ -247,7 +247,7 @@ export function origins(d, entry) {
 		const line = typeof w.line === 'number' ? w.line : null;
 		if (!file) return { kind: 'defaults', file, line };
 		if (file === d.file) return { kind: 'editor', file, line };
-		if (file.startsWith('/nix/store/')) return { kind: 'nix', file, line };
+		if (w.nix === true || file.startsWith('/nix/store/')) return { kind: 'nix', file, line };
 		return { kind: 'file', file, line };
 	});
 }

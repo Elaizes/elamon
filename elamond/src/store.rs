@@ -88,8 +88,13 @@ impl Place {
 	/// line.
 	pub fn load(&self) -> Result<Config, String> {
 		let mut config = crate::settings::load(&self.files()).map_err(|m| crate::settings::join_mistakes(&m))?;
-		// Where a profile is, as a person finds it: within the settings' folder, from there; in a file
-		// Home Manager links there, the file in the Nix store, which says it is set in Nix.
+		self.name_sources(&mut config);
+		Ok(config)
+	}
+
+	/// Where each profile is, as a person finds it: within the settings' folder, from there; in a
+	/// file Home Manager links there, the file in the Nix store, which says it is set in Nix.
+	pub fn name_sources(&self, config: &mut Config) {
 		for w in config.profile_sources.values_mut() {
 			if from_nix_store(Path::new(&w.file))
 				&& let Ok(real) = fs::canonicalize(&w.file)
@@ -99,7 +104,6 @@ impl Place {
 				w.file = within.display().to_string();
 			}
 		}
-		Ok(config)
 	}
 
 	/// What the settings files look like on disk now, to notice an edit. The resolved path is
@@ -148,9 +152,10 @@ pub fn load_config() -> Result<Config, String> {
 	Place::here().load()
 }
 
-/// Whether `path` is a link into the Nix store: a file NixOS or Home Manager made, not to be written.
+/// Whether `path` is in the Nix store, or a link into it: a file NixOS (`ELAMON_CONFIG`) or Home
+/// Manager (a link in the settings' folder) made, not to be written.
 pub fn from_nix_store(path: &Path) -> bool {
-	fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) && fs::canonicalize(path).is_ok_and(|p| p.starts_with("/nix/store"))
+	fs::canonicalize(path).is_ok_and(|p| p.starts_with("/nix/store"))
 }
 
 /// A path with the home folder written `~`, for people to read.

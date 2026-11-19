@@ -416,12 +416,14 @@ export function mountMachine(root, ctx, tab) {
 		top.replaceChildren(h('div', { class: 'machine-title' }, h('h1', { class: 'name' }, name), chips.el), h('div', { class: 'top-tools' }, ...tools));
 	}
 
-	/** The menu with what is done rarely: forgetting this browser. */
+	/** The menu with what is done rarely: a new dashboard, forgetting this browser. */
 	function menu() {
 		const id = 'machine-menu';
 		const button = h('button', { type: 'button', class: 'icon-button quiet', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-controls': id, 'aria-label': P.menu, title: P.menu }, icon('more'));
 		const forget = h('button', { type: 'button', role: 'menuitem', class: 'menu-item danger-text' }, P.forget);
-		const list = h('div', { id, role: 'menu', class: 'menu card' }, forget);
+		// A new dashboard, for the role the editor is open to.
+		const add = ctx.has('editor') ? h('button', { type: 'button', role: 'menuitem', class: 'menu-item', onclick: () => (close(), ctx.go('#/edit')) }, P.newDashboard) : null;
+		const list = h('div', { id, role: 'menu', class: 'menu card' }, add, forget);
 		list.hidden = true;
 		const wrap = h('div', { class: 'menu-wrap' }, button, list);
 		const close = () => {
@@ -437,7 +439,7 @@ export function mountMachine(root, ctx, tab) {
 			list.hidden = false;
 			button.setAttribute('aria-expanded', 'true');
 			document.addEventListener('pointerdown', outside);
-			forget.focus();
+			(add || forget).focus();
 		});
 		list.addEventListener('keydown', (e) => {
 			if (e.key === 'Escape') {

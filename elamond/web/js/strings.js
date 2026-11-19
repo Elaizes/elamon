@@ -57,6 +57,7 @@ export const S = {
 		editThis: 'Edit this dashboard',
 		menu: 'More',
 		forget: 'Forget this browser',
+		newDashboard: 'New dashboard',
 		forgetQuestion: 'Forget this browser?',
 		forgetBody: 'The computer unpairs it at once. To use this page again, pair it with a new code from elamond pair.',
 		forgetFailed: 'The computer didn’t unpair this browser: {0}. Run elamond revoke there to be sure.',

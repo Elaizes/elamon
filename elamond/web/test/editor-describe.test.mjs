@@ -146,9 +146,10 @@ test('the service\'s mistakes, sorted to the widgets, keys and profile they name
 });
 
 test('the preview\'s widgets matched to the draft\'s', () => {
-	const preview = fx('admin-preview.json').response.ui.dashboards[0];
-	// The fixture names a widget without an id `w<place>`; the settings' docs, `<place>`: either is matched.
-	assert.deepEqual(matchDrawn(preview.widgets, 'mine/', [{ type: 'gauge' }]).map((l) => l.map((w) => w.id)), [['mine/w0']]);
+	const preview = fx('admin-preview.json').response.ui.dashboards.find((d) => d.id === 'draft');
+	// A widget without an id is named by its place, `<dashboard>/<place>` (and `w<place>` is matched too).
+	assert.deepEqual(matchDrawn(preview.widgets, 'draft/', [{ type: 'gauge' }]).map((l) => l.map((w) => w.id)), [['draft/0']]);
+	assert.deepEqual(matchDrawn([{ id: 'mine/w0' }], 'mine/', [{ type: 'gauge' }]).map((l) => l.map((w) => w.id)), [['mine/w0']]);
 	const drawn = [
 		{ id: 'home/cpu' },
 		{ id: 'home/gpus.nvidia' },

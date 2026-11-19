@@ -12,8 +12,10 @@ Elamon lets you watch and control a Linux computer from an Android phone. It has
 - **elamond**, the Elamon service, on the computer. It reads the computer's own counters and serves
   them over HTTPS, only to phones you paired with it. It runs as your user and needs no root.
 
-The phone talks to the computer directly: on the same network, or over a VPN both are on
-(Tailscale, WireGuard and the like). Nothing goes through a server.
+The service also serves a web page of its own, for a browser you pair the same way
+([section 11](#11-in-a-browser)). The phone, or the browser, talks to the computer directly: on the
+same network, or over a VPN both are on (Tailscale, WireGuard and the like). Nothing goes through a
+server.
 
 ## Quick start
 
@@ -32,6 +34,8 @@ The phone talks to the computer directly: on the same network, or over a VPN bot
 6. **Be told, if you want it.** Name an ntfy topic's file in the settings and the computer sends
    a notification when a disk fills, a unit fails or a UPS goes to battery
    ([section 10](#10-events-and-notifications)).
+7. **Or in a browser.** Open `https://<computer>:47823/` and type in the code of `elamond pair`
+   ([section 11](#11-in-a-browser)).
 
 ## Contents
 
@@ -45,10 +49,13 @@ The phone talks to the computer directly: on the same network, or over a VPN bot
 - [8. Your own readings](#8-your-own-readings)
 - [9. The journal](#9-the-journal)
 - [10. Events and notifications](#10-events-and-notifications)
-- [11. Settings reference](#11-settings-reference)
-- [12. Updating, moving and removing](#12-updating-moving-and-removing)
-- [13. Troubleshooting](#13-troubleshooting)
-- [14. Security](#14-security)
+- [11. In a browser](#11-in-a-browser)
+- [12. The admin panel](#12-the-admin-panel)
+- [13. Editing dashboards](#13-editing-dashboards)
+- [14. Settings reference](#14-settings-reference)
+- [15. Updating, moving and removing](#15-updating-moving-and-removing)
+- [16. Troubleshooting](#16-troubleshooting)
+- [17. Security](#17-security)
 
 ## 1. Install the service
 
@@ -82,7 +89,7 @@ users.users.YOUR_USER.linger = true;  # keeps it running while you're logged out
 
 The polkit rule comes from `services.elamond.control`
 ([section 5](#power-the-profile-and-system-units-polkit)). All options:
-[section 11](#nixos-module).
+[section 14](#nixos-module).
 
 **Home Manager**, for one user: `imports = [ inputs.elamon.homeModules.default ];` and
 `services.elamond.enable = true;`. The firewall stays the system's job. On NixOS,
@@ -132,7 +139,7 @@ Manager's unit alone and prints what needs root.
 2. **`elamond setup`**, which the install ran, installs a systemd user unit
    (`~/.config/systemd/user/elamond.service`) that runs the binary. Where there are no settings, it
    writes those to start from: `~/.config/elamon/elamond.toml` and `elamond.d/dashboards.toml`
-   ([section 11](#where-the-settings-live)). Then it starts the service.
+   ([section 14](#where-the-settings-live)). Then it starts the service.
 
    You can run it again at any time. It changes only what changed, and restarts the service when
    the binary was moved or updated. `--print` shows what it would do without doing it;
@@ -242,7 +249,7 @@ By hand:
 
 **Only on some interfaces.** The commands open the ports for the whole computer. To open them on
 some interfaces only, adapt them by hand, and name those interfaces in `listen`
-([section 11](#where-the-service-listens)). On NixOS,
+([section 14](#where-the-service-listens)). On NixOS,
 `services.elamond.firewallInterfaces = [ "eno1" "tailscale0" ];` does it.
 
 ## 3. Pair the phone
@@ -274,15 +281,21 @@ some interfaces only, adapt them by hand, and name those interfaces in `listen`
    seconds, or stopping `elamond pair` turns the phone away, and the code stops working.
 
 **Roles.** Each phone gets its own key and a **role** that says what it may see and do. By default
-it's `admin`, which allows everything. For someone else's phone, give less, for example
-`elamond pair --role glance` ([section 6](#6-roles-who-may-do-what)).
+it's `admin`, which allows every action. Changing the computer's settings from a phone or a browser
+is the `owner` role's, which nobody gets unless you give it ([section 12](#12-the-admin-panel)). For
+someone else's phone, give less, for example `elamond pair --role glance`
+([section 6](#6-roles-who-may-do-what)).
 
 **Its own profile.** Pairing adds a profile for the phone to `~/.config/elamon/elamond.d/phones.toml`,
 which starts from `default` (`elamond pair --profile NAME` names another): change that phone's tabs
-and looks there ([section 11](#each-phones-own-profile)). Pairing the same phone again keeps it.
+and looks there ([section 14](#each-phones-own-profile)). Pairing the same phone again keeps it.
 
 **Managing phones.** `elamond clients` lists the paired phones with their IDs, roles and profiles.
-`elamond revoke ID` unpairs one. Up to 64 phones can be paired with one computer.
+`elamond revoke ID` unpairs one. Up to 64 phones and browsers can be paired with one computer.
+
+**A browser** pairs with the same code: `elamond pair` prints the page's address on its
+`In a browser:` line, and `elamond pair --web` shows that address, with the code, as the QR code,
+for a phone's browser ([section 11](#11-in-a-browser)).
 
 **Details:**
 
@@ -293,7 +306,7 @@ and looks there ([section 11](#each-phones-own-profile)). Pairing the same phone
   ask on, `elamond pair` says so and stops.
 - *What the QR code carries.* The computer's addresses (those the service listens on, the local
   network first), then names that stay when addresses change (those in `names` and its Tailscale
-  name, [section 11](#names-in-the-pairing-link)), and its certificate. The app keeps them all, and
+  name, [section 14](#names-in-the-pairing-link)), and its certificate. The app keeps them all, and
   later tries the one that worked last first.
 - *Addresses after pairing.* The computer tells a paired phone where it is now, whenever it connects:
   its addresses on the local network and on VPNs, and its names. So a phone paired by code over
@@ -327,7 +340,7 @@ its system, uptime, power source and power profile, and the phone's role. Scroll
 into the bar.
 
 The tabs along the bottom are the computer's **dashboards**: those the phone's profile lists, as far
-as its role may see them ([section 11](#dashboards-and-widgets)). The standard four are below, and a
+as its role may see them ([section 14](#dashboards-and-widgets)). The standard four are below, and a
 tab for each UPS or power station the computer has, second after Overview.
 
 **Overview** has tiles for the CPU, memory, each graphics card, temperature, network, storage and
@@ -368,12 +381,13 @@ from 1 hour to all of it: the service keeps what charts show every 10 seconds fo
 5 minutes for 30 days and every hour from then on
 ([section 7](#graphs-that-reach-back-the-long-history)).
 
-**The ⋮ menu** has *Settings*, *Help* and *Forget computer*. Back closes a page first, then the
-computer.
+**The ⋮ menu** has *Settings*, *Help* and *Forget computer*. With the `owner` role and elamond 0.11
+it also has *Edit dashboard*, *New dashboard* and *Edit tabs*
+([section 13](#13-editing-dashboards)). Back closes a page first, then the computer.
 
 **Forget computer** removes it from the phone and asks the computer to unpair the phone too. To
 see it again, pair again: `elamond pair` offers the phone its profile back. When the computer can't
-be told, the app says so: remove the phone there with `elamond revoke` ([section 13](#13-troubleshooting)).
+be told, the app says so: remove the phone there with `elamond revoke` ([section 16](#16-troubleshooting)).
 
 **Good to know:**
 
@@ -386,7 +400,7 @@ be told, the app says so: remove the phone there with `elamond revoke` ([section
 ### Settings
 
 How the app looks and behaves with a computer comes from that computer: from the phone's
-**profile** there ([section 11](#profiles)). The Settings screen names the profile each computer
+**profile** there ([section 14](#profiles)). The Settings screen names the profile each computer
 gives this phone and where it is changed: the file and line, for an admin phone, or "Set in Nix".
 To change something, change the profile on the computer. Two things are the phone's own, under
 **Display**, the same with every computer and on the home screen:
@@ -458,7 +472,12 @@ connection open and use no notifications.
 - **…run my own script from the phone?** Add it as an `[actions.<id>]` table on the computer
   ([section 5](#actions)). It shows up as a button under Control → Actions.
 - **…see something the standard tabs don't show?** Make a dashboard of your own on the computer and
-  add its id to the phone's profile ([section 11](#dashboards-and-widgets)).
+  add its id to the phone's profile ([section 14](#dashboards-and-widgets)).
+- **…move a widget or change the tabs without writing TOML?** Give your own phone the `owner` role
+  (`elamond clients role ID owner` on the computer), then ⋮ → *Edit dashboard* or *Edit tabs*
+  ([section 13](#13-editing-dashboards)).
+- **…see the computer in a browser?** Open `https://<computer>:47823/` and pair it with the code of
+  `elamond pair` ([section 11](#11-in-a-browser)).
 - **…turn it off?** Control → Power → *Shut down*. Only someone at the computer can turn it on
   again, unless it wakes on LAN.
 - **…see whether the power went out while I was away?** On the station's tab, the *Power*
@@ -485,9 +504,9 @@ connection open and use no notifications.
 - **…stop a phone from seeing a computer?** On the phone, ⋮ → *Forget computer*, which unpairs it
   on the computer too. On the computer, `elamond revoke ID`.
 - **…move to a new phone?** Pair it with `elamond pair` on each computer
-  ([section 12](#a-new-phone)).
+  ([section 15](#a-new-phone)).
 - **…reinstall the computer without pairing the phones again?** Run `elamond backup` before and
-  `elamond restore` after ([section 12](#a-new-computer-or-reinstalling)).
+  `elamond restore` after ([section 15](#a-new-computer-or-reinstalling)).
 
 ## 5. The control panel
 
@@ -508,7 +527,7 @@ The service notices the change within a few seconds by itself, or at once with
 On NixOS, set it through the module instead: `services.elamond.settings.control = true;`. The
 service then reads its settings from a read-only file the module builds, and a rebuild that changes
 them restarts every user's service. Settings you add by hand go in a drop-in beside it,
-`~/.config/elamon/elamond.d/*.toml` ([section 11](#11-settings-reference)).
+`~/.config/elamon/elamond.d/*.toml` ([section 14](#14-settings-reference)).
 
 With control on, each phone does as much as its role allows: `admin` (the default) everything below,
 other roles less ([section 6](#6-roles-who-may-do-what)). `elamond control off` stops them all at
@@ -590,7 +609,7 @@ role = "admin"      # who may run it: "operate" (the default) or "admin"
 
 Each action becomes a button under Control → Actions. A dashboard can also put it anywhere: as a
 button, or as a `select`, `toggle` or `slider` that sets one of its parameters
-([section 11](#dashboards-and-widgets)). What the command prints comes back to the phone: its first
+([section 14](#dashboards-and-widgets)). What the command prints comes back to the phone: its first
 4 KiB and last 12 KiB.
 
 **Parameters.** A phone can only choose among the values a parameter allows:
@@ -712,7 +731,8 @@ that. GNOME and KDE do; on wlroots compositors, set it up, for example with hypr
 
 ## 6. Roles: who may do what
 
-Every paired phone has a role. Each role allows what the one before it does, and more:
+Every paired phone, and every paired browser, has a role. Each role allows what the one before it
+does, and more:
 
 | Role | Sees | Does (with control on) |
 |---|---|---|
@@ -720,6 +740,7 @@ Every paired phone has a role. Each role allows what the one before it does, and
 | `monitor` | everything: also processes with their commands and users, monitors, links, media and the activity log, a UPS's driver and serial numbers | nothing |
 | `operate` | everything | links' units, media and the volume, the power profile, the actions from the settings, and a station's commands and settings when its source says `role = "operate"` |
 | `admin` | everything | all of that, plus shutting down, restarting, sleeping, locking, ending processes, actions with `role = "admin"`, and a station's commands and settings |
+| `owner` | everything | all of that, plus the settings themselves: the web page's admin panel and the dashboard editor, in the page and the app ([section 12](#12-the-admin-panel)). These need no `control = true`; `elamond control off` stops them |
 
 The role filters on the computer. A widget, a table or a whole dashboard that a role may not see
 isn't sent to that phone at all, and neither are actions it may not run. A dashboard's or widget's
@@ -734,9 +755,11 @@ is `admin`.
 elamond pair --role glance     # someone else's phone: how the computer is doing, nothing more
 elamond pair --role monitor    # sees what runs and what you host, changes nothing
 elamond pair --role operate    # everyday control, without power or ending processes
+elamond pair --role owner      # your own phone or browser: the settings too
 ```
 
 To make another role the default, set `default_role = "monitor"` (or any role) in `elamond.toml`.
+Leave `owner` out of it: no phone or browser should get that role without you choosing it.
 
 `elamond clients` lists each phone with its role, its profile, the app it last reported
 (`android 0.6.2`) and the address it came from last. To change a role later:
@@ -752,7 +775,7 @@ may see now. A phone turned into `glance`, for example, stops getting processes,
 links.
 
 How a phone looks, within its role, is its profile: `elamond pair --profile` and
-`elamond clients profile` set it ([section 11](#each-phones-own-profile)).
+`elamond clients profile` set it ([section 14](#each-phones-own-profile)).
 
 ### Stopping every phone at once
 
@@ -766,8 +789,12 @@ elamond control on      # back to what the settings say
 survives restarts of the service and of the computer, and a restore, until `elamond control on`.
 The settings' `control = true` stays as it was.
 
+It also stops the admin panel and the dashboard editor: while it holds, they write no settings,
+change no client and pair nobody. The admin panel can turn control off (*Control* → *Turn control
+off*), but only `elamond control on`, run at the computer, lets go of it.
+
 A lost or stolen phone still sees everything while control is off. Unpair it, with the keys its
-token gave: `elamond revoke ID --with-added` ([section 12](#a-new-phone)).
+token gave: `elamond revoke ID --with-added` ([section 15](#a-new-phone)).
 
 ### The activity log
 
@@ -780,6 +807,9 @@ phone, what (*power reboot*, *unit restart nginx.service*, *action Fan quiet*…
 - It holds up to 500 entries. One phone keeps 100 at most (together with the keys its token gave),
   so a phone that keeps asking pushes out only its own.
 - What was carried out is also in the journal: `journalctl --user -u elamond`.
+- What the admin panel and the dashboard editor change is in it too, under the client that asked:
+  a role given, a code made, a file saved (its name and how many lines, never its text), a
+  dashboard written. So are requests the client's role refused.
 
 ## 7. UPSes and power stations
 
@@ -988,7 +1018,7 @@ whichever range is shown. On the station's tab itself, it goes under
 `[dashboards.ups]` in `elamond.d/dashboards.toml`, with `{item}` for the source's id and a `when`,
 so a station without it leaves it out (`value = "{item}.battery.charger.status"`,
 `when = "{item}.battery.charger.status"`); under Nix, after the standard widgets with `++`
-([section 11](#dashboards-and-widgets)).
+([section 14](#dashboards-and-widgets)).
 
 ### Graphs that reach back: the long history
 
@@ -1176,7 +1206,7 @@ label = "Queue"
 when = "app.queue.length"
 ```
 
-Add `"mine"` to your profile's `dashboards` for a tab ([section 11](#dashboards-and-widgets)).
+Add `"mine"` to your profile's `dashboards` for a tab ([section 14](#dashboards-and-widgets)).
 The formats and the other widget types are in [docs/config.md](config.md#widgets).
 
 ### When a source is read
@@ -1243,7 +1273,7 @@ systemd collects from the kernel and every service, the newest at the bottom.
 action: hold its row in Links and pick *Journal* to see that unit's lines alone.
 
 **As a tab.** Add `"journal"` to a profile's `dashboards` and the journal is a tab of its own
-([section 11](#profiles)); the button on Control then opens the same page.
+([section 14](#profiles)); the button on Control then opens the same page.
 
 **Who sees it.** The `monitor` role and above. A phone with `glance` has no journal button, and
 an app older than 0.8 shows a page that asks to update.
@@ -1432,17 +1462,373 @@ borg create … || elamond notify --level critical --title Backup "The backup fa
 **Who sees events.** The `monitor` role and above (`[events] role`). An app of 0.8 shows the
 Events page too; an older one asks to update.
 
-## 11. Settings reference
+<a id="in-a-browser"></a>
 
-Everything a phone shows comes from the computer it is paired with. The app has no editor and
-keeps no display settings of its own: it draws what the service describes. Three things decide
-what that is:
+## 11. In a browser
+
+The service serves a web page of its own, on the port the app uses. Open it in a browser, on the
+computer itself, another computer or a phone:
+
+```
+https://<computer>:47823/
+```
+
+`<computer>` is an address or a name the browser reaches the service at: `elamond pair` prints one
+on its `In a browser:` line. Paired, the page shows the computer's dashboards as the app does, and
+runs their actions. With the `owner` role it also has the admin panel
+([section 12](#12-the-admin-panel)) and the dashboard editor ([section 13](#13-editing-dashboards)).
+
+### The certificate warning
+
+The service's certificate is its own: no authority a browser knows has signed it (the app pins it
+instead). So the browser warns the first time you open the page, and again after
+`elamond rotate-cert`. That's expected. Before you go on, check that the certificate is the
+computer's:
+
+1. Open the certificate's details from the warning (or later from the padlock, or *Not secure*, in
+   the address bar) and find its **SHA-256** fingerprint.
+2. Compare it with the `Certificate:` line that `elamond pair` prints at the computer.
+
+`elamond pair` prints the first 32 hex digits, in groups of four (`1F0E 8D2C …`). Browsers show all
+64, in pairs (`1F:0E:8D:2C:…`). Past the warning, the page's pairing screen shows both forms under
+*This computer's certificate*, to make comparing easier. What counts is the line at the computer: a page that isn't
+the computer's would show its own fingerprint. If they differ, don't pair.
+
+A certificate for a name, from an authority browsers trust, ends the warning
+([below](#a-real-certificate)).
+
+### Pairing a browser
+
+1. On the computer, run `elamond pair`. For the admin panel, run `elamond pair --role owner`
+   ([section 12](#12-the-admin-panel)).
+2. Open the page and, under *Pair this browser*, type the six-digit code. *Name of this browser* is
+   optional: left empty, the computer names it after the browser and its system, such as
+   `Firefox on Linux`. Tap *Pair*.
+3. `elamond pair` asks, as it does for a phone (it says *Phone* for a browser too):
+
+   ```
+     Phone "Firefox on Linux" from 192.0.2.30 asks to pair as admin. Allow? [y/N]
+   ```
+
+   Answer `y` within 90 seconds.
+
+**On a phone, without typing.** `elamond pair --web` prints a QR code of the page's address with the
+code in it, such as `https://192.0.2.10:47823/#pair=123456`. Scan it with the phone's camera, go
+past the warning, and tap *Pair*: the code is filled in. It sits after the `#`, which a browser
+never sends to a server, and the page takes it out of the address at once. Without `--web`, the QR
+code is the app's.
+
+A code made in the admin panel (*Pairing*) pairs a browser too. Its *For a phone's browser* QR code
+is the same kind of link.
+
+### Staying paired
+
+- The browser keeps its key as a cookie that the page itself can't read: only the browser and the
+  service see it.
+- Each time you open the page, the cookie lasts another 30 days (`[web] cookie_days`). A browser
+  that stays away longer forgets it and pairs again. Its old entry stays in `elamond clients` until
+  you revoke it.
+- The cookie belongs to the address you opened the page at. The same computer at another address,
+  or by a name, is another site to the browser, and pairs there on its own. Keep to one address.
+- **⋮ → Forget this browser** unpairs it at once and clears the cookie. At the computer,
+  `elamond clients` lists a browser by its name, with `web 0.11.0` as its app, and
+  `elamond revoke ID` unpairs it.
+- A browser has a role, as a phone has (`admin` unless you give another), and a profile of its own
+  in `elamond.d/phones.toml` ([section 14](#each-phones-own-profile)). The page takes `theme`,
+  `pure_black`, `animations` and `confirm_actions` from it, and its size from the browser. The theme
+  button in the page's top bar changes the theme in that browser alone.
+
+### What the page shows
+
+- The dashboards of the browser's profile, as far as its role may see them, and the chips under the
+  computer's name: the widgets the app has, graphs, tables, the journal and media among them.
+- The computer that serves it, and no other. Each computer has its own page. To reach another from
+  this one, add it as a link (`[links.<id>]`, [section 5](#links)).
+- Actions ask what the app asks: a confirmation, a value, the text to type in. A browser can't
+  unlock a phone, so an action the profile would unlock the phone for is asked as a question
+  instead.
+- It reads the computer only while its tab is shown, as the app does while it's on screen.
+
+### On a phone
+
+The page fits a phone's screen. Your browser's *Add to Home screen* puts an Elamon icon for it on
+the phone's home screen. The page and the app are paired apart, each with its own role and profile.
+
+### A real certificate
+
+To open the page without the warning, give the service a certificate for a name the browser reaches
+it by, signed by an authority browsers trust. Any will do: your own certificate authority, Let's
+Encrypt, or `tailscale cert` for the computer's Tailscale name, for example. Your user has to be
+able to read both files, as the service runs as you.
+
+```toml
+[web]
+cert_name = "desk.example.net"
+cert_file = "/home/me/.config/elamon/certs/desk.example.net.crt"   # the certificate, its chain: PEM
+key_file = "/home/me/.config/elamon/certs/desk.example.net.key"    # its private key, PEM: chmod 600
+```
+
+Then open the page by that name, `https://desk.example.net:47823/`, and pair the browser there: to
+the browser, it's another address.
+
+- The service presents that certificate only to connections that ask for that name. Every other
+  one, by an address or by another name, gets the service's own. The app takes only the
+  certificate it pinned when it paired, so phones are never told that name: it is left out of the
+  pairing link and of where the computer is (`endpoints`), and the app reaches it by its addresses
+  and other names.
+- `elamond check` and `elamond setup --check` say whether it loads, and until when:
+
+  ```
+  Web certificate for desk.example.net: valid until 2027-02-13 (browsers that reach the computer by that name get it; others the service's own).
+  ```
+
+  Or what's wrong: a file that can't be read, a key that isn't the certificate's, a certificate that
+  expired, a key file others may read.
+- The service reads the files again within seconds of a change (at once on
+  `systemctl --user reload elamond`), so a renewed certificate needs no restart. While they don't
+  load, it presents the one it had, or its own, and says why in the journal.
+- Under NixOS or Home Manager, the same keys go in `services.elamond.settings.web`. The files
+  themselves stay out of the Nix store.
+
+### Turning it off
+
+The page and everything behind it are on unless `[web]` in the settings says otherwise:
+
+| Key | Set, it means |
+|---|---|
+| `page = false` | no page: `/` answers 404. The app works as before, its dashboard editor too |
+| `admin = false` | no admin panel and no dashboard editor, in the page or the app, whatever the role |
+| `write = false` | the admin panel shows the settings and checks drafts, but saves nothing, nor does the dashboard editor. Clients and pairing still change |
+| `editor = false` | no dashboard editor, in the page or the app; the rest of the admin panel stays |
+| `role = "admin"` | the admin panel and the editor open to `admin` too, not only to `owner` |
+
+They apply as soon as the service rereads its settings. Every key of `[web]` is in
+[docs/config.md](config.md#the-web-page-and-the-admin-api).
+
+Before a browser pairs, the service gives it the page's own files, built into elamond and the same
+on every computer, says which service it is (name, id, version and certificate) and takes a pairing
+code: nothing it reads of the computer.
+
+## 12. The admin panel
+
+With the `owner` role, the page has an **Admin** button in its top bar. The admin panel does from a
+browser much of what the commands do at the computer: it shows how the service runs and where each
+setting comes from, changes the paired phones and browsers and their roles, pairs new ones, holds
+control off, and edits the settings files.
+
+### Who has it
+
+The role `owner`, above `admin` ([section 6](#6-roles-who-may-do-what)); with
+`[web] role = "admin"`, `admin` too. Nobody gets it by themselves. Give it at the computer:
+
+```sh
+elamond pair --role owner          # pair your browser, or your phone, as owner
+elamond clients role ID owner      # or give it to one paired already (ID from elamond clients)
+```
+
+- An `owner` can give roles from the panel, up to its own.
+- Phones paired before 0.11 keep their roles: none becomes `owner`, and they do what they did. A
+  phone or browser paired without `--role` gets `admin` (or `default_role`), with no admin panel.
+- In the app, the role brings the dashboard editor ([section 13](#13-editing-dashboards)); the rest
+  of the panel is the page's. An app older than 0.11 shows the role as *Owner* and works as with
+  `admin`.
+
+### Whoever may change the settings can run anything
+
+Read this before you give the role. The settings hold the commands your actions run
+([section 5](#actions)). Whoever may write the settings can add a command, and a button for it, and
+press it. So the `owner` role can do on the computer whatever its user can, from anywhere the
+service's port is reached. Give it only to your own browser and your own phone.
+
+What guards it:
+
+- A browser's key is a cookie the page's scripts can't read, and that another site's page never
+  gets sent.
+- A browser's change is taken only from the page itself, at its own address. Anything else is
+  refused (`bad_origin`) and does nothing. The page runs only its own scripts, built into elamond.
+- Nothing is saved that `elamond check` wouldn't pass, and the file as it was is kept.
+- Every change is in the activity log, under the client that made it
+  ([section 6](#the-activity-log)).
+- `elamond control off` at the computer stops every write at once, and only the computer lets go of
+  it.
+- `[web]` turns any part off ([section 11](#turning-it-off)).
+
+A copied key, or a copied cookie, works until it's revoked. Unpair a lost phone, or a browser you no
+longer use, with `elamond revoke ID`.
+
+### The sections
+
+| Section | What it does |
+|---|---|
+| **Overview** | the service: its name and version, since when it runs, its certificate's fingerprint, where it listens and the addresses and names it's reached by; your client and role; control; the web page's settings, with the certificate for browsers and until when it's valid; whether the settings parse, and if not, why; what `elamond setup --check` says; the settings files |
+| **Settings** | the settings as the service merged them from the files, each part with the file and line that set it last: choose a `file:line` to open the file there. A filter; the changes from the defaults, as `elamond defaults --diff` prints them; the warnings of `elamond check` |
+| **Clients** | the paired phones and browsers: app, address, when last seen, when paired, the key it was added with. Change a role or a profile (with the entries added with its key, if you like), or *Revoke* |
+| **Pairing** | *Make a code*, for a role and a profile. It replaces any code that waits, `elamond pair`'s too. Two QR codes, *For the Elamon app* and *For a phone's browser*; whoever gives the code waits for you to *Allow* or *Turn away*; *Withdraw* takes the code back. A code `elamond pair` made can be answered here too |
+| **Control** | whether control is on, and if not, why; *Turn control off*, as `elamond control off` does |
+| **Files** | the settings files, and an editor for them ([below](#the-settings-files)) |
+| **Activity** | the activity log, newest first |
+| **Events** | the events the rules made, as `elamond events` lists them |
+| **Sources** | what each source gives now, as `elamond values ID` prints it |
+
+### The settings files
+
+*Files* lists the files the settings are read from, in the order they're read: the main file, then
+the drop-ins in `elamond.d/` ([section 14](#where-the-settings-live)), each with whether the panel
+may write it. *New drop-in* starts `elamond.d/<name>.toml`, written when you first save it.
+
+Open a file to edit its text:
+
+- **Checked as you type.** The service reads the settings with your text in that file's place, as
+  `elamond check FILE` would. *Mistakes* names each with its file and line, and *Go to line* takes
+  you there. *Changes against the disk* shows what saving would change.
+- **Save** (Ctrl+S) writes the file only when the settings with it parse, in one step. The service
+  takes them up at once, and open phones and pages get the change. *Undo changes* goes back to the
+  file as it was read.
+- **Preview** draws a dashboard as the settings with your text would show it, with the readings
+  now. Nothing is written and nothing of the draft runs, so a source or an action only your text
+  has shows no values yet.
+- **Backups.** Each write from here, or from the dashboard editor, first keeps the file as it was,
+  in `~/.config/elamon/backups/` (a folder only you can open, never read as settings): the last 10
+  of each file (`[web] backups`). Under *Backups*, *View* one, *Restore* it (checked as a save is)
+  or *Open as a draft*.
+- **Changed on disk.** A save says which version of the file you started from. If the file changed
+  since (in your own editor, by `elamond edit`, by a pairing, by the dashboard editor or in another
+  tab), nothing is written and your text stays: *See the disk version* shows the difference, then
+  *Load from disk*, or *Save mine over it* if you mean it. Nothing is written over unless you
+  choose to.
+- **phones.toml** is written by pairing too. A phone or a browser paired while you edit it changes
+  it on disk, and saving then says so instead of writing over the new table.
+- **Rename** and **Delete** are for drop-ins. Drop-ins are read in the order of their names, so a
+  new name can change what overrides what. A deleted file's last text stays among the backups.
+- A file the panel may not write says why: it's from Nix, a link to another file, or outside the
+  settings' folder. It can be read, checked and previewed, not saved.
+
+**Under Nix** the main file is in the Nix store, and read-only. The panel shows it, and writes
+drop-ins in `~/.config/elamon/elamond.d/`, which go over it. Those stay on this computer, outside
+your configuration: a change you mean to keep belongs in your Nix configuration
+(`services.elamond.settings`), after which the drop-in can go. Files Home Manager links into
+`elamond.d` are read-only too.
+
+### What stays at the computer
+
+Only at the computer:
+
+- `elamond control on`. The panel can hold control off, never let go of it.
+- `elamond rotate-cert`, `elamond backup` and `elamond restore`, `elamond update`, `elamond setup`
+  and the root commands it prints.
+- Turning the panel back on. `[web] admin = false` or `write = false`, saved from the panel itself,
+  is undone only in the files, at the computer (`elamond edit`).
+
+## 13. Editing dashboards
+
+Dashboards and the tabs of profiles can also be changed in forms, without writing TOML: in the page,
+and in the app from 0.11. The service describes what the forms offer: the widget types with their
+keys and an example of each, the values this computer has, its actions, dashboards and profiles. A
+newer elamond brings new widgets to the forms without a newer app.
+
+It's for the role the admin panel is for (`owner`, [section 12](#12-the-admin-panel)), with
+`[web] admin` and `[web] editor` on, and needs elamond 0.11.
+
+### In the browser
+
+- **Edit**, in the top bar, opens the dashboard of the tab shown (*Edit: Overview*).
+- **Widgets** is the dashboard as it looks. Drag a widget by its handle to move it, or onto a group
+  to put it in. The handle on its side changes its width, 1 to 4 columns. With the keyboard, Alt+↑
+  and Alt+↓ move the widget in focus, Alt+← and Alt+→ change its width, Enter opens its keys, and
+  Delete takes it out.
+- **Keys**, beside it, are the chosen widget's: its type, the keys of that type, those *Every
+  widget* takes, and any *Other keys* the editor doesn't describe, kept as they are and changed as
+  JSON. A value is picked from those the computer has, with a search and each one's reading now.
+- **Add widget** lists the types, each with an example to start from.
+- **Dashboard** holds the dashboard's own keys: title, icon, role, `for_each`.
+- **Tabs and the app** holds a profile's tabs in order, its header, and what the app's home-screen
+  widget, tiles and card show. It starts with your own profile; another is a choice away.
+- **Save** writes it all at once. Leaving with changes not saved asks first.
+- **A new dashboard** is at the page's address with `#/edit` after it
+  (`https://desk.example.net:47823/#/edit`): an id, a title, whether to start empty or from a copy
+  of one there is, and whether to add it to your tabs.
+
+### On the phone
+
+With the role, a computer's ⋮ menu has:
+
+- **Edit dashboard**: the tab shown, as it looks. Touch and hold a widget's handle, then drag it to
+  another place. Tap a widget for a sheet with its keys and its width. *Add widget* offers what the
+  computer can show, each with an example.
+- **New dashboard**: one of your own, empty or from a copy.
+- **Edit tabs** (*Tabs of Pixel 9*): the profile's tabs in order, its header, and what the
+  home-screen widget, the tiles and the card show.
+
+**Save** unlocks the phone first, whatever the profile asks before actions, since it changes the
+computer's settings. A phone without a screen lock asks instead.
+
+### Where it writes
+
+What you save, the service writes to a drop-in of its own,
+`~/.config/elamon/elamond.d/zz-editor.toml` (`[web] editor_file`), in TOML it makes itself:
+
+- only `[dashboards.<id>]` tables, and of `[profiles.<id>]` the keys `dashboards`, `header` and
+  `android`'s `widget`, `tiles` and `card`;
+- only the tables you saved: the rest of the file, a change by hand too, stays as it is;
+- after a check, as any settings file is, with the file as it was kept among the backups
+  ([section 12](#the-settings-files)), and a line in the activity log.
+
+It's read after the drop-ins whose names sort before it, so what it says is what shows.
+`elamond check` warns of a drop-in that sorts after it.
+
+### What it doesn't do
+
+It writes no commands. A button, a switch, a choice or a table's row only picks an action the
+settings have. It makes and changes no actions, sources, links, rules or ntfy targets: write those
+as text, in the admin panel's *Files* ([section 12](#the-settings-files)) or in the files at the
+computer.
+
+### Dashboards from other files
+
+The editor says where each dashboard comes from: *From: elamond.d/dashboards.toml:12*, the built-in
+defaults, or a file in the Nix store.
+
+- **One from another file** (`dashboards.toml`, a drop-in of yours, Nix): saving writes the whole
+  dashboard into the editor's file, every key and the whole list of widgets, and that copy goes over
+  the other (*The editor's version overrides it*). From then on the copy wins: changing the
+  dashboard's widgets, or any key the copy has, in the other file shows nothing. **Back to the
+  files** takes the copy out, and the dashboard is again as the files say. A profile's tabs have the
+  same button.
+- **One only the editor's file has** (*Only the editor's file has it*): **Delete** takes it out, and
+  out of the tabs the editor gave it.
+- **A key a file below sets** can be changed, not taken out: the files merge key by key, so a key
+  the copy leaves out comes back from below. The form says so: *Set in
+  elamond.d/dashboards.toml:13: it can be changed here, not taken out.*
+
+### The preview
+
+What you see while editing is drawn by the service, as the settings with your changes would show
+it, with the readings now. Nothing is written until you save, and nothing runs. A widget it doesn't
+draw says why: its value isn't on this computer, its role is above yours, or its action isn't there.
+A dashboard made for each item (`for_each`) shows its first item's.
+
+### Two editors at once
+
+A save says which version of the editor's file it started from. When another editor wrote first
+(the page in another browser, the app, *Files*), nothing is written: the editor reads the file
+again, keeps your changes, and says whether this dashboard changed there too. Then save yours over
+it, or drop yours: the page's *Save mine over it* and *Drop mine*, the app's *Save mine* and *Take
+the computer's*.
+
+When the settings with your changes wouldn't read, nothing is written either: the service names the
+widget and the key, and the editor marks them.
+
+## 14. Settings reference
+
+Everything a phone or a browser shows comes from the computer it is paired with. The app keeps no
+display settings of its own: it draws what the service describes, and what its dashboard editor
+saves goes into the computer's files like any other change. Three things decide what that is:
 
 | Piece | Answers | Lives in | Changed with |
 |---|---|---|---|
-| **Dashboards** | *what* can be shown: pages of widgets | the settings | your editor, `elamond edit` |
-| **Profiles** | *which* dashboards a phone has as tabs, and *how* the app looks and behaves | the settings; each phone's own in `elamond.d/phones.toml` | your editor, `elamond edit`, `elamond clients profile` |
-| **Roles** | what a phone is *allowed* to see and do | the list of paired phones, in `~/.local/share/elamon` | `elamond pair --role`, `elamond clients role` |
+| **Dashboards** | *what* can be shown: pages of widgets | the settings | your editor, `elamond edit`, the admin panel's *Files*, the dashboard editor |
+| **Profiles** | *which* dashboards a phone has as tabs, and *how* the app looks and behaves | the settings; each phone's own in `elamond.d/phones.toml` | your editor, `elamond edit`, `elamond clients profile`, the admin panel; their tabs in the dashboard editor |
+| **Roles** | what a phone is *allowed* to see and do | the list of paired phones, in `~/.local/share/elamon` | `elamond pair --role`, `elamond clients role`, the admin panel's *Clients* |
 
 The role always wins. A profile can put the Control tab on a friend's phone, but if the phone's
 role is `monitor`, the service sends it no buttons that act on the computer. So a mistake in a
@@ -1459,8 +1845,10 @@ This section is how the pieces fit together. **Every key, widget and value is in
 | `elamond.d/dashboards.toml` | the standard dashboards and the templates they use | the same, once; then you |
 | `elamond.d/events.toml` | `[events]` and the standard rules ([section 10](#10-events-and-notifications)) | the same, once (from 0.9); then you |
 | `elamond.d/*.toml` | your own additions, one topic per file if you like | you |
-| `elamond.d/phones.toml` | a small profile for each paired phone | the service adds and takes out tables as phones pair and unpair; you edit them |
+| `elamond.d/phones.toml` | a small profile for each paired phone and browser | the service adds and takes out tables as phones pair and unpair; you edit them |
+| `elamond.d/zz-editor.toml` | dashboards and profiles' tabs saved in the dashboard editor ([section 13](#13-editing-dashboards)) | the service, from the editor; a change by hand is kept |
 | `defaults.toml`, `elamond-schema.json` | the settings this version of elamond starts with, and their JSON Schema | the service, at each new version; **not read as settings** |
+| `backups/` | each file as it was before the admin panel or the dashboard editor wrote it ([section 12](#the-settings-files)) | the service; **not read as settings** |
 
 - **The files are all there is.** Nothing is built in under them: delete the `sensors` dashboard
   or the `disk` rule, and it's gone. (The few keys of `[events]` itself, how many events are kept
@@ -1534,7 +1922,8 @@ Then put `"power"` in a profile's `dashboards`.
   its role leaves out. For another layout on one phone, make another dashboard
   (`[dashboards.overview-wall]`) and give it to that phone's profile.
 - **Change a standard dashboard where it is,** in `dashboards.toml` (or in a 0.6.1 `elamond.toml`).
-  Adding, moving or deleting a widget is an edit there.
+  Adding, moving or deleting a widget is an edit there. The dashboard editor does it another way: it
+  keeps its own copy in `zz-editor.toml` ([section 13](#dashboards-from-other-files)).
 - **In a later file or in Nix, a dashboard's `widgets` is written whole.** It replaces the list
   before; it doesn't add to it. Start from a copy: `elamond defaults dashboards.overview` prints
   it. In Nix, build on the original:
@@ -1683,9 +2072,10 @@ follow the version by themselves; only what you set in `settings` stays as it wa
 ### When changes apply
 
 - Dashboards, profiles (phone tables too), links, actions, sources, `[history]`, `control`,
-  `default_role`, `default_profile` and `names`: as soon as the service rereads the files. It does when one of them
-  changes, or at once on `systemctl --user reload elamond`. An open phone fetches its new tabs by
-  itself.
+  `default_role`, `default_profile`, `names` and `[web]`: as soon as the service rereads the files.
+  It does when one of them changes, or at once on `systemctl --user reload elamond`. An open phone
+  fetches its new tabs by itself.
+- What the admin panel and the dashboard editor save: at once, and open phones and pages get it.
 - Roles (`elamond clients role`) and `elamond clients profile`: at once.
 - `port`, `listen`, `name`, `mdns`, `interval_ms` and `history_minutes`: after a restart of the
   service.
@@ -1707,6 +2097,8 @@ follow the version by themselves; only what you set in `settings` stays as it wa
   `keep_screen_on = true`.
 - **Buttons for my own scripts:** actions in `[actions.<id>]` ([section 5](#actions)), a dashboard
   with `button`, `select` or `toggle` widgets for them, and its id in your profile's `dashboards`.
+- **Rearrange a dashboard without writing TOML:** with the `owner` role, *Edit* in the page, or ⋮ →
+  *Edit dashboard* in the app ([section 13](#13-editing-dashboards)).
 - **I broke something:** `elamond check` says where. `elamond defaults TABLE` prints the original of
   anything standard.
 
@@ -1720,8 +2112,11 @@ follow the version by themselves; only what you set in `settings` stays as it wa
 - **A dashboard's widgets are one list.** A later file or Nix can't change one widget of a dashboard
   by its `id`: it gives the whole list.
 - **No profile switching by situation** (other tabs over a VPN, at night…).
-- **No editing on the phone.** One place to change things, one place to back up. The scale and the
-  app's own theme are the exceptions: they are how the phone shows things, and stay on it.
+- **On the phone, only dashboards and tabs.** The settings live in one place, the computer's files.
+  With the `owner` role the app's dashboard editor changes dashboards and a profile's tabs there
+  ([section 13](#13-editing-dashboards)); anything else is changed in the files, at the computer or
+  in the page's admin panel. The scale and the app's own theme stay on the phone: they are how it
+  shows things.
 
 ### Where the service listens
 
@@ -1750,7 +2145,7 @@ listen = ["192.0.2.10", "fd7a:115c::1"]    # these addresses
 paired phones (only hashes of their keys, their roles and profiles, and the app each last
 reported), a pending pairing code, the activity log, `elamond control off`'s mark, and the graphs'
 long history (`history/`). Deleting that folder unpairs every phone and gives the service a new
-certificate, unless a backup of it is restored ([section 12](#backing-up-the-service)).
+certificate, unless a backup of it is restored ([section 15](#backing-up-the-service)).
 
 **Environment variables.** The folders follow `XDG_CONFIG_HOME` and `XDG_DATA_HOME`.
 
@@ -1847,7 +2242,7 @@ The firewall stays the system's. If you set your own `port` here, give the syste
 (`services.elamond.settings.port` beside `openFirewall`; without `enable`, that only opens the
 port), or open it yourself.
 
-## 12. Updating, moving and removing
+## 15. Updating, moving and removing
 
 ### Updating
 
@@ -1889,16 +2284,20 @@ Install it over ~/.local/bin/elamond? [y/N] y
 **Update the app and the service together.** Each asks for the other to be updated when they don't
 match. Pairings stay: the phones keep their keys, roles and profiles and don't pair again.
 
+**From 0.10 to 0.11,** the settings and pairings carry over as they are, and paired phones stay
+`admin`. The service now also serves its web page on its port ([section 11](#11-in-a-browser));
+`[web] page = false` turns it off. An app of 0.10.1 works with it as before.
+
 **From 0.6.1 to 0.6.2,** the settings and pairings carry over as they are. Elamon 0.6.2 updates only
 from 0.6.1: from an older version, update to 0.6.1 first, as its guide says, since 0.6.2 no longer
 moves the settings of 0.6.0 and before. What changed:
 
 - A 0.6.1 `elamond.toml` stays as it is. Only a new start gets the short `elamond.toml` and
-  `elamond.d/dashboards.toml` ([section 11](#where-the-settings-live)). Under Nix, nothing changes.
+  `elamond.d/dashboards.toml` ([section 14](#where-the-settings-live)). Under Nix, nothing changes.
 - Backups are no longer encrypted. Make a new one after the update: 0.6.2 doesn't read those 0.6.1
   encrypted ([below](#backing-up-the-service)).
 - After `elamond rotate-cert`, phones no longer follow the new certificate: each pairs again
-  ([section 14](#a-new-certificate)). `--no-statement` is still accepted and changes nothing.
+  ([section 17](#a-new-certificate)). `--no-statement` is still accepted and changes nothing.
 - The app no longer exports and imports pairings: a new phone pairs with `elamond pair`
   ([below](#a-new-phone)).
 - *Forget computer* unpairs the phone on the computer too. With a service older than 0.6.2, or one
@@ -1926,7 +2325,7 @@ elamond backup ~/elamond.backup
   made without `--plain`). Restore one of those with elamond 0.6.1, or make a new backup.
 
 A backup holds the certificate's key as it was then. After `elamond rotate-cert`, older backups
-still hold the old key: delete them ([section 14](#a-new-certificate)).
+still hold the old key: delete them ([section 17](#a-new-certificate)).
 
 ### A new computer, or reinstalling
 
@@ -1942,7 +2341,7 @@ systemctl --user start elamond
 The phones connect as before, without pairing again: the service has its old id and certificate and
 knows their keys. They look for it at the addresses and names they already know, so give the new
 computer the old one's address (a DHCP reservation does it) or keep a name they know: its Tailscale
-name, or one in `names` ([section 11](#names-in-the-pairing-link)). A phone that can't reach it any
+name, or one in `names` ([section 14](#names-in-the-pairing-link)). A phone that can't reach it any
 other way has to pair again.
 
 What `elamond restore` does:
@@ -2002,7 +2401,7 @@ such a phone with `elamond pair` before forgetting the computer on the old one.
 In the app, ⋮ → *Forget computer*. With the service gone it can't tell the computer, and there is
 nothing left to revoke.
 
-## 13. Troubleshooting
+## 16. Troubleshooting
 
 First, run `elamond setup --check`. It prints a line for each thing the service needs, with what to
 do about those marked `!`. To see what the service reads without the app, run `elamond snapshot`.
@@ -2012,9 +2411,17 @@ do about those marked `!`. To see what the service reads without the app, run `e
 | The computer isn't under *Found on this network* | Same network, and UDP 5353 open on the computer. VPNs and many guest Wi-Fi networks block discovery, and the service announces itself only on wired and wireless interfaces it listens on (`mdns: announced on …` in the journal). Add it by address or name instead: `elamond pair` prints them. |
 | The app can't connect | Check `elamond setup --check`, `systemctl --user status elamond` and `journalctl --user -u elamond -e`. TCP 47823 must be open, and the phone must reach an address the service listens on (`listen: on …` in the journal). |
 | It works only while you're logged in | `sudo loginctl enable-linger YOUR_USER`, as `elamond setup` prints it. |
-| *The computer's certificate changed* | The service's data was deleted or the system reinstalled. Restore a backup ([section 12](#a-new-computer-or-reinstalling)), or forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` every phone says this: pair it again ([section 14](#a-new-certificate)). |
+| *The computer's certificate changed* | The service's data was deleted or the system reinstalled. Restore a backup ([section 15](#a-new-computer-or-reinstalling)), or forget the computer and pair again. If neither happened, check the network first. After `elamond rotate-cert` every phone says this: pair it again ([section 17](#a-new-certificate)). |
 | *Control is off* | Set `control = true` in `elamond.toml` or a drop-in; the service takes it up within a few seconds. If it's set, `elamond control status` tells whether `elamond control off` holds it off, or whether the settings stopped parsing. |
 | Pairing ends with the phone turned away | Answer `y` at `elamond pair` within 90 seconds, and keep it running until the phone is paired ([section 3](#3-pair-the-phone)). |
+| The browser warns that the connection isn't private | Expected: the service's certificate is its own. Compare the SHA-256 the browser shows with the `Certificate:` line of `elamond pair`, then go on. A real certificate for a name ends the warning ([section 11](#the-certificate-warning)). |
+| The page asks to pair again (*The computer no longer accepts this browser*) | The cookie lapsed (the page not opened for `cookie_days`), the browser was revoked or its site data cleared, or the page was opened at another address: each address is a site of its own to the browser ([section 11](#staying-paired)). |
+| No *Admin* or *Edit* in the page; no *Edit dashboard* in the app's ⋮ menu | The role is below `[web] role`: `elamond clients role ID owner`. Or `[web] admin` or `editor` is off. The editor in the app needs app 0.11 ([section 12](#who-has-it)). |
+| *The computer refused a change that didn't come from its own page* (`bad_origin`) | The request didn't come from the page at its own address. Open the page directly at the computer's address and port, and use it there: not through a proxy that changes the address, nor inside another page. Then reload it. |
+| *The file changed on disk since it was read here* (`changed_on_disk`) | Something else wrote the file after you opened it: your own editor, a pairing (`phones.toml`), the dashboard editor, another tab. Nothing was written, and your text is still there: *See the disk version*, then *Load from disk* or *Save mine over it*. The dashboard editor reads its file again by itself and keeps your changes ([section 13](#two-editors-at-once)). |
+| *The settings with this change don't parse* (`bad_settings`) | Nothing was written. Each mistake is listed with its file and line (in the dashboard editor, by its widget and key): fix them and save again. |
+| *Writing the settings from here is off*, or *Control is held off at the computer* (`writes_off`) | `[web] write = false` in the settings, or `elamond control off`. At the computer, set `write = true` again (`elamond edit`), or run `elamond control on`. |
+| *This file is read-only* | It comes from Nix, is a link to another file, or lies outside the settings' folder. Put the change in a drop-in, or make it where the file comes from ([section 12](#the-settings-files)). |
 | *… was forgotten here* after *Forget computer* | The computer couldn't be reached, or its service is older than 0.6.2, so the phone is still paired there. On the computer, `elamond clients` lists the phones, `elamond revoke ID` removes this one. |
 | *This phone's role on the computer doesn't allow that* | `elamond clients` shows the phone's role, `elamond clients role ID ROLE` changes it ([section 6](#6-roles-who-may-do-what)). An action may ask for `admin` (`role` in its settings). |
 | *Nothing to show here* | The phone's role or profile shows none of the computer's dashboards: `elamond clients role` or `elamond clients profile`. |
@@ -2044,19 +2451,24 @@ do about those marked `!`. To see what the service reads without the app, run `e
 | A station's action fails with *access denied* | The NUT user may not do it: its `allow` in nutflow, or `instcmds` and `actions = SET` in upsd's users, has to cover what `commands` and `settings` list. Or the password in the service's file isn't the NUT server's. |
 | *The computer asks for this command to be typed in* (`confirm_required`) | The command cuts this computer's power, or the station's whole load, and has to be typed in ([section 7](#switching-outlets-and-changing-settings)). An app older than 0.7 can't ask for it: update the app. |
 
-## 14. Security
+## 17. Security
 
 **Connection and keys**
 
 - Everything goes over TLS. The service's certificate is self-signed. The app pins it when pairing
   and refuses any other afterwards ([a new certificate](#a-new-certificate) means pairing again).
+  A browser warns about it instead: compare its fingerprint with `elamond pair`'s before you go on
+  ([section 11](#the-certificate-warning)). A real certificate from `[web]` goes only to
+  connections that ask for its name.
 - Each phone holds its own random 256-bit key; the service keeps only its SHA-256. Keys stay out of
-  Android backups.
+  Android backups. A browser holds its key as a cookie (`__Host-`, `Secure`, `HttpOnly`,
+  `SameSite=Strict`) that the page's scripts can't read and other sites' pages don't get sent.
 - A pairing code works for five minutes, one attempt at a time, each wrong one answered after a
   second. Twenty wrong ones, from anywhere, use the code up. The phone that gives
   the right code is let in only when you say so at `elamond pair` (unless it runs with `--yes`).
-- Without a key, the service answers only which service it is (`hello`: name, id and version) and
-  pairing.
+- Without a key, the service answers only which service it is (`hello`: name, id, version and
+  certificate fingerprint) and pairing, and serves the web page's own files, the same in every
+  elamond of a version.
 - It drops a connection that says nothing, or says it a byte at a time, within seconds.
 - The key is all the computer knows a phone by. Unlocking the phone before an action is enforced by
   the app only: a key copied off a phone works without it. That's why `elamond revoke` matters: it's
@@ -2068,9 +2480,11 @@ do about those marked `!`. To see what the service reads without the app, run `e
 - Each phone sees and does only what its role allows. Give phones that aren't yours `glance` or
   `monitor` ([section 6](#6-roles-who-may-do-what)).
 - Unless `control = true`, and no `elamond control off`, the service doesn't act on the computer:
-  phones only read.
+  phones only read. (The `owner` role's admin panel and editor need no `control = true`; see
+  below.)
 - With control on, it acts as your user. Commands come only from the settings files, never from a
-  phone, and so do the units a phone may start and stop. Links open only web pages.
+  request to act, and so do the units a phone may start and stop. Links open only web pages. Only
+  the `owner` role may write the settings files, and so add a command (below).
 - A UPS or power station runs only the commands and settings its source lists and the station
   offers, with values within the station's limits, checked by the service. One that cuts this
   computer's power is typed in on the phone, and the service checks the text. The NUT password
@@ -2092,6 +2506,26 @@ do about those marked `!`. To see what the service reads without the app, run `e
 - Every request to act is in the activity log, carried out or refused. What was carried out is also
   in the journal, with the name of the phone that asked: `journalctl --user -u elamond`.
 
+**The web page and the `owner` role**
+
+- The page is built into elamond. It runs only its own scripts (its Content-Security-Policy allows
+  no other, and no inline code), puts what the service sends on screen as text, and can't be shown
+  inside another site's page.
+- A browser's request that changes anything is taken only from the page itself, at the address it
+  was sent to (its `Origin`). Any other is refused with `bad_origin`, and does nothing.
+- The `owner` role can write the settings, and so add a command and run it: whatever your user may
+  do. Nobody gets it by themselves: `elamond pair --role owner` or `elamond clients role ID owner`
+  at the computer, or a client that has it. Give it only to your own browser and phone
+  ([section 12](#whoever-may-change-the-settings-can-run-anything)).
+- What it writes, it writes as `elamond edit` does: only settings that parse, in one step, with the
+  file as it was kept in `~/.config/elamon/backups/`. Files from Nix it only reads. Every change is
+  in the activity log.
+- The dashboard editor writes no commands: its buttons and switches pick among the actions the
+  settings have.
+- `elamond control off` at the computer stops every write from the page and the app, and only the
+  computer lets go. `[web]` turns off the page, the admin panel, its writes or the editor
+  ([section 11](#turning-it-off)).
+
 **Installing and updating**
 
 - `install.sh` and `elamond update` take releases from GitHub over HTTPS, anonymously, and check
@@ -2109,9 +2543,10 @@ do about those marked `!`. To see what the service reads without the app, run `e
   eyes only (`0600`), and is only as safe as the folder you keep it in. Never put it in a shared or
   cloud folder.
 - A phone paired with a code may ask the computer once for a second key, for another phone, with
-  its own role and no more: app 0.6.1 did so after Import pairings ([section 12](#a-new-phone)).
+  its own role and no more: app 0.6.1 did so after Import pairings ([section 15](#a-new-phone)).
   `elamond clients` and `elamond revoke` say whose key added one, the activity log has it, and
-  `elamond revoke ID --with-added` cuts off both. At most 64 phones are paired at once.
+  `elamond revoke ID --with-added` cuts off both. At most 64 phones and browsers are paired at
+  once.
 - An old key lives on in backups. `elamond restore` never lets go of control held off, and brings
   back phones unpaired since only with `--with-old-phones`.
 
@@ -2129,5 +2564,7 @@ elamond pair          # each phone again; the app replaces the computer it had
 - The running service presents the new certificate within a few seconds (at once with
   `systemctl --user reload elamond`). Connections already open keep the old one until they end.
 - Every phone says *The computer's certificate changed* until it is paired again.
+- Browsers warn again: compare the new fingerprint ([section 11](#the-certificate-warning)). After
+  `elamond revoke all` they pair again too. A real certificate from `[web]` isn't touched.
 - The old key lives on in backups made before (with `elamond backup`). Delete them, as
   `elamond rotate-cert` reminds you.
