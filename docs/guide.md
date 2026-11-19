@@ -27,7 +27,8 @@ The phone talks to the computer directly: on the same network, or over a VPN bot
    computer ([section 3](#3-pair-the-phone)).
 4. **Watch.** The app shows the computer's load, temperatures, memory, processes and more.
 5. **Control, if you want it.** Set `control = true` in `~/.config/elamon/elamond.toml`. The phone
-   can then use power, media, links and your own actions ([section 5](#5-the-control-panel)).
+   can then use power, media, links, the monitors under Hyprland and your own actions
+   ([section 5](#5-the-control-panel)).
 6. **Be told, if you want it.** Name an ntfy topic's file in the settings and the computer sends
    a notification when a disk fills, a unit fails or a UPS goes to battery
    ([section 10](#10-events-and-notifications)).
@@ -402,6 +403,43 @@ The rest of the screen is help, the source and licences.
 The app opens on the computer you opened last; Back goes to the list of computers. A link to pair
 opens the pairing instead, and a computer you forget isn't opened again.
 
+### Outside the app: a widget, tiles and the card
+
+What the app shows outside its own screens is set where everything else is: in the phone's profile
+on the computer, `[profiles.<id>.android]`, each a dashboard of the settings. None is set at first.
+
+| key | what it shows |
+|---|---|
+| `widget` | the **home-screen widget**: the dashboard's values, gauges, statuses, lists and texts, groups opened out, with the levels the computer gives them. Read in the background every `widget_minutes` (30; Android allows no less than 15) and when you tap it; it shows when it last read them, and that the computer can't be reached rather than old numbers as new. With more than one computer paired, the phone asks which when you add the widget. Without a `widget`, the widget says to set one |
+| `tiles` | the four **Quick Settings tiles** (add them from the panel's edit view): the dashboard's first four buttons and switches, in order, each named and drawn as the widget or its action. A switch shows its state. A tile asks, and unlocks the phone, as the app does; from the lock screen it unlocks the phone first. A tile without one says *No action*. With more than one computer, the app's Settings says which one the tiles act on |
+| `card` | the **computer's card** on the app's home screen: the dashboard's figures (a `value` with `spark` as a small graph) and its buttons and switches as quick actions. Without it, the card shows the first figures of the first tab, as before |
+
+```toml
+[profiles.owner.android]
+widget = "phone"
+tiles = "tiles"
+
+[dashboards.phone]
+title = "On the phone"
+widgets = [
+  { type = "gauge", value = "battery.percent", label = "Battery" },
+  { type = "value", value = "cpu.temp", label = "CPU" },
+]
+
+[dashboards.tiles]
+title = "Tiles"
+widgets = [
+  { type = "toggle", action = "mode", param = "mode", on = "server", off = "desktop", value = "mode.now", label = "Server mode" },
+  { type = "button", action = "power.lock", label = "Lock", icon = "lock" },
+]
+```
+
+`mode.now` is what a [source](#8-your-own-readings) of yours says the mode is; without a `value`, a
+switch tile shows no state, and two buttons may serve better.
+
+The widget and the tiles work after the phone restarts, once it has been unlocked; they keep no
+connection open and use no notifications.
+
 ### How do I…
 
 - **…see what slows the computer down?** Overview → tap the CPU or Memory tile. The bottom of the
@@ -488,6 +526,7 @@ From top to bottom:
 | **Actions** | a button for each action in the settings | actions in the settings ([below](#actions)) |
 | **Power** | *Lock*, *Sleep*, *Restart*, *Shut down* | what logind allows; the polkit rule for all but *Lock* |
 | **Displays** | the connected monitors, folded to one line; tap one for its port, graphics card, size, best mode, fastest refresh rate, position and year made | shown even with control off |
+| **Monitors** | each monitor on or off, its picture (DPMS) and its brightness ([below](#monitors)) | Hyprland with Lua settings; the `operate` role; for an external monitor's brightness, `ddcutil` and the `i2c` group |
 | **Journal** | the computer's system journal, warnings first, with search ([section 9](#9-the-journal)) | the `monitor` role or above; for all of it, your user in `systemd-journal` |
 | **Events** | what the rules of the settings told: a disk filling, a unit that failed, a UPS on battery ([section 10](#10-events-and-notifications)) | the `monitor` role or above; settings from 0.9 on |
 | **Activity log** | what phones asked the computer to do ([section 6](#the-activity-log)) | the `monitor` role or above |
@@ -570,6 +609,44 @@ checks each value before anything runs and refuses one it doesn't allow.
 unit's and may be shorter than your shell's, so give the program's full path (`/usr/bin/…`; on
 NixOS `/run/current-system/sw/bin/…`, `/etc/profiles/per-user/YOUR_USER/bin/…` or
 `/run/wrappers/bin/sudo`). On NixOS, the module gives the unit a `PATH` with those directories.
+
+### Monitors
+
+Under Hyprland whose settings are Lua (`hyprland.lua`), Control has a **Monitors** group under
+*Displays*: for each monitor a switch that turns it on or off, one for its picture (DPMS: the
+screen sleeps, the windows stay where they are), and a brightness slider where the brightness can
+be read. The service finds the running Hyprland by itself with `hyprctl`, also as a user unit
+outside your session; `elamond check` and `elamond setup --check` say what is missing, and
+`elamond values displays` shows what it sees. Without Hyprland, or with settings that aren't Lua,
+there is no group and *Displays* is as before. Nothing is read from Hyprland while no phone shows
+Control.
+
+- **Turning one off** takes it out of Hyprland's layout, as a key of yours bound to
+  `hl.monitor({ output = …, disabled = true })` does: its windows move to the others. **Turning it
+  on** brings it back with the mode, position, scale and rotation it had. A key that turns a
+  monitor on and off by whether Hyprland lists it keeps working: it sees what the phone did, and the
+  phone sees what the key did. A monitor your settings turn off at start can be turned on from the
+  phone too.
+- **The last screen.** Turning off, or putting to sleep, the one monitor still showing a picture
+  asks you to type its name (`DP-1`), as the service decides when you do it. A remote desktop
+  (wayvnc, a game stream) may stop while no screen draws. Outputs without a screen, a stream's,
+  never count, and the phone doesn't show them unless `[displays] headless = true`.
+- **Every screen asleep.** Hyprland applies a monitor's change with the next picture it draws, so
+  a monitor turned on while every screen sleeps comes on once one wakes: the phone says so
+  (*waiting for a screen*).
+- **Reloading Hyprland** (`hyprctl reload`, or a new generation of its settings) puts every
+  monitor back as its settings say, whatever the phone did.
+- **Brightness.** A laptop's panel goes through logind, as your user, no root or group needed;
+  its slider stops at `[displays] panel_min` (5%) so the screen can't go black. An external
+  monitor goes through DDC/CI with `ddcutil`: the service needs `ddcutil` on its PATH (on NixOS
+  the module option `services.elamond.ddcutil = true`) and your user needs the monitor's I²C
+  device (on NixOS `hardware.i2c.enable = true;` and your user in the `i2c` group; elsewhere the
+  `i2c-dev` module and a group that may open `/dev/i2c-*`). DDC is slow and may wake a monitor, so
+  it is read once a minute (`ddc_every`) while a phone shows it and only while that monitor shows a
+  picture; a monitor that doesn't answer has no slider.
+
+The role is `operate` unless `[displays] role = "admin"`. Every switch asks first; the brightness
+doesn't. The keys are in [docs/config.md](config.md#monitors).
 
 ### Power, the profile and system units: polkit
 
@@ -1722,6 +1799,7 @@ host names in the QR code, which the app keeps and tries as well:
 | `services.elamond.control.users` | users who may use power and the profile without a password, so their service can. polkit allows it every program of theirs, not only the service |
 | `services.elamond.control.units` | system units those users may start, stop and restart without a password. Links in `settings` with `scope = "system"` are in the rule already; list here the units of links in a user's drop-in |
 | `services.elamond.control.multipleSessions` | `false` by default; also power off, restart and sleep while other users are logged in |
+| `services.elamond.ddcutil` | `false` by default; puts `ddcutil` on the service's PATH, for an external monitor's brightness ([section 5](#monitors)). The I²C devices are the system's: `hardware.i2c.enable = true;` and the user in `hardware.i2c.group` |
 
 The module's user unit has a `PATH` with `/run/wrappers/bin` (sudo, pkexec), your profile
 (`/etc/profiles/per-user/YOUR_USER/bin`, `~/.nix-profile/bin`) and the system's
@@ -1761,6 +1839,7 @@ services.elamond.settings = {
 | `services.elamond.package` | the service's package |
 | `services.elamond.settings` | written to `~/.config/elamon/elamond.toml` (a link into the Nix store), as for NixOS. A mistake fails `home-manager switch`; a change restarts the service. Drop-ins in `elamond.d` still add to it. A file of your own in its place stops `home-manager switch`: move it into `elamond.d/`. No secrets |
 | `services.elamond.defaults` | read-only: the settings elamond starts with |
+| `services.elamond.ddcutil` | `false` by default; `ddcutil` among your packages, where the service finds it, for an external monitor's brightness. The I²C devices are the system's (`hardware.i2c.enable`, the `i2c` group) |
 
 The firewall stays the system's. If you set your own `port` here, give the system the same one
 (`services.elamond.settings.port` beside `openFirewall`; without `enable`, that only opens the
@@ -1943,6 +2022,9 @@ do about those marked `!`. To see what the service reads without the app, run `e
 | `elamond setup` says systemd isn't running | Another init system runs the computer: have it run `elamond serve` as your user at login. |
 | A link opens but the page doesn't load | What it points to may listen only on 127.0.0.1, which other devices can't reach. Make it listen on all addresses, or reach it through an SSH tunnel. |
 | A link's unit shows `missing` | The `unit` name is wrong, or the unit isn't installed: `systemctl list-units` (add `--user` for user units). |
+| No *Monitors* on Control | `elamond check` says why: no `hyprctl` where the service looks, no Hyprland running, or its settings aren't Lua. The phone needs the `operate` role ([section 5](#monitors)). |
+| A monitor turned on says *waiting for a screen* | Every screen was asleep: Hyprland turns it on once one wakes. Touch the mouse or the keyboard. |
+| No brightness slider for an external monitor | `elamond check` says what is missing: `ddcutil`, the `i2c` group, or a monitor with DDC/CI turned off in its own menu. The slider shows once the monitor shows a picture and has been read (within a minute). |
 | No temperatures or fans | `sudo sensors-detect` (lm-sensors), then restart the service. |
 | A graphics card shows no load | NVIDIA needs its own driver (the service reads its management library; `ELAMON_NVML_LIB` names it if it isn't found). Intel doesn't report load without extra privileges; the app shows the clock. |
 | A monitor shows no resolution | It's off or blanked, or the service can't open the graphics device: be logged in at the computer, or in the `video` group. |

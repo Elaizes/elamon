@@ -33,7 +33,8 @@ Watching, always:
   all the service has kept, and the processes using the most;
 - processes, sortable and searchable;
 - every temperature sensor and fan;
-- connected monitors with their modes and arrangement, read from the kernel, so under any desktop;
+- connected monitors with their modes and arrangement, read from the kernel, so under any desktop
+  (under Hyprland, whether each is on and its brightness too);
 - a UPS, or an EcoFlow power station, through NUT: its status, charge and time left, the power in
   and out and each outlet's, the battery, and a timeline of when it was on battery, kept for good
   (its last 10 000 changes), its legend in hours or in shares of the time;
@@ -58,6 +59,9 @@ Controlling, once the computer allows it:
 - a station's outlets and settings (charge limits, charging power, X-Boost…), those the computer's
   settings list and within the station's limits; one that cuts the computer's own power is typed in
   first.
+- monitors under Hyprland: each on or off, its picture asleep or awake, its brightness (a laptop's
+  panel, or an external monitor over DDC/CI); turning off the last one that shows a picture asks
+  for its name.
 
 Each phone has a role, set on the computer: glancing at the basics, watching everything, everyday
 control, or all of it. Every request to act is kept in an activity log, and `elamond control off`
@@ -69,7 +73,9 @@ pairing the phones again; a new phone pairs with `elamond pair`.
 
 The app: Material You with frosted glass on Android 12 and newer, light, dark or pure black. It
 opens on the computer you opened last. Two things are the phone's own, not the computer's: the
-app's scale, 80 to 140%, and, if you want one, a theme that stays whatever the profiles say.
+app's scale, 80 to 140%, and, if you want one, a theme that stays whatever the profiles say. On
+the phone's home screen, a widget with figures of the computer's, and four Quick Settings tiles
+that run its actions; which, the computer's profile says.
 
 ## Quick start
 
@@ -133,6 +139,10 @@ that ntfy server, without names of units, disks or the computer unless you ask f
   running, whoever opens it first briefly becomes its DRM master; the service closes it right away.
 - Power actions, power profiles and units go through D-Bus (logind, power-profiles-daemon,
   systemd), media through MPRIS, the volume through `wpctl` or `pactl`.
+- Monitors are turned on and off through Hyprland's own `hyprctl` (its Lua settings), asked only
+  while a phone shows them and done once Hyprland shows them done; a laptop panel's brightness
+  through logind, an external monitor's through the computer's `ddcutil`, read once a minute at
+  most and never while it sleeps.
 - A UPS is read over NUT's network protocol, from upsd or, for an EcoFlow station, nutflow; the
   computer needs no NUT client. With `upst record` running, the history and the timeline also
   cover the time the service didn't run.
@@ -180,9 +190,9 @@ dashboards and profiles: [docs/config.md](docs/config.md).
 ## Where it's going
 
 UPSes and power stations came with 0.7, your own readings and the system journal with 0.8, the
-phone's own scale and theme with 0.8.1, events and notifications through ntfy with 0.9. Next, as
-they're needed: controlling monitors under Hyprland, with a home-screen widget and Quick Settings tiles; then a web
-version with an admin page. Not planned: the service for Windows or macOS, app stores (the app is
+phone's own scale and theme with 0.8.1, events and notifications through ntfy with 0.9, monitors
+under Hyprland, a home-screen widget and Quick Settings tiles with 0.10. Next: a web version with
+an admin page. Not planned: the service for Windows or macOS, app stores (the app is
 the APK in each release).
 
 ## License

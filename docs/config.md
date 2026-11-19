@@ -625,7 +625,7 @@ never write a command.
 ```toml
 [actions.mode]
 name = "Mode"
-command = ["leannix", "{mode}"]
+command = ["/usr/local/bin/mode", "{mode}"]
 params.mode = { choices = ["server", "desktop"], labels = { server = "Server", desktop = "Desktop" } }
 role = "operate"
 ```
