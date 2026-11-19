@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
 	draft, isDirty, rebase, clone, stable, setKey, listAt, widgetAt, addWidget, removeWidget, moveWidget, nudge,
-	setSpan, allPaths, addTab, removeTab, moveTab, setAndroid, flow, isId,
+	setSpan, allPaths, addTab, changes, flow, isId,
 } from '../js/editor/draft.js';
 import { normalise, exampleOf, unknownKeys, spanOf, isGroup } from '../js/editor/describe.js';
 
@@ -172,32 +172,31 @@ test('the grid: rows filled, the last of a row taking the columns left', () => {
 	assert.deepEqual(flow([], 4), []);
 });
 
-test('a profile\'s tabs: added once, taken out, moved; its Android dashboards', () => {
-	// What the editor sends for a profile, as the fixture has it, from a profile as the description gives one.
+test("a profile's write holds what was changed here, never what the files set", () => {
+	// The fixture's request, from a profile whose tabs and tiles were changed in the forms.
 	const want = fx('editor-profile.json').request.profile;
-	const p = draft({ dashboards: ['cpu', 'overview'], header: 'header', android: { widget: 'phone', tiles: '', card: '' } });
-	assert.equal(addTab(p.value, 'mine'), true);
-	assert.equal(addTab(p.value, 'mine'), false);
-	assert.deepEqual(p.value.dashboards, ['cpu', 'overview', 'mine']);
-	moveTab(p.value, 0, 2);
-	assert.deepEqual(p.value.dashboards, ['overview', 'mine', 'cpu']);
-	removeTab(p.value, 2);
-	assert.deepEqual(p.value.dashboards, ['overview', 'mine']);
-	addTab(p.value, 'cpu', 1);
-	assert.deepEqual(p.value.dashboards, ['overview', 'cpu', 'mine']);
-	removeTab(p.value, 1);
-	setAndroid(p.value, 'tiles', 'tiles');
+	const p = draft({ dashboards: ['overview'], header: 'header', android: { widget: 'phone', tiles: '', card: '' } });
+	p.value.dashboards.push('mine');
+	p.value.android.tiles = 'tiles';
 	assert.equal(isDirty(p), true);
-	assert.deepEqual(p.value, want);
-	// Every profile of the description has the parts the editor writes.
-	for (const x of desc.profiles) {
-		assert.ok(Array.isArray(x.def.dashboards), x.id);
-		assert.ok(x.def.android && typeof x.def.android === 'object', x.id);
-	}
+	assert.deepEqual(changes(p.start, p.value), { dashboards: want.dashboards, android: { tiles: want.android.tiles } });
+	// "Add it to my tabs": the tabs alone.
+	const own = desc.profiles.find((x) => x.id === desc.profile) || desc.profiles[0];
+	const q = draft(own.def);
+	assert.equal(addTab(q.value, 'mine'), true);
+	assert.equal(addTab(q.value, 'mine'), false);
+	assert.deepEqual(changes(q.start, q.value), { dashboards: [...own.def.dashboards, 'mine'] });
+	// A key taken out, or put back as it was, isn't written: it stays as the files say.
+	delete q.value.header;
+	q.value.dashboards.pop();
+	assert.deepEqual(changes(q.start, q.value), {});
+	// After a save, what was written is what the next change is measured from.
+	p.value.header = 'mine';
+	rebase(p);
+	assert.deepEqual(changes(p.start, p.value), {});
 	const empty = {};
-	setAndroid(empty, 'card', 'mine');
 	addTab(empty, 'mine');
-	assert.deepEqual(empty, { android: { card: 'mine' }, dashboards: ['mine'] });
+	assert.deepEqual(empty, { dashboards: ['mine'] });
 });
 
 test('ids as the settings take them', () => {

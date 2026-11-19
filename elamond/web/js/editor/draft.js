@@ -18,9 +18,9 @@
  */
 
 /**
- * A draft and what it started from, to tell whether it changed.
+ * A draft and what it started from (as it was, and as JSON to compare), to tell what changed.
  * @template T
- * @typedef {{ value: T, base: string }} Draft
+ * @typedef {{ value: T, base: string, start: T }} Draft
  */
 
 /** The key a dashboard and a group hold their widgets in (the protocol's, as in mistakes' paths). */
@@ -46,7 +46,7 @@ export function stable(v) {
 
 /** @template T @param {T} value @returns {Draft<T>} */
 export function draft(value) {
-	return { value: clone(value), base: stable(value) };
+	return { value: clone(value), base: stable(value), start: clone(value) };
 }
 
 /** Whether a draft differs from what it started from. @param {Draft<any>} d */
@@ -57,6 +57,30 @@ export function isDirty(d) {
 /** Takes the draft as it is now as what it started from (after a save). @param {Draft<any>} d */
 export function rebase(d) {
 	d.base = stable(d.value);
+	d.start = clone(d.value);
+}
+
+/**
+ * What of a table changed from what it started as: each key whose value changed, and of a table in
+ * it (a profile's `android`), the keys of that which did. A key taken out is left out, as one that
+ * didn't change: written so, it stays as the files say. What a profile's write sends, never the
+ * values it only shows from the files.
+ * @param {Record<string, any>} start @param {Record<string, any>} now @returns {Record<string, any>}
+ */
+export function changes(start, now) {
+	const table = (/** @type {unknown} */ v) => !!v && typeof v === 'object' && !Array.isArray(v);
+	/** @type {Record<string, any>} */
+	const out = {};
+	for (const k of Object.keys(now || {})) {
+		const a = start ? start[k] : undefined;
+		const b = now[k];
+		if (b === undefined || stable(a) === stable(b)) continue;
+		if (table(a) && table(b)) {
+			const inner = changes(a, b);
+			if (Object.keys(inner).length) out[k] = inner;
+		} else out[k] = clone(b);
+	}
+	return out;
 }
 
 /** Sets a key, or takes it out with `undefined`. @param {Record<string, any>} obj @param {string} key @param {unknown} value */
@@ -207,26 +231,6 @@ export function addTab(p, id, index) {
 	if (tabs.includes(id)) return false;
 	tabs.splice(index == null ? tabs.length : Math.max(0, Math.min(index, tabs.length)), 0, id);
 	return true;
-}
-
-/** @param {DraftProfile} p @param {number} index */
-export function removeTab(p, index) {
-	if (!Array.isArray(p.dashboards)) return;
-	p.dashboards.splice(index, 1);
-}
-
-/** Moves a tab from one place to another (`to` counted after it is taken out). @param {DraftProfile} p @param {number} from @param {number} to */
-export function moveTab(p, from, to) {
-	const tabs = p.dashboards;
-	if (!Array.isArray(tabs) || from < 0 || from >= tabs.length) return;
-	const [id] = tabs.splice(from, 1);
-	tabs.splice(Math.max(0, Math.min(to, tabs.length)), 0, id);
-}
-
-/** Sets one of `android`'s keys (`widget`, `tiles`, `card`). @param {DraftProfile} p @param {string} key @param {string} value */
-export function setAndroid(p, key, value) {
-	if (!p.android || typeof p.android !== 'object') p.android = {};
-	p.android[key] = value;
 }
 
 // ---------------------------------------------------------------- the grid

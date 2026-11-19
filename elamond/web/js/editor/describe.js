@@ -3,6 +3,7 @@
 // reference may name. Pure (no DOM), tested under node. Nothing here lists types, keys or values
 // of its own: all of it is the description's.
 import { clone, WIDGETS } from './draft.js';
+import { S, fill } from '../strings.js';
 
 /**
  * A key a form offers, or (without `key`) the shape of a list's, map's or `any`'s items.
@@ -19,7 +20,8 @@ import { clone, WIDGETS } from './draft.js';
  * @typedef {{ id: string, name?: string, def: Record<string, any>, from?: Whence[], editor?: boolean, clients?: string[] }} EditorProfile
  *
  * @typedef {{ file: string, hash: string | null, writable: boolean, why: string | null, profile: string | null,
- *   dashboard: { keys: EditorKey[] }, common: EditorKey[], types: EditorType[], records: Record<string, EditorKey[]>,
+ *   dashboard: { keys: EditorKey[] }, profile_keys: EditorKey[], android_keys: EditorKey[], templates: Record<string, Record<string, any>>,
+ *   common: EditorKey[], types: EditorType[], records: Record<string, EditorKey[]>,
  *   values: { address: string, now?: string | null, label?: string }[], collections: { name: string, fields?: string[], label?: string }[],
  *   actions: { id: string, name?: string, kind?: string }[], links: { id: string, name?: string }[],
  *   sources: { id: string, kind?: string }[], dashboards: EditorDashboard[], profiles: EditorProfile[] }} Editor
@@ -40,6 +42,9 @@ export function normalise(d) {
 		why: o.why ?? null,
 		profile: o.profile ?? null,
 		dashboard: { keys: arr(o.dashboard && o.dashboard.keys) },
+		profile_keys: arr(o.profile_keys),
+		android_keys: arr(o.android_keys),
+		templates: o.templates && typeof o.templates === 'object' && !Array.isArray(o.templates) ? o.templates : {},
 		common: arr(o.common),
 		types: arr(o.types),
 		records: o.records && typeof o.records === 'object' ? o.records : {},
@@ -250,6 +255,13 @@ export function origins(d, entry) {
 		if (w.nix === true || file.startsWith('/nix/store/')) return { kind: 'nix', file, line };
 		return { kind: 'file', file, line };
 	});
+}
+
+/** An origin in words: the defaults, the editor's file, a file and line (in the Nix store, said). @param {ReturnType<typeof origins>[number]} o */
+export function fromWords(o) {
+	if (o.kind === 'defaults') return S.editor.fromDefaults;
+	if (o.kind === 'editor') return S.editor.fromEditor;
+	return fill(o.kind === 'nix' ? S.editor.fromNix : S.editor.fromFile, o.line != null ? `${o.file}:${o.line}` : o.file);
 }
 
 /**

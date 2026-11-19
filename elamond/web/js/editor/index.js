@@ -8,9 +8,9 @@ import { S, fill } from '../strings.js';
 import * as state from '../state.js';
 import {
 	draft, isDirty, rebase, clone, stable, widgetAt, addWidget, removeWidget, moveWidget, nudge, setSpan, pathKey, samePath,
-	sortMistakes, isId, addTab, WIDGETS,
+	sortMistakes, isId, addTab, changes, WIDGETS,
 } from './draft.js';
-import { normalise, isGroup, spanRange, nameOf, exampleOf, origins, keysFromBelow } from './describe.js';
+import { normalise, isGroup, spanRange, nameOf, exampleOf, origins, fromWords, keysFromBelow } from './describe.js';
 import { keyFields, otherField, markField } from './form.js';
 import { Canvas } from './canvas.js';
 import { Previewer } from './preview.js';
@@ -388,9 +388,7 @@ class Editor {
 		if (this.isNew || !e) {
 			lines.push(h('p', { class: 'muted' }, S.editor.isNew));
 		} else {
-			const from = origins(this.desc, e)
-				.map((o) => (o.kind === 'defaults' ? S.editor.fromDefaults : o.kind === 'editor' ? S.editor.fromEditor : fill(o.kind === 'nix' ? S.editor.fromNix : S.editor.fromFile, o.line != null ? `${o.file}:${o.line}` : o.file)))
-				.join(' · ');
+			const from = origins(this.desc, e).map(fromWords).join(' · ');
 			const p = h('p', { class: 'muted' }, fill(S.editor.from, from));
 			if (e.own) p.append(' ', S.editor.ownDashboard);
 			else if (e.editor) p.append(' ', S.editor.overrides);
@@ -609,7 +607,7 @@ class Editor {
 		const editor = { dashboards: { [this.id]: this.dash.value } };
 		/** @type {Record<string, unknown>} */
 		const profiles = {};
-		for (const [id, d] of this.profiles) if (isDirty(d)) profiles[id] = d.value;
+		for (const [id, d] of this.profiles) if (isDirty(d)) profiles[id] = changes(d.start, d.value);
 		if (Object.keys(profiles).length) editor.profiles = profiles;
 		return { editor, dashboard: this.id };
 	}
@@ -727,7 +725,8 @@ class Editor {
 			for (const [id, d] of this.profiles) {
 				if (!isDirty(d)) continue;
 				this.profileId = this.profileId || id;
-				const r = await api('/api/v1/admin/editor/profile', { body: { id, profile: d.value, base } });
+				// Only what was changed here: a key the files set stays theirs.
+				const r = await api('/api/v1/admin/editor/profile', { body: { id, profile: changes(d.start, d.value), base } });
 				base = r.hash;
 				generation = r.generation;
 				rebase(d);

@@ -377,7 +377,8 @@ function editorWrite(what, b) {
 		if (!p) return [422, { error: 'bad_settings', mistakes: [{ file: d.file, line: null, path: `profiles.${b.id}`, message: 'no such profile' }] }];
 		const missing = (b.profile.dashboards || []).findIndex((x) => !d.dashboards.some((y) => y.id === x));
 		if (missing >= 0) return [422, { error: 'bad_settings', mistakes: [{ file: d.file, line: null, path: `profiles.${b.id}.dashboards[${missing}]`, message: `no dashboard ${b.profile.dashboards[missing]}` }] }];
-		Object.assign(p, { def: b.profile, editor: true });
+		// The editor's part of it is what was sent; the rest stays as the files say.
+		Object.assign(p, { def: { ...p.def, ...b.profile, android: { ...p.def.android, ...(b.profile.android || {}) } }, editor: true });
 	} else if (what === 'revert') {
 		const original = fx('0.11/editor.json');
 		if (b.dashboard) {

@@ -192,15 +192,6 @@
 .ed-summary-title { margin-right: auto; }
 .ed-profile-body { display: grid; gap: 8px; margin-top: 8px; }
 .ed-profile h3 { margin: 8px 0 4px; }
-.ed-tabs { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; counter-reset: tab; }
-.ed-tabs li { display: flex; align-items: center; gap: 2px; padding: 2px 2px 2px 12px; border-radius: 10px; background: var(--surface-2); counter-increment: tab; }
-.ed-tabs li::before { content: counter(tab); min-width: 1.6em; color: var(--muted); font-variant-numeric: tabular-nums; }
-.ed-tabs li.muted::before { content: none; }
-.ed-tabs li.this { outline: 2px solid var(--primary); outline-offset: -2px; }
-.ed-tab-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.ed-this { margin-left: 8px; color: var(--primary); }
-.ed-tab-add { display: flex; gap: 8px; margin-top: 8px; }
-.ed-tab-add select { flex: 1; min-width: 0; }
 
 /* ------------------------------------------------------------------ dialogs and the new dashboard */
 
