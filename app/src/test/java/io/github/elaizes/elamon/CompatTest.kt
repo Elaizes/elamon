@@ -17,6 +17,10 @@ class CompatTest {
 		assertTrue(Versions.compare("1.0", "0.99.99") > 0)
 		assertTrue(Versions.compare("1.1.0", "1.2") < 0)
 		assertTrue(Versions.compare("1.1.9-beta", "1.2.0") < 0)
+		// By numbers, not as text: 0.11 comes after 0.10.
+		assertTrue(Versions.compare("0.11.0", "0.10.1") > 0)
+		assertTrue(Versions.compare("0.10.1", "0.10.0") > 0)
+		assertTrue(Versions.compare("0.11.0", "0.9.9") > 0)
 	}
 
 	@Test

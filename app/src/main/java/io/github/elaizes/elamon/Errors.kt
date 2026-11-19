@@ -31,6 +31,15 @@ private val CODE_MESSAGES = mapOf(
 	// which only Elamon 0.6.1 asks for (the service's list of codes still has it).
 	"too_many_phones" to R.string.err_too_many_phones,
 	"rekey_refused" to R.string.err_rekey_refused,
+	// elamond 0.11: the admin API, and the dashboard editor writing the computer's settings.
+	"bad_origin" to R.string.err_bad_origin,
+	"admin_off" to R.string.err_admin_off,
+	"writes_off" to R.string.err_writes_off,
+	"read_only" to R.string.err_read_only,
+	"at_computer" to R.string.err_at_computer,
+	"bad_name" to R.string.err_bad_name,
+	"changed_on_disk" to R.string.err_changed_on_disk,
+	"bad_settings" to R.string.err_bad_settings,
 )
 
 /**

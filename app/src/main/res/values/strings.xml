@@ -114,11 +114,14 @@
 	<string name="role_monitor">Monitor</string>
 	<string name="role_operate">Operate</string>
 	<string name="role_admin">Admin</string>
+	<!-- 0.11: above admin; the computer gives it. -->
+	<string name="role_owner">Owner</string>
 	<!-- What each role allows, as a screen reader says it after the role's name. -->
 	<string name="role_glance_about">sees the basics only: load, memory, temperatures, disks, network and battery</string>
 	<string name="role_monitor_about">sees everything, changes nothing</string>
 	<string name="role_operate_about">may also start and stop the links\' units, play media, set the power profile and run actions</string>
 	<string name="role_admin_about">may do everything, power and ending processes included</string>
+	<string name="role_owner_about">may do everything an admin may, and change the computer\'s settings: edit its dashboards here, and the rest in its web page</string>
 	<!-- The role pill read aloud: "This phone's role: Admin, may do everything, power and ending processes included". -->
 	<string name="a11y_role">This phone\'s role: %1$s, %2$s</string>
 	<string name="a11y_role_unknown">This phone\'s role: %1$s</string>
@@ -280,6 +283,13 @@
 	<string name="help_events_what">The computer can tell what happens to it: a disk nearly full, a unit that failed, a laptop\'s battery low, a UPS on battery. Rules in its settings make these events. The Events page, behind Control\'s Events button, lists them with a level to filter by and a search, as does any page the computer\'s settings give a log of events.</string>
 	<string name="help_events_ntfy">Notifications don\'t come from this app, which asks for no permission to show any. The service sends events to an ntfy topic set up in the computer\'s settings, and the ntfy app on this phone shows them, whether Elamon is open or not.</string>
 	<string name="help_events_settings">Which rules there are, their limits and texts, and what is sent are all the computer\'s settings: by default, events from level warning up, without the names of units, disks or the computer. A script makes an event of its own words:</string>
+	<!-- 0.11: the dashboard editor. -->
+	<string name="help_editor">7. Editing dashboards</string>
+	<string name="help_editor_who">A phone the computer gives the role owner edits its dashboards and the tabs of its profiles here, in forms, with no settings file to write: in a computer\'s menu, Edit dashboard, New dashboard and Edit tabs. The computer gives the role (elamond clients role ID owner), and its Elamon service has to be 0.11 or newer, with the editor on in its settings.</string>
+	<string name="help_editor_how">Edit shows the dashboard as it looks. Touch and hold a widget\'s handle, then drag it to another\'s place; tap a widget for its settings and its width; Add widget offers what the computer can show, each with an example. What the forms offer, the computer describes. Buttons, switches and a table\'s rows only pick an action the computer\'s settings already have: the editor writes no commands.</string>
+	<string name="help_editor_save">Saving unlocks the phone first, whatever the profile asks before actions: it changes the computer\'s settings. The computer checks them, then writes what you saved to a settings file of its own, over the others:</string>
+	<string name="help_editor_back">Back to the files takes a dashboard or a profile\'s tabs out of that file again, as the other files have them; a dashboard only that file has is deleted instead. If it was changed elsewhere meanwhile (the computer\'s web page, another phone), the editor says so and keeps your changes until you choose.</string>
+	<string name="help_editor_web">The rest of the admin panel (the settings files, the paired phones, pairing, holding control off) is the computer\'s web page, in a browser on its address:</string>
 	<string name="help_guide">Full guide</string>
 	<string name="help_guide_body">Settings, dashboards, the control panel, roles, backups and troubleshooting are in the full guide, online.</string>
 	<string name="help_guide_button">Full guide</string>
@@ -308,6 +318,15 @@
 	<!-- 0.10: a monitor's action that failed, by what the computer said. -->
 	<string name="err_not_applied">The monitor didn\'t change in time. Check it at the computer, or try again.</string>
 	<string name="err_waiting_for_a_screen">It turns on once a screen wakes up: no screen shows a picture now.</string>
+	<!-- 0.11: the admin API and the dashboard editor. -->
+	<string name="err_bad_origin">The computer takes that change only from its own page</string>
+	<string name="err_admin_off">Changing this computer\'s settings from a phone or a browser is turned off there</string>
+	<string name="err_writes_off">The computer doesn\'t take changes to its settings now: writing them is off there, or control is held off</string>
+	<string name="err_read_only">That settings file can\'t be written from here: it is set in Nix, or lies outside the settings folder</string>
+	<string name="err_at_computer">Only the person at the computer can do that</string>
+	<string name="err_bad_name">The computer doesn\'t take that name for a settings file</string>
+	<string name="err_changed_on_disk">The computer\'s settings changed since they were read here, maybe in its web page. Read them again before saving.</string>
+	<string name="err_bad_settings">The computer\'s settings wouldn\'t read with this change, so nothing was written</string>
 	<!-- The chips over a graph or timeline: its own span, live ("10 min", "24 h"), then the long ranges. -->
 	<string name="range_seconds">%1$d s</string>
 	<string name="range_minutes">%1$d min</string>
@@ -445,4 +464,130 @@
 	<!-- Settings, with several computers paired: which one the tiles act on. -->
 	<string name="settings_tiles">Quick Settings tiles</string>
 	<string name="settings_tiles_body">The tiles run the first four buttons and toggles of the dashboard the computer\'s profile names in tiles.</string>
+	<!-- 0.11: the dashboard editor, for a phone the computer gives the role owner. In a computer's menu. -->
+	<string name="editor_menu_edit">Edit dashboard</string>
+	<string name="editor_menu_new">New dashboard</string>
+	<string name="editor_menu_tabs">Edit tabs</string>
+	<!-- The editor's bar: the profile's name, "Tabs of Pixel 9". -->
+	<string name="editor_tabs_title">Tabs of %1$s</string>
+	<string name="editor_save">Save</string>
+	<string name="editor_saved">Saved</string>
+	<string name="editor_saved_no_tab">Saved, but it couldn\'t be added to the tabs. Add it under Edit tabs.</string>
+	<string name="editor_reverted">Back as the settings files have it</string>
+	<string name="editor_deleted">Deleted</string>
+	<!-- Unlocking the phone before writing the computer's settings: the prompt's title, and the question asked instead on a phone without a screen lock. -->
+	<string name="editor_unlock_prompt">Change the settings of %1$s</string>
+	<string name="editor_write_question">Write this to the computer\'s settings?</string>
+	<string name="editor_failed">Couldn\'t read what the editor offers</string>
+	<!-- %1$s: a dashboard's or a profile's id. -->
+	<string name="editor_not_in_settings">“%1$s” isn\'t in this computer\'s settings, so the editor can\'t change it.</string>
+	<string name="editor_not_writable">The computer can\'t write the editor\'s file: %1$s</string>
+	<string name="editor_too_large">That is more than the computer takes at once</string>
+	<string name="editor_add">Add widget</string>
+	<string name="editor_add_title">Add a widget</string>
+	<!-- After adding: the type's label, "Added Gauge". -->
+	<string name="editor_added">Added %1$s</string>
+	<string name="editor_removed">Widget removed</string>
+	<string name="editor_undo">Undo</string>
+	<string name="editor_empty">No widgets yet. Add one with Add widget.</string>
+	<string name="editor_edit_widget">Edit</string>
+	<string name="editor_drag">Drag to move: touch and hold, then drag</string>
+	<string name="editor_move_earlier">Move earlier</string>
+	<string name="editor_move_later">Move later</string>
+	<string name="editor_remove_widget">Remove widget</string>
+	<!-- A widget the preview doesn't show now: its type's label, "Gauge". -->
+	<string name="editor_not_shown">Not shown now (%1$s): a value not there, its condition, or this phone\'s role.</string>
+	<!-- In a group's child's sheet: back to the group, "Back to Group · More". -->
+	<string name="editor_back_to">Back to %1$s</string>
+	<string name="editor_preview_mistakes">The preview shows the dashboard as it was before the mistakes marked.</string>
+	<string name="editor_preview_empty">Nothing to preview yet: add a widget this phone can see.</string>
+	<string name="editor_dashboard_keys">Dashboard details</string>
+	<string name="editor_dashboard_id">Id: %1$s</string>
+	<!-- The files and lines that set a dashboard: "elamond.d/dashboards.toml:3". -->
+	<string name="editor_set_in">Set in %1$s</string>
+	<string name="editor_revert">Back to the files</string>
+	<string name="editor_revert_title">Back to the files?</string>
+	<!-- %1$s: the editor's file, "elamond.d/zz-editor.toml". -->
+	<string name="editor_revert_body">The computer takes this dashboard out of %1$s: it is again as its other settings files have it. A copy of the file as it was is kept in its backups.</string>
+	<string name="editor_revert_tabs_body">The computer takes these tabs out of %1$s: they are again as its other settings files have them. A copy of the file as it was is kept in its backups.</string>
+	<string name="editor_delete">Delete dashboard</string>
+	<string name="editor_delete_title">Delete %1$s?</string>
+	<string name="editor_delete_body">Only %1$s has it: the computer takes it out, and out of the tabs the editor wrote. A copy of the file as it was is kept in its backups.</string>
+	<string name="editor_delete_confirm">Delete</string>
+	<string name="editor_reload">Read again</string>
+	<string name="editor_reload_title">Read it again?</string>
+	<string name="editor_reload_body">What you changed here and haven\'t saved is dropped.</string>
+	<string name="editor_leave_title">Leave without saving?</string>
+	<string name="editor_leave_body">What you changed here isn\'t on the computer yet.</string>
+	<string name="editor_leave">Leave</string>
+	<string name="editor_keep">Keep editing</string>
+	<!-- Another editor (the computer's web page, another phone) wrote meanwhile; the changes here are kept. -->
+	<string name="editor_conflict_mine">This was changed elsewhere since you opened it, maybe in the computer\'s web page. Your changes are kept here: save them over it, or take the computer\'s.</string>
+	<string name="editor_conflict_other">The editor\'s file was changed elsewhere since you opened it, maybe in the computer\'s web page, but not this. Your changes are kept here: save them again.</string>
+	<string name="editor_conflict_keep">Save mine</string>
+	<string name="editor_conflict_take">Take the computer\'s</string>
+	<string name="editor_mistakes">The computer didn\'t take it. What is wrong is marked.</string>
+	<!-- A mistake the computer found: "elamond.d/zz-editor.toml, line 3: expected a number". -->
+	<string name="editor_mistake_line">%1$s, line %2$d: %3$s</string>
+	<string name="editor_mistake_path">%1$s: %2$s</string>
+	<!-- The fields of the forms. -->
+	<string name="editor_required">%1$s (needed)</string>
+	<string name="editor_clear">Clear %1$s</string>
+	<string name="editor_default">Unless set: %1$s</string>
+	<!-- %1$s: the settings files below the editor's that set it. -->
+	<string name="editor_fixed">Also set in %1$s: it can be changed here, not taken out.</string>
+	<string name="editor_between">From %1$s to %2$s</string>
+	<string name="editor_pick">Choose</string>
+	<string name="editor_pick_value">Choose a value</string>
+	<string name="editor_search">Search</string>
+	<string name="editor_nothing_found">Nothing found</string>
+	<plurals name="editor_search_more">
+		<item quantity="one">%1$d more: search to find it</item>
+		<item quantity="other">%1$d more: search to find them</item>
+	</plurals>
+	<string name="editor_add_item">Add</string>
+	<string name="editor_item_key">Key</string>
+	<string name="editor_remove_item">Remove</string>
+	<string name="editor_not_json">Not JSON: kept as text for the computer to judge</string>
+	<!-- What a key may be, when it may be one of several: chips over its field. -->
+	<string name="editor_kind_number">Number</string>
+	<string name="editor_kind_int">Whole number</string>
+	<string name="editor_kind_bool">On or off</string>
+	<string name="editor_kind_text">Text</string>
+	<string name="editor_kind_address">Value</string>
+	<string name="editor_kind_choice">Choice</string>
+	<string name="editor_kind_list">List</string>
+	<string name="editor_kind_table">Table</string>
+	<string name="editor_kind_widgets">Widgets</string>
+	<string name="editor_kind_action">Action</string>
+	<string name="editor_kind_dashboard">Dashboard</string>
+	<string name="editor_kind_collection">Collection</string>
+	<string name="editor_kind_link">Link</string>
+	<string name="editor_kind_source">Source</string>
+	<!-- A profile's tabs. -->
+	<string name="editor_profile">Profile</string>
+	<!-- The phone's own profile among those to choose: "Pixel 9 (this phone)". -->
+	<string name="editor_profile_own">%1$s (this phone)</string>
+	<string name="editor_profile_dirty">Save first to edit another profile.</string>
+	<plurals name="editor_profile_clients">
+		<item quantity="one">%1$d paired client has it</item>
+		<item quantity="other">%1$d paired clients have it</item>
+	</plurals>
+	<string name="editor_tabs">Tabs</string>
+	<string name="editor_header">Header</string>
+	<string name="editor_header_hint">The chips under the computer\'s name, on every tab</string>
+	<string name="editor_android">Outside the app</string>
+	<string name="editor_android_widget">Home-screen widget</string>
+	<string name="editor_android_tiles">Quick Settings tiles</string>
+	<string name="editor_android_card">The computer\'s card on the home screen</string>
+	<!-- A new dashboard. -->
+	<string name="editor_new_title">New dashboard</string>
+	<string name="editor_new_name">Title</string>
+	<string name="editor_new_id">Id</string>
+	<string name="editor_new_id_rule">Up to 32 of a–z, 0–9, _ and -, as the settings name it</string>
+	<string name="editor_new_id_taken">The computer has a dashboard of this id already</string>
+	<string name="editor_new_from">Start from</string>
+	<string name="editor_new_empty">An empty dashboard</string>
+	<string name="editor_new_tabs">Add it to this phone\'s tabs</string>
+	<string name="editor_new_create">Create</string>
 </resources>

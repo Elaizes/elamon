@@ -119,6 +119,8 @@ fun MachineScreen(
 	onForgotten: (untold: String?) -> Unit,
 	onHelp: () -> Unit,
 	onSettings: () -> Unit,
+	/** Opens the dashboard editor (elamond 0.11): on [dashboard] as the screen names it, a new one without, or with [tabs] the profile's tabs. */
+	onEdit: (dashboard: String?, tabs: Boolean) -> Unit,
 ) {
 	val ctx = LocalContext.current
 	// Its own store, cleared when the computer is left for good, forgotten or paired again.
@@ -317,6 +319,12 @@ fun MachineScreen(
 					actions = {
 						IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.machine_more)) }
 						DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+							// The editor, where the computer offers it to this phone's role.
+							if (ui != null && !turnedAway && EDITOR_FEATURE in ui.service.features) {
+								current?.let { d -> DropdownMenuItem(text = { Text(stringResource(R.string.editor_menu_edit)) }, onClick = { menu = false; onEdit(d, false) }) }
+								DropdownMenuItem(text = { Text(stringResource(R.string.editor_menu_new)) }, onClick = { menu = false; onEdit(null, false) })
+								DropdownMenuItem(text = { Text(stringResource(R.string.editor_menu_tabs)) }, onClick = { menu = false; onEdit(null, true) })
+							}
 							DropdownMenuItem(text = { Text(stringResource(R.string.settings)) }, onClick = { menu = false; onSettings() })
 							DropdownMenuItem(text = { Text(stringResource(R.string.help)) }, onClick = { menu = false; onHelp() })
 							DropdownMenuItem(text = { Text(stringResource(R.string.machine_forget)) }, onClick = { menu = false; confirmForget = true })
@@ -488,6 +496,7 @@ fun roleName(role: String): String = when (PhoneRole.of(role)) {
 	PhoneRole.Monitor -> stringResource(R.string.role_monitor)
 	PhoneRole.Operate -> stringResource(R.string.role_operate)
 	PhoneRole.Admin -> stringResource(R.string.role_admin)
+	PhoneRole.Owner -> stringResource(R.string.role_owner)
 	null -> role.replaceFirstChar { it.uppercase() }
 }
 
@@ -497,6 +506,7 @@ private fun PhoneRole.about(): Int = when (this) {
 	PhoneRole.Monitor -> R.string.role_monitor_about
 	PhoneRole.Operate -> R.string.role_operate_about
 	PhoneRole.Admin -> R.string.role_admin_about
+	PhoneRole.Owner -> R.string.role_owner_about
 }
 
 /**
@@ -532,6 +542,9 @@ private fun Tried(hosts: List<String>) {
 internal fun turnsAway(conn: Conn): Boolean = conn in TURNED_AWAY
 
 private val TURNED_AWAY = setOf(Conn.Unauthorized, Conn.CertificateChanged, Conn.Refused, Conn.Incompatible)
+
+/** What `service.features` says when the computer offers this phone's role the dashboard editor (elamond 0.11). */
+const val EDITOR_FEATURE = "editor"
 
 /**
  * The page the top bar names and Back closes: [current], when it is one of the open [pages] and on

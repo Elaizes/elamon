@@ -40,6 +40,7 @@ import io.github.elaizes.elamon.data.Machine as Paired
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.Profile
 import io.github.elaizes.elamon.data.UiCache
+import io.github.elaizes.elamon.ui.EditorScreen
 import io.github.elaizes.elamon.ui.ElamonTheme
 import io.github.elaizes.elamon.ui.ForgottenUntold
 import io.github.elaizes.elamon.ui.Guard
@@ -65,6 +66,12 @@ sealed interface Screen {
 	data object Help : Screen
 	/** The settings in force, those of the computer [machine] or of the first one paired. */
 	data class Settings(val machine: String? = null) : Screen
+
+	/**
+	 * The dashboard editor of the computer [machine] (elamond 0.11): on [dashboard] as its screen
+	 * names it, a new one without it, or with [tabs] the tabs of its profile.
+	 */
+	data class Editor(val machine: String, val dashboard: String? = null, val tabs: Boolean = false) : Screen
 }
 
 /** The screen stack; lives through rotation, starts over after the process dies. */
@@ -231,6 +238,7 @@ class MainActivity : FragmentActivity() {
 											},
 											onHelp = { nav.push(Screen.Help) },
 											onSettings = { nav.push(Screen.Settings(screen.id)) },
+											onEdit = { d, tabs -> nav.push(Screen.Editor(screen.id, d, tabs)) },
 										)
 									}
 								}
@@ -241,6 +249,25 @@ class MainActivity : FragmentActivity() {
 									onPaired = { nav.paired(it.id) },
 									onHelp = { nav.push(Screen.Help) },
 								)
+								is Screen.Editor -> {
+									val machines by MachineStore.get(this@MainActivity).machines.collectAsStateWithLifecycle()
+									val machine = machines.find { it.id == screen.machine }
+									if (machine == null) {
+										// Forgotten meanwhile: its screen goes, and the editor with it.
+										LaunchedEffect(screen) { if (nav.top == screen) nav.reset(Screen.Home) }
+									} else {
+										EditorScreen(
+											machine,
+											screen.dashboard,
+											screen.tabs,
+											owner = nav.owner(screen),
+											machineOwner = nav.owner(Screen.Machine(screen.machine)),
+											onBack = { nav.pop() },
+											onTabs = { nav.push(Screen.Editor(screen.machine, tabs = true)) },
+											onHelp = { nav.push(Screen.Help) },
+										)
+									}
+								}
 								is Screen.Help -> HelpScreen(onBack = { nav.pop() })
 								is Screen.Settings -> SettingsScreen(screen.machine, onBack = { nav.pop() }, onHelp = { nav.push(Screen.Help) })
 							}
@@ -307,6 +334,7 @@ fun startScreen(last: String?, paired: List<Paired>, link: Boolean): Screen? =
 fun prefsFor(top: Screen, paired: List<Paired>, profiles: Map<String, Profile>, own: OwnTheme? = null): Prefs {
 	val id = when (top) {
 		is Screen.Machine -> top.id
+		is Screen.Editor -> top.machine
 		is Screen.Settings -> top.machine ?: paired.firstOrNull()?.id
 		else -> paired.firstOrNull()?.id
 	}

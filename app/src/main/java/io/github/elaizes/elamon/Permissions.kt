@@ -8,7 +8,10 @@ enum class PhoneRole(val key: String) {
 	Glance("glance"),
 	Monitor("monitor"),
 	Operate("operate"),
-	Admin("admin");
+	Admin("admin"),
+
+	/** Everything an admin may, and changing the computer's settings (from elamond 0.11): the dashboard editor here. */
+	Owner("owner");
 
 	companion object {
 		/** The role the service names; null for none, or one from a newer service this app doesn't know. */
