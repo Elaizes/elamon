@@ -259,6 +259,9 @@ object ChartStyle {
 	val tile = 56.dp
 	val sparkline = 36.dp
 
+	/** A spark on a computer's card on the home screen. */
+	val sparkMini = 24.dp
+
 	/** Core bars in the CPU tile's place and on the CPU page, and the gap between them. */
 	val cores = 44.dp
 	val coresDetail = 56.dp

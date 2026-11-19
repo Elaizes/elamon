@@ -141,6 +141,19 @@ class DashboardsTest {
 	}
 
 	@Test
+	fun aLinksAddressIsShownAsItOpens() {
+		// A105: the sheet's Address showed "http://{host}:8080", filled in only when opened.
+		val links = ui.dashboard("home")!!.widgets.first { it.id == "home/links" }
+		val url = data.widgets.getValue("home/links").rows!!.single().f["url"].text()!!
+		assertEquals("http://{host}:8080", url)
+		assertEquals("http://192.0.2.10:8080", Tables.shownField(links, "url", url, "192.0.2.10"))
+		assertEquals("http://[2001:db8::1]:8080", Tables.shownField(links, "url", url, "2001:db8::1"))
+		// Not reached yet: as it is, rather than a guess. Another field: as it is.
+		assertEquals(url, Tables.shownField(links, "url", url, null))
+		assertEquals("Web {host}", Tables.shownField(links, "name", "Web {host}", "192.0.2.10"))
+	}
+
+	@Test
 	fun sortByNumbersOrWordsWhatLacksTheFieldLast() {
 		assertEquals(listOf("2", "1", "3", "4"), Tables.sort(procs, "cpu", desc = true).map { it.key })
 		assertEquals(listOf("3", "1", "2", "4"), Tables.sort(procs, "cpu", desc = false).map { it.key })

@@ -794,8 +794,8 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 				val c = client() ?: throw ElamondException(ElamondException.Kind.Unreachable)
 				val r = c.action(action.id, params, confirmText)
 				// A command of the settings' own: how it ended, and its output, open once it's done. A
-				// station's says only that the station did it ("done").
-				if (action.kind != "nut" && (r.exitCode != null || r.output != null || r.timedOut)) {
+				// station's, or a monitor's, says only that it was done ("done").
+				if (printsOutput(action, r)) {
 					_actions.update { it.copy(results = it.results + (action.id to r), shown = action.id) }
 				} else {
 					done(action, params)?.let(::say)
@@ -805,7 +805,7 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 			} catch (e: Exception) {
 				say(messageFor(e))
 				// The role, control or the action changed on the computer since the ui was read.
-				if ((e as? ElamondException)?.code in REREAD) refreshUi()
+				if ((e as? ElamondException)?.code in UI_CHANGED) refreshUi()
 			} finally {
 				_actions.update { it.copy(running = it.running - key) }
 			}
@@ -841,11 +841,18 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 
 	private companion object {
 		const val MS_PER_SECOND = 1000L
-
-		/** Refusals after which the ui is read again: what this phone may do changed on the computer. */
-		val REREAD = setOf("not_allowed", "control_disabled", "no_such_action", "confirm_required")
 	}
 }
+
+/**
+ * Whether [r], what [action] answered, is a command's: how it ended and what it printed, shown in a
+ * sheet. A station's or a monitor's `{ "ok": true, "output": "done" }` is the service's own word.
+ */
+fun printsOutput(action: Action, r: ActionResult): Boolean =
+	action.kind !in SAYS_DONE && (r.exitCode != null || r.output != null || r.timedOut)
+
+/** The kinds of action whose answer's `output` is the service's "done", not a command's output. */
+private val SAYS_DONE = setOf("nut", "display")
 
 /** What to say once a built-in action is done, as 0.5 said it; null for those whose effect shows by itself. */
 fun done(action: Action, params: JsonObject): Message? {
@@ -858,7 +865,7 @@ fun done(action: Action, params: JsonObject): Message? {
 		"unit.start" -> R.string.done_started
 		"unit.stop" -> R.string.done_stopped
 		"unit.restart" -> R.string.done_restarted
-		// Playback, the volume and the power profile show by themselves; a station takes a while to answer.
+		// Playback, the volume, the power profile and the monitors show by themselves; a station takes a while to answer.
 		else -> return if (action.kind == "actions" || action.kind == "nut") Message.Res(R.string.done_ran, listOf(action.name)) else null
 	}
 	return Message.Res(id)

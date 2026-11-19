@@ -61,7 +61,7 @@ object Project {
 }
 
 /** The help's parts in the order they show. */
-private enum class HelpItem { Intro, Install, Firewall, Pair, Phone, Events, Guide }
+private enum class HelpItem { Intro, Install, Firewall, Pair, Phone, Outside, Events, Guide }
 
 private sealed interface Block {
 	/** A paragraph; [args] fill its placeholders. */
@@ -102,10 +102,23 @@ private val FIREWALL = listOf(
 	c("networking.firewall.allowedTCPPorts = [ $DEFAULT_PORT ];\nnetworking.firewall.allowedUDPPorts = [ $MDNS_PORT ];"),
 )
 
-/** What the computer's profile sets, and what is this phone's own. */
+/** What the computer's profile sets, what is this phone's own, and the monitors in Control. */
 private val PHONE = listOf(
 	t(R.string.help_phone_profile),
 	t(R.string.help_phone_own),
+	t(R.string.help_phone_monitors),
+)
+
+/**
+ * The home-screen widget, the Quick Settings tiles and the computer's card: what each shows, and that
+ * the computer's profile says which dashboards.
+ */
+private val OUTSIDE = listOf(
+	t(R.string.help_outside_widget),
+	t(R.string.help_outside_tiles),
+	t(R.string.help_outside_card),
+	t(R.string.help_outside_settings),
+	c("[profiles.<id>.android]\nwidget = \"phone\"\nwidget_minutes = 30\ntiles = \"tiles\"\ncard = \"card\""),
 )
 
 /** What the computer tells of itself, where the app shows it, and that notifications are ntfy's. */
@@ -156,6 +169,7 @@ fun HelpScreen(onBack: () -> Unit) {
 					HelpItem.Firewall -> Section(stringResource(R.string.help_firewall), Icons.Default.Lock) { Blocks(FIREWALL) }
 					HelpItem.Pair -> Section(stringResource(R.string.help_pair), ElIcons.Qr) { Blocks(PAIR) }
 					HelpItem.Phone -> Section(stringResource(R.string.help_phone), Icons.Default.Settings) { Blocks(PHONE) }
+					HelpItem.Outside -> Section(stringResource(R.string.help_outside), ElIcons.Control) { Blocks(OUTSIDE) }
 					HelpItem.Events -> Section(stringResource(R.string.help_events), Icons.Default.Notifications) { Blocks(EVENTS) }
 					HelpItem.Guide -> {
 						Section(stringResource(R.string.help_guide), Icons.Default.Info) {

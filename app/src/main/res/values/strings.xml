@@ -181,7 +181,7 @@
 	<string name="err_not_permitted">The computer didn\'t allow that</string>
 	<string name="err_not_found">It\'s gone</string>
 	<string name="err_no_such_process">That process has already ended</string>
-	<string name="err_no_such_action">That action is no longer in the computer\'s settings</string>
+	<string name="err_no_such_action">The computer no longer offers that action, or can\'t do it now</string>
 	<string name="err_no_art">The player has no cover for this track</string>
 	<string name="err_unknown_signal">The computer doesn\'t know that signal</string>
 	<string name="err_storage">The computer couldn\'t save it</string>
@@ -270,7 +270,13 @@
 	<string name="help_phone">4. On this phone</string>
 	<string name="help_phone_profile">Tabs, widgets, the theme, animations (all of them or none), confirmations and how often readings come are the computer\'s: the profile it gives this phone. Settings names it and where it is changed.</string>
 	<string name="help_phone_own">This phone\'s own, under Settings → Display: the app\'s scale, and a theme that stays whatever the computers say. The app opens on the computer you opened last; Back goes to the list.</string>
-	<string name="help_events">5. Events and notifications</string>
+	<string name="help_phone_monitors">Under Hyprland, Control\'s Monitors group turns each monitor and its picture on and off and sets its brightness. Turning off the last screen that still shows a picture asks for its name to be typed first, so the computer isn\'t left dark by a slip.</string>
+	<string name="help_outside">5. Widget, tiles and the computer\'s card</string>
+	<string name="help_outside_widget">The home-screen widget shows a computer\'s readings: the values, gauges, statuses, lists and texts of a dashboard. It reads them in the background every so often (15 minutes at the least) and at once when tapped; the computer\'s name on it opens the computer here. Out of reach, it keeps the last readings, faded, with their time. With several computers paired, adding it asks which one it shows.</string>
+	<string name="help_outside_tiles">Four Quick Settings tiles, Elamon tile 1 to 4, run the first four buttons and toggles of a dashboard, a switch showing whether it is on. A locked phone is unlocked first, and what an action asks in the app (a confirmation, unlocking, a name to type) it asks over the panel too. With several computers, Settings says which one the tiles act on.</string>
+	<string name="help_outside_card">The computer\'s card on the home screen can show a dashboard of its own, its buttons and toggles as quick actions; without one, the first figures of the first tab.</string>
+	<string name="help_outside_settings">Which dashboards they show is the computer\'s to say, in the android table of the profile it gives this phone (Settings names it). Nothing set, the widget says so and the tiles have no action:</string>
+	<string name="help_events">6. Events and notifications</string>
 	<string name="help_events_what">The computer can tell what happens to it: a disk nearly full, a unit that failed, a laptop\'s battery low, a UPS on battery. Rules in its settings make these events. The Events page, behind Control\'s Events button, lists them with a level to filter by and a search, as does any page the computer\'s settings give a log of events.</string>
 	<string name="help_events_ntfy">Notifications don\'t come from this app, which asks for no permission to show any. The service sends events to an ntfy topic set up in the computer\'s settings, and the ntfy app on this phone shows them, whether Elamon is open or not.</string>
 	<string name="help_events_settings">Which rules there are, their limits and texts, and what is sent are all the computer\'s settings: by default, events from level warning up, without the names of units, disks or the computer. A script makes an event of its own words:</string>
@@ -297,6 +303,11 @@
 	<!-- 0.7: the long history and a station's commands -->
 	<string name="err_no_such_widget">That graph or timeline is no longer in what this computer shows this phone</string>
 	<string name="err_confirm_required">The computer asks for this command to be typed in before it runs</string>
+	<!-- The same, when the computer said what is to be typed: a command, or a monitor's name (the last one showing a picture). -->
+	<string name="err_confirm_required_text">The computer asks for “%1$s” to be typed in first. Try again to type it.</string>
+	<!-- 0.10: a monitor's action that failed, by what the computer said. -->
+	<string name="err_not_applied">The monitor didn\'t change in time. Check it at the computer, or try again.</string>
+	<string name="err_waiting_for_a_screen">It turns on once a screen wakes up: no screen shows a picture now.</string>
 	<!-- The chips over a graph or timeline: its own span, live ("10 min", "24 h"), then the long ranges. -->
 	<string name="range_seconds">%1$d s</string>
 	<string name="range_minutes">%1$d min</string>
@@ -326,6 +337,14 @@
 	<string name="typed_title">Type the command to run it</string>
 	<string name="typed_body">Type “%1$s” to run it.</string>
 	<string name="typed_field">Command</string>
+	<!-- 0.10: turning off, or putting to sleep, the last monitor that shows a picture: its name typed, not the value. -->
+	<string name="typed_monitor_title">Type the monitor\'s name</string>
+	<string name="typed_monitor_body">No other screen shows a picture now. Type “%1$s” to go on.</string>
+	<string name="typed_monitor_field">Monitor</string>
+	<!-- A text to type that is neither a command nor a monitor's name, from a newer service. -->
+	<string name="typed_other_title">Type the text to go on</string>
+	<string name="typed_other_body">Type “%1$s” to go on.</string>
+	<string name="typed_other_field">Text</string>
 	<string name="control_held_off_body">Someone at the computer held control off for every phone. To let phones act again, run there:</string>
 	<string name="control_unreadable_body">The service\'s settings files stopped parsing, so it keeps control off until they read again. To see what is wrong, run on the computer:</string>
 	<string name="widget_unknown">This app can\'t show a “%1$s” yet. Update Elamon to see it.</string>
@@ -377,6 +396,8 @@
 	<!-- Over a log scrolled up from its newest lines: back down to them, following what comes. -->
 	<string name="log_newest">Newest</string>
 	<string name="log_search">Search the journal</string>
+	<!-- The same over a log of the service's events (elamond 0.9). -->
+	<string name="log_search_events">Search the events</string>
 	<!-- Where the stream left lines out: "… 12 more". -->
 	<plurals name="log_more">
 		<item quantity="one">… %1$d more</item>
@@ -388,4 +409,40 @@
 	<string name="log_level_warning">Warning</string>
 	<string name="log_level_error">Error</string>
 	<string name="log_level_critical">Critical</string>
+	<!-- 0.10: the home-screen widget. Its name in the list of widgets, and what it says there. -->
+	<string name="widget_label">Elamon computer</string>
+	<string name="widget_description">A computer\'s readings, as its profile\'s widget dashboard names them</string>
+	<!-- Beside the computer's name: being read now; offline or not read since the time given ("Offline · 14:02"). -->
+	<string name="widget_reading">Updating…</string>
+	<string name="widget_offline_at">Offline · %1$s</string>
+	<string name="widget_failed">Couldn\'t read</string>
+	<string name="widget_failed_at">Couldn\'t read · %1$s</string>
+	<!-- In place of the readings. -->
+	<string name="widget_no_computer">Pair a computer in Elamon to see its readings here.</string>
+	<!-- %1$s: the profile's id, as the computer's settings name it. -->
+	<string name="widget_no_dashboard">To choose what shows here, set widget in [profiles.%1$s.android] in this computer\'s settings.</string>
+	<string name="widget_first_reading">Reading…</string>
+	<string name="widget_nothing">Nothing to show on %1$s yet.</string>
+	<string name="widget_unpaired">This phone isn\'t paired with it anymore. Open Elamon to pair again.</string>
+	<string name="widget_outdated">This computer\'s Elamon service and this app need the same protocol. Update the older one.</string>
+	<string name="widget_no_connection">No connection to %1$s yet. Tap to try again.</string>
+	<!-- Adding the widget with several computers paired: which one it shows. -->
+	<string name="widget_choose_title">Show which computer?</string>
+	<string name="widget_choose_now">Shown now</string>
+	<string name="widget_choose_profile">Profile “%1$s”</string>
+	<!-- 0.10: the Quick Settings tiles, as the phone lists them to add, and one with nothing to run. -->
+	<string name="tile_1">Elamon tile 1</string>
+	<string name="tile_2">Elamon tile 2</string>
+	<string name="tile_3">Elamon tile 3</string>
+	<string name="tile_4">Elamon tile 4</string>
+	<string name="tile_label">Elamon tile %1$d</string>
+	<string name="tile_no_action">No action</string>
+	<!-- Under a tile's name while its action runs. -->
+	<string name="tile_running">Running…</string>
+	<!-- A toggle's tile, read aloud. -->
+	<string name="tile_on">On</string>
+	<string name="tile_off">Off</string>
+	<!-- Settings, with several computers paired: which one the tiles act on. -->
+	<string name="settings_tiles">Quick Settings tiles</string>
+	<string name="settings_tiles_body">The tiles run the first four buttons and toggles of the dashboard the computer\'s profile names in tiles.</string>
 </resources>

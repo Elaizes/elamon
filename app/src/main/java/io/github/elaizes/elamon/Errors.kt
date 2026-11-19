@@ -3,6 +3,7 @@ package io.github.elaizes.elamon
 import kotlinx.coroutines.CancellationException
 import io.github.elaizes.elamon.data.ElamondException
 import io.github.elaizes.elamon.data.ElamondException.Kind
+import io.github.elaizes.elamon.data.cleanName
 
 /** The app's words for each error code the service can answer with. */
 private val CODE_MESSAGES = mapOf(
@@ -32,13 +33,27 @@ private val CODE_MESSAGES = mapOf(
 	"rekey_refused" to R.string.err_rekey_refused,
 )
 
+/**
+ * The app's words for what a `failed` says, where it is one of the service's own codes rather than
+ * the system's text: a monitor that didn't change in time, or that waits for a screen to wake.
+ */
+private val FAILED_MESSAGES = mapOf(
+	"not_applied" to R.string.err_not_applied,
+	"waiting_for_a_screen" to R.string.err_waiting_for_a_screen,
+)
+
 /** What to tell about a failed request: the computer's own words for a failed command, else one of the app's strings. */
 fun messageFor(e: Throwable): Message {
 	if (e is CancellationException) return Message.Res(R.string.err_unknown)
 	val a = e as? ElamondException ?: return Message.Res(R.string.err_unknown)
-	if (a.code == "failed") return a.message?.takeIf { it.isNotBlank() }?.let(Message::Text) ?: Message.Res(R.string.err_failed)
+	if (a.code == "failed") {
+		val said = a.message?.takeIf { it.isNotBlank() } ?: return Message.Res(R.string.err_failed)
+		return FAILED_MESSAGES[said]?.let { Message.Res(it) } ?: Message.Text(said)
+	}
 	// The parameter the computer didn't take, by its name.
 	if (a.code == "bad_param") return Message.Res(R.string.err_bad_param, listOf(a.detail?.takeIf { it.isNotBlank() } ?: "?"))
+	// What is to be typed, where the computer says it: a command, or the last monitor's name.
+	if (a.code == "confirm_required") a.detail?.let(::cleanName)?.takeIf { it.isNotEmpty() }?.let { return Message.Res(R.string.err_confirm_required_text, listOf(it)) }
 	a.code?.let { code -> CODE_MESSAGES[code]?.let { return Message.Res(it) } }
 	return when (a.kind) {
 		Kind.Unreachable -> Message.Res(R.string.err_unreachable)

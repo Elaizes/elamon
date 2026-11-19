@@ -73,6 +73,7 @@ import io.github.elaizes.elamon.data.Action
 import io.github.elaizes.elamon.data.ActionResult
 import io.github.elaizes.elamon.data.Param
 import io.github.elaizes.elamon.data.Params
+import io.github.elaizes.elamon.data.Typed
 import io.github.elaizes.elamon.data.UiDoc
 import io.github.elaizes.elamon.data.Widget
 import io.github.elaizes.elamon.data.WidgetState
@@ -104,11 +105,12 @@ class FormRequest(val action: Action, val fixed: JsonObject, val phrase: String,
 /**
  * Runs the computer's actions from widgets: asks for the parameters a widget doesn't fix, then
  * puts the confirmation or the unlock before it as the action's `confirm` and `unlock` and the
- * profile's grace say ([Guard]).
+ * profile's grace say ([Guard]); then [run]s it with its parameters, its key and the text typed. The
+ * same for a computer's screen, its card on the home screen and a Quick Settings tile.
  */
 class ActionLauncher(
 	private val guard: Guard,
-	private val vm: MachineViewModel,
+	private val run: (action: Action, params: JsonObject, key: String, typed: String?) -> Unit,
 	val ui: UiDoc,
 	/** The computer's name, for the unlock prompt's title. */
 	private val computer: String,
@@ -137,15 +139,15 @@ class ActionLauncher(
 		go(action, fixed, phrase, button, key, afterAsking)
 	}
 
-	/** What the form gave, run. */
+	/** What the form gave, run; what asks next names it, as a select's choice is named ("Mode: Fast?"). */
 	fun submit(req: FormRequest, params: JsonObject) {
 		form.value = null
-		go(req.action, params, req.phrase, req.button, req.key, req.afterAsking)
+		go(req.action, params, phraseWith(req.phrase, req.asked, params), req.button, req.key, req.afterAsking)
 	}
 
 	private fun go(action: Action, params: JsonObject, phrase: String, button: String?, key: String, afterAsking: () -> Unit) {
 		val typed = Params.typedText(action, params)
-		guard.run(ask(action, params, phrase, button), afterAsking) { vm.run(action, params, key, typed) }
+		guard.run(ask(action, params, phrase, button), afterAsking) { run(action, params, key, typed) }
 	}
 
 	/** What the confirmation and the unlock prompt say: 0.5's words for power and processes, the phrase's for the rest. */
@@ -167,6 +169,7 @@ class ActionLauncher(
 			unlock = action.unlock,
 			grace = grace,
 			typed = Params.typedText(action, params),
+			typedKind = Params.typedKind(action, params) ?: Typed.Command,
 		)
 	}
 
@@ -185,6 +188,39 @@ class ActionLauncher(
 
 /** Between a widget's label and the value it sets, in what asks: "Power profile: Performance". */
 const val PHRASE_SEPARATOR = ": "
+
+/**
+ * [phrase] with the values [params] give the [asked] parameters, as what asks names a select's
+ * choice: "Mode: Fast", "Fan: 50%"; with several, each after its name ("Backup: Target Disk, Verify
+ * yes"). As it is when none of them has a value to name.
+ */
+internal fun phraseWith(phrase: String, asked: List<Param>, params: JsonObject): String {
+	val named = asked.mapNotNull { p -> valueWords(p, params[p.id])?.let { p to it } }
+	if (named.isEmpty()) return phrase
+	val words = if (asked.size == 1) named.single().second else named.joinToString(", ") { (p, v) -> "${p.label ?: p.id} $v" }
+	return phrase + PHRASE_SEPARATOR + words
+}
+
+/**
+ * What asks before a toggle sets [p] to [value]: its [label] and the choice it turns to ("DP-1:
+ * Off"), as a select's; the label alone where the choice is called the same, or isn't one.
+ */
+internal fun togglePhrase(label: String, p: Param?, value: JsonElement): String {
+	if (p?.kind != "choice") return label
+	val words = valueWords(p, value) ?: return label
+	return if (words.equals(label.trim(), ignoreCase = true)) label else label + PHRASE_SEPARATOR + words
+}
+
+/** A value of [p] as it reads: a choice by its label, a number with its unit, a switch yes or no; null for none. */
+internal fun valueWords(p: Param, v: JsonElement?): String? {
+	if (v == null || v is JsonNull) return null
+	return when (p.kind) {
+		"choice" -> v.text()?.let { t -> p.choices?.firstOrNull { it.value == t }?.label ?: t }
+		"bool" -> v.bool()?.let(Fmt::bool)
+		"range", "integer", "number" -> v.number()?.let { n -> Fmt.withUnit(Fmt.round(n, if (n % 1.0 == 0.0) 0 else 1), p.unit) }
+		else -> v.text()?.ifEmpty { null }
+	}
+}
 
 /** Inside a group: buttons are drawn as its tiles and rows rather than as cards of their own. */
 val LocalInGroup = compositionLocalOf { false }
@@ -322,13 +358,14 @@ fun ToggleWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val action = a.action(w.action)
 	val on = w.on ?: JsonPrimitive(true)
 	val off = w.off ?: JsonPrimitive(false)
-	val checked = s?.v != null && sameValue(s.v, on)
+	val checked = toggledOn(w, s)
 	val label = w.label ?: action?.name.orEmpty()
 	ListGroup(modifier) {
 		SwitchRow(label, captionOf(w, s), checked, enabled = a.enabled(action, s) && w.param != null) { v ->
 			val param = w.param ?: return@SwitchRow
 			action ?: return@SwitchRow
-			a.launch(action, withParam(w.params, param, if (v) on else off), label)
+			val value = if (v) on else off
+			a.launch(action, withParam(w.params, param, value), togglePhrase(label, action.params.find { it.id == param }, value))
 		}
 	}
 }
@@ -348,6 +385,25 @@ fun sameValue(a: JsonElement, b: JsonElement): Boolean {
 private fun withParam(params: JsonObject?, param: String, value: JsonElement): JsonObject = buildJsonObject {
 	params?.forEach { (k, v) -> put(k, v) }
 	put(param, value)
+}
+
+/** Whether the toggle [w] is on in the state [s]: its value is its `on`; off while it has none. */
+fun toggledOn(w: Widget, s: WidgetState?): Boolean = s?.v != null && sameValue(s.v, w.on ?: JsonPrimitive(true))
+
+/** What a tap on a button or a toggle runs away from its dashboard (a card's quick action, a tile): its action's values, and the phrase that names it. */
+data class Tap(val params: JsonObject, val phrase: String)
+
+/**
+ * A tap on [w], a `button` or a `toggle` running [action], where it isn't drawn as on its dashboard:
+ * a button's fixed values; a toggle turned to its other value, off while [on] (its state, as
+ * [toggledOn] reads it) and on otherwise, as its switch would be. Its label, or the action's name.
+ */
+fun tapOf(w: Widget, action: Action, on: Boolean): Tap {
+	val label = w.label ?: action.name
+	val param = w.param
+	if (w.type != "toggle" || param == null) return Tap(w.params ?: JsonObject(emptyMap()), label)
+	val value = if (on) w.off ?: JsonPrimitive(false) else w.on ?: JsonPrimitive(true)
+	return Tap(withParam(w.params, param, value), togglePhrase(label, action.params.find { it.id == param }, value))
 }
 
 /** One of an action's choices, side by side, the one now marked: as 0.5's power profiles. */

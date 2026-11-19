@@ -385,7 +385,8 @@ fun TableSheet(scope: DashScope) {
 				}
 			}
 			for (e in w.expand.orEmpty()) {
-				val v = Fmt.format(row.f[e.field], e.format, e.unit, e.field)?.ifBlank { null } ?: continue
+				// The link as the button opens it, not its template ("http://{host}:8096").
+				val v = Fmt.format(row.f[e.field], e.format, e.unit, e.field)?.ifBlank { null }?.let { Tables.shownField(w, e.field, it, scope.machine.host) } ?: continue
 				val label = e.label ?: e.field
 				if (v.length > LONG_FIELD) {
 					Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

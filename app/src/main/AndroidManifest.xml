@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:tools="http://schemas.android.com/tools">
 
 	<uses-permission android:name="android.permission.INTERNET" />
 	<!-- To hear of the phone's network changing (Wi-Fi, mobile data, a VPN), and look for a computer again at once. -->
 	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+	<!-- WorkManager, for the home-screen widget's readings, asks for it to run work in the foreground:
+	     the app runs none, and shows no notification. -->
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove" />
 
 	<!-- Pairing tokens stay on this phone: no cloud backup, no device-to-device transfer. -->
 	<application
@@ -33,5 +37,80 @@
 				<data android:scheme="elamon" android:host="pair" />
 			</intent-filter>
 		</activity>
+
+		<!-- The home-screen widget: a computer's readings, as its profile's widget dashboard names them. -->
+		<receiver
+			android:name=".widget.ElamonWidgetReceiver"
+			android:exported="true"
+			android:label="@string/widget_label">
+			<intent-filter>
+				<action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+			</intent-filter>
+			<meta-data
+				android:name="android.appwidget.provider"
+				android:resource="@xml/elamon_widget_info" />
+		</receiver>
+		<!-- What a tile's action asks before it runs, over whatever is on screen: in a task of its own, out of
+		     the recent apps, so the app's screens stay as they were. -->
+		<activity
+			android:name=".tiles.TileActionActivity"
+			android:excludeFromRecents="true"
+			android:exported="false"
+			android:taskAffinity=""
+			android:theme="@style/Theme.Elamon.Translucent" />
+		<!-- Which computer a widget shows, asked as it is added where several are paired. -->
+		<activity
+			android:name=".widget.WidgetSetupActivity"
+			android:excludeFromRecents="true"
+			android:exported="true"
+			android:theme="@style/Theme.Elamon.Translucent">
+			<intent-filter>
+				<action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+			</intent-filter>
+		</activity>
+		<!-- Quick Settings tile 1: the first button or toggle of the profile's tiles dashboard. -->
+		<service
+			android:name=".tiles.Tile1"
+			android:exported="true"
+			android:icon="@drawable/ic_control"
+			android:label="@string/tile_1"
+			android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+			<intent-filter>
+				<action android:name="android.service.quicksettings.action.QS_TILE" />
+			</intent-filter>
+		</service>
+		<!-- Quick Settings tile 2: the second button or toggle of the profile's tiles dashboard. -->
+		<service
+			android:name=".tiles.Tile2"
+			android:exported="true"
+			android:icon="@drawable/ic_control"
+			android:label="@string/tile_2"
+			android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+			<intent-filter>
+				<action android:name="android.service.quicksettings.action.QS_TILE" />
+			</intent-filter>
+		</service>
+		<!-- Quick Settings tile 3: the third button or toggle of the profile's tiles dashboard. -->
+		<service
+			android:name=".tiles.Tile3"
+			android:exported="true"
+			android:icon="@drawable/ic_control"
+			android:label="@string/tile_3"
+			android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+			<intent-filter>
+				<action android:name="android.service.quicksettings.action.QS_TILE" />
+			</intent-filter>
+		</service>
+		<!-- Quick Settings tile 4: the fourth button or toggle of the profile's tiles dashboard. -->
+		<service
+			android:name=".tiles.Tile4"
+			android:exported="true"
+			android:icon="@drawable/ic_control"
+			android:label="@string/tile_4"
+			android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+			<intent-filter>
+				<action android:name="android.service.quicksettings.action.QS_TILE" />
+			</intent-filter>
+		</service>
 	</application>
 </manifest>

@@ -95,9 +95,10 @@ appId: io.github.elaizes.elamon.debug
       containsChild: "Fast"
     timeout: 10000
 - tapOn: "Continue"
-# Asked as the button asks ("Mode?"); what it runs with is the value chosen before the turn.
+# Asked as a select asks, naming the value the form gave ("Mode: Fast?", A107); what it runs with is the
+# value chosen before the turn.
 - extendedWaitUntil:
-    visible: "Mode\\?"
+    visible: "Mode: Fast\\?"
     timeout: 10000
 - tapOn:
     text: "Mode"

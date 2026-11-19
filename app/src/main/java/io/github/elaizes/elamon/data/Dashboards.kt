@@ -103,6 +103,14 @@ object Tables {
 		if (opens == null && runs == null) null else RowButton(ra, opens, runs)
 	}
 
+	/**
+	 * [text], the [field] of a row of [w], as its sheet shows it: the link a tap on the row opens
+	 * ([Widget.rowOpen]) as the phone opens it, at [host], the address it reaches the computer at
+	 * (`http://{host}:8096` as `http://192.0.2.10:8096`); anything else, or with no address yet, as it is.
+	 */
+	fun shownField(w: Widget, field: String, text: String, host: String?): String =
+		if (host != null && field == w.rowOpen) linkUrl(text, host) else text
+
 	/** The text columns a table's search looks in: those that hold words, not figures. */
 	fun textColumns(columns: List<Column>): List<Column> = columns.filter { it.format == null || it.format == "text" }
 
@@ -176,6 +184,9 @@ object Tables {
 
 // ---- actions -----------------------------------------------------------------------------------
 
+/** What a text typed before an action is: the station's command itself, a monitor's name, or another (a newer service's). */
+enum class Typed { Command, MonitorName, Other }
+
 object Params {
 	/** A whole "{field}", filled from a row. */
 	private val FIELD = Regex("""^\{([a-z0-9_]+)\}$""")
@@ -196,11 +207,30 @@ object Params {
 		}
 	}
 
-	/** The text to type before [action] runs with [params]: that of the choice the value of a `choice` parameter is, if it carries one. */
-	fun typedText(action: Action, params: JsonObject): String? = action.params.firstNotNullOfOrNull { p ->
-		val v = (params[p.id] as? JsonPrimitive)?.takeIf { it.isString }?.content
-		p.choices?.firstOrNull { it.value == v }?.confirmText
+	/**
+	 * The text to type before [action] runs with [params]: that of the choice the value of a `choice`
+	 * parameter is, if it carries one. A station's command is itself; a monitor's is its name, not
+	 * the value (`off`).
+	 */
+	fun typedText(action: Action, params: JsonObject): String? = typedChoice(action, params)?.confirmText
+
+	/** What the text [typedText] asks for is, for the words that ask for it; null where none is asked. */
+	fun typedKind(action: Action, params: JsonObject): Typed? {
+		val c = typedChoice(action, params) ?: return null
+		return when {
+			action.kind == DISPLAY -> Typed.MonitorName
+			c.confirmText == c.value -> Typed.Command
+			else -> Typed.Other
+		}
 	}
+
+	private fun typedChoice(action: Action, params: JsonObject): Choice? = action.params.firstNotNullOfOrNull { p ->
+		val v = (params[p.id] as? JsonPrimitive)?.takeIf { it.isString }?.content
+		p.choices?.firstOrNull { it.value == v && it.confirmText != null }
+	}
+
+	/** The kind of a monitor's actions (elamond 0.10). */
+	private const val DISPLAY = "display"
 
 	/** Whether what was typed is the text asked for: exactly, nothing trimmed. */
 	fun typedMatches(typed: String, text: String): Boolean = typed == text

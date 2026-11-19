@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -50,6 +51,8 @@ import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.Profile
 import io.github.elaizes.elamon.data.UiCache
 import io.github.elaizes.elamon.data.withoutControls
+import io.github.elaizes.elamon.tiles.refreshTiles
+import io.github.elaizes.elamon.widget.shownMachine
 
 /**
  * Which profile each computer gives this phone, and where it is changed (how the app looks and
@@ -67,6 +70,7 @@ fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
 	val look by settings.look.collectAsStateWithLifecycle()
 	val machines by MachineStore.get(ctx).machines.collectAsStateWithLifecycle()
 	val profiles by UiCache.get(ctx).profiles.collectAsStateWithLifecycle()
+	val tilesChosen by settings.tiles.collectAsStateWithLifecycle()
 	// The computer Settings was opened from, or all of them from the home screen.
 	val shown = machines.filter { machine == null || it.id == machine }.ifEmpty { machines.take(1) }
 
@@ -110,6 +114,36 @@ fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
 					item {
 						Text(
 							stringResource(R.string.settings_theme_from_phone),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.padding(horizontal = Space.xl),
+						)
+					}
+				}
+
+				// With several computers: which one the Quick Settings tiles act on (one alone, they act on it).
+				if (machines.size > 1) {
+					item { GroupLabel(stringResource(R.string.settings_tiles)) }
+					item {
+						val chosen = shownMachine(tilesChosen, machines)
+						ListGroup {
+							machines.forEachIndexed { i, m ->
+								if (i > 0) GroupDivider()
+								ListRow(
+									m.name,
+									icon = ElIcons.Laptop,
+									onClick = {
+										settings.setTilesMachine(m.id)
+										refreshTiles(ctx)
+									},
+									trailing = { RadioButton(selected = m.id == chosen?.id, onClick = null) },
+								)
+							}
+						}
+					}
+					item {
+						Text(
+							stringResource(R.string.settings_tiles_body),
 							style = MaterialTheme.typography.bodySmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 							modifier = Modifier.padding(horizontal = Space.xl),

@@ -112,6 +112,10 @@ dependencies {
 	implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
 	implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+	// The home-screen widget (drawn as remote views) and its readings in the background, every
+	// widget_minutes and on a tap, kept across restarts of the phone.
+	implementation("androidx.glance:glance-appwidget:1.2.0")
+	implementation("androidx.work:work-runtime:2.12.0")
 	debugImplementation("androidx.compose.ui:ui-tooling")
 
 	testImplementation("junit:junit:4.13.2")

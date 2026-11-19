@@ -55,6 +55,9 @@ data class LogLines(
 	/** Whether there may be older lines to load, and room for them. */
 	val canLoadOlder: Boolean get() = !atStart && lineCount < Limits.LOG_LINES_MAX
 
+	/** Whether it says it has no lines: none held, and none on their way (a spinner says that). */
+	val saysEmpty: Boolean get() = items.isEmpty() && !loadingOlder
+
 	/**
 	 * With the state [s] the stream sent, for a widget that keeps [keep] lines: its lines in place of
 	 * these on a reset, else after them, "… n more" before them where it left some out.

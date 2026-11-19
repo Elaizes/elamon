@@ -269,8 +269,11 @@ class ElamondClient(
 	/** What this phone shows here, described with the widget types it draws ([WIDGET_TYPES]). */
 	suspend fun ui(): UiDoc = get("$UI_PATH?widgets=" + WIDGET_TYPES.joinToString(","))
 
-	/** One reading of [dashboard], with its graphs' history, after the service has waited for one that has everything. */
-	suspend fun snapshot(dashboard: String): DataLine = get("$SNAPSHOT_PATH?dashboard=" + query(dashboard))
+	/**
+	 * One reading of [dashboard], after the service has waited for one that has everything: with its
+	 * graphs' and sparks' history, or without it ([history] false: `history=0`), as the widget reads it.
+	 */
+	suspend fun snapshot(dashboard: String, history: Boolean = true): DataLine = get(snapshotPath(dashboard, history))
 
 	/** The long history of the graph [widget] over [range] (`1h`…`all`); a service before 0.7 answers 404. */
 	suspend fun graphHistory(widget: String, range: String): GraphHistory = get(historyPath(widget, range))
@@ -404,6 +407,10 @@ const val ART_PATH = "/api/v1/media/art"
 const val UNPAIR_PATH = "/api/v1/unpair"
 const val HISTORY_PATH = "/api/v1/history"
 const val LOG_PATH = "/api/v1/log"
+
+/** `GET /api/v1/snapshot` of [dashboard], with its history or (`history=0`) without. */
+fun snapshotPath(dashboard: String, history: Boolean): String =
+	"$SNAPSHOT_PATH?dashboard=" + ElamondClient.query(dashboard) + if (history) "" else "&history=0"
 
 /** `GET /api/v1/history` of the graph or timeline [widget] over the range [range] (`1h`, `24h`, `7d`, `30d`, `1y`, `all`). */
 fun historyPath(widget: String, range: String): String =

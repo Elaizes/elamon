@@ -202,7 +202,7 @@ fun MachineScreen(
 	val haptics = LocalHapticFeedback.current
 	val launcher = ui?.let {
 		ActionLauncher(
-			guard, vm, it, name, res,
+			guard, vm::run, it, name, res,
 			tap = { if (prefs.haptics) haptics.performHapticFeedback(HapticFeedbackType.ContextClick) },
 			form = form,
 			running = actionsState,
