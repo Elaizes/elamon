@@ -24,16 +24,15 @@ export function create(w, env) {
 	let running = false;
 	/** @param {number} v */
 	const words = (v) => F.withUnit(F.round(v, step == null || step % 1 === 0 ? 0 : 1), param ? param.unit : null);
-	const now = () => {
-		const n = numberOf(last);
-		if (n != null) return n;
-		return param && typeof param.default === 'number' ? param.default : min;
-	};
 	const show = () => {
-		if (!dragging) input.value = String(now());
-		setText(value, words(dragging ? Number(input.value) : now()));
-		input.setAttribute('aria-valuetext', words(Number(input.value)));
-		input.disabled = !action || !param || !env.controlOn || !stateEnabled(last) || running;
+		// No reading (none yet, or the connection went): no value shown, nothing to set it from.
+		const n = numberOf(last);
+		if (!dragging && n != null) input.value = String(n);
+		const shown = dragging ? words(Number(input.value)) : n != null ? words(n) : F.DASH;
+		setText(value, shown);
+		input.setAttribute('aria-valuetext', shown);
+		input.classList.toggle('empty', n == null && !dragging);
+		input.disabled = n == null || !action || !param || !env.controlOn || !stateEnabled(last) || running;
 		cap.set(typeof w.caption === 'string' && w.caption ? w.caption : last && last.caption ? last.caption : null);
 	};
 	input.addEventListener('input', () => {

@@ -339,3 +339,7 @@ button.primary .icon, .media-play .icon { fill: currentColor; }
 	.bar-cells { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 	.tab span { max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
 }
+
+/* A slider with no reading: no thumb to say a value it hasn't. */
+input[type="range"].empty::-webkit-slider-thumb { visibility: hidden; }
+input[type="range"].empty::-moz-range-thumb { visibility: hidden; }

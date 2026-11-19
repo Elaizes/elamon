@@ -11,7 +11,7 @@ import { columns } from './layout.js';
 import { makeGrid } from './widgets/grid.js';
 import { make } from './widgets/index.js';
 import { setLevel } from './widgets/common.js';
-import { Stream, keptAsked } from './stream.js';
+import { Stream, keptAsked, offlineAfter } from './stream.js';
 import { actionRunner, confirmDialog } from './actions.js';
 import { errorText } from './errors.js';
 import { isFingerprint, colonFingerprint, printedFingerprint } from './fingerprint.js';
@@ -227,8 +227,10 @@ export function mountPair(root, ctx, code) {
 /**
  * One stream and what this browser asked of it, kept while the page shows the computer: a page
  * that goes (the address changed) leaves it for a moment, for the next to take over.
+ * `offline` is whether "no connection" shows: from a drop until the stream is live again.
  * @typedef {{ stream: Stream, asked: { sort: Record<string, string>, log: Record<string, { level: string, search?: string }> },
- *   memory: Map<string, any>, sink: import('./stream.js').Handlers, timer: ReturnType<typeof setTimeout> | null, status: import('./stream.js').Status }} Session
+ *   memory: Map<string, any>, sink: import('./stream.js').Handlers, timer: ReturnType<typeof setTimeout> | null,
+ *   status: import('./stream.js').Status, offline: boolean }} Session
  */
 /** @type {Session | null} */
 let session = null;
@@ -301,6 +303,7 @@ export function mountMachine(root, ctx, tab) {
 			sink: {},
 			timer: null,
 			status: 'stopped',
+			offline: false,
 		};
 		const logsOf = (/** @type {string} */ d) => {
 			const u = ctx.ui();
@@ -315,6 +318,7 @@ export function mountMachine(root, ctx, tab) {
 				line: (l) => fresh.sink.line?.(l),
 				status: (st) => {
 					fresh.status = st;
+					fresh.offline = offlineAfter(fresh.offline, st);
 					fresh.sink.status?.(st);
 				},
 				unauthorized: () => fresh.sink.unauthorized?.(),
@@ -377,11 +381,11 @@ export function mountMachine(root, ctx, tab) {
 
 	/** @param {import('./stream.js').Status} st */
 	function showStatus(st) {
-		const down = st === 'down';
-		banner.hidden = !down;
-		setText(banner, down ? S.core.noConnection : '');
+		// Shown from a drop through the tries that follow, until the stream is live again.
+		banner.hidden = !s.offline;
+		setText(banner, s.offline ? S.core.noConnection : '');
 		// No stale numbers: what was shown goes when the connection does, or the page hides.
-		if (down || st === 'paused') {
+		if (st === 'down' || st === 'paused') {
 			lastData = null;
 			view?.clear();
 			chips?.clear();
@@ -416,7 +420,17 @@ export function mountMachine(root, ctx, tab) {
 			view?.update({ ...lastData, history: undefined });
 			chips?.update(lastData);
 		}
-		if (current) s.stream.set({ dashboard: current, sort: { ...s.asked.sort }, log: { ...s.asked.log } });
+		follow();
+	}
+
+	/** The stream follows the dashboard on screen; with none (no tabs left), it is closed. */
+	function follow() {
+		if (!current) {
+			s.stream.stop();
+			return;
+		}
+		s.stream.set({ dashboard: current, sort: { ...s.asked.sort }, log: { ...s.asked.log } });
+		if (s.status === 'stopped') s.stream.start();
 	}
 
 	function drawTop() {
@@ -598,10 +612,7 @@ export function mountMachine(root, ctx, tab) {
 	// A stream taken over from the page before may have been asked for what this `ui` no longer has.
 	pruneAsked();
 	render();
-	if (current) {
-		s.stream.set({ dashboard: current, sort: { ...s.asked.sort }, log: { ...s.asked.log } });
-		if (s.status === 'stopped') s.stream.start();
-	}
+	follow();
 
 	return () => {
 		gone = true;

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { readLine, changeFor, applied, retryDelay, silenceMs, SILENCE_MS, keptAsked, Stream } from '../js/stream.js';
+import { readLine, changeFor, applied, retryDelay, silenceMs, SILENCE_MS, keptAsked, offlineAfter, Stream } from '../js/stream.js';
 import { intervalOf, historyMsOf, DEFAULT_INTERVAL_MS, DEFAULT_HISTORY_S } from '../js/consts.js';
 
 const fx = (name) => JSON.parse(readFileSync(new URL(`../../fixtures/${name}`, import.meta.url), 'utf8'));
@@ -183,4 +183,52 @@ test('a refused change is handed back, and a widget gone is told nothing', async
 	assert.equal(posts.length, 2);
 	s.stop();
 	close && close();
+});
+
+test('"no connection" stays through the tries after a drop, until the stream is live again', () => {
+	let shown = false;
+	const seen = [];
+	for (const st of ['connecting', 'live', 'down', 'connecting', 'down', 'connecting', 'live', 'down', 'paused', 'connecting']) {
+		shown = offlineAfter(shown, st);
+		seen.push(shown);
+	}
+	assert.deepEqual(seen, [false, false, true, true, true, true, false, true, false, false]);
+});
+
+test('a change asked while one was being told to a stream that then opened again is told to the new one', async () => {
+	globalThis.document = { hidden: false, addEventListener: () => {}, removeEventListener: () => {} };
+	const posts = [];
+	/** @type {(() => void)[]} */
+	const answer = [];
+	let opened = 0;
+	globalThis.fetch = async (url, init) => {
+		if (String(url).startsWith('/api/v1/stream?')) {
+			opened++;
+			const enc = new TextEncoder();
+			const open = { ...fx('stream-open.json'), stream: `s${opened}` };
+			return new Response(new ReadableStream({ start: (c) => c.enqueue(enc.encode(JSON.stringify(open) + '\n')) }), { status: 200 });
+		}
+		posts.push({ url: String(url), body: JSON.parse(init.body) });
+		// The first change hangs until the test answers it: the old stream is gone by then.
+		if (posts.length === 1) return new Promise((r) => answer.push(() => r(new Response('{"error":"no_such_stream"}', { status: 404 }))));
+		return new Response('{"ok":true}', { status: 200 });
+	};
+	const s = new Stream(want('home'), { widgets: 'value', intervalMs: () => 1000, logsOf }, {});
+	s.start();
+	const settle = async (/** @type {() => boolean} */ done) => {
+		for (let i = 0; i < 50 && !done(); i++) await new Promise((r) => setImmediate(r));
+	};
+	await settle(() => s.id === 's1');
+	s.set({ sort: { 'detail/procs': 'mem' } });
+	await settle(() => posts.length === 1);
+	// Opened again meanwhile (a drop): the new stream asks to be told what is wanted, while the
+	// first change is still on its way.
+	s.connect();
+	await settle(() => s.id === 's2');
+	assert.equal(posts.length, 1);
+	answer[0]();
+	await settle(() => posts.length === 2);
+	assert.equal(posts[1].url, '/api/v1/stream/s2');
+	assert.deepEqual(posts[1].body, { sort: { 'detail/procs': 'mem' } });
+	s.stop();
 });

@@ -18,6 +18,17 @@ export function retryDelay(attempt) {
 	return RETRY_MS[Math.min(Math.max(attempt, 0), RETRY_MS.length - 1)];
 }
 
+/**
+ * Whether "no connection" shows after `status`, having shown before or not: from a drop until the
+ * stream is live again, through the tries between; not while it is out of sight or stopped.
+ * @param {boolean} was @param {Status} status
+ */
+export function offlineAfter(was, status) {
+	if (status === 'down') return true;
+	if (status === 'connecting') return was;
+	return false;
+}
+
 /** How long without a line before the connection is taken as gone, at a reading every `intervalMs`. @param {number} intervalMs */
 export function silenceMs(intervalMs) {
 	return Math.max(SILENCE_MS, MISSED_LINES * (Number.isFinite(intervalMs) ? intervalMs : 0));
@@ -310,24 +321,9 @@ export class Stream {
 			if (run === this.run) this.sent = applied(this.sent, body);
 			this.refusals = 0;
 		} catch (e) {
-			if (run !== this.run) return;
-			if (e instanceof ApiError && e.status === 401) {
-				this.stop();
-				this.handlers.unauthorized?.();
-			} else if (e instanceof ApiError && e.code === 'no_such_stream') {
-				// The stream ended meanwhile: a new one is opened with what is wanted.
-				this.connect();
-			} else if (e instanceof ApiError) {
-				// Refused whole: nothing of it applies, so the orders and filters wanted go back to those
-				// sent, and a new dashboard is asked for again on its own.
-				this.refusals++;
-				const keep = e.code !== 'no_such_dashboard' && this.refusals < MAX_REFUSALS;
-				this.want = { ...copy(this.sent), dashboard: keep ? this.want.dashboard : this.sent.dashboard };
-				this.again = keep && this.want.dashboard !== this.sent.dashboard;
-				this.handlers.refused?.(e, body);
-			} else {
-				// The computer can't be reached: the stream will drop and open again with what is wanted.
-			}
+			// A change to a stream that has since been opened again says nothing of the new one,
+			// which is told below what is wanted, as it asked meanwhile.
+			if (run === this.run) this.notTold(e, body);
 		} finally {
 			this.telling = false;
 		}
@@ -335,5 +331,25 @@ export class Stream {
 			this.again = false;
 			this.tell();
 		}
+	}
+
+	/** A change the open stream didn't take. @param {unknown} e @param {NonNullable<ReturnType<typeof changeFor>>} body */
+	notTold(e, body) {
+		if (e instanceof ApiError && e.status === 401) {
+			this.stop();
+			this.handlers.unauthorized?.();
+		} else if (e instanceof ApiError && e.code === 'no_such_stream') {
+			// The stream ended meanwhile: a new one is opened with what is wanted.
+			this.connect();
+		} else if (e instanceof ApiError) {
+			// Refused whole: nothing of it applies, so the orders and filters wanted go back to those
+			// sent, and a new dashboard is asked for again on its own.
+			this.refusals++;
+			const keep = e.code !== 'no_such_dashboard' && this.refusals < MAX_REFUSALS;
+			this.want = { ...copy(this.sent), dashboard: keep ? this.want.dashboard : this.sent.dashboard };
+			this.again = keep && this.want.dashboard !== this.sent.dashboard;
+			this.handlers.refused?.(e, body);
+		}
+		// Anything else: the computer can't be reached, and the stream drops and opens again with what is wanted.
 	}
 }

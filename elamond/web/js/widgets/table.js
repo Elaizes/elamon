@@ -60,7 +60,7 @@ export function create(w, env) {
 	/** @type {import('./common.js').WidgetState | undefined} */
 	let last;
 	let loaded = false;
-	/** The rows opened, by key, with their last readings. @type {Map<string, Row>} */
+	/** The rows opened, by key, with their last readings (none after the connection went). @type {Map<string, Row | null>} */
 	const opened = new Map();
 
 	const { el, body } = card(w, env, { onFold: () => render() });
@@ -239,12 +239,13 @@ export function create(w, env) {
 		const rows = asked && asked !== own ? sortRows(searched, asked, true) : searched;
 		const most = w.search ? SEARCH_ROWS : CARD_ROWS;
 		const drawn = rows.slice(0, most);
-		// A row opened that left the list keeps its last readings, marked as such.
+		// A row opened that left the list keeps its last readings, marked as such; after a drop there
+		// are none to keep: it stays open, and shows again with the list.
 		const keys = new Set(drawn.map((r) => r.key));
 		for (const [k, r] of opened) {
 			const now = all.find((x) => x.key === k);
 			if (now) opened.set(k, now);
-			else if (!keys.has(k)) drawn.push(r);
+			else if (r && s && !keys.has(k)) drawn.push(r);
 		}
 		const fractions = barCol ? barFractions(drawn, barCol) : null;
 		/** @type {Set<string>} */
@@ -293,6 +294,7 @@ export function create(w, env) {
 		},
 		clear() {
 			last = undefined;
+			for (const k of opened.keys()) opened.set(k, null);
 			render();
 		},
 		// A table that hides while empty leaves the grid while it is, once it has said so.
