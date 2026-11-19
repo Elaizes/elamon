@@ -104,6 +104,24 @@ pub fn check(args: &[String]) -> Result<(), String> {
 				));
 			}
 			warn.extend(migrate::read_beside(&place));
+			// The dashboard editor's drop-in is to be read last, so what it writes is what shows.
+			let editor = c.web.editor_file.as_str();
+			let after: Vec<String> = place
+				.files()
+				.iter()
+				.filter(|f| f.parent() == Some(place.dropins().as_path()))
+				.filter_map(|f| f.file_name().map(|n| n.to_string_lossy().into_owned()))
+				.filter(|n| n.as_str() > editor)
+				.collect();
+			if !after.is_empty() {
+				warn.push(format!(
+					"{} sort after the dashboard editor's {editor} and are read after it: what they set of a dashboard or a profile's tabs goes over the editor's",
+					after.join(", ")
+				));
+			}
+			if let Some((ok, line)) = crate::webcert::check(&c.web) {
+				if ok { println!("{}{}.", line[..1].to_uppercase(), &line[1..]) } else { warn.push(line) }
+			}
 			warn.extend(migrate::old_main(&place));
 			// Tables of phones.toml left by phones unpaired: for the person to take out or keep.
 			if file.is_none()

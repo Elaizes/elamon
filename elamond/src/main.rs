@@ -62,12 +62,14 @@ elamond — serves this computer's metrics to the Elamon app
 
 Usage:
   elamond serve                        run the service (what the systemd unit does)
-  elamond pair [--role ROLE] [--profile ID] [--yes]
+  elamond pair [--role ROLE] [--profile ID] [--yes] [--web]
                                        show a code and QR to pair a phone, and ask before the phone
                                        that gives it is let in (--yes: without asking); it gets a
-                                       profile of its own in elamond.d/phones.toml, using ID
-  elamond clients                      list paired phones: role, profile, app and the address each
-                                       came from last
+                                       profile of its own in elamond.d/phones.toml, using ID. The
+                                       same code pairs a browser at the address it shows; --web:
+                                       the QR code is that address, for a phone's browser
+  elamond clients                      list paired phones and browsers: role, profile, app, the
+                                       address each came from last and when
   elamond clients role <id|all> ROLE   change what a phone may do; --with-added: and the phones
                                        that got a key of their own with its token
   elamond clients profile <id|all> ID  change how a phone looks and behaves (a profile of the
@@ -126,6 +128,9 @@ Roles, each allowing what the one before does and more:
            station's commands and settings where its source says role = \"operate\"
   admin    also powering off, restarting, sleeping, locking, ending processes, and a station's
            commands and settings
+  owner    also the web page's admin panel and the dashboard editor: the settings, and so any
+           command, the clients and their roles. No client gets it by itself:
+           elamond pair --role owner, or elamond clients role ID owner
 
 Settings: ~/.config/elamon/elamond.toml and elamond.d/   State: ~/.local/share/elamon/
 ";
@@ -840,12 +845,13 @@ fn answer_line(dir: &std::path::Path, ask: &store::Ask, code: &str, lines: &std:
 
 fn pair(args: &[String]) -> Result<(), String> {
 	let config = store::load_config()?;
-	let usage = || format!("usage: elamond pair [--role {}] [--profile ID] [--yes]", Role::choices());
-	let (mut role, mut profile, mut yes) = (None, None, false);
+	let usage = || format!("usage: elamond pair [--role {}] [--profile ID] [--yes] [--web]", Role::choices());
+	let (mut role, mut profile, mut yes, mut web) = (None, None, false, false);
 	let mut rest = args.iter().map(String::as_str);
 	while let Some(a) = rest.next() {
 		match a {
 			"--yes" => yes = true,
+			"--web" => web = true,
 			"--role" => role = Some(role_arg(rest.next().ok_or_else(usage)?)?),
 			"--profile" => profile = Some(profile_arg(&config, rest.next().ok_or_else(usage)?)?),
 			_ if a.starts_with("--role=") => role = Some(role_arg(&a["--role=".len()..])?),
@@ -904,7 +910,16 @@ fn pair(args: &[String]) -> Result<(), String> {
 	let plan = listen::Plan::of(&config.listen, &ifaces);
 	let offered = names::Offered::of(&plan.pairing_hosts(&ifaces), &config.names, names::tailscale(&plan, &ifaces).as_deref());
 	let hosts = offered.hosts();
-	let uri = pair_link(&identity, &name, config.port, &pairing.code, &hosts);
+	// The page's address, the code in its fragment (which a browser never sends): for a phone's
+	// browser to scan instead of the app.
+	let page = offered.addrs.first().or(offered.names.first()).filter(|_| config.web.page).map(|h| {
+		let host = if h.contains(':') { format!("[{h}]") } else { h.clone() };
+		format!("https://{host}:{}/", config.port)
+	});
+	let uri = match (&page, web) {
+		(Some(p), true) => format!("{p}#pair={}", pairing.code),
+		_ => pair_link(&identity, &name, config.port, &pairing.code, &hosts),
+	};
 
 	let tty = std::io::stdout().is_terminal();
 	// Without an address or a name in it, the link would only be refused.
@@ -926,7 +941,10 @@ fn pair(args: &[String]) -> Result<(), String> {
 	}
 	let code = format!("{} {}", &pairing.code[..3], &pairing.code[3..]);
 	println!();
-	if hosts.is_empty() {
+	if web && page.is_some() {
+		println!("  Scan the code with a phone's camera to open this computer's page, or open it in a browser");
+		println!("  and enter:");
+	} else if hosts.is_empty() {
 		println!("  In Elamon tap Add computer, give the address the phone reaches this computer at, and enter:");
 	} else {
 		println!("  Scan the code with the phone's camera, or in Elamon tap Add computer, give an address");
@@ -950,8 +968,12 @@ fn pair(args: &[String]) -> Result<(), String> {
 	if !offered.left_out.is_empty() {
 		println!("  Not in the QR code, which carries {} at most: {}", consts::protocol::PAIR_HOSTS_MAX, offered.left_out.join(", "));
 	}
+	if let Some(p) = &page {
+		println!("  In a browser: {p} (the same code; elamond pair --web shows it as a QR code)");
+	}
 	println!("  Certificate:  {}", store::pretty_fingerprint(&identity.fingerprint));
-	println!("  The app shows the same certificate digits when you pair by code; they must match.");
+	println!("  The app shows the same certificate digits when you pair by code, and a browser for the page");
+	println!("  (it warns once: compare its certificate's SHA-256 with these); they must match.");
 	println!();
 	println!("  Role:         {} — {}", role.as_str(), role.describe());
 	if !role_given {
@@ -1185,6 +1207,9 @@ fn client_lines(clients: &[&store::Client], config: Option<&store::Config>) -> V
 			};
 			if let Some(address) = &c.address {
 				when.push_str(&format!(", last from {address}"));
+			}
+			if let Some(seen) = c.seen {
+				when.push_str(&format!(", seen {}", format_date(seen)));
 			}
 			let pad = |s: &str, w: usize| format!("{s}{}", " ".repeat(w.saturating_sub(s.chars().count())));
 			format!("{}  {:<7}  {}  {}  {}  ({when})", c.id, c.role.as_str(), pad(p, pw), pad(&c.name, nw), pad(a, aw))
