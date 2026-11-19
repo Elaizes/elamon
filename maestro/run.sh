@@ -378,20 +378,27 @@ if [[ "$real_phone" != true ]]; then
 	tile=$APP_ID/io.github.elaizes.elamon.tiles.Tile1
 	adb shell am force-stop "$APP_ID"
 	adb shell cmd statusbar add-tile "$tile" > /dev/null
+	# A tile is clicked as a person does it: with the panel open, where it is bound and has read
+	# its computer; what it asks is answered in tile.yaml.
+	click_tile() {
+		adb shell cmd statusbar expand-settings
+		sleep 8
+		adb shell cmd statusbar click-tile "$tile" > /dev/null
+		flow -e SHOT="$1" maestro/tile.yaml
+		adb shell cmd statusbar collapse || true
+	}
 	before=$(hellos)
-	adb shell cmd statusbar click-tile "$tile" > /dev/null
+	click_tile 60-tile
 	for _ in $(seq 30); do [[ $(hellos) -gt $before ]] && break; sleep 1; done
-	[[ $(hellos) -gt $before ]] || fail "the tile didn't run Say hello"
-	adb shell screencap -p > "$OUT/60-tile.png" || true
+	[[ $(hellos) -eq $((before + 1)) ]] || fail "the tile didn't run Say hello once: $(hellos) after $before"
 	adb reboot
 	adb wait-for-device
 	until [[ $(adb shell getprop sys.boot_completed | tr -d '\r') == 1 ]]; do sleep 2; done
-	sleep 10
+	sleep 15
 	before=$(hellos)
-	adb shell cmd statusbar click-tile "$tile" > /dev/null
+	click_tile 61-tile-after-restart
 	for _ in $(seq 60); do [[ $(hellos) -gt $before ]] && break; sleep 1; done
-	[[ $(hellos) -gt $before ]] || fail "the tile didn't run Say hello after the phone restarted"
-	adb shell screencap -p > "$OUT/61-tile-after-restart.png" || true
+	[[ $(hellos) -eq $((before + 1)) ]] || fail "the tile didn't run Say hello once after the phone restarted: $(hellos) after $before"
 	adb shell cmd statusbar remove-tile "$tile" > /dev/null || true
 fi
 echo "screenshots: $OUT"

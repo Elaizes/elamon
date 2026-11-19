@@ -1,0 +1,12 @@
+# What the first Quick Settings tile asks, run.sh having clicked it with the panel open: the
+# action's question, from the same Guard as in the app (an emulator has no screen lock, so an
+# action that would unlock the phone is asked instead). Answered, the action runs.
+appId: io.github.elaizes.elamon.debug
+---
+- extendedWaitUntil:
+    visible: "Hello\\?"
+    timeout: 30000
+- takeScreenshot: ${SHOT}
+- tapOn:
+    text: "Hello"
+    rightOf: "Cancel"
