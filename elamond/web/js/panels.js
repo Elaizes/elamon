@@ -1,38 +1,588 @@
 // Pairing, the computer's tabs and its dashboards, drawn from `ui` and the stream; every widget
 // type in widgets/. The dashboard editor and the admin panel's preview draw with `dashboardView`
 // too, so a draft looks as it will.
-import { h } from './dom.js';
-import { S } from './strings.js';
+import { api, ApiError } from './api.js';
+import { h, setText } from './dom.js';
+import { S, fill } from './strings.js';
+import { icon } from './icons.js';
+import { cycleTheme, chosen } from './theme.js';
+import * as state from './state.js';
+import { columns } from './layout.js';
+import { makeGrid } from './widgets/grid.js';
+import { make } from './widgets/index.js';
+import { setLevel } from './widgets/common.js';
+import { Stream } from './stream.js';
+import { actionRunner, confirmDialog } from './actions.js';
+import { errorText } from './errors.js';
+import { isFingerprint, colonFingerprint, printedFingerprint } from './fingerprint.js';
+import * as F from './format.js';
 
 /** Every widget type this page draws, as `ui`, the stream and a preview ask for them: keep it to the types widgets/ has. */
 export const DRAWS = 'value,gauge,meter,status,graph,list,bars,table,button,toggle,select,slider,text,group,media,timeline,log';
 
-/**
- * The pairing screen. @param {HTMLElement} root @param {import('./types.js').Ctx} ctx
- * @param {string | null} code a code from the page's address (`#pair=123456`), to fill in
- */
-export function mountPair(root, ctx, code) {
-	root.append(h('p', null, 'Pairing: to be written. ', code || ''));
-	return () => {};
-}
+const P = S.panels;
+
+/** How long the page waits for the person at the computer to let a browser in (the service waits 90 s). */
+const PAIR_WAIT_MS = 100_000;
+/** How long a stream outlives its page when the address changes, for the next page to take it over. */
+const ADOPT_MS = 10_000;
 
 /**
- * The computer: its header, its tabs and the dashboard on screen, live from the stream.
- * @param {HTMLElement} root @param {import('./types.js').Ctx} ctx @param {string | null} tab
- * @returns {() => void} what tears it down
+ * @typedef {import('./types.js').Ui} Ui
+ * @typedef {import('./types.js').Ctx} Ctx
+ * @typedef {import('./types.js').Widget} Widget
+ * @typedef {import('./types.js').Data} Data
  */
-export function mountMachine(root, ctx, tab) {
-	root.append(h('p', null, S.core.loading));
-	return () => {};
+
+// ---- a dashboard -------------------------------------------------------------------------------------
+
+/** Every widget of `widgets`, those in groups too. @param {Widget[]} widgets @returns {Widget[]} */
+function allWidgets(widgets) {
+	return widgets.flatMap((w) => [w, ...(Array.isArray(w.widgets) ? allWidgets(w.widgets) : [])]);
+}
+
+/** Whether `w`, or one in it, acts on the computer: drawn disabled while control is off. @param {Widget} w @returns {boolean} */
+function acts(w) {
+	return !!w.action || w.type === 'media' || (Array.isArray(w.widgets) && w.widgets.some(acts));
+}
+
+/** Control is off on the computer: why, and how to turn it on there. @param {string | null | undefined} reason */
+function controlOff(reason) {
+	const [text, code, where] =
+		reason === 'held_off' ? [P.controlHeldOff, P.controlHeldOffRun, null] : reason === 'settings_unreadable' ? [P.controlUnreadable, P.controlUnreadableRun, null] : [P.controlOffBody, P.controlOffSetting, P.controlOffWhere];
+	return h('section', { class: 'card w control-off', role: 'note' },
+		h('div', { class: 'w-head' }, icon('lock', 'w-icon'), h('h3', { class: 'w-title' }, P.controlOff)),
+		h('p', null, text), h('pre', { class: 'mono code' }, code), where ? h('p', { class: 'muted' }, where) : null);
 }
 
 /**
  * One dashboard of `ui`, drawn; `update` takes each `data` for it. Used by the machine view, the
- * admin panel's preview and the dashboard editor.
- * @param {import('./types.js').Ui} ui @param {string} dashboard @param {import('./types.js').ViewHooks} hooks
- * @returns {import('./types.js').DashboardView}
+ * admin panel's preview and the dashboard editor. Holds no state of its own outside the view, so
+ * several can be mounted at once.
+ * @param {Ui} ui @param {string} dashboard @param {import('./types.js').ViewHooks} [hooks]
+ * @returns {import('./types.js').DashboardView & { clear: () => void }}
  */
-export function dashboardView(ui, dashboard, hooks) {
-	const el = h('section', { class: 'dashboard' }, h('p', null, dashboard));
-	return { el, update() {}, destroy() {} };
+export function dashboardView(ui, dashboard, hooks = {}) {
+	const dash = (ui.dashboards || []).find((d) => d.id === dashboard);
+	const el = h('section', { class: 'dashboard', 'data-dashboard': dashboard });
+	if (!dash) {
+		el.append(h('p', { class: 'note' }, S.core.notFound));
+		return { el, update() {}, destroy() {}, clear() {} };
+	}
+	el.setAttribute('aria-label', dash.title || dashboard);
+	const live = !hooks.preview && typeof hooks.runAction === 'function';
+	const actions = new Map((ui.actions || []).map((a) => [a.id, a]));
+	const dashboards = new Set((ui.dashboards || []).map((d) => d.id));
+	const service = ui.service || /** @type {any} */ ({});
+	/** @type {import('./widgets/common.js').Env} */
+	const env = {
+		ui,
+		dashboard,
+		isTab: (ui.tabs || []).includes(dashboard),
+		live,
+		action: (id) => (id ? actions.get(id) || null : null),
+		controlOn: !ui.control || ui.control.enabled !== false,
+		intervalMs: (ui.profile && ui.profile.interval_ms) || service.interval_ms || 1000,
+		historyMs: (service.history_seconds || 600) * 1000,
+		memory: hooks.memory || new Map(),
+		asked: { sort: { ...(hooks.asked && hooks.asked.sort) }, log: { ...(hooks.asked && hooks.asked.log) } },
+		make,
+		canOpen: (id) => !!id && dashboards.has(id),
+		open: (id) => {
+			if (live && hooks.open && dashboards.has(id)) hooks.open(id);
+		},
+		run: (a, p, w, phrase) => (live && hooks.runAction ? hooks.runAction(a, p, w, phrase) : Promise.resolve(null)),
+		change: (body) => {
+			if (live && hooks.change) hooks.change(body);
+		},
+	};
+	const widgets = Array.isArray(dash.widgets) ? dash.widgets : [];
+	if (!env.controlOn && widgets.some(acts)) el.append(controlOff(ui.control && ui.control.off_reason));
+	const grid = makeGrid(widgets, env);
+	el.append(grid.el);
+	let cols = 0;
+	const relayout = () => {
+		const c = columns(el.clientWidth || window.innerWidth);
+		if (c === cols) return;
+		cols = c;
+		grid.layout(c);
+	};
+	const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(relayout) : null;
+	ro?.observe(el);
+	relayout();
+	return {
+		el,
+		update(data) {
+			if (!data || (data.dashboard && data.dashboard !== dashboard)) return;
+			grid.update(data);
+		},
+		clear: () => grid.clear(),
+		destroy() {
+			ro?.disconnect();
+			grid.destroy();
+		},
+	};
+}
+
+/** The header dashboard's widgets as chips under the computer's name, each its text in its level's colour. @param {Ui} ui */
+function headerChips(ui) {
+	const dash = ui.header ? (ui.dashboards || []).find((d) => d.id === ui.header) : null;
+	const widgets = dash ? allWidgets(dash.widgets || []).filter((w) => w.type !== 'group') : [];
+	const el = h('ul', { class: 'header-chips', 'aria-label': P.chips });
+	const chips = widgets.map((w) => {
+		const text = h('span', { class: 'pill-text' });
+		const dot = h('span', { class: 'dot', 'aria-hidden': 'true' });
+		const li = h('li', { class: 'pill chip-pill' }, dot, text);
+		li.hidden = true;
+		el.append(li);
+		return { w, li, text, dot };
+	});
+	/** @param {Data | null} data */
+	const show = (data) => {
+		for (const { w, li, text, dot } of chips) {
+			const s = data && data.widgets ? data.widgets[w.id] : undefined;
+			const t = s ? (typeof s.text === 'string' ? s.text : F.format(s.v, w.format, w.unit)) : null;
+			const shown = t ?? (typeof w.text === 'string' && data ? w.text : null);
+			li.hidden = !shown || !shown.trim();
+			setText(text, shown || '');
+			const level = (s && s.level) || w.level;
+			setLevel(li, level, s && s.blend);
+			dot.hidden = !level;
+			if (w.label) li.title = w.label;
+		}
+	};
+	show(null);
+	return { el, update: show, clear: () => show(null) };
+}
+
+// ---- pairing ---------------------------------------------------------------------------------------------
+
+/**
+ * The pairing screen. @param {HTMLElement} root @param {Ctx} ctx
+ * @param {string | null} code a code from the page's address (`#pair=123456`), to fill in
+ */
+export function mountPair(root, ctx, code) {
+	const fp = ctx.hello && ctx.hello.fingerprint;
+	const codeField = h('input', { id: 'pair-code', name: 'code', inputmode: 'numeric', pattern: '[0-9]{6}', maxlength: '6', autocomplete: 'one-time-code', required: true, 'aria-describedby': 'pair-code-hint', class: 'pair-code mono' });
+	codeField.value = code || '';
+	const deviceField = h('input', { id: 'pair-device', name: 'device', maxlength: '64', autocomplete: 'off', 'aria-describedby': 'pair-device-hint' });
+	const submit = h('button', { type: 'submit', class: 'primary' }, P.pairSubmit);
+	const waiting = h('p', { class: 'note pair-waiting', role: 'status' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), ' ', P.pairWaiting);
+	waiting.hidden = true;
+	const error = h('p', { class: 'note critical', role: 'alert' });
+	error.hidden = true;
+	const form = h('form', { class: 'pair-form', novalidate: true },
+		h('label', { for: 'pair-code' }, P.pairCode), codeField, h('p', { id: 'pair-code-hint', class: 'hint muted' }, P.pairCodeHint),
+		h('label', { for: 'pair-device' }, P.pairDevice), deviceField, h('p', { id: 'pair-device-hint', class: 'hint muted' }, P.pairDeviceHint),
+		h('div', { class: 'pair-actions' }, submit), waiting, error);
+	const certificate = isFingerprint(fp)
+		? h('section', { class: 'pair-certificate', 'aria-labelledby': 'pair-cert-title' },
+				h('h2', { id: 'pair-cert-title' }, P.pairCertificate),
+				h('p', { class: 'mono fingerprint' }, colonFingerprint(fp)),
+				h('p', { class: 'muted' }, fill(P.pairPrinted, printedFingerprint(fp))),
+				h('p', null, P.pairCompare))
+		: h('p', { class: 'note warning' }, P.pairNoFingerprint);
+	const name = ctx.hello && ctx.hello.name;
+	root.append(h('main', { class: 'pair card' }, h('h1', null, P.pairTitle, name ? h('span', { class: 'muted' }, ` · ${name}`) : null), h('p', null, P.pairIntro), form, certificate));
+	let ctrl = /** @type {AbortController | null} */ (null);
+	form.addEventListener('submit', async (e) => {
+		e.preventDefault();
+		const digits = codeField.value.trim();
+		if (!/^\d{6}$/.test(digits)) {
+			error.hidden = false;
+			setText(error, P.pairCodeInvalid);
+			codeField.setAttribute('aria-invalid', 'true');
+			codeField.focus();
+			return;
+		}
+		codeField.removeAttribute('aria-invalid');
+		error.hidden = true;
+		waiting.hidden = false;
+		submit.disabled = codeField.disabled = deviceField.disabled = true;
+		ctrl = new AbortController();
+		const timer = setTimeout(() => ctrl && ctrl.abort(), PAIR_WAIT_MS);
+		try {
+			await api('/api/v1/pair', { body: { code: digits, device: deviceField.value.trim() }, signal: ctrl.signal });
+			clearTimeout(timer);
+			await ctx.reloadUi();
+			ctx.go('#/');
+		} catch (err) {
+			clearTimeout(timer);
+			if (ctrl && ctrl.signal.aborted && !(err instanceof DOMException && err.name === 'AbortError')) return;
+			waiting.hidden = true;
+			submit.disabled = codeField.disabled = deviceField.disabled = false;
+			error.hidden = false;
+			setText(error, err instanceof ApiError || err instanceof TypeError || (err instanceof DOMException && err.name === 'AbortError') ? errorText(err) : fill(P.pairFailed, String(err)));
+			codeField.focus();
+		}
+	});
+	if (!code) codeField.focus();
+	return () => {
+		ctrl?.abort();
+	};
+}
+
+// ---- the computer -----------------------------------------------------------------------------------------
+
+/**
+ * One stream and what this browser asked of it, kept while the page shows the computer: a page
+ * that goes (the address changed) leaves it for a moment, for the next to take over.
+ * @typedef {{ stream: Stream, asked: { sort: Record<string, string>, log: Record<string, { level: string, search?: string }> },
+ *   memory: Map<string, any>, sink: import('./stream.js').Handlers, timer: ReturnType<typeof setTimeout> | null, status: import('./stream.js').Status }} Session
+ */
+/** @type {Session | null} */
+let session = null;
+
+/** A role by its name, which a newer service's may be. @param {string} role */
+function roleName(role) {
+	/** @type {Record<string, string>} */
+	const names = { glance: P.roleGlance, monitor: P.roleMonitor, operate: P.roleOperate, admin: P.roleAdmin, owner: P.roleOwner };
+	return names[role] || role.charAt(0).toUpperCase() + role.slice(1);
+}
+
+/** The theme button's words for this browser's choice. */
+function themeWords() {
+	const c = chosen();
+	return c === 'light' ? [S.core.themeLight, 'sun'] : c === 'dark' ? [S.core.themeDark, 'moon'] : [S.core.themeSystem, 'contrast'];
+}
+
+/**
+ * The computer: its header, its tabs and the dashboard on screen, live from the stream.
+ * @param {HTMLElement} root @param {Ctx} ctx @param {string | null} tab
+ * @returns {() => void} what tears it down
+ */
+export function mountMachine(root, ctx, tab) {
+	let ui = /** @type {Ui} */ (ctx.ui());
+	const tabsOf = () => (ui.tabs || []).filter((t, i, all) => all.indexOf(t) === i && (ui.dashboards || []).some((d) => d.id === t));
+	const known = (/** @type {string | null | undefined} */ id) => !!id && (ui.dashboards || []).some((d) => d.id === id);
+	const remembered = state.load('tab', null);
+	/** The dashboard on screen. */
+	let current = known(tab) ? /** @type {string} */ (tab) : tabsOf().includes(remembered) ? remembered : tabsOf()[0] || null;
+	/** The tab a dashboard on screen was opened from (none for a tab). */
+	let parent = /** @type {string | null} */ (null);
+	/** Pages this view put in the browser's history, which Back can return through. */
+	let pushed = 0;
+	let gone = false;
+
+	const banner = h('p', { class: 'note warning banner', role: 'status' });
+	banner.hidden = true;
+	const top = h('header', { class: 'topbar machine-top' });
+	const nav = h('nav', { class: 'tabs', role: 'tablist', 'aria-label': P.tabs });
+	const pageHead = h('div', { class: 'page-head' });
+	const main = h('main', { class: 'machine-main', id: 'dashboard-panel', tabindex: '-1' });
+	root.append(top, nav, banner, pageHead, main);
+
+	/** @type {import('./types.js').DashboardView & { clear: () => void } | null} */
+	let view = null;
+	/** @type {ReturnType<typeof headerChips> | null} */
+	let chips = null;
+	/** The last line of the dashboard on screen, to draw it again at once when the settings change. @type {Data | null} */
+	let lastData = null;
+
+	const run = actionRunner({ ui: () => ui, toast: ctx.toast, unauthorized: () => toPairing() });
+
+	/** @type {Session} */
+	const s = session && session.timer ? adopt(session) : start();
+
+	/** @param {Session} old */
+	function adopt(old) {
+		if (old.timer) clearTimeout(old.timer);
+		old.timer = null;
+		return old;
+	}
+
+	/** @returns {Session} */
+	function start() {
+		/** @type {Session} */
+		const fresh = {
+			stream: /** @type {any} */ (null),
+			asked: { sort: {}, log: {} },
+			memory: new Map(),
+			sink: {},
+			timer: null,
+			status: 'stopped',
+		};
+		const logsOf = (/** @type {string} */ d) => {
+			const u = ctx.ui();
+			const dash = u ? (u.dashboards || []).find((x) => x.id === d) : null;
+			return dash ? allWidgets(dash.widgets || []).filter((w) => w.type === 'log').map((w) => w.id) : [];
+		};
+		const u = /** @type {Ui} */ (ctx.ui());
+		fresh.stream = new Stream(
+			{ dashboard: current || '', sort: {}, log: {} },
+			{ widgets: DRAWS, intervalMs: (u.profile && u.profile.interval_ms) || (u.service && u.service.interval_ms) || 1000, logsOf },
+			{
+				line: (l) => fresh.sink.line?.(l),
+				status: (st) => {
+					fresh.status = st;
+					fresh.sink.status?.(st);
+				},
+				unauthorized: () => fresh.sink.unauthorized?.(),
+				refused: (e) => fresh.sink.refused?.(e),
+			},
+		);
+		session = fresh;
+		if (current) fresh.stream.start();
+		return fresh;
+	}
+
+	s.sink = {
+		line(l) {
+			if (gone) return;
+			if (l.kind === 'open' || l.kind === 'ui') {
+				if (l.ui && l.ui !== ui.version) refreshUi();
+			} else if (l.kind === 'data') {
+				chips?.update(l.data);
+				if (l.data.dashboard === current) {
+					lastData = l.data;
+					view?.update(l.data);
+				}
+			}
+		},
+		status(st) {
+			if (gone) return;
+			showStatus(st);
+		},
+		unauthorized: () => toPairing(),
+		refused(e) {
+			if (e.code === 'no_such_dashboard') refreshUi();
+			else ctx.toast(errorText(e), 'warning');
+		},
+	};
+
+	/** @param {import('./stream.js').Status} st */
+	function showStatus(st) {
+		const down = st === 'down';
+		banner.hidden = !down;
+		setText(banner, down ? S.core.noConnection : '');
+		// No stale numbers: what was shown goes when the connection does, or the page hides.
+		if (down || st === 'paused') {
+			lastData = null;
+			view?.clear();
+			chips?.clear();
+		}
+	}
+
+	async function toPairing() {
+		if (gone) return;
+		try {
+			await ctx.reloadUi();
+		} catch {}
+		ctx.go('#/');
+	}
+
+	async function refreshUi() {
+		let u;
+		try {
+			u = await ctx.reloadUi();
+		} catch {
+			return;
+		}
+		if (gone) return;
+		if (!u) return toPairing();
+		ui = u;
+		if (!known(current)) {
+			current = tabsOf()[0] || null;
+			parent = null;
+		}
+		render();
+		if (lastData && lastData.dashboard === current) {
+			view?.update({ ...lastData, history: undefined });
+			chips?.update(lastData);
+		}
+		if (current) s.stream.set({ dashboard: current });
+	}
+
+	function drawTop() {
+		const name = (ctx.hello && ctx.hello.name) || (ui.service && ui.service.name) || S.core.title;
+		const [themeText, themeIcon] = themeWords();
+		const theme = h('button', { type: 'button', class: 'icon-button quiet', 'aria-label': themeText, title: themeText }, icon(themeIcon));
+		theme.addEventListener('click', () => {
+			cycleTheme();
+			const [t, i] = themeWords();
+			theme.setAttribute('aria-label', t);
+			theme.title = t;
+			theme.replaceChildren(icon(i));
+		});
+		const role = h('span', { class: 'pill role', title: fill(P.roleAbout, roleName(ui.role || '')), 'aria-label': fill(P.roleAbout, roleName(ui.role || '')) }, roleName(ui.role || ''));
+		/** @type {Node[]} */
+		const tools = [role, theme];
+		if (ctx.has('editor') && current) {
+			tools.push(h('button', { type: 'button', class: 'quiet edit', 'aria-label': P.editThis, title: P.editThis, onclick: () => current && ctx.go(`#/edit/${encodeURIComponent(current)}`) }, icon('edit', 'w-icon'), ` ${P.edit}`));
+		}
+		if (ctx.has('admin')) tools.push(h('a', { class: 'button quiet', href: '#/admin' }, icon('control', 'w-icon'), ` ${S.core.admin}`));
+		tools.push(menu());
+		chips = headerChips(ui);
+		top.replaceChildren(h('div', { class: 'machine-title' }, h('h1', { class: 'name' }, name), chips.el), h('div', { class: 'top-tools' }, ...tools));
+	}
+
+	/** The menu with what is done rarely: forgetting this browser. */
+	function menu() {
+		const id = 'machine-menu';
+		const button = h('button', { type: 'button', class: 'icon-button quiet', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-controls': id, 'aria-label': P.menu, title: P.menu }, icon('more'));
+		const forget = h('button', { type: 'button', role: 'menuitem', class: 'menu-item danger-text' }, P.forget);
+		const list = h('div', { id, role: 'menu', class: 'menu card' }, forget);
+		list.hidden = true;
+		const wrap = h('div', { class: 'menu-wrap' }, button, list);
+		const close = () => {
+			list.hidden = true;
+			button.setAttribute('aria-expanded', 'false');
+			document.removeEventListener('pointerdown', outside);
+		};
+		const outside = (/** @type {Event} */ e) => {
+			if (!wrap.contains(/** @type {Node} */ (e.target))) close();
+		};
+		button.addEventListener('click', () => {
+			if (!list.hidden) return close();
+			list.hidden = false;
+			button.setAttribute('aria-expanded', 'true');
+			document.addEventListener('pointerdown', outside);
+			forget.focus();
+		});
+		list.addEventListener('keydown', (e) => {
+			if (e.key === 'Escape') {
+				close();
+				button.focus();
+			}
+		});
+		forget.addEventListener('click', async () => {
+			close();
+			const yes = await confirmDialog(P.forgetQuestion, P.forgetBody, P.forget, true, null);
+			if (!yes) return;
+			try {
+				await api('/api/v1/unpair', { method: 'POST' });
+			} catch (e) {
+				if (!(e instanceof ApiError && e.status === 401)) {
+					ctx.toast(fill(P.forgetFailed, errorText(e)), 'critical');
+					return;
+				}
+			}
+			s.stream.stop();
+			if (session === s) session = null;
+			toPairing();
+		});
+		return wrap;
+	}
+
+	function drawTabs() {
+		const tabs = tabsOf();
+		const selected = parent || current;
+		/** @type {HTMLAnchorElement[]} */
+		const links = [];
+		tabs.forEach((id, i) => {
+			const d = (ui.dashboards || []).find((x) => x.id === id);
+			const on = id === selected;
+			const a = h('a', { href: `#/tab/${encodeURIComponent(id)}`, role: 'tab', class: 'tab', 'aria-selected': String(on), 'aria-controls': 'dashboard-panel', tabindex: on ? '0' : '-1' }, icon(d && d.icon, 'w-icon'), h('span', null, (d && d.title) || id));
+			a.addEventListener('click', (e) => {
+				if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+				e.preventDefault();
+				show(id, null, 'push');
+			});
+			a.addEventListener('keydown', (e) => {
+				const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+				const to = e.key === 'Home' ? 0 : e.key === 'End' ? links.length - 1 : step ? (i + step + links.length) % links.length : -1;
+				if (to < 0) return;
+				e.preventDefault();
+				links[to].focus();
+				links[to].click();
+			});
+			links.push(a);
+		});
+		nav.replaceChildren(...links);
+		nav.hidden = tabs.length < 2 && !parent;
+	}
+
+	function drawView() {
+		view?.destroy();
+		view = null;
+		pageHead.replaceChildren();
+		if (!current) {
+			main.replaceChildren(h('p', { class: 'note' }, P.noTabs));
+			return;
+		}
+		const d = (ui.dashboards || []).find((x) => x.id === current);
+		const name = (ctx.hello && ctx.hello.name) || S.core.title;
+		document.title = d && d.title ? `${d.title} · ${name}` : name;
+		if (parent || !tabsOf().includes(current)) {
+			const back = h('button', { type: 'button', class: 'quiet back' }, icon('back', 'w-icon'), ` ${P.back}`);
+			back.addEventListener('click', () => {
+				if (pushed > 0) history.back();
+				else show(parent || tabsOf()[0] || '', null, 'replace');
+			});
+			pageHead.append(back, h('h2', { class: 'page-title' }, (d && d.title) || current));
+		}
+		view = dashboardView(ui, current, {
+			runAction: run,
+			change(body) {
+				const b = /** @type {{ sort?: Record<string, string | null>, log?: Record<string, any> }} */ (body);
+				for (const [k, v] of Object.entries(b.sort || {})) {
+					if (v == null) delete s.asked.sort[k];
+					else s.asked.sort[k] = v;
+				}
+				for (const [k, v] of Object.entries(b.log || {})) {
+					if (v == null) delete s.asked.log[k];
+					else s.asked.log[k] = v;
+				}
+				s.stream.set({ sort: { ...s.asked.sort }, log: { ...s.asked.log } });
+			},
+			open: (id) => show(id, parent || current, 'push'),
+			asked: s.asked,
+			memory: s.memory,
+		});
+		main.replaceChildren(view.el);
+	}
+
+	function render() {
+		drawTop();
+		drawTabs();
+		drawView();
+		showStatus(s.status);
+	}
+
+	/**
+	 * Shows the dashboard `id`, opened from `from` (null for a tab), the address following as `how` says.
+	 * @param {string} id @param {string | null} from @param {'push' | 'replace' | 'none'} how
+	 */
+	function show(id, from, how) {
+		if (!known(id)) return;
+		const isTab = tabsOf().includes(id) && !from;
+		current = id;
+		parent = isTab ? null : from;
+		lastData = null;
+		if (isTab) state.save('tab', id);
+		const hash = `#/tab/${encodeURIComponent(id)}`;
+		if (how === 'push' && location.hash !== hash) {
+			history.pushState(null, '', hash);
+			pushed++;
+		} else if (how === 'replace') history.replaceState(null, '', hash);
+		if (how === 'replace' && pushed > 0) pushed--;
+		drawTabs();
+		drawView();
+		s.stream.set({ dashboard: id });
+		if (s.status === 'stopped') s.stream.start();
+		main.focus({ preventScroll: true });
+	}
+
+	// A dashboard named in the address that isn't a tab is a page opened over one.
+	if (current && !tabsOf().includes(current)) parent = tabsOf().includes(remembered) ? remembered : tabsOf()[0] || null;
+	if (current && location.hash !== `#/tab/${encodeURIComponent(current)}`) history.replaceState(null, '', `#/tab/${encodeURIComponent(current)}`);
+	if (current && tabsOf().includes(current) && !parent) state.save('tab', current);
+	render();
+	if (current) {
+		s.stream.set({ dashboard: current });
+		if (s.status === 'stopped') s.stream.start();
+	}
+
+	return () => {
+		gone = true;
+		view?.destroy();
+		view = null;
+		s.sink = {};
+		if (session === s) {
+			s.timer = setTimeout(() => {
+				s.stream.stop();
+				if (session === s) session = null;
+			}, ADOPT_MS);
+		} else s.stream.stop();
+	};
 }

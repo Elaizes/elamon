@@ -27,11 +27,19 @@
  * What a dashboard view needs besides `ui`: how to run an action, how to change a table's order or a
  * log's filter on the stream, how to open another dashboard. A preview passes none of them, and the
  * view draws its controls but runs nothing.
- * @typedef {{ runAction?: (action: Action, params: Record<string, unknown>, widget: Widget) => Promise<void>,
- *   change?: (body: Record<string, unknown>) => void, open?: (dashboard: string) => void, preview?: boolean }} ViewHooks
+ * `runAction` asks what is to be asked and runs the action; it resolves with the service's answer
+ * (`{ ok, exit_code?, timed_out?, output? }`), or null when nothing ran. `phrase` names it in what
+ * asks ("Mode: Server"). `asked` is what the stream was told before for this page (tables' orders,
+ * logs' filters), for the chips to show; `memory` keeps widgets' choices (a graph's range, a
+ * table's search) across views of the same page.
+ * @typedef {{ runAction?: (action: Action, params: Record<string, unknown>, widget: Widget, phrase?: string) => Promise<any>,
+ *   change?: (body: Record<string, unknown>) => void, open?: (dashboard: string) => void, preview?: boolean,
+ *   asked?: { sort?: Record<string, string>, log?: Record<string, { level: string, search?: string }> },
+ *   memory?: Map<string, any> }} ViewHooks
  *
- * A dashboard drawn: its element, the next data, and away.
- * @typedef {{ el: HTMLElement, update: (data: Data) => void, destroy: () => void }} DashboardView
+ * A dashboard drawn: its element, the next data, and away. `clear` drops every value shown (the
+ * connection went: no stale numbers), until the next `update`.
+ * @typedef {{ el: HTMLElement, update: (data: Data) => void, destroy: () => void, clear?: () => void }} DashboardView
  *
  * What every part of the page is handed: the service as `hello` says, the `ui` as last read, and
  * the page's ways about.
