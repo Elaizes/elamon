@@ -1,0 +1,147 @@
+/* The page's base: colours of both themes, type, the grid, controls. panels.css, admin.css and
+   editor.css add their own parts; index.html links all four. No inline styles (the CSP refuses
+   them): what a script sizes it sets through the CSSOM. */
+
+:root {
+	color-scheme: light dark;
+	--bg: #f6f8fb;
+	--surface: #ffffff;
+	--surface-2: #eef1f6;
+	--line: #d6dce5;
+	--text: #18202a;
+	--muted: #5b6878;
+	--primary: #0b63c4;
+	--on-primary: #ffffff;
+	--good: #1e8e4e;
+	--warn: #b7791f;
+	--hot: #c62f3a;
+	--cpu: #3b82f6;
+	--memory: #8b5cf6;
+	--swap: #a78bfa;
+	--gpu: #10b981;
+	--rx: #0ea5e9;
+	--tx: #f97316;
+	--read: #14b8a6;
+	--write: #e11d48;
+	--battery: #22c55e;
+	--secondary: #64748b;
+	--tertiary: #b45309;
+	--radius: 14px;
+	--gap: 12px;
+	--tap: 44px;
+	font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Inter", sans-serif;
+	font-size: 15px;
+	line-height: 1.4;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--bg: #101418;
+		--surface: #181d23;
+		--surface-2: #222830;
+		--line: #2e3640;
+		--text: #e6ebf1;
+		--muted: #97a3b2;
+		--primary: #7cc4ff;
+		--on-primary: #06223d;
+	}
+}
+
+:root[data-theme="dark"] {
+	--bg: #101418;
+	--surface: #181d23;
+	--surface-2: #222830;
+	--line: #2e3640;
+	--text: #e6ebf1;
+	--muted: #97a3b2;
+	--primary: #7cc4ff;
+	--on-primary: #06223d;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root[data-black="true"]:not([data-theme="light"]) { --bg: #000; --surface: #0b0d10; --surface-2: #15191e; }
+}
+:root[data-theme="dark"][data-black="true"] { --bg: #000; --surface: #0b0d10; --surface-2: #15191e; }
+
+:root[data-still="true"] * { transition: none !important; animation: none !important; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { min-height: 100vh; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+#app { max-width: 1280px; margin: 0 auto; padding: 12px; }
+
+h1, h2, h3 { margin: 0 0 8px; line-height: 1.2; }
+h1 { font-size: 1.4rem; }
+h2 { font-size: 1.15rem; }
+h3 { font-size: 1rem; }
+p { margin: 0 0 8px; }
+.muted { color: var(--muted); }
+.mono { font-family: ui-monospace, "JetBrains Mono", Menlo, monospace; font-size: 0.92em; }
+
+a { color: var(--primary); }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+button, .button {
+	min-height: var(--tap);
+	padding: 0 16px;
+	border: 1px solid var(--line);
+	border-radius: 999px;
+	background: var(--surface-2);
+	color: var(--text);
+	font: inherit;
+	cursor: pointer;
+}
+button.primary { background: var(--primary); color: var(--on-primary); border-color: transparent; }
+button.danger { background: var(--hot); color: #fff; border-color: transparent; }
+button.quiet { background: transparent; border-color: transparent; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+input, select, textarea {
+	min-height: var(--tap);
+	padding: 8px 12px;
+	border: 1px solid var(--line);
+	border-radius: 10px;
+	background: var(--surface);
+	color: var(--text);
+	font: inherit;
+}
+textarea { min-height: 8rem; width: 100%; font-family: ui-monospace, Menlo, monospace; font-size: 0.9rem; }
+label { display: block; margin: 8px 0 4px; color: var(--muted); font-size: 0.9rem; }
+
+.topbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.topbar .name { font-size: 1.3rem; font-weight: 650; margin-right: auto; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+
+/* The dashboards' grid: four columns, two on a narrow screen, one on a very narrow one, as in the app. */
+.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); }
+.span-1 { grid-column: span 1; }
+.span-2 { grid-column: span 2; }
+.span-3 { grid-column: span 3; }
+.span-4 { grid-column: span 4; }
+@media (max-width: 600px) {
+	.grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.span-3, .span-4 { grid-column: span 2; }
+}
+@media (max-width: 320px) {
+	.grid { grid-template-columns: minmax(0, 1fr); }
+	.span-1, .span-2, .span-3, .span-4 { grid-column: span 1; }
+}
+
+.note { padding: 10px 14px; border-radius: 10px; background: var(--surface-2); }
+.note.warning { border-left: 4px solid var(--warn); }
+.note.critical { border-left: 4px solid var(--hot); }
+
+dialog { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--text); max-width: min(560px, 92vw); }
+dialog::backdrop { background: rgb(0 0 0 / 0.45); }
+dialog .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; flex-wrap: wrap; }
+
+#toasts { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); display: grid; gap: 8px; z-index: 50; width: min(480px, 92vw); }
+.toast { padding: 10px 14px; border-radius: 10px; background: var(--text); color: var(--bg); }
+.toast.warning { background: var(--warn); color: #000; }
+.toast.critical { background: var(--hot); color: #fff; }
+
+.level-normal { --level: var(--good); }
+.level-warning { --level: var(--warn); }
+.level-critical { --level: var(--hot); }

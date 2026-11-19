@@ -786,6 +786,8 @@
 					packages = [
 						android.androidsdk dev.jdk17 dev.gradle
 						dev.cargo dev.rustc dev.clippy dev.rustfmt
+						# The web page's checks: `tsc --checkJs` and `node --test` (nothing of Node goes into elamond).
+						dev.nodejs dev.typescript
 					];
 					ANDROID_HOME = sdk;
 					ANDROID_SDK_ROOT = sdk;
