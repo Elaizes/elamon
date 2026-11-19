@@ -103,6 +103,14 @@ object Tables {
 		if (opens == null && runs == null) null else RowButton(ra, opens, runs)
 	}
 
+	/**
+	 * [text], the [field] of a row of [w], as its sheet shows it: the link a tap on the row opens
+	 * ([Widget.rowOpen]) as the phone opens it, at [host], the address it reaches the computer at
+	 * (`http://{host}:8096` as `http://192.0.2.10:8096`); anything else, or with no address yet, as it is.
+	 */
+	fun shownField(w: Widget, field: String, text: String, host: String?): String =
+		if (host != null && field == w.rowOpen) linkUrl(text, host) else text
+
 	/** The text columns a table's search looks in: those that hold words, not figures. */
 	fun textColumns(columns: List<Column>): List<Column> = columns.filter { it.format == null || it.format == "text" }
 
