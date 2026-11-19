@@ -278,7 +278,8 @@
 					config = lib.mkMerge [
 						{ services.elamond.settings = settingsDefaults lib; }
 						(lib.mkIf cfg.enable {
-							environment.systemPackages = [ cfg.package ];
+							# ddcutil also for `elamond check` from a shell, which says what the service lacks.
+							environment.systemPackages = [ cfg.package ] ++ lib.optional cfg.ddcutil pkgs.ddcutil;
 							# `elamond pair`, `snapshot` and `clients` read the same settings as the service.
 							environment.variables.ELAMON_CONFIG = "${configFile}";
 							systemd.user.services.elamond = {

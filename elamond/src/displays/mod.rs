@@ -436,7 +436,10 @@ impl Displays {
 				})
 				.await
 				.map_err(|e| (ErrorCode::Failed, Some(e.to_string())))?;
-				self.wake.notify_all();
+				// What may be done next, and who is last, as Hyprland has it now: with nobody watching the
+				// monitors the thread wouldn't read it again.
+				let me = self.clone();
+				tokio::task::spawn_blocking(move || me.refresh()).await.ok();
 				match result {
 					Ok(true) => Ok(()),
 					Ok(false) if what == What::Output && on && asleep => Err((ErrorCode::Failed, Some(reason::WAITING_FOR_A_SCREEN.into()))),

@@ -154,6 +154,10 @@ async fn the_last_screen_goes_off_only_with_its_name_typed() {
 	assert!(f.evals().is_empty(), "nothing reached Hyprland: {:?}", f.evals());
 	assert_eq!(f.act("display.output.DP-1", json!({ "state": "off" }), Some("DP-1")).await, Ok(()));
 	assert!(f.state("DP-1").contains("disabled=true"));
+	// What may be done next is read at once, nobody watching: DP-1 off has no DPMS, nor is it last.
+	let seen = f.d.seen();
+	assert!(seen.output("DP-1").is_some_and(|o| o.disabled));
+	assert!(!ids(&seen, &quick()).contains(&"display.dpms.DP-1".to_string()));
 	assert_eq!(f.evals(), ["hl.monitor({ output = 'DP-1', disabled = true })"]);
 	// Turned on with what Hyprland kept for it; no name asked.
 	assert_eq!(f.act("display.output.DP-1", json!({ "state": "on" }), None).await, Ok(()));
