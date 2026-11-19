@@ -275,7 +275,10 @@ pub fn processes() -> Vec<Process> {
 
 #[test]
 fn hello() {
-	let body = hello_body("0123456789abcdef0123456789abcdef", "fixture");
+	let body = hello_body("0123456789abcdef0123456789abcdef", "fixture", "");
+	// elamond 0.11 tells the certificate's fingerprint too.
+	let with_fp = hello_body("0123456789abcdef0123456789abcdef", "fixture", "1f0e8d2c3b4a59687766554433221100ffeeddccbbaa99887766554433221100");
+	check_text("0.11/hello.json", &(serde_json::to_string_pretty(&with_fp).unwrap() + "\n"));
 	check_compact("hello", &body);
 	// As 0.8 has it, until it moves up beside the others.
 	check_compact("0.8/hello", &body);

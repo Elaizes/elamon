@@ -12,6 +12,10 @@
     "status": 400
   },
   {
+    "error": "bad_name",
+    "status": 400
+  },
+  {
     "error": "unauthorized",
     "status": 401
   },
@@ -52,6 +56,26 @@
     "status": 403
   },
   {
+    "error": "bad_origin",
+    "status": 403
+  },
+  {
+    "error": "admin_off",
+    "status": 403
+  },
+  {
+    "error": "writes_off",
+    "status": 403
+  },
+  {
+    "error": "read_only",
+    "status": 403
+  },
+  {
+    "error": "at_computer",
+    "status": 403
+  },
+  {
     "error": "not_found",
     "status": 404
   },
@@ -82,6 +106,14 @@
   {
     "error": "process_changed",
     "status": 409
+  },
+  {
+    "error": "changed_on_disk",
+    "status": 409
+  },
+  {
+    "error": "bad_settings",
+    "status": 422
   },
   {
     "error": "storage",

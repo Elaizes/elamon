@@ -1,5 +1,5 @@
-// The page's one way to make elements. What comes from the service goes in as text, never as markup:
-// nothing here sets innerHTML, and attributes that run or load something are refused.
+// The page's one way to make elements. What comes from the service goes in as text, never as markup
+// (no HTML is ever parsed from a string), and attributes that run or load something are refused.
 
 /** @typedef {Node | string | number | null | undefined | false} Child */
 

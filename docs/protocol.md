@@ -1128,15 +1128,19 @@ part came from.
   "files": ["elamond.toml", "elamond.d/dashboards.toml"],
   "settings": { "schema": 3, "port": 47823, "dashboards": { "cpu": { "title": "CPU", "widgets": [ … ] } }, … },
   "whence": { "port": [0, 4], "dashboards.cpu": [1, 12], "dashboards.cpu.title": [1, 13] },
-  "changes": [{ "kind": "changed", "path": "port", "file": "elamond.toml", "line": 4 }],
-  "warnings": ["…"]
+  "changes": [{ "kind": "changed", "path": "dashboards.cpu", "keys": ["title"], "file": "elamond.toml", "line": 9 }],
+  "warnings": ["…"],
+  "mistakes": []
 }
 ```
 
-`whence` gives, for each path up to three parts deep (`dashboards.cpu.title`, `dashboards.cpu.widgets[2]`),
-the file (its index in `files`) and line that set it last. `changes` are what `elamond defaults
---diff` prints: `kind` is `added`, `changed` or `removed` against the built-in defaults, each with
-the file and line that set it (none for `removed`). `warnings` are those of `elamond check`.
+`whence` gives, for each path up to three keys deep (`dashboards.cpu.title`, `dashboards.cpu.widgets[2]`;
+a key that isn't of letters, digits, `_` and `-` alone is quoted: `dashboards."ups.eco"`), the file
+(its index in `files`) and line that set it last. `changes` are what `elamond defaults --diff`
+prints: `kind` is `added`, `changed` or `removed` against the built-in defaults, `path` a top-level
+key or a table with an id, `keys` the keys of that table that differ, each with the file and line
+that set it (none for `removed`). `warnings` are those of `elamond check`. While the files don't
+parse, `settings` is `null` and `mistakes` says why, each with its file and line.
 
 ### Clients
 
@@ -1202,7 +1206,7 @@ only `elamond control on` lets go of it.
 
 - `GET /api/v1/admin/activity?limit=200` — `{ "entries": [ … ] }`, the [activity log](#activity-log), newest first
 - `GET /api/v1/admin/events?limit=200` — `{ "events": [ … ] }`, the kept events, newest first, as `elamond events` lists them
-- `GET /api/v1/admin/values` — `{ "sources": [{ "id": "ups", "kind": "nut" }, …] }`; with `?source=<id>`, what `elamond values <id>` prints: `{ "id": "ups", "kind": "nut", "values": [{ "address": "ups.battery.charge", "text": "100 %" }, …], "error": null, "commands": […], "settings": […] }`
+- `GET /api/v1/admin/values` — `{ "sources": [{ "id": "ups", "kind": "nut" }, …], "values": [{ "address": "cpu.usage", "now": "12 %", "unit": "%", "format": "percent" }, …] }`: the sources of the settings, and the computer's values now that the role sees; with `?source=<id>` (or `displays`), what `elamond values <id>` prints, line by line: `{ "id": "ups", "kind": "nut", "lines": ["…"], "error": null }`
 
 ### The settings files
 
@@ -1349,5 +1353,6 @@ or query the service can't read at all gets a plain-text 400, 415 or 422, and a 
 settings file) a plain-text 413; JSON is the answer's type with a code, plain text without.
 
 In [`errors.json`](../elamond/fixtures/errors.json) the codes come in this table's order:
-`confirm_required` after `not_allowed`, `no_such_widget` after `no_such_dashboard`, then those of
-elamond 0.11 in the order above.
+`confirm_required` after `not_allowed`, `no_such_widget` after `no_such_dashboard`; those elamond
+0.11 added after the others of their status (`bad_name` after `unknown_signal`, `bad_origin` …
+`at_computer` after `confirm_required`, `changed_on_disk` after `process_changed`).

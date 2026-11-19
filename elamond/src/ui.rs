@@ -864,7 +864,7 @@ pub fn build(input: &Input) -> Ui {
 	doc.put("control", control);
 	let mut profile_doc = profile_json(&profile, input.kind, input.service.interval_ms);
 	// Where to change it, for the person who may: a file and a line of the settings.
-	if input.role == Role::Admin
+	if input.role >= Role::Admin
 		&& let Some(w) = input.config.profile_sources.get(&profile.id)
 	{
 		let mut s = Obj::new();

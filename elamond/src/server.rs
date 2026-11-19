@@ -202,6 +202,17 @@ pub struct Hub {
 	/// What `endpoints` are made of besides `names` from the settings: the addresses a phone could
 	/// reach the service at, and the computer's Tailscale name, as `Upkeep` last found them.
 	reach: Mutex<Reach>,
+	/// The SHA-256 of the certificate the service presents, as `hello` tells it; after
+	/// `elamond rotate-cert`, the new one's.
+	fingerprint: RwLock<String>,
+	/// Unix time the service started.
+	pub started: u64,
+	/// Held by every write of the admin API to the settings, so a check and its write are one step.
+	pub writes: tokio::sync::Mutex<()>,
+	/// The addresses the service listens on now, as `Upkeep` last set them up.
+	listening: RwLock<Vec<SocketAddr>>,
+	/// The real certificate for browsers (`[web] cert_*`), as last loaded or found wrong.
+	pub web_cert: RwLock<Option<crate::webcert::State>>,
 }
 
 /// The addresses a phone could reach the service at, the local network first, and the computer's
@@ -288,6 +299,11 @@ impl Hub {
 			endpoints: RwLock::new(Arc::new(Vec::new())),
 			endpoints_gen: AtomicU64::new(0),
 			reach: Mutex::new(Reach::default()),
+			fingerprint: RwLock::new(String::new()),
+			started: store::now(),
+			writes: tokio::sync::Mutex::new(()),
+			listening: RwLock::new(Vec::new()),
+			web_cert: RwLock::new(None),
 			dir,
 			place,
 		}
@@ -314,6 +330,7 @@ impl Hub {
 								app: c.app.clone(),
 								address: c.address.clone(),
 								family,
+								web: c.web,
 							};
 							(c.token_hash.clone(), who)
 						})
@@ -364,7 +381,9 @@ impl Hub {
 			note.said = label.or(note.said.take());
 			note.from = address.or(note.from.take());
 			let kept = |noted: &Option<String>, file: &Option<String>| noted.is_none() || noted == file;
-			if note.pending || (kept(&note.said, &who.app) && kept(&note.from, &who.address)) {
+			// When it was last seen is written down too, at most once every `app_note`.
+			let seen_lately = note.written.is_some_and(|t| t.elapsed() < self.app_note);
+			if note.pending || (kept(&note.said, &who.app) && kept(&note.from, &who.address) && seen_lately) {
 				return;
 			}
 			note.pending = true;
@@ -395,15 +414,52 @@ impl Hub {
 		};
 		let dir = self.dir.clone();
 		Some(tokio::task::spawn_blocking(move || {
-			if let Err(e) = store::note_client(&dir, &id, label.as_deref(), address.as_deref()) {
+			if let Err(e) = store::note_client(&dir, &id, label.as_deref(), address.as_deref(), Some(store::now())) {
 				eprintln!("clients: can't note which app \"{name}\" ({id}) is and where it came from: {e}");
 			}
 		}))
 	}
 
+	/// The certificate's fingerprint as `hello` tells it.
+	pub fn fingerprint(&self) -> String {
+		self.fingerprint.read().map(|f| f.clone()).unwrap_or_default()
+	}
+
+	pub fn set_fingerprint(&self, fp: &str) {
+		if let Ok(mut f) = self.fingerprint.write() {
+			*f = fp.to_string();
+		}
+	}
+
+	/// The addresses the service listens on now.
+	pub fn listening(&self) -> Vec<SocketAddr> {
+		self.listening.read().map(|l| l.clone()).unwrap_or_default()
+	}
+
+	pub fn set_listening(&self, now: Vec<SocketAddr>) {
+		if let Ok(mut l) = self.listening.write() {
+			*l = now;
+		}
+	}
+
+	/// Takes the settings up again from the files now, rather than at the next look: after a write
+	/// of the admin API. A reread that fails is the watcher's to report.
+	pub fn reload_now(&self) -> u64 {
+		match self.place.load() {
+			Ok(c) => self.set_config(c),
+			Err(why) => self.settings_failed(why),
+		}
+		self.config_gen()
+	}
+
 	/// The settings as last read.
 	pub fn config(&self) -> Arc<store::Config> {
 		self.config.read().map(|c| c.clone()).unwrap_or_else(|p| p.into_inner().clone())
+	}
+
+	/// Why the settings files don't parse now, if they don't.
+	pub fn settings_broken(&self) -> Option<String> {
+		self.settings_broken.lock().unwrap_or_else(|p| p.into_inner()).clone()
 	}
 
 	/// Whether phones may act, as last looked: `control = true` in the settings, settings that
@@ -564,8 +620,9 @@ impl Hub {
 		self.wants.lock().map(|w| w.len()).unwrap_or(0)
 	}
 
-	/// The service as `ui` names it, with what the computer offers in the reading `frame`.
-	fn service(&self, frame: &Frame) -> ui::Service {
+	/// The service as `ui` names it to a client of `role`, with what the computer offers in the
+	/// reading `frame` and what of the admin API is open to that role.
+	pub(crate) fn service_for(&self, frame: &Frame, role: Role) -> ui::Service {
 		let cap = self.history.lock().map(|h| h.capacity()).unwrap_or(0);
 		ui::Service {
 			id: self.id.clone(),
@@ -573,7 +630,13 @@ impl Hub {
 			version: env!("CARGO_PKG_VERSION").into(),
 			interval_ms: self.interval.as_millis() as u64,
 			history_seconds: (self.interval * cap as u32).as_secs(),
-			features: features_of(&frame.features, self.config().control),
+			features: {
+				let config = self.config();
+				let mut f = features_of(&frame.features, config.control);
+				f.extend(crate::admin::features_for(role, &config.web));
+				f.sort_unstable();
+				f
+			},
 			endpoints: self.endpoints().to_vec(),
 		}
 	}
@@ -615,7 +678,7 @@ impl Hub {
 			config: &config,
 			values: &frame.values,
 			caps: &frame.caps,
-			service: self.service(frame),
+			service: self.service_for(frame, key.role),
 			control: ui::Control { enabled: off_reason.is_none(), off_reason },
 			role: key.role,
 			profile: &key.profile,
@@ -700,12 +763,16 @@ pub fn router(hub: Arc<Hub>) -> Router {
 		.route("/api/v1/media/art", get(crate::control::art))
 		.route("/api/v1/rekey", post(rekey).layer(body()))
 		.route("/api/v1/unpair", post(unpair))
+		.merge(crate::admin::routes(hub.clone()))
 		.route_layer(middleware::from_fn_with_state(hub.clone(), auth));
 	Router::new()
+		.route("/", get(crate::web::index))
+		.route("/web/{*path}", get(crate::web::asset))
 		.route("/api/v1/hello", get(hello))
 		.route("/api/v1/pair", post(pair).layer(body()))
 		.merge(private)
 		.fallback(|| async { error(ErrorCode::NotFound) })
+		.layer(middleware::from_fn(crate::web::api_headers))
 		.with_state(hub)
 }
 
@@ -738,37 +805,57 @@ fn bearer(header: &str) -> Option<&str> {
 	(scheme.eq_ignore_ascii_case("bearer") && !token.is_empty()).then_some(token)
 }
 
-/// Every request behind a token: the phone it is, and the app it says it is.
+/// Every request behind a token: the client it is, and the app it says it is. A phone's token comes
+/// as `Authorization: Bearer`, a browser's in its cookie, and each is let in by its own way alone.
+/// A request by the cookie that changes anything must come from the page itself.
 async fn auth(State(hub): State<Arc<Hub>>, mut req: Request, next: Next) -> Response {
-	let hash = req
-		.headers()
-		.get(header::AUTHORIZATION)
-		.and_then(|v| v.to_str().ok())
-		.and_then(bearer)
-		.map(|t| store::sha256_hex(t.as_bytes()));
-	match hash.and_then(|h| Some((hub.authorized(&h)?, h))) {
-		Some((who, hash)) => {
-			let app = ClientApp::parse(req.headers().get(protocol::CLIENT_HEADER).and_then(|v| v.to_str().ok()));
-			let from = req.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0.ip());
-			hub.saw(&who, &app, from);
-			req.extensions_mut().insert(who);
-			req.extensions_mut().insert(app);
-			req.extensions_mut().insert(TokenHash(hash));
-			next.run(req).await
+	let bearer_token = req.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(bearer).map(str::to_string);
+	let (token, by_cookie) = match bearer_token {
+		Some(t) => (Some(t), false),
+		None => (crate::web::cookie_token(req.headers()), true),
+	};
+	let Some(token) = token else { return error(ErrorCode::Unauthorized) };
+	let hash = store::sha256_hex(token.as_bytes());
+	let Some(who) = hub.authorized(&hash).filter(|w| w.web == by_cookie) else {
+		let mut refused = error(ErrorCode::Unauthorized);
+		if by_cookie {
+			refused.headers_mut().append(header::SET_COOKIE, crate::web::clear_cookie());
 		}
-		None => error(ErrorCode::Unauthorized),
+		return refused;
+	};
+	if by_cookie && crate::web::changes(req.method()) && !crate::web::same_origin(req.headers()) {
+		eprintln!("web: \"{}\" ({}): {} {} not from the page itself; refused", who.name, who.id, req.method(), req.uri().path());
+		return crate::web::bad_origin();
 	}
+	let mut app = ClientApp::parse(req.headers().get(protocol::CLIENT_HEADER).and_then(|v| v.to_str().ok()));
+	if by_cookie && app.kind != "web" {
+		app = ClientApp { kind: "web".into(), version: None };
+	}
+	let from = req.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0.ip());
+	hub.saw(&who, &app, from);
+	// A page that reads its `ui` is in use: its cookie lasts another `cookie_days` from now.
+	let renew = by_cookie && req.method() == axum::http::Method::GET && req.uri().path() == "/api/v1/ui";
+	req.extensions_mut().insert(who);
+	req.extensions_mut().insert(app);
+	req.extensions_mut().insert(TokenHash(hash));
+	let mut res = next.run(req).await;
+	if renew && res.status().is_success() {
+		res.headers_mut().append(header::SET_COOKIE, crate::web::set_cookie(&token, hub.config().web.cookie_days));
+	}
+	res
 }
 
 /// Lets a client check that an address is an Elamon service, which one, and which versions it
 /// speaks, before pairing. What the computer can do (control among it) only paired clients learn,
 /// in `ui`.
 async fn hello(State(hub): State<Arc<Hub>>) -> Response {
-	Json(hello_body(&hub.id, &hub.name)).into_response()
+	Json(hello_body(&hub.id, &hub.name, &hub.fingerprint())).into_response()
 }
 
-pub(crate) fn hello_body(id: &str, name: &str) -> serde_json::Value {
-	json!({
+/// `hello`: which service this is and what it speaks; and the certificate's fingerprint, which
+/// anyone connecting sees anyway, for a browser's person to compare.
+pub(crate) fn hello_body(id: &str, name: &str, fingerprint: &str) -> serde_json::Value {
+	let mut body = json!({
 		"api": protocol::API_VERSION,
 		"app": "elamon",
 		"id": id,
@@ -776,7 +863,11 @@ pub(crate) fn hello_body(id: &str, name: &str) -> serde_json::Value {
 		"name": name,
 		"version": env!("CARGO_PKG_VERSION"),
 		"widgets": protocol::WIDGETS_VERSION,
-	})
+	});
+	if !fingerprint.is_empty() {
+		body["fingerprint"] = json!(fingerprint);
+	}
+	body
 }
 
 /// `ui`'s `service.features`: what the computer offers, `control` when the settings turn it on,
@@ -947,25 +1038,43 @@ async fn answer(dir: &std::path::Path, code: &str, ask: &str) -> Result<Option<S
 			return Err("elamond pair withdrew the code");
 		};
 		let offered = p.ask.as_ref().filter(|a| a.take == Some(true)).and_then(|a| a.offer.clone());
+		// A code made from the admin panel is answered there, whether `elamond pair` runs or not.
+		let answered_here = p.from_page;
 		match p.ask.filter(|a| a.id == ask).map(|a| a.allow) {
 			None => return Err("elamond pair withdrew the code"),
 			Some(Some(true)) => return Ok(offered),
 			Some(Some(false)) => return Err("turned away at elamond pair"),
-			Some(None) if !store::pairing_answered(dir) => return Err("elamond pair isn't running to answer"),
+			Some(None) if !answered_here && !store::pairing_answered(dir) => return Err("elamond pair isn't running to answer"),
 			Some(None) if tokio::time::Instant::now() >= deadline => return Err("no answer at elamond pair in time"),
 			Some(None) => {}
 		}
 	}
 }
 
+/// `POST /api/v1/pair`. A client of kind `web` (a browser, by `Elamon-Client`) must ask from the
+/// page itself, is named after its browser when it gives no name, proves no `previous`, and gets its
+/// token as a cookie its script can't read, never in the body.
 async fn pair(
 	State(hub): State<Arc<Hub>>,
 	ConnectInfo(peer): ConnectInfo<SocketAddr>,
-	Json(req): Json<PairRequest>,
+	headers: axum::http::HeaderMap,
+	Json(mut req): Json<PairRequest>,
 ) -> Response {
 	let ip = peer.ip().to_canonical();
+	let web = ClientApp::parse(headers.get(protocol::CLIENT_HEADER).and_then(|v| v.to_str().ok())).kind == "web";
+	if web && !crate::web::same_origin(&headers) {
+		eprintln!("pairing: a browser at {ip} asked from another page than this service's; refused");
+		return crate::web::bad_origin();
+	}
 	let code: String = req.code.chars().filter(char::is_ascii_digit).collect();
-	let name = store::sanitize_name(&req.device);
+	if web {
+		req.previous = None;
+	}
+	let name = if web && store::sanitize_name(&req.device) == store::sanitize_name("") {
+		crate::web::browser_name(headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok()))
+	} else {
+		store::sanitize_name(&req.device)
+	};
 	// Without a pending code there's nothing to judge; the lock isn't taken for it, nor held
 	// while anyone waits, so one attempt can't hold up the others.
 	let judged = if store::load_pairing(&hub.dir).is_none() {
@@ -1007,7 +1116,7 @@ async fn pair(
 	let previous = req.previous.filter(|_| same).map(|p| (p.client_id, p.token));
 	let added = tokio::task::spawn_blocking(move || {
 		let mut notes = Vec::new();
-		let added = store::pair_client(&dir, &device, role, previous.as_ref().map(|(i, t)| (i.as_str(), t.as_str())), |remaining, replaced, id| {
+		let added = store::pair_client(&dir, &device, role, web, previous.as_ref().map(|(i, t)| (i.as_str(), t.as_str())), |remaining, replaced, id| {
 			let (given, n) = crate::phones::give(&place, remaining, replaced, offered.as_deref(), profile.as_deref(), &device, id, store::now());
 			notes = n;
 			given
@@ -1030,7 +1139,17 @@ async fn pair(
 			for n in notes {
 				eprintln!("pairing: \"{}\" ({}): {n}", client.name, client.id);
 			}
-			Json(paired_body(&token, &client.id, &hub.id, &hub.name, client.role, &profile, &hub.endpoints())).into_response()
+			let mut body = paired_body(&token, &client.id, &hub.id, &hub.name, client.role, &profile, &hub.endpoints());
+			if !web {
+				return Json(body).into_response();
+			}
+			// A browser's token is its cookie: its page's script never sees it.
+			if let Some(o) = body.as_object_mut() {
+				o.remove("token");
+			}
+			let mut res = Json(body).into_response();
+			res.headers_mut().append(header::SET_COOKIE, crate::web::set_cookie(&token, hub.config().web.cookie_days));
+			res
 		}
 		Err(e) => {
 			store::clear_pairing_code(&hub.dir, &code);
@@ -1062,6 +1181,10 @@ async fn rekey(
 	let name = store::sanitize_name(&req.device);
 	let ip = peer.ip().to_canonical();
 	hub.act_as(&who, None, false, format!("phone added: {name}"), async {
+		// A token in the answer is for a phone to keep; a browser's page never holds one.
+		if who.web {
+			return Err(ErrorCode::RekeyRefused.into());
+		}
 		// clients.json's lock keeps it to one change at a time, pairing's and the commands' included;
 		// the new phone's table in phones.toml is made under it too.
 		let (dir, place, from, device) = (hub.dir.clone(), hub.place.clone(), who.id.clone(), name.clone());
@@ -1113,7 +1236,16 @@ async fn rekey(
 /// those added with its key), whatever its role and with control off too. Its own table in
 /// phones.toml stays, noted, for `elamond pair` to offer it by name when it pairs again.
 async fn unpair(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>) -> Response {
-	hub.act_as(&who, None, false, "unpaired itself".into(), async {
+	let web = who.web;
+	let mut res = unpair_self(&hub, &who).await;
+	if web && (res.status().is_success() || res.status() == axum::http::StatusCode::UNAUTHORIZED) {
+		res.headers_mut().append(header::SET_COOKIE, crate::web::clear_cookie());
+	}
+	res
+}
+
+async fn unpair_self(hub: &Arc<Hub>, who: &Caller) -> Response {
+	hub.act_as(who, None, false, "unpaired itself".into(), async {
 		let (dir, place, id) = (hub.dir.clone(), hub.place.clone(), who.id.clone());
 		let done = tokio::task::spawn_blocking(move || {
 			let mut said = None;
@@ -1128,7 +1260,7 @@ async fn unpair(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>) 
 				if let Some(n) = said {
 					eprintln!("pairing: \"{}\" ({}): {n}", who.name, who.id);
 				}
-				reload(&hub);
+				reload(hub);
 				Ok(Json(json!({ "ok": true })).into_response().into())
 			}
 			// Unpaired meanwhile, by `elamond revoke`: its token is no one's now.
@@ -1287,7 +1419,7 @@ pub fn keep_alive(listener: &std::net::TcpListener) -> std::io::Result<()> {
 
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
 	use super::*;
 
 	#[test]
@@ -1346,7 +1478,7 @@ mod tests {
 
 	/// The phones every test hub has: one for each role, its token "t-<role>", and one paired
 	/// before roles, whose entry in clients.json has none ("t-old").
-	const PHONES: [&str; 5] = ["glance", "monitor", "operate", "admin", "old"];
+	const PHONES: [&str; 6] = ["glance", "monitor", "operate", "admin", "owner", "old"];
 
 	/// What the test hubs' settings add to the built-in ones: a link with a unit, an action with a
 	/// parameter, a profile.
@@ -1367,23 +1499,23 @@ theme = "dark"
 dashboards = ["overview", "control"]
 "#;
 
-	fn scratch() -> PathBuf {
+	pub(crate) fn scratch() -> PathBuf {
 		let dir = std::env::temp_dir().join(format!("elamond-hub-{}", data_encoding::HEXLOWER.encode(&store::random_bytes::<6>())));
 		std::fs::create_dir_all(&dir).unwrap();
 		dir
 	}
 
-	fn client(name: &str, role: Role) -> Client {
+	pub(crate) fn client(name: &str, role: Role) -> Client {
 		Client { id: format!("id-{name}"), name: name.into(), token_hash: store::sha256_hex(format!("t-{name}").as_bytes()), created: 1, role, ..Default::default() }
 	}
 
-	fn settings(control: bool) -> store::Config {
+	pub(crate) fn settings(control: bool) -> store::Config {
 		let text = format!("control = {control}\n{SETTINGS}");
 		crate::settings::read_over_defaults(&[crate::settings::Source::new("test.toml", text)]).unwrap()
 	}
 
 	/// A reading of the fixtures for `config`, with everything read for it.
-	fn frame(config: &store::Config, seq: u64) -> Frame {
+	pub(crate) fn frame(config: &store::Config, seq: u64) -> Frame {
 		let values = crate::fixtures::values(config);
 		let caps = Caps::all(&values.power_profiles);
 		let all = Sources::ALL;
@@ -1393,7 +1525,7 @@ dashboards = ["overview", "control"]
 	/// A hub with its state in a directory of its own, the phones above paired.
 	/// A test's data directory gone, though the app a phone said it is may still be being written
 	/// down in the background (clients.json, under its lock): that write is waited out, not raced.
-	fn remove_test_dir(dir: &std::path::Path) {
+	pub(crate) fn remove_test_dir(dir: &std::path::Path) {
 		for _ in 0..50 {
 			let _lock = store::lock_clients(dir);
 			match std::fs::remove_dir_all(dir) {
@@ -1405,12 +1537,12 @@ dashboards = ["overview", "control"]
 		panic!("{} stays", dir.display());
 	}
 
-	fn hub(control: bool) -> (Arc<Hub>, watch::Sender<Arc<Frame>>) {
+	pub(crate) fn hub(control: bool) -> (Arc<Hub>, watch::Sender<Arc<Frame>>) {
 		hub_with(control, |_| {})
 	}
 
 	/// `hub`, changed by `change` before it serves.
-	fn hub_with(control: bool, change: impl FnOnce(&mut Hub)) -> (Arc<Hub>, watch::Sender<Arc<Frame>>) {
+	pub(crate) fn hub_with(control: bool, change: impl FnOnce(&mut Hub)) -> (Arc<Hub>, watch::Sender<Arc<Frame>>) {
 		let dir = scratch();
 		let mut clients: Vec<serde_json::Value> =
 			Role::ALL.iter().map(|r| serde_json::to_value(client(r.as_str(), *r)).unwrap()).collect();
@@ -1431,17 +1563,17 @@ dashboards = ["overview", "control"]
 		(Arc::new(hub), tx)
 	}
 
-	fn request_as(method: &str, path: &str, token: &str, body: &str) -> Request {
+	pub(crate) fn request_as(method: &str, path: &str, token: &str, body: &str) -> Request {
 		request_from(method, path, token, "android/0.6.0", body)
 	}
 
 	/// `request_as` from a client that says it is `app`.
-	fn request_from(method: &str, path: &str, token: &str, app: &str, body: &str) -> Request {
+	pub(crate) fn request_from(method: &str, path: &str, token: &str, app: &str, body: &str) -> Request {
 		request_at(method, path, token, app, SocketAddr::from(([192, 0, 2, 1], 50000)), body)
 	}
 
 	/// `request_from` the address `peer`.
-	fn request_at(method: &str, path: &str, token: &str, app: &str, peer: SocketAddr, body: &str) -> Request {
+	pub(crate) fn request_at(method: &str, path: &str, token: &str, app: &str, peer: SocketAddr, body: &str) -> Request {
 		axum::http::Request::builder()
 			.method(Method::from_bytes(method.as_bytes()).unwrap())
 			.uri(path)
@@ -1453,12 +1585,12 @@ dashboards = ["overview", "control"]
 			.unwrap()
 	}
 
-	async fn call(hub: &Arc<Hub>, method: &str, path: &str, phone: &str, body: &str) -> (StatusCode, serde_json::Value) {
+	pub(crate) async fn call(hub: &Arc<Hub>, method: &str, path: &str, phone: &str, body: &str) -> (StatusCode, serde_json::Value) {
 		call_as(hub, method, path, &format!("t-{phone}"), body).await
 	}
 
 	/// `call` with a token of its own rather than one of the test phones'.
-	async fn call_as(hub: &Arc<Hub>, method: &str, path: &str, token: &str, body: &str) -> (StatusCode, serde_json::Value) {
+	pub(crate) async fn call_as(hub: &Arc<Hub>, method: &str, path: &str, token: &str, body: &str) -> (StatusCode, serde_json::Value) {
 		let resp = router(hub.clone()).oneshot(request_as(method, path, token, body)).await.unwrap();
 		let status = resp.status();
 		if path.starts_with("/api/v1/stream") && method == "GET" {

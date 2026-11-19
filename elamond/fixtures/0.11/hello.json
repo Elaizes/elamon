@@ -1,10 +1,10 @@
 {
   "api": 2,
   "app": "elamon",
-  "fingerprint": "1f0e8d2c3b4a59687766554433221100ffeeddccbbaa99887766554433221100",
   "id": "0123456789abcdef0123456789abcdef",
   "min_app": "0.6.0",
   "name": "fixture",
   "version": "0.11.0",
-  "widgets": 3
+  "widgets": 3,
+  "fingerprint": "1f0e8d2c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
 }
