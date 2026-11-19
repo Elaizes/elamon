@@ -1308,7 +1308,8 @@ A key is `{ "key", "kind", "label", "hint" }` and, by its kind, more:
 | `widgets` | a list of widgets (a `group`'s) | |
 | `any` | any one of `of` | `of`: a list of keys without their `key` |
 
-each with `required: true` when it must be there and `default` when the service fills it in. Every
+each with `required: true` when it must be there (a key's default, where it has one, is in
+[config.md](config.md#widgets); a type's width is its `span`). Every
 widget takes the keys of `common` and those of its type; a dashboard, those of `dashboard.keys`; the
 editor's part of a profile, those of `profile_keys` and, under `android`, `android_keys`. A widget
 with `use` starts from that template of `templates` (as the settings merge them), its type among it. A
@@ -1337,9 +1338,10 @@ drop-in is): a button, switch, choice or row runs an action the settings have, b
 editor writes no actions, sources, links, rules or targets. The dashboard is written whole
 (`[dashboards.<id>]` with every key it has, `widgets` the whole list): since the files merge key by
 key, what is on screen is what the settings then say. A key a file below the editor's sets can be
-changed but not taken out: 422 with the file and line that set it. A profile's key left out of its
-body stays as the other files say, and one whose value is what they say already isn't written: the
-profile keeps following them (and the profile it `use`s) for the rest.
+changed but not taken out: 422 with the file and line that set it. A profile's body sets the keys it has and
+takes out those that are `null` (back to what the other files say), and leaves the rest as the
+editor's file had them; one whose value is what the other files say already is taken out too: the
+profile keeps following them (and the profile it `use`s).
 
 ## Errors
 

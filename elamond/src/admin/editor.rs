@@ -145,33 +145,55 @@ pub fn edited(text: &str, draft: &Draft) -> Result<String, String> {
 	}
 	for (id, part) in &draft.profiles {
 		let profile = table_at(&mut doc, &["profiles", id]).ok_or("profiles isn't a table in the editor's file")?;
-		for key in ["dashboards", "header"] {
-			profile.remove(key);
-		}
-		let mut android_left = true;
-		if let Some(a) = profile.get_mut("android").and_then(Item::as_table_mut) {
-			for key in ANDROID_KEYS {
-				a.remove(key);
-			}
-			android_left = !a.is_empty();
-		}
-		if !android_left {
-			profile.remove("android");
-		}
-		if let Some(part) = part {
-			for key in ["dashboards", "header"] {
-				if let Some(v) = part.get(key).and_then(toml_value) {
-					profile.insert(key, Item::Value(v));
+		match part {
+			// Back to the files: every key the editor writes of it goes.
+			None => {
+				for key in ["dashboards", "header"] {
+					profile.remove(key);
 				}
-			}
-			if let Some(Value::Object(a)) = part.get("android") {
-				for key in ANDROID_KEYS {
-					if let Some(v) = a.get(key).and_then(toml_value) {
-						let android = profile.entry("android").or_insert_with(|| Item::Table(Table::new())).as_table_mut().ok_or("android isn't a table")?;
-						android.insert(key, Item::Value(v));
+				if let Some(a) = profile.get_mut("android").and_then(Item::as_table_mut) {
+					for key in ANDROID_KEYS {
+						a.remove(key);
 					}
 				}
 			}
+			// The keys it has are set, `null` taken out (back to the files); the rest stay as they are.
+			Some(part) => {
+				for key in ["dashboards", "header"] {
+					match part.get(key) {
+						Some(Value::Null) => {
+							profile.remove(key);
+						}
+						Some(v) => {
+							if let Some(v) = toml_value(v) {
+								profile.insert(key, Item::Value(v));
+							}
+						}
+						None => {}
+					}
+				}
+				if let Some(Value::Object(a)) = part.get("android") {
+					for key in ANDROID_KEYS {
+						match a.get(key) {
+							Some(Value::Null) => {
+								if let Some(t) = profile.get_mut("android").and_then(Item::as_table_mut) {
+									t.remove(key);
+								}
+							}
+							Some(v) => {
+								if let Some(v) = toml_value(v) {
+									let android = profile.entry("android").or_insert_with(|| Item::Table(Table::new())).as_table_mut().ok_or("android isn't a table")?;
+									android.insert(key, Item::Value(v));
+								}
+							}
+							None => {}
+						}
+					}
+				}
+			}
+		}
+		if profile.get("android").and_then(Item::as_table).is_some_and(|a| a.is_empty()) {
+			profile.remove("android");
 		}
 		let only_tables = profile.iter().all(|(_, v)| v.is_table());
 		profile.set_implicit(only_tables);
@@ -279,21 +301,19 @@ fn trim_inherited(hub: &Hub, sources: &[Source], draft: &mut Draft) {
 		if !lower.profiles.contains_key(id) {
 			continue;
 		}
+		// What the other files say already isn't the editor's to say: its own goes (`null`).
 		let p = lower.profile(id);
 		if part.get("dashboards") == Some(&json!(p.dashboards)) {
-			part.remove("dashboards");
+			part.insert("dashboards".into(), Value::Null);
 		}
 		if part.get("header") == Some(&json!(p.header)) {
-			part.remove("header");
+			part.insert("header".into(), Value::Null);
 		}
 		if let Some(Value::Object(a)) = part.get_mut("android") {
 			for (k, v) in [("widget", &p.widget), ("tiles", &p.tiles), ("card", &p.card)] {
 				if a.get(k) == Some(&json!(v)) {
-					a.remove(k);
+					a.insert(k.into(), Value::Null);
 				}
-			}
-			if a.is_empty() {
-				part.remove("android");
 			}
 		}
 	}
@@ -421,15 +441,15 @@ pub async fn delete(State(hub): State<Arc<Hub>>, Extension(who): Extension<Calle
 			}
 			// What it said of the others stays; where it named this one, the other files say again.
 			let mut part = Map::new();
-			if let Some(tabs) = tabs {
+			if let Some(tabs) = tabs.filter(|t| t.iter().any(|d| d.as_str() == Some(gone))) {
 				part.insert("dashboards".into(), json!(tabs.iter().filter_map(toml::Value::as_str).filter(|d| *d != gone).collect::<Vec<_>>()));
 			}
-			if let Some(h) = p.get("header").and_then(toml::Value::as_str).filter(|h| *h != gone) {
-				part.insert("header".into(), json!(h));
+			if p.get("header").and_then(toml::Value::as_str) == Some(gone) {
+				part.insert("header".into(), Value::Null);
 			}
 			if let Some(a) = a {
 				let android: Map<String, Value> =
-					ANDROID_KEYS.iter().filter_map(|k| a.get(*k).and_then(toml::Value::as_str).filter(|v| *v != gone).map(|v| (k.to_string(), json!(v)))).collect();
+					ANDROID_KEYS.iter().filter(|k| a.get(**k).and_then(toml::Value::as_str) == Some(gone)).map(|k| (k.to_string(), Value::Null)).collect();
 				if !android.is_empty() {
 					part.insert("android".into(), Value::Object(android));
 				}
@@ -744,6 +764,10 @@ mod tests {
 		let text = edited("", &d).unwrap();
 		assert!(text.contains("[profiles.pixel-9]\ndashboards = [\"overview\", \"mine\"]\nheader = \"header\""), "{text}");
 		assert!(text.contains("[profiles.pixel-9.android]\nwidget = \"phone\""), "{text}");
+		// A later write of one key keeps the others the editor wrote; `null` takes one out.
+		let more = edited(&text, &draft(json!({ "profiles": { "pixel-9": { "header": "", "android": { "card": null } } } }))).unwrap();
+		assert!(more.contains("dashboards = [\"overview\", \"mine\"]") && more.contains("header = \"\"") && !more.contains("card"), "{more}");
+		assert!(more.contains("widget = \"phone\""), "{more}");
 		let back = edited(&text, &draft(json!({ "profiles": { "pixel-9": null } }))).unwrap();
 		assert!(!back.contains("pixel-9"), "{back}");
 	}
