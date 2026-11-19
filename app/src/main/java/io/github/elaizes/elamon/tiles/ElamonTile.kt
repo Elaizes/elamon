@@ -168,7 +168,8 @@ abstract class ElamonTile : TileService() {
 			}
 			subtitle = when {
 				key in TileMemory.running -> getString(R.string.tile_running)
-				note != null -> note.text.text(resources)
+				// How it ended isn't shown on a locked phone.
+				note != null && !isLocked -> note.text.text(resources)
 				!ui.control.enabled -> getString(R.string.control_off)
 				else -> machine.name
 			}
