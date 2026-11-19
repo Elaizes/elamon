@@ -542,14 +542,15 @@ impl Hub {
 		self.displays.apply(&new.displays);
 		let control = new.control;
 		let names_changed = old.names != new.names;
+		let cert_name_changed = old.web.cert_name != new.web.cert_name;
 		if let Ok(mut c) = self.config.write() {
 			*c = Arc::new(new);
 		}
 		self.events.apply(self.config());
 		// `names` reach the phones with the rest of the settings, in the same `ui`.
-		if names_changed {
+		if names_changed || cert_name_changed {
 			let reach = self.reach.lock().unwrap_or_else(|p| p.into_inner());
-			self.set_endpoints(crate::names::endpoints(&reach.addrs, &self.config().names, reach.tailscale.as_deref()));
+			self.set_endpoints(self.endpoints_of(&reach));
 		}
 		if self.settings_broken.lock().unwrap_or_else(|p| p.into_inner()).take().is_some() {
 			eprintln!("settings: they parse again; control is {} by them", if control { "on" } else { "off" });
@@ -569,8 +570,20 @@ impl Hub {
 	pub fn set_reach(&self, now: Reach) {
 		let mut reach = self.reach.lock().unwrap_or_else(|p| p.into_inner());
 		// Held while the settings' names are read, so a reread of them meanwhile can't be undone.
-		self.set_endpoints(crate::names::endpoints(&now.addrs, &self.config().names, now.tailscale.as_deref()));
+		self.set_endpoints(self.endpoints_of(&now));
 		*reach = now;
+	}
+
+	/// Where phones are told the computer is, from `reach` and the settings' `names`: all but the
+	/// name a real certificate is for (`[web] cert_name`). A connection by that name gets that
+	/// certificate, which the app, pinning the service's own, would refuse.
+	fn endpoints_of(&self, reach: &Reach) -> Vec<String> {
+		let config = self.config();
+		let mut e = crate::names::endpoints(&reach.addrs, &config.names, reach.tailscale.as_deref());
+		if let Some(n) = &config.web.cert_name {
+			e.retain(|h| !crate::webcert::same_name(h, n));
+		}
+		e
 	}
 
 	/// Takes where the computer is now; a change goes to the phones as a new `ui`.

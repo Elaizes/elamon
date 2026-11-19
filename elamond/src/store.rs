@@ -152,9 +152,10 @@ pub fn load_config() -> Result<Config, String> {
 	Place::here().load()
 }
 
-/// Whether `path` is a link into the Nix store: a file NixOS or Home Manager made, not to be written.
+/// Whether `path` is in the Nix store, or a link into it: a file NixOS (`ELAMON_CONFIG`) or Home
+/// Manager (a link in the settings' folder) made, not to be written.
 pub fn from_nix_store(path: &Path) -> bool {
-	fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) && fs::canonicalize(path).is_ok_and(|p| p.starts_with("/nix/store"))
+	fs::canonicalize(path).is_ok_and(|p| p.starts_with("/nix/store"))
 }
 
 /// A path with the home folder written `~`, for people to read.

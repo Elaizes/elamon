@@ -474,7 +474,7 @@ same-origin`. Any other is 403 `bad_origin`, and does nothing. This is on top of
 with which no other site's page sends the cookie at all.
 
 [`POST /api/v1/unpair`](#post-apiv1unpair) by the cookie (*Forget this browser*) unpairs the
-browser and clears the cookie. `elamond clients` shows a browser as `web/<version>`, by its name.
+browser and clears the cookie. `elamond clients` shows a browser as `web 0.11.0`, by its name.
 A browser has a profile of its own in [phones.toml](config.md#phones), as a phone has.
 
 The page shows the certificate's fingerprint (from `hello`) beside what to compare it with: the one
@@ -482,7 +482,8 @@ the browser shows for the page, and the one `elamond pair` prints. While the ser
 own certificate, the browser warns once, and again after `elamond rotate-cert`; with a certificate
 from files for the name the browser reaches it by ([config.md](config.md#the-web-page-and-the-admin-api)),
 it doesn't warn. That certificate goes only to a client that asks for that name (SNI); every other
-connection, the app's among them, gets the service's own, which the app pins.
+connection gets the service's own, which the app pins. So that the app never asks for that name, it
+is left out of `endpoints` and of the pairing link.
 
 ## A new certificate
 
@@ -1078,7 +1079,8 @@ through are also in the journal (`journalctl --user -u elamond`).
 
 For the role `[web] role` names (`owner` unless the settings say) and above, whether by the cookie
 of a browser or the `Bearer` token of a phone; any other role gets 403 `not_allowed`, and with
-`[web] admin = false` every role gets 403 `admin_off`. Bodies are JSON, up to 1 MiB for those that
+`[web] admin = false` every role gets 403 `admin_off` (the editor's routes too with `[web] editor =
+false`, its `message` `editor`). Bodies are JSON, up to 1 MiB for those that
 carry a settings file or a draft (`file/check`, `file/save`, `preview`, `editor/dashboard`) and 4 KiB
 for the others. A request that changes something — a client's role,
 profile or pairing, control, a settings file, a dashboard — is recorded in the
@@ -1192,8 +1194,9 @@ or `{ "code": null }`. `qr.modules` is the QR code's modules row by row, `1` dar
 `app` is the link the app's scanner takes, `web` the page's address with the code. `ask` is the
 client that gave the right code and waits to be let in (with `replaces`, the entry it proved it was,
 and `offer`, a profile left by an unpaired client of its name), else `null`. A code made from the
-page always waits to be let in, by the page or by `elamond pair` (which shows the same question when
-it runs); one made by `elamond pair` waits as it says.
+page takes the place of any pending one (an `elamond pair` waiting with that one stops) and always
+waits to be let in, by the page; the page may also answer a client waiting with a code `elamond pair`
+made, as `elamond pair` would.
 
 - `POST /api/v1/admin/pairing/answer` `{ "ask": "<id>", "allow": true, "take": false }` lets it in or turns it away (`take`: give it `offer`)
 - `POST /api/v1/admin/pairing/withdraw` withdraws the code
@@ -1342,7 +1345,7 @@ Errors are `{ "error": "<code>" }`, some with a `message`, with these statuses (
 |---|---|
 | 400 | `bad_param` (with `message`, the parameter), `bad_sort`, `unknown_signal`, `bad_name` (a settings file's name the admin API doesn't take) |
 | 401 | `unauthorized` |
-| 403 | `no_pairing`, `wrong_code`, `pair_declined`, `too_many_phones` (64 are paired), `rekey_refused`, `control_disabled`, `not_permitted` (polkit refused, or a protected process), `not_allowed` (the client's role doesn't allow it), `confirm_required` (a station's command, or a monitor turned off while no other screen shows a picture, without its typed text; the text in `message`), `bad_origin` (a change by a browser's cookie not from its page), `admin_off` (`[web] admin = false`), `writes_off` (`[web] write = false`, or `elamond control off`), `read_only` (a settings file in the Nix store, or one that leads out of the settings' folder), `at_computer` (done only at the computer) |
+| 403 | `no_pairing`, `wrong_code`, `pair_declined`, `too_many_phones` (64 are paired), `rekey_refused`, `control_disabled`, `not_permitted` (polkit refused, or a protected process), `not_allowed` (the client's role doesn't allow it), `confirm_required` (a station's command, or a monitor turned off while no other screen shows a picture, without its typed text; the text in `message`), `bad_origin` (a change by a browser's cookie not from its page), `admin_off` (`[web] admin = false`; `[web] editor = false` for the editor's routes, `message` `editor`), `writes_off` (`[web] write = false`, or `elamond control off`), `read_only` (a settings file in the Nix store, or one that leads out of the settings' folder), `at_computer` (done only at the computer) |
 | 404 | `not_found`, `no_such_process`, `no_such_action`, `no_such_dashboard`, `no_such_widget` (no such graph, timeline or log in the client's `ui`), `no_such_stream`, `no_art` |
 | 409 | `process_changed`, `changed_on_disk` (a settings file changed since it was read; its `hash` now in `hash`) |
 | 422 | `bad_settings` (the settings with the change don't parse; each mistake in `mistakes`) |

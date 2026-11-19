@@ -448,3 +448,17 @@ async fn the_dashboard_editor() {
 	assert!(!ui["tabs"].as_array().unwrap().iter().any(|t| t == "mine"));
 	remove_test_dir(&hub.dir);
 }
+
+#[tokio::test]
+async fn the_real_certificate_s_name_is_never_a_phone_s_endpoint() {
+	let (hub, _tx) = hub_with(true, |h| {
+		let mut c = (*h.config()).clone();
+		c.web.cert_name = Some("desk.tail0000.ts.net".into());
+		c.web.cert_file = Some("/nonexistent/desk.crt".into());
+		c.web.key_file = Some("/nonexistent/desk.key".into());
+		h.set_config(c);
+	});
+	hub.set_reach(crate::server::Reach { addrs: vec!["192.0.2.7".parse().unwrap()], tailscale: Some("DESK.tail0000.ts.net".into()) });
+	assert_eq!(*hub.endpoints(), vec!["192.0.2.7".to_string()]);
+	remove_test_dir(&hub.dir);
+}
