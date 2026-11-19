@@ -299,6 +299,13 @@ pub struct Client {
 	/// The address its requests came from last, "192.0.2.7": where the phone was, for `elamond clients`.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub address: Option<String>,
+	/// Unix time of its last request, as written down (at most once every few minutes).
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub seen: Option<u64>,
+	/// A browser, paired from the web page: its token is a cookie the page's script never sees, and
+	/// it is let in by that cookie alone (never by `Authorization`), as the others by theirs alone.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub web: bool,
 }
 
 pub const CLIENTS_FILE: &str = "clients.json";
@@ -404,10 +411,10 @@ pub fn proves(client: &Client, token: &str) -> bool {
 #[cfg(test)]
 pub fn add_client_in(dir: &Path, name: &str, role: Role, profile: Option<&str>) -> Result<(Client, String), NotAdded> {
 	let given = Profiles { profile: profile.map(str::to_string), own: None };
-	pair_client(dir, name, role, None, |_, _, _| given).map(|a| (a.client, a.token))
+	pair_client(dir, name, role, false, None, |_, _, _| given).map(|a| (a.client, a.token))
 }
 
-/// Adds a phone named `name` with `role` to those paired in `dir`. `previous`, an entry's id and
+/// Adds a phone named `name` with `role` to those paired in `dir`, a browser when `web`. `previous`, an entry's id and
 /// its token, is the same phone paired before: while that entry is still paired with that token, it
 /// goes in the same write. `give` decides the profiles under the lock, from the phones that stay
 /// paired, the entry replaced and the new phone's id; it may write phones.toml, which is changed
@@ -416,6 +423,7 @@ pub fn pair_client(
 	dir: &Path,
 	name: &str,
 	role: Role,
+	web: bool,
 	previous: Option<(&str, &str)>,
 	give: impl FnOnce(&[Client], Option<&Client>, &str) -> Profiles,
 ) -> Result<Added, NotAdded> {
@@ -433,7 +441,8 @@ pub fn pair_client(
 	}
 	let (id, token) = new_key(&clients);
 	let given = give(&clients, replaced.as_ref(), &id);
-	let client = new_client(id, &token, name, role, given, None);
+	let mut client = new_client(id, &token, name, role, given, None);
+	client.web = web;
 	clients.push(client.clone());
 	save_clients_in(dir, &clients)?;
 	Ok(Added { client, token, replaced })
@@ -510,13 +519,15 @@ fn new_client(id: String, token: &str, name: &str, role: Role, given: Profiles, 
 		app: None,
 		own_profile: given.own,
 		address: None,
+		seen: None,
+		web: false,
 	}
 }
 
-/// Notes in clients.json that the phone `id` is the app `app` ("android/0.6.0") and came from
-/// `address` last; what is None is left as it is. Nothing is written when it says so already, when
-/// the phone is gone, or when the file doesn't parse.
-pub fn note_client(dir: &Path, id: &str, app: Option<&str>, address: Option<&str>) -> io::Result<()> {
+/// Notes in clients.json that the phone `id` is the app `app` ("android/0.6.0"), came from
+/// `address` last, and was `seen` then; what is None is left as it is. Nothing is written when it
+/// says so already, when the phone is gone, or when the file doesn't parse.
+pub fn note_client(dir: &Path, id: &str, app: Option<&str>, address: Option<&str>, seen: Option<u64>) -> io::Result<()> {
 	let _lock = lock_clients(dir)?;
 	let mut clients = load_clients_in(dir)?;
 	let Some(c) = clients.iter_mut().find(|c| c.id == id) else { return Ok(()) };
@@ -528,6 +539,12 @@ pub fn note_client(dir: &Path, id: &str, app: Option<&str>, address: Option<&str
 			*kept = Some(now.to_string());
 			changed = true;
 		}
+	}
+	if let Some(s) = seen
+		&& c.seen != Some(s)
+	{
+		c.seen = Some(s);
+		changed = true;
 	}
 	if !changed {
 		return Ok(());
@@ -613,6 +630,9 @@ pub struct Pairing {
 	/// The phone that gave the right code, while it waits for that answer.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub ask: Option<Ask>,
+	/// Made from the admin panel: the page answers its client, with or without `elamond pair`.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub from_page: bool,
 }
 
 /// A phone that gave the right code, as `elamond pair` shows it to the person who decides.
@@ -725,7 +745,17 @@ pub fn new_pairing(dir: &Path, role: Role, profile: Option<&str>, confirm: bool)
 		profile: profile.map(str::to_string),
 		confirm,
 		ask: None,
+		from_page: false,
 	};
+	save_pairing(dir, &p)?;
+	Ok(p)
+}
+
+/// A new code made from the admin panel, in place of any pending one: its client always waits to be
+/// let in, by the page or by `elamond pair` when that runs.
+pub fn new_pairing_from_page(dir: &Path, role: Role, profile: Option<&str>) -> io::Result<Pairing> {
+	let mut p = new_pairing(dir, role, profile, true)?;
+	p.from_page = true;
 	save_pairing(dir, &p)?;
 	Ok(p)
 }
@@ -1017,7 +1047,7 @@ mod tests {
 
 	#[test]
 	fn pairing_codes_expire_and_run_out() {
-		let p = Pairing { code: "123456".into(), expires: 100, attempts: 0, role: Role::Glance, profile: None, confirm: true, ask: None };
+		let p = Pairing { code: "123456".into(), expires: 100, attempts: 0, role: Role::Glance, profile: None, confirm: true, ask: None, from_page: false };
 		assert!(p.usable(99));
 		assert!(!p.usable(100));
 		assert!(!Pairing { attempts: limit::PAIRING_ATTEMPTS, ..p }.usable(0));
@@ -1025,7 +1055,7 @@ mod tests {
 
 	#[test]
 	fn wrong_codes_are_counted_in_all() {
-		let mut p = Pairing { code: "123456".into(), expires: u64::MAX, attempts: 0, role: Role::Admin, profile: None, confirm: false, ask: None };
+		let mut p = Pairing { code: "123456".into(), expires: u64::MAX, attempts: 0, role: Role::Admin, profile: None, confirm: false, ask: None, from_page: false };
 		assert_eq!(p.attempt("000000"), Attempt::Wrong);
 		assert_eq!(p.attempt("123456"), Attempt::Right);
 		// The right one isn't counted; the code runs out after the wrong ones.

@@ -1,23 +1,20 @@
 {
   "file": "elamond.d/zz-editor.toml",
-  "hash": "8877665544332211",
+  "hash": null,
   "writable": true,
   "why": null,
-  "profile": "pixel-9",
+  "profile": "default",
   "dashboard": {
     "keys": [
       {
-        "key": "title",
         "kind": "text",
+        "key": "title",
         "label": "Title",
-        "hint": "",
+        "hint": "The dashboard's name, on its tab",
         "required": true
       },
       {
-        "key": "icon",
         "kind": "enum",
-        "label": "Icon",
-        "hint": "",
         "choices": [
           "battery",
           "bolt",
@@ -51,88 +48,62 @@
           "terminal",
           "thermometer",
           "volume"
-        ]
+        ],
+        "key": "icon",
+        "label": "Icon",
+        "hint": "An icon beside its name"
       },
       {
-        "key": "role",
         "kind": "enum",
-        "label": "Role",
-        "hint": "",
         "choices": [
           "glance",
           "monitor",
           "operate",
           "admin",
           "owner"
-        ]
+        ],
+        "key": "role",
+        "label": "Role",
+        "hint": "The least role that sees it"
       },
       {
-        "key": "for_each",
         "kind": "ref",
+        "to": "collection",
+        "key": "for_each",
         "label": "For each",
-        "hint": "",
-        "to": "collection"
+        "hint": "One for each item of a collection, or of a list of strings"
       },
       {
-        "key": "widgets",
         "kind": "widgets",
+        "key": "widgets",
         "label": "Widgets",
-        "hint": ""
+        "hint": "The widgets in it, in order"
       }
     ]
   },
   "common": [
     {
-      "key": "type",
-      "kind": "enum",
-      "label": "Type",
-      "hint": "What the widget is",
-      "choices": [
-        "value",
-        "gauge",
-        "meter",
-        "status",
-        "graph",
-        "list",
-        "bars",
-        "table",
-        "button",
-        "toggle",
-        "select",
-        "slider",
-        "text",
-        "group",
-        "media",
-        "timeline",
-        "log"
-      ],
-      "required": true
-    },
-    {
-      "key": "id",
       "kind": "id",
+      "key": "id",
       "label": "Id",
-      "hint": "Names the widget, for a row's dashboard and for its history"
+      "hint": "Names the widget among the dashboard's, for its history and a row's dashboard"
     },
     {
-      "key": "span",
       "kind": "int",
-      "label": "Width",
-      "hint": "Columns it takes of four (of two on a narrow screen)",
       "min": 1,
-      "max": 4
+      "max": 4,
+      "key": "span",
+      "label": "Width",
+      "hint": "Columns it takes of four (of two on a narrow screen)"
     },
     {
-      "key": "label",
       "kind": "text",
+      "key": "label",
       "label": "Label",
-      "hint": "Its name on screen"
+      "hint": "Its name on screen; may hold values, like {cpu.usage}"
     },
     {
-      "key": "icon",
       "kind": "enum",
-      "label": "Icon",
-      "hint": "",
       "choices": [
         "battery",
         "bolt",
@@ -166,13 +137,13 @@
         "terminal",
         "thermometer",
         "volume"
-      ]
+      ],
+      "key": "icon",
+      "label": "Icon",
+      "hint": "An icon beside its name"
     },
     {
-      "key": "color",
       "kind": "enum",
-      "label": "Colour",
-      "hint": "",
       "choices": [
         "cpu",
         "memory",
@@ -189,64 +160,63 @@
         "primary",
         "secondary",
         "tertiary"
-      ]
+      ],
+      "key": "color",
+      "label": "Color",
+      "hint": "The colour it is drawn in"
     },
     {
-      "key": "role",
       "kind": "enum",
-      "label": "Role",
-      "hint": "The least role that sees it",
       "choices": [
         "glance",
         "monitor",
         "operate",
         "admin",
         "owner"
-      ]
+      ],
+      "key": "role",
+      "label": "Role",
+      "hint": "The least role that sees it"
     },
     {
-      "key": "when",
       "kind": "address",
+      "key": "when",
       "label": "Shown when",
-      "hint": "A value that must be there and not false or 0 for it to show"
+      "hint": "Shown only while this value is there and isn't false or 0"
     },
     {
-      "key": "open",
       "kind": "ref",
+      "to": "dashboard",
+      "key": "open",
       "label": "Opens",
-      "hint": "A dashboard a tap opens",
-      "to": "dashboard"
+      "hint": "A dashboard a tap opens"
     },
     {
-      "key": "caption",
       "kind": "text",
+      "key": "caption",
       "label": "Caption",
-      "hint": "A line under it"
+      "hint": "A line under it; may hold values"
     },
     {
-      "key": "use",
       "kind": "id",
+      "key": "use",
       "label": "Template",
       "hint": "A template it starts from"
     },
     {
-      "key": "with",
       "kind": "map",
-      "label": "Template values",
-      "hint": "What the template's placeholders become",
       "of": {
         "kind": "scalar"
-      }
+      },
+      "key": "with",
+      "label": "Template values",
+      "hint": "What the template's placeholders become"
     },
     {
-      "key": "for_each",
       "kind": "any",
-      "label": "For each",
-      "hint": "One of it for each item of a collection, or of a list",
       "of": [
         {
-          "kind": "ref",
-          "to": "collection"
+          "kind": "string"
         },
         {
           "kind": "list",
@@ -254,7 +224,10 @@
             "kind": "string"
           }
         }
-      ]
+      ],
+      "key": "for_each",
+      "label": "For each",
+      "hint": "One for each item of a collection, or of a list of strings"
     }
   ],
   "types": [
@@ -264,58 +237,71 @@
       "span": 2,
       "keys": [
         {
-          "key": "value",
           "kind": "address",
+          "key": "value",
           "label": "Value",
-          "hint": "The value it shows, like cpu.usage"
+          "hint": "The value it shows, by its address: cpu.usage"
         },
         {
-          "key": "unit",
           "kind": "string",
+          "key": "unit",
           "label": "Unit",
-          "hint": ""
+          "hint": "The value's unit, for formatting it"
         },
         {
-          "key": "format",
           "kind": "format",
-          "label": "Format",
-          "hint": "How the number is written",
           "choices": [
+            "number",
+            "integer",
             "percent",
             "bytes",
-            "bytes_rate",
-            "bits_rate",
+            "rate",
             "temp",
             "mhz",
             "watts",
+            "wh",
+            "rpm",
+            "load",
             "duration",
-            "uptime",
-            "number",
-            "integer",
-            "date",
-            "time"
-          ]
+            "time",
+            "bool",
+            "text"
+          ],
+          "key": "format",
+          "label": "Format",
+          "hint": "How the number is written: percent, bytes, temp …, or a pattern like {:.1}"
         },
         {
-          "key": "map",
           "kind": "map",
-          "label": "Words",
-          "hint": "Words for values: \"discharging\" = \"On battery\"",
           "of": {
             "kind": "string"
-          }
+          },
+          "key": "map",
+          "label": "Words for values",
+          "hint": "Words for values, by value: discharging = \"On battery\""
         },
         {
-          "key": "empty",
           "kind": "text",
+          "key": "empty",
           "label": "When empty",
           "hint": "What it says while there is no value"
         },
         {
+          "kind": "any",
+          "of": [
+            {
+              "kind": "number"
+            },
+            {
+              "kind": "address"
+            }
+          ],
           "key": "warning_above",
-          "kind": "any",
           "label": "Warning above",
-          "hint": "",
+          "hint": "A threshold: a number, or the address of one"
+        },
+        {
+          "kind": "any",
           "of": [
             {
               "kind": "number"
@@ -323,13 +309,13 @@
             {
               "kind": "address"
             }
-          ]
-        },
-        {
+          ],
           "key": "critical_above",
-          "kind": "any",
           "label": "Critical above",
-          "hint": "",
+          "hint": "A threshold: a number, or the address of one"
+        },
+        {
+          "kind": "any",
           "of": [
             {
               "kind": "number"
@@ -337,27 +323,13 @@
             {
               "kind": "address"
             }
-          ]
-        },
-        {
+          ],
           "key": "warning_below",
-          "kind": "any",
           "label": "Warning below",
-          "hint": "",
-          "of": [
-            {
-              "kind": "number"
-            },
-            {
-              "kind": "address"
-            }
-          ]
+          "hint": "A threshold: a number, or the address of one"
         },
         {
-          "key": "critical_below",
           "kind": "any",
-          "label": "Critical below",
-          "hint": "",
           "of": [
             {
               "kind": "number"
@@ -365,19 +337,19 @@
             {
               "kind": "address"
             }
-          ]
+          ],
+          "key": "critical_below",
+          "label": "Critical below",
+          "hint": "A threshold: a number, or the address of one"
         },
         {
-          "key": "soft",
           "kind": "number",
-          "label": "Soft margin",
-          "hint": "How far past a threshold the colour blends"
+          "key": "soft",
+          "label": "Soft",
+          "hint": "How far past a threshold the colour blends into the next"
         },
         {
-          "key": "levels",
           "kind": "map",
-          "label": "Levels by value",
-          "hint": "",
           "of": {
             "kind": "enum",
             "choices": [
@@ -385,20 +357,22 @@
               "warning",
               "critical"
             ]
-          }
+          },
+          "key": "levels",
+          "label": "Levels",
+          "hint": "A level for each word of the value: warning, critical"
         },
         {
-          "key": "spark",
           "kind": "bool",
+          "key": "spark",
           "label": "Small graph",
-          "hint": "A small graph of the last minutes"
+          "hint": "A small graph of the value under it"
         }
       ],
       "example": {
         "type": "value",
         "label": "Uptime",
-        "value": "system.uptime",
-        "format": "uptime"
+        "value": "system.uptime"
       }
     },
     {
@@ -407,58 +381,71 @@
       "span": 2,
       "keys": [
         {
-          "key": "value",
           "kind": "address",
+          "key": "value",
           "label": "Value",
-          "hint": "The value it shows, like cpu.usage"
+          "hint": "The value it shows, by its address: cpu.usage"
         },
         {
-          "key": "unit",
           "kind": "string",
+          "key": "unit",
           "label": "Unit",
-          "hint": ""
+          "hint": "The value's unit, for formatting it"
         },
         {
-          "key": "format",
           "kind": "format",
-          "label": "Format",
-          "hint": "How the number is written",
           "choices": [
+            "number",
+            "integer",
             "percent",
             "bytes",
-            "bytes_rate",
-            "bits_rate",
+            "rate",
             "temp",
             "mhz",
             "watts",
+            "wh",
+            "rpm",
+            "load",
             "duration",
-            "uptime",
-            "number",
-            "integer",
-            "date",
-            "time"
-          ]
+            "time",
+            "bool",
+            "text"
+          ],
+          "key": "format",
+          "label": "Format",
+          "hint": "How the number is written: percent, bytes, temp …, or a pattern like {:.1}"
         },
         {
-          "key": "map",
           "kind": "map",
-          "label": "Words",
-          "hint": "Words for values: \"discharging\" = \"On battery\"",
           "of": {
             "kind": "string"
-          }
+          },
+          "key": "map",
+          "label": "Words for values",
+          "hint": "Words for values, by value: discharging = \"On battery\""
         },
         {
-          "key": "empty",
           "kind": "text",
+          "key": "empty",
           "label": "When empty",
           "hint": "What it says while there is no value"
         },
         {
+          "kind": "any",
+          "of": [
+            {
+              "kind": "number"
+            },
+            {
+              "kind": "address"
+            }
+          ],
           "key": "warning_above",
-          "kind": "any",
           "label": "Warning above",
-          "hint": "",
+          "hint": "A threshold: a number, or the address of one"
+        },
+        {
+          "kind": "any",
           "of": [
             {
               "kind": "number"
@@ -466,13 +453,13 @@
             {
               "kind": "address"
             }
-          ]
-        },
-        {
+          ],
           "key": "critical_above",
-          "kind": "any",
           "label": "Critical above",
-          "hint": "",
+          "hint": "A threshold: a number, or the address of one"
+        },
+        {
+          "kind": "any",
           "of": [
             {
               "kind": "number"
@@ -480,27 +467,13 @@
             {
               "kind": "address"
             }
-          ]
-        },
-        {
+          ],
           "key": "warning_below",
-          "kind": "any",
           "label": "Warning below",
-          "hint": "",
-          "of": [
-            {
-              "kind": "number"
-            },
-            {
-              "kind": "address"
-            }
-          ]
+          "hint": "A threshold: a number, or the address of one"
         },
         {
-          "key": "critical_below",
           "kind": "any",
-          "label": "Critical below",
-          "hint": "",
           "of": [
             {
               "kind": "number"
@@ -508,19 +481,19 @@
             {
               "kind": "address"
             }
-          ]
+          ],
+          "key": "critical_below",
+          "label": "Critical below",
+          "hint": "A threshold: a number, or the address of one"
         },
         {
-          "key": "soft",
           "kind": "number",
-          "label": "Soft margin",
-          "hint": "How far past a threshold the colour blends"
+          "key": "soft",
+          "label": "Soft",
+          "hint": "How far past a threshold the colour blends into the next"
         },
         {
-          "key": "levels",
           "kind": "map",
-          "label": "Levels by value",
-          "hint": "",
           "of": {
             "kind": "enum",
             "choices": [
@@ -528,27 +501,27 @@
               "warning",
               "critical"
             ]
-          }
+          },
+          "key": "levels",
+          "label": "Levels",
+          "hint": "A level for each word of the value: warning, critical"
         },
         {
+          "kind": "any",
+          "of": [
+            {
+              "kind": "number"
+            },
+            {
+              "kind": "address"
+            }
+          ],
           "key": "min",
-          "kind": "any",
           "label": "Least",
-          "hint": "",
-          "of": [
-            {
-              "kind": "number"
-            },
-            {
-              "kind": "address"
-            }
-          ]
+          "hint": "The least of its scale: a number or an address"
         },
         {
-          "key": "max",
           "kind": "any",
-          "label": "Most",
-          "hint": "",
           "of": [
             {
               "kind": "number"
@@ -556,7 +529,10 @@
             {
               "kind": "address"
             }
-          ]
+          ],
+          "key": "max",
+          "label": "Most",
+          "hint": "The most of its scale: a number or an address"
         }
       ],
       "example": {
@@ -567,33 +543,339 @@
       }
     },
     {
+      "type": "meter",
+      "label": "Meter",
+      "span": 2,
+      "keys": [
+        {
+          "kind": "address",
+          "key": "value",
+          "label": "Value",
+          "hint": "The value it shows, by its address: cpu.usage"
+        },
+        {
+          "kind": "string",
+          "key": "unit",
+          "label": "Unit",
+          "hint": "The value's unit, for formatting it"
+        },
+        {
+          "kind": "format",
+          "choices": [
+            "number",
+            "integer",
+            "percent",
+            "bytes",
+            "rate",
+            "temp",
+            "mhz",
+            "watts",
+            "wh",
+            "rpm",
+            "load",
+            "duration",
+            "time",
+            "bool",
+            "text"
+          ],
+          "key": "format",
+          "label": "Format",
+          "hint": "How the number is written: percent, bytes, temp …, or a pattern like {:.1}"
+        },
+        {
+          "kind": "map",
+          "of": {
+            "kind": "string"
+          },
+          "key": "map",
+          "label": "Words for values",
+          "hint": "Words for values, by value: discharging = \"On battery\""
+        },
+        {
+          "kind": "text",
+          "key": "empty",
+          "label": "When empty",
+          "hint": "What it says while there is no value"
+        },
+        {
+          "kind": "any",
+          "of": [
+            {
+              "kind": "number"
+            },
+            {
+              "kind": "address"
+            }
+          ],
+          "key": "warning_above",
+          "label": "Warning above",
+          "hint": "A threshold: a number, or the address of one"
+        },
+        {
+          "kind": "any",
+          "of": [
+            {
+              "kind": "number"
+            },
+            {
+              "kind": "address"
+            }
+          ],
+          "key": "critical_above",
+          "label": "Critical above",
+          "hint": "A threshold: a number, or the address of one"
+        },
+        {
+          "kind": "any",
+          "of": [
+            {
+              "kind": "number"
+            },
+            {
+              "kind": "address"
+            }
+          ],
+          "key": "warning_below",
+          "label": "Warning below",
+          "hint": "A threshold: a number, or the address of one"
+        },
+        {
+          "kind": "any",
+          "of": [
+            {
+              "kind": "number"
+            },
+            {
+              "kind": "address"
+            }
+          ],
+          "key": "critical_below",
+          "label": "Critical below",
+          "hint": "A threshold: a number, or the address of one"
+        },
+        {
+          "kind": "number",
+          "key": "soft",
+          "label": "Soft",
+          "hint": "How far past a threshold the colour blends into the next"
+        },
+        {
+          "kind": "map",
+          "of": {
+            "kind": "enum",
+            "choices": [
+              "normal",
+              "warning",
+              "critical"
+            ]
+          },
+          "key": "levels",
+          "label": "Levels",
+          "hint": "A level for each word of the value: warning, critical"
+        },
+        {
+          "kind": "any",
+          "of": [
+            {
+              "kind": "number"
+            },
+            {
+              "kind": "address"
+            }
+          ],
+          "key": "min",
+          "label": "Least",
+          "hint": "The least of its scale: a number or an address"
+        },
+        {
+          "kind": "any",
+          "of": [
+            {
+              "kind": "number"
+            },
+            {
+              "kind": "address"
+            }
+          ],
+          "key": "max",
+          "label": "Most",
+          "hint": "The most of its scale: a number or an address"
+        }
+      ],
+      "example": {
+        "type": "meter",
+        "label": "Memory",
+        "value": "mem.percent",
+        "max": 100
+      }
+    },
+    {
+      "type": "status",
+      "label": "Status",
+      "span": 2,
+      "keys": [
+        {
+          "kind": "address",
+          "key": "value",
+          "label": "Value",
+          "hint": "The value it shows, by its address: cpu.usage"
+        },
+        {
+          "kind": "string",
+          "key": "unit",
+          "label": "Unit",
+          "hint": "The value's unit, for formatting it"
+        },
+        {
+          "kind": "format",
+          "choices": [
+            "number",
+            "integer",
+            "percent",
+            "bytes",
+            "rate",
+            "temp",
+            "mhz",
+            "watts",
+            "wh",
+            "rpm",
+            "load",
+            "duration",
+            "time",
+            "bool",
+            "text"
+          ],
+          "key": "format",
+          "label": "Format",
+          "hint": "How the number is written: percent, bytes, temp …, or a pattern like {:.1}"
+        },
+        {
+          "kind": "map",
+          "of": {
+            "kind": "string"
+          },
+          "key": "map",
+          "label": "Words for values",
+          "hint": "Words for values, by value: discharging = \"On battery\""
+        },
+        {
+          "kind": "text",
+          "key": "empty",
+          "label": "When empty",
+          "hint": "What it says while there is no value"
+        },
+        {
+          "kind": "any",
+          "of": [
+            {
+              "kind": "number"
+            },
+            {
+              "kind": "address"
+            }
+          ],
+          "key": "warning_above",
+          "label": "Warning above",
+          "hint": "A threshold: a number, or the address of one"
+        },
+        {
+          "kind": "any",
+          "of": [
+            {
+              "kind": "number"
+            },
+            {
+              "kind": "address"
+            }
+          ],
+          "key": "critical_above",
+          "label": "Critical above",
+          "hint": "A threshold: a number, or the address of one"
+        },
+        {
+          "kind": "any",
+          "of": [
+            {
+              "kind": "number"
+            },
+            {
+              "kind": "address"
+            }
+          ],
+          "key": "warning_below",
+          "label": "Warning below",
+          "hint": "A threshold: a number, or the address of one"
+        },
+        {
+          "kind": "any",
+          "of": [
+            {
+              "kind": "number"
+            },
+            {
+              "kind": "address"
+            }
+          ],
+          "key": "critical_below",
+          "label": "Critical below",
+          "hint": "A threshold: a number, or the address of one"
+        },
+        {
+          "kind": "number",
+          "key": "soft",
+          "label": "Soft",
+          "hint": "How far past a threshold the colour blends into the next"
+        },
+        {
+          "kind": "map",
+          "of": {
+            "kind": "enum",
+            "choices": [
+              "normal",
+              "warning",
+              "critical"
+            ]
+          },
+          "key": "levels",
+          "label": "Levels",
+          "hint": "A level for each word of the value: warning, critical"
+        }
+      ],
+      "example": {
+        "type": "status",
+        "label": "Power",
+        "value": "power.on_ac",
+        "map": {
+          "true": "On AC",
+          "false": "On battery"
+        }
+      }
+    },
+    {
       "type": "graph",
       "label": "Graph",
       "span": 4,
       "keys": [
         {
-          "key": "values",
           "kind": "list",
-          "label": "Values",
-          "hint": "The values it draws",
           "of": {
             "kind": "address"
-          }
+          },
+          "key": "values",
+          "label": "Values",
+          "hint": "The values it draws, each by its address"
         },
         {
-          "key": "labels",
           "kind": "list",
-          "label": "Labels",
-          "hint": "",
           "of": {
             "kind": "text"
-          }
+          },
+          "key": "labels",
+          "label": "Labels",
+          "hint": "A label for each value, or the field under each bar"
         },
         {
-          "key": "colors",
           "kind": "list",
-          "label": "Colours",
-          "hint": "",
           "of": {
             "kind": "enum",
             "choices": [
@@ -613,59 +895,104 @@
               "secondary",
               "tertiary"
             ]
-          }
+          },
+          "key": "colors",
+          "label": "Colors",
+          "hint": "A colour for each value"
         },
         {
-          "key": "range",
           "kind": "int",
-          "label": "Seconds shown",
-          "hint": "",
           "min": 1,
-          "max": 86400
+          "max": 86400,
+          "key": "range",
+          "label": "Range",
+          "hint": "Seconds shown back from now"
         },
         {
-          "key": "height",
           "kind": "enum",
-          "label": "Height",
-          "hint": "",
           "choices": [
             "small",
             "medium",
             "large"
-          ]
+          ],
+          "key": "height",
+          "label": "Height",
+          "hint": "small, medium or large"
         },
         {
-          "key": "unit",
+          "kind": "any",
+          "of": [
+            {
+              "kind": "number"
+            },
+            {
+              "kind": "address"
+            }
+          ],
+          "key": "min",
+          "label": "Least",
+          "hint": "The least of its scale: a number or an address"
+        },
+        {
+          "kind": "any",
+          "of": [
+            {
+              "kind": "number"
+            },
+            {
+              "kind": "address"
+            }
+          ],
+          "key": "max",
+          "label": "Most",
+          "hint": "The most of its scale: a number or an address"
+        },
+        {
+          "kind": "number",
+          "key": "floor",
+          "label": "Scale's least",
+          "hint": "The least its scale goes down to"
+        },
+        {
+          "kind": "text",
+          "key": "empty",
+          "label": "When empty",
+          "hint": "What it says while there is no value"
+        },
+        {
           "kind": "string",
+          "key": "unit",
           "label": "Unit",
-          "hint": ""
+          "hint": "The value's unit, for formatting it"
         },
         {
-          "key": "format",
           "kind": "format",
-          "label": "Format",
-          "hint": "",
           "choices": [
+            "number",
+            "integer",
             "percent",
             "bytes",
-            "bytes_rate",
-            "bits_rate",
+            "rate",
             "temp",
             "mhz",
             "watts",
+            "wh",
+            "rpm",
+            "load",
             "duration",
-            "uptime",
-            "number",
-            "integer",
-            "date",
-            "time"
-          ]
+            "time",
+            "bool",
+            "text"
+          ],
+          "key": "format",
+          "label": "Format",
+          "hint": "How the number is written: percent, bytes, temp …, or a pattern like {:.1}"
         },
         {
-          "key": "ranges",
           "kind": "bool",
+          "key": "ranges",
           "label": "Longer ranges",
-          "hint": "Offer 24 h, 7 d and 30 d"
+          "hint": "Offers the long history: an hour up to all of it"
         }
       ],
       "example": {
@@ -674,7 +1001,113 @@
         "values": [
           "cpu.usage"
         ],
-        "unit": "%",
+        "max": 100
+      }
+    },
+    {
+      "type": "list",
+      "label": "List",
+      "span": 4,
+      "keys": [
+        {
+          "kind": "list",
+          "of": {
+            "kind": "record",
+            "record": "item"
+          },
+          "key": "items",
+          "label": "Items",
+          "hint": "Its rows: a label and a value or a text each"
+        }
+      ],
+      "example": {
+        "type": "list",
+        "label": "System",
+        "items": [
+          {
+            "label": "OS",
+            "value": "system.os"
+          },
+          {
+            "label": "Up",
+            "value": "system.uptime"
+          }
+        ]
+      }
+    },
+    {
+      "type": "bars",
+      "label": "Bar chart",
+      "span": 2,
+      "keys": [
+        {
+          "kind": "ref",
+          "to": "collection",
+          "key": "source",
+          "label": "Source",
+          "hint": "What it reads: a collection (table, bars) or a source (timeline)"
+        },
+        {
+          "kind": "string",
+          "key": "field",
+          "label": "Field",
+          "hint": "A field of the collection's items"
+        },
+        {
+          "kind": "any",
+          "of": [
+            {
+              "kind": "number"
+            },
+            {
+              "kind": "address"
+            }
+          ],
+          "key": "max",
+          "label": "Most",
+          "hint": "The most of its scale: a number or an address"
+        },
+        {
+          "kind": "string",
+          "key": "labels",
+          "label": "Labels",
+          "hint": "A label for each value, or the field under each bar"
+        },
+        {
+          "kind": "string",
+          "key": "unit",
+          "label": "Unit",
+          "hint": "The value's unit, for formatting it"
+        },
+        {
+          "kind": "format",
+          "choices": [
+            "number",
+            "integer",
+            "percent",
+            "bytes",
+            "rate",
+            "temp",
+            "mhz",
+            "watts",
+            "wh",
+            "rpm",
+            "load",
+            "duration",
+            "time",
+            "bool",
+            "text"
+          ],
+          "key": "format",
+          "label": "Format",
+          "hint": "How the number is written: percent, bytes, temp …, or a pattern like {:.1}"
+        }
+      ],
+      "example": {
+        "type": "bars",
+        "label": "Cores",
+        "source": "cores",
+        "field": "usage",
         "max": 100
       }
     },
@@ -684,35 +1117,118 @@
       "span": 4,
       "keys": [
         {
-          "key": "source",
           "kind": "ref",
-          "label": "Collection",
-          "hint": "What it lists",
-          "to": "collection"
+          "to": "collection",
+          "key": "source",
+          "label": "Source",
+          "hint": "What it reads: a collection (table, bars) or a source (timeline)"
         },
         {
-          "key": "columns",
           "kind": "list",
-          "label": "Columns",
-          "hint": "",
           "of": {
             "kind": "record",
             "record": "column"
-          }
+          },
+          "key": "columns",
+          "label": "Columns",
+          "hint": "The table's columns, each a field of its rows"
         },
         {
-          "key": "limit",
+          "kind": "record",
+          "record": "sort",
+          "key": "sort",
+          "label": "Sort",
+          "hint": "The order rows come in"
+        },
+        {
+          "kind": "list",
+          "of": {
+            "kind": "string"
+          },
+          "key": "sorts",
+          "label": "Sorts",
+          "hint": "Other orders a client may pick"
+        },
+        {
+          "kind": "map",
+          "of": {
+            "kind": "string"
+          },
+          "key": "sort_labels",
+          "label": "Sort chip labels",
+          "hint": "What the chips that pick an order say, by field"
+        },
+        {
+          "kind": "any",
+          "of": [
+            {
+              "kind": "bool"
+            },
+            {
+              "kind": "list",
+              "of": {
+                "kind": "string"
+              }
+            }
+          ],
+          "key": "search",
+          "label": "Search",
+          "hint": "A search field: true, or the fields it searches"
+        },
+        {
           "kind": "int",
-          "label": "Rows",
-          "hint": "",
           "min": 1,
-          "max": 10000
+          "max": 10000,
+          "key": "limit",
+          "label": "Limit",
+          "hint": "Rows sent at most"
         },
         {
-          "key": "collapsed",
+          "kind": "map",
+          "of": {
+            "kind": "scalar"
+          },
+          "key": "filter",
+          "label": "Filter",
+          "hint": "Only rows whose fields have these values"
+        },
+        {
           "kind": "bool",
+          "key": "hide_empty",
+          "label": "Hidden while empty",
+          "hint": "Hidden while it has no rows"
+        },
+        {
+          "kind": "string",
+          "key": "row_open",
+          "label": "Row opens",
+          "hint": "A field holding a URL a row opens"
+        },
+        {
+          "kind": "list",
+          "of": {
+            "kind": "record",
+            "record": "row_action"
+          },
+          "key": "row_actions",
+          "label": "Row actions",
+          "hint": "What a row offers: an action with the row's fields, or its own dashboard"
+        },
+        {
+          "kind": "list",
+          "of": {
+            "kind": "record",
+            "record": "expand"
+          },
+          "key": "expand",
+          "label": "Expand",
+          "hint": "What a row shows when opened"
+        },
+        {
+          "kind": "bool",
+          "key": "collapsed",
           "label": "Folded",
-          "hint": ""
+          "hint": "Starts folded"
         }
       ],
       "example": {
@@ -721,11 +1237,13 @@
         "source": "disks",
         "columns": [
           {
-            "field": "name"
+            "field": "mount",
+            "label": "Mount"
           },
           {
-            "field": "used",
-            "format": "bytes"
+            "field": "percent",
+            "label": "Used",
+            "format": "percent"
           }
         ]
       }
@@ -736,27 +1254,26 @@
       "span": 2,
       "keys": [
         {
-          "key": "action",
           "kind": "ref",
-          "label": "Action",
-          "hint": "What it runs",
           "to": "action",
-          "required": true
+          "key": "action",
+          "label": "Action",
+          "hint": "The action it runs: one of the settings' (it writes no command)"
         },
         {
-          "key": "params",
           "kind": "map",
-          "label": "Parameters",
-          "hint": "",
           "of": {
             "kind": "scalar"
-          }
+          },
+          "key": "params",
+          "label": "Parameters",
+          "hint": "Fixed values of the action's parameters"
         }
       ],
       "example": {
         "type": "button",
-        "label": "Lock",
-        "action": "power.lock"
+        "label": "Run",
+        "action": "power.poweroff"
       }
     },
     {
@@ -765,53 +1282,113 @@
       "span": 2,
       "keys": [
         {
-          "key": "value",
           "kind": "address",
-          "label": "State",
-          "hint": ""
+          "key": "value",
+          "label": "Value",
+          "hint": "The value it shows, by its address: cpu.usage"
         },
         {
-          "key": "action",
           "kind": "ref",
+          "to": "action",
+          "key": "action",
           "label": "Action",
-          "hint": "",
-          "to": "action"
+          "hint": "The action it runs: one of the settings' (it writes no command)"
         },
         {
-          "key": "param",
           "kind": "string",
+          "key": "param",
           "label": "Parameter",
-          "hint": ""
+          "hint": "The parameter of the action it sets"
         },
         {
+          "kind": "scalar",
           "key": "on",
-          "kind": "scalar",
           "label": "On",
-          "hint": ""
+          "hint": "The value it sends when switched on"
         },
         {
-          "key": "off",
           "kind": "scalar",
+          "key": "off",
           "label": "Off",
-          "hint": ""
+          "hint": "The value it sends when switched off"
         },
         {
-          "key": "map",
           "kind": "map",
-          "label": "Words",
-          "hint": "",
           "of": {
             "kind": "string"
-          }
+          },
+          "key": "map",
+          "label": "Words for values",
+          "hint": "Words for values, by value: discharging = \"On battery\""
         }
       ],
       "example": {
         "type": "toggle",
-        "label": "Server mode",
-        "action": "mode",
-        "param": "mode",
-        "on": "server",
-        "off": "desktop"
+        "label": "Switch",
+        "action": "echo"
+      }
+    },
+    {
+      "type": "select",
+      "label": "Choice",
+      "span": 2,
+      "keys": [
+        {
+          "kind": "address",
+          "key": "value",
+          "label": "Value",
+          "hint": "The value it shows, by its address: cpu.usage"
+        },
+        {
+          "kind": "ref",
+          "to": "action",
+          "key": "action",
+          "label": "Action",
+          "hint": "The action it runs: one of the settings' (it writes no command)"
+        },
+        {
+          "kind": "string",
+          "key": "param",
+          "label": "Parameter",
+          "hint": "The parameter of the action it sets"
+        }
+      ],
+      "example": {
+        "type": "select",
+        "label": "Profile",
+        "value": "power.profile",
+        "action": "profile.set"
+      }
+    },
+    {
+      "type": "slider",
+      "label": "Slider",
+      "span": 2,
+      "keys": [
+        {
+          "kind": "address",
+          "key": "value",
+          "label": "Value",
+          "hint": "The value it shows, by its address: cpu.usage"
+        },
+        {
+          "kind": "ref",
+          "to": "action",
+          "key": "action",
+          "label": "Action",
+          "hint": "The action it runs: one of the settings' (it writes no command)"
+        },
+        {
+          "kind": "string",
+          "key": "param",
+          "label": "Parameter",
+          "hint": "The parameter of the action it sets"
+        }
+      ],
+      "example": {
+        "type": "slider",
+        "label": "Volume",
+        "action": "media.play_pause"
       }
     },
     {
@@ -820,21 +1397,21 @@
       "span": 4,
       "keys": [
         {
-          "key": "text",
           "kind": "text",
+          "key": "text",
           "label": "Text",
-          "hint": ""
+          "hint": "Words; may hold values, like {cpu.usage}"
         },
         {
-          "key": "level",
           "kind": "enum",
-          "label": "Level",
-          "hint": "",
           "choices": [
             "normal",
             "warning",
             "critical"
-          ]
+          ],
+          "key": "level",
+          "label": "Level",
+          "hint": "Its level: normal, warning, critical (a log: the least it shows)"
         }
       ],
       "example": {
@@ -848,16 +1425,16 @@
       "span": 4,
       "keys": [
         {
-          "key": "widgets",
           "kind": "widgets",
+          "key": "widgets",
           "label": "Widgets",
-          "hint": "The widgets in it"
+          "hint": "The widgets in it, in order"
         },
         {
-          "key": "collapsed",
           "kind": "bool",
+          "key": "collapsed",
           "label": "Folded",
-          "hint": ""
+          "hint": "Starts folded"
         }
       ],
       "example": {
@@ -866,10 +1443,63 @@
         "widgets": [
           {
             "type": "value",
-            "label": "Load",
-            "value": "cpu.load1"
+            "label": "OS",
+            "value": "system.os"
           }
         ]
+      }
+    },
+    {
+      "type": "media",
+      "label": "Media",
+      "span": 4,
+      "keys": [],
+      "example": {
+        "type": "media",
+        "label": "Media"
+      }
+    },
+    {
+      "type": "timeline",
+      "label": "Timeline",
+      "span": 4,
+      "keys": [
+        {
+          "kind": "ref",
+          "to": "source",
+          "key": "source",
+          "label": "Source",
+          "hint": "What it reads: a collection (table, bars) or a source (timeline)"
+        },
+        {
+          "kind": "int",
+          "min": 600,
+          "max": 2592000,
+          "key": "range",
+          "label": "Range",
+          "hint": "Seconds shown back from now"
+        },
+        {
+          "kind": "bool",
+          "key": "ranges",
+          "label": "Longer ranges",
+          "hint": "Offers the long history: an hour up to all of it"
+        },
+        {
+          "kind": "enum",
+          "choices": [
+            "duration",
+            "percent",
+            "both"
+          ],
+          "key": "legend",
+          "label": "Legend",
+          "hint": "What the legend tells of each state: duration, percent or both"
+        }
+      ],
+      "example": {
+        "type": "timeline",
+        "label": "Power"
       }
     },
     {
@@ -878,28 +1508,25 @@
       "span": 4,
       "keys": [
         {
-          "key": "scope",
           "kind": "enum",
-          "label": "Journal",
-          "hint": "",
           "choices": [
             "system",
             "user",
             "unit",
             "events"
-          ]
+          ],
+          "key": "scope",
+          "label": "Scope",
+          "hint": "Which journal: system, user, unit, events"
         },
         {
-          "key": "unit",
           "kind": "string",
+          "key": "unit",
           "label": "Unit",
-          "hint": ""
+          "hint": "The value's unit, for formatting it"
         },
         {
-          "key": "level",
           "kind": "enum",
-          "label": "From level",
-          "hint": "",
           "choices": [
             "debug",
             "info",
@@ -907,21 +1534,24 @@
             "warning",
             "error",
             "critical"
-          ]
+          ],
+          "key": "level",
+          "label": "Level",
+          "hint": "Its level: normal, warning, critical (a log: the least it shows)"
         },
         {
-          "key": "lines",
           "kind": "int",
-          "label": "Lines",
-          "hint": "",
           "min": 10,
-          "max": 1000
+          "max": 1000,
+          "key": "lines",
+          "label": "Lines",
+          "hint": "Lines a client keeps"
         },
         {
-          "key": "search",
           "kind": "bool",
+          "key": "search",
           "label": "Search",
-          "hint": ""
+          "hint": "A search field: true, or the fields it searches"
         }
       ],
       "example": {
@@ -933,76 +1563,9 @@
     }
   ],
   "records": {
-    "column": [
-      {
-        "key": "field",
-        "kind": "string",
-        "label": "Field",
-        "hint": "",
-        "required": true
-      },
-      {
-        "key": "label",
-        "kind": "string",
-        "label": "Label",
-        "hint": ""
-      },
-      {
-        "key": "format",
-        "kind": "format",
-        "label": "Format",
-        "hint": "",
-        "choices": [
-          "percent",
-          "bytes",
-          "bytes_rate",
-          "bits_rate",
-          "temp",
-          "mhz",
-          "watts",
-          "duration",
-          "uptime",
-          "number",
-          "integer",
-          "date",
-          "time"
-        ]
-      },
-      {
-        "key": "unit",
-        "kind": "string",
-        "label": "Unit",
-        "hint": ""
-      },
-      {
-        "key": "bar",
-        "kind": "record",
-        "label": "Bar",
-        "hint": "",
-        "record": "bar"
-      },
-      {
-        "key": "grow",
-        "kind": "bool",
-        "label": "Takes the room left",
-        "hint": ""
-      },
-      {
-        "key": "map",
-        "kind": "map",
-        "label": "Words",
-        "hint": "",
-        "of": {
-          "kind": "string"
-        }
-      }
-    ],
     "bar": [
       {
-        "key": "max",
         "kind": "any",
-        "label": "Most",
-        "hint": "",
         "of": [
           {
             "kind": "number"
@@ -1011,150 +1574,2930 @@
             "kind": "string"
           }
         ],
+        "key": "max",
+        "label": "Most",
+        "hint": "The most of its scale: a number or an address",
         "required": true
+      }
+    ],
+    "column": [
+      {
+        "kind": "string",
+        "key": "field",
+        "label": "Field",
+        "hint": "A field of the collection's items",
+        "required": true
+      },
+      {
+        "kind": "string",
+        "key": "label",
+        "label": "Label",
+        "hint": "Its name on screen; may hold values, like {cpu.usage}"
+      },
+      {
+        "kind": "format",
+        "choices": [
+          "number",
+          "integer",
+          "percent",
+          "bytes",
+          "rate",
+          "temp",
+          "mhz",
+          "watts",
+          "wh",
+          "rpm",
+          "load",
+          "duration",
+          "time",
+          "bool",
+          "text"
+        ],
+        "key": "format",
+        "label": "Format",
+        "hint": "How the number is written: percent, bytes, temp …, or a pattern like {:.1}"
+      },
+      {
+        "kind": "string",
+        "key": "unit",
+        "label": "Unit",
+        "hint": "The value's unit, for formatting it"
+      },
+      {
+        "kind": "record",
+        "record": "bar",
+        "key": "bar",
+        "label": "Bar",
+        "hint": "Draws the cell as a bar, full at max"
+      },
+      {
+        "kind": "bool",
+        "key": "grow",
+        "label": "Grow",
+        "hint": "Takes the room left"
+      },
+      {
+        "kind": "map",
+        "of": {
+          "kind": "string"
+        },
+        "key": "map",
+        "label": "Words for values",
+        "hint": "Words for values, by value: discharging = \"On battery\""
+      }
+    ],
+    "expand": [
+      {
+        "kind": "string",
+        "key": "field",
+        "label": "Field",
+        "hint": "A field of the collection's items",
+        "required": true
+      },
+      {
+        "kind": "string",
+        "key": "label",
+        "label": "Label",
+        "hint": "Its name on screen; may hold values, like {cpu.usage}"
+      },
+      {
+        "kind": "format",
+        "choices": [
+          "number",
+          "integer",
+          "percent",
+          "bytes",
+          "rate",
+          "temp",
+          "mhz",
+          "watts",
+          "wh",
+          "rpm",
+          "load",
+          "duration",
+          "time",
+          "bool",
+          "text"
+        ],
+        "key": "format",
+        "label": "Format",
+        "hint": "How the number is written: percent, bytes, temp …, or a pattern like {:.1}"
+      },
+      {
+        "kind": "string",
+        "key": "unit",
+        "label": "Unit",
+        "hint": "The value's unit, for formatting it"
+      },
+      {
+        "kind": "map",
+        "of": {
+          "kind": "string"
+        },
+        "key": "map",
+        "label": "Words for values",
+        "hint": "Words for values, by value: discharging = \"On battery\""
+      }
+    ],
+    "item": [
+      {
+        "kind": "text",
+        "key": "label",
+        "label": "Label",
+        "hint": "Its name on screen; may hold values, like {cpu.usage}"
+      },
+      {
+        "kind": "address",
+        "key": "value",
+        "label": "Value",
+        "hint": "The value it shows, by its address: cpu.usage"
+      },
+      {
+        "kind": "text",
+        "key": "text",
+        "label": "Text",
+        "hint": "Words; may hold values, like {cpu.usage}"
+      },
+      {
+        "kind": "format",
+        "choices": [
+          "number",
+          "integer",
+          "percent",
+          "bytes",
+          "rate",
+          "temp",
+          "mhz",
+          "watts",
+          "wh",
+          "rpm",
+          "load",
+          "duration",
+          "time",
+          "bool",
+          "text"
+        ],
+        "key": "format",
+        "label": "Format",
+        "hint": "How the number is written: percent, bytes, temp …, or a pattern like {:.1}"
+      },
+      {
+        "kind": "string",
+        "key": "unit",
+        "label": "Unit",
+        "hint": "The value's unit, for formatting it"
+      },
+      {
+        "kind": "map",
+        "of": {
+          "kind": "string"
+        },
+        "key": "map",
+        "label": "Words for values",
+        "hint": "Words for values, by value: discharging = \"On battery\""
+      },
+      {
+        "kind": "text",
+        "key": "empty",
+        "label": "When empty",
+        "hint": "What it says while there is no value"
+      },
+      {
+        "kind": "address",
+        "key": "when",
+        "label": "Shown when",
+        "hint": "Shown only while this value is there and isn't false or 0"
+      },
+      {
+        "kind": "any",
+        "of": [
+          {
+            "kind": "string"
+          },
+          {
+            "kind": "list",
+            "of": {
+              "kind": "string"
+            }
+          }
+        ],
+        "key": "for_each",
+        "label": "For each",
+        "hint": "One for each item of a collection, or of a list of strings"
+      }
+    ],
+    "row_action": [
+      {
+        "kind": "ref",
+        "to": "action",
+        "key": "action",
+        "label": "Action",
+        "hint": "The action it runs: one of the settings' (it writes no command)"
+      },
+      {
+        "kind": "ref",
+        "to": "dashboard",
+        "key": "open",
+        "label": "Opens",
+        "hint": "A dashboard a tap opens"
+      },
+      {
+        "kind": "string",
+        "key": "label",
+        "label": "Label",
+        "hint": "Its name on screen; may hold values, like {cpu.usage}"
+      },
+      {
+        "kind": "map",
+        "of": {
+          "kind": "scalar"
+        },
+        "key": "params",
+        "label": "Parameters",
+        "hint": "Fixed values of the action's parameters"
+      }
+    ],
+    "sort": [
+      {
+        "kind": "string",
+        "key": "field",
+        "label": "Field",
+        "hint": "A field of the collection's items",
+        "required": true
+      },
+      {
+        "kind": "bool",
+        "key": "desc",
+        "label": "Desc",
+        "hint": "Largest first"
       }
     ]
   },
   "values": [
     {
-      "address": "cpu.usage",
-      "now": "12 %"
+      "address": "battery.cycles",
+      "now": "120",
+      "unit": "",
+      "format": "integer"
     },
     {
-      "address": "memory.used",
-      "now": "6.1 GB"
+      "address": "battery.energy_design",
+      "now": "52.5 Wh",
+      "unit": "Wh",
+      "format": "wh"
+    },
+    {
+      "address": "battery.energy_full",
+      "now": "50.0 Wh",
+      "unit": "Wh",
+      "format": "wh"
+    },
+    {
+      "address": "battery.energy_now",
+      "now": "40.0 Wh",
+      "unit": "Wh",
+      "format": "wh"
+    },
+    {
+      "address": "battery.health",
+      "now": "95%",
+      "unit": "%",
+      "format": "percent"
+    },
+    {
+      "address": "battery.model",
+      "now": "Some battery",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "battery.percent",
+      "now": "80%",
+      "unit": "%",
+      "format": "percent"
+    },
+    {
+      "address": "battery.power",
+      "now": "12.3 W",
+      "unit": "W",
+      "format": "watts"
+    },
+    {
+      "address": "battery.status",
+      "now": "discharging",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "battery.status_text",
+      "now": "Discharging",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "battery.time_left",
+      "now": "2 h 0 min",
+      "unit": "s",
+      "format": "duration"
+    },
+    {
+      "address": "battery.time_text",
+      "now": "2 h 0 min left",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "cpu.cores",
+      "now": "8",
+      "unit": "",
+      "format": "integer"
+    },
+    {
+      "address": "cpu.freq",
+      "now": "2.75 GHz",
+      "unit": "MHz",
+      "format": "mhz"
+    },
+    {
+      "address": "cpu.freq_max",
+      "now": "3.10 GHz",
+      "unit": "MHz",
+      "format": "mhz"
+    },
+    {
+      "address": "cpu.load1",
+      "now": "0.75",
+      "unit": "",
+      "format": "load"
+    },
+    {
+      "address": "cpu.load15",
+      "now": "0.25",
+      "unit": "",
+      "format": "load"
+    },
+    {
+      "address": "cpu.load5",
+      "now": "0.50",
+      "unit": "",
+      "format": "load"
+    },
+    {
+      "address": "cpu.model",
+      "now": "Some CPU",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "cpu.temp",
+      "now": "56°C",
+      "unit": "°C",
+      "format": "temp"
+    },
+    {
+      "address": "cpu.threads",
+      "now": "12",
+      "unit": "",
+      "format": "integer"
+    },
+    {
+      "address": "cpu.usage",
+      "now": "13%",
+      "unit": "%",
+      "format": "percent"
+    },
+    {
+      "address": "disk.read",
+      "now": "1.00 KiB/s",
+      "unit": "B/s",
+      "format": "rate"
+    },
+    {
+      "address": "disk.root.available",
+      "now": "93.1 GiB",
+      "unit": "B",
+      "format": "bytes"
+    },
+    {
+      "address": "disk.root.percent",
+      "now": "80%",
+      "unit": "%",
+      "format": "percent"
+    },
+    {
+      "address": "disk.root.total",
+      "now": "466 GiB",
+      "unit": "B",
+      "format": "bytes"
+    },
+    {
+      "address": "disk.root.used",
+      "now": "373 GiB",
+      "unit": "B",
+      "format": "bytes"
+    },
+    {
+      "address": "disk.write",
+      "now": "2.00 KiB/s",
+      "unit": "B/s",
+      "format": "rate"
+    },
+    {
+      "address": "disk_io.nvme0n1.read",
+      "now": "1.00 KiB/s",
+      "unit": "B/s",
+      "format": "rate"
+    },
+    {
+      "address": "disk_io.nvme0n1.write",
+      "now": "2.00 KiB/s",
+      "unit": "B/s",
+      "format": "rate"
+    },
+    {
+      "address": "displays.summary",
+      "now": "1 connected · 1 on",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "fan.hp_cpu",
+      "now": "2500 RPM",
+      "unit": "RPM",
+      "format": "rpm"
+    },
+    {
+      "address": "fans.summary",
+      "now": "1 fan · 2500 RPM",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "gpu.nvidia.driver",
+      "now": "nvidia",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "gpu.nvidia.fan",
+      "now": "40%",
+      "unit": "%",
+      "format": "percent"
+    },
+    {
+      "address": "gpu.nvidia.freq",
+      "now": "1.50 GHz",
+      "unit": "MHz",
+      "format": "mhz"
+    },
+    {
+      "address": "gpu.nvidia.freq_max",
+      "now": "2.10 GHz",
+      "unit": "MHz",
+      "format": "mhz"
+    },
+    {
+      "address": "gpu.nvidia.mem_freq",
+      "now": "6.00 GHz",
+      "unit": "MHz",
+      "format": "mhz"
+    },
+    {
+      "address": "gpu.nvidia.mem_percent",
+      "now": "25%",
+      "unit": "%",
+      "format": "percent"
+    },
+    {
+      "address": "gpu.nvidia.mem_total",
+      "now": "3.73 GiB",
+      "unit": "B",
+      "format": "bytes"
+    },
+    {
+      "address": "gpu.nvidia.mem_used",
+      "now": "954 MiB",
+      "unit": "B",
+      "format": "bytes"
+    },
+    {
+      "address": "gpu.nvidia.name",
+      "now": "Some GPU",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "gpu.nvidia.power",
+      "now": "25.5 W",
+      "unit": "W",
+      "format": "watts"
+    },
+    {
+      "address": "gpu.nvidia.short_name",
+      "now": "Some GPU",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "gpu.nvidia.state",
+      "now": "active",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "gpu.nvidia.summary",
+      "now": "1.50 GHz",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "gpu.nvidia.temp",
+      "now": "61°C",
+      "unit": "°C",
+      "format": "temp"
+    },
+    {
+      "address": "gpu.nvidia.usage",
+      "now": "33%",
+      "unit": "%",
+      "format": "percent"
+    },
+    {
+      "address": "gpu.nvidia.vendor",
+      "now": "nvidia",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "link.web.unit_state",
+      "now": "active",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "link.web.up",
+      "now": "yes",
+      "unit": "",
+      "format": "bool"
+    },
+    {
+      "address": "mem.available",
+      "now": "6.52 GiB",
+      "unit": "B",
+      "format": "bytes"
+    },
+    {
+      "address": "mem.percent",
+      "now": "50%",
+      "unit": "%",
+      "format": "percent"
+    },
+    {
+      "address": "mem.total",
+      "now": "14.9 GiB",
+      "unit": "B",
+      "format": "bytes"
+    },
+    {
+      "address": "mem.used",
+      "now": "7.45 GiB",
+      "unit": "B",
+      "format": "bytes"
+    },
+    {
+      "address": "net.eno1.rx",
+      "now": "1.47 KiB/s",
+      "unit": "B/s",
+      "format": "rate"
+    },
+    {
+      "address": "net.eno1.rx_total",
+      "now": "8.58 MiB",
+      "unit": "B",
+      "format": "bytes"
+    },
+    {
+      "address": "net.eno1.speed",
+      "now": "1000 Mbit/s",
+      "unit": "Mbit/s",
+      "format": "integer"
+    },
+    {
+      "address": "net.eno1.tx",
+      "now": "301 B/s",
+      "unit": "B/s",
+      "format": "rate"
+    },
+    {
+      "address": "net.eno1.tx_total",
+      "now": "977 KiB",
+      "unit": "B",
+      "format": "bytes"
+    },
+    {
+      "address": "net.eno1.up",
+      "now": "yes",
+      "unit": "",
+      "format": "bool"
+    },
+    {
+      "address": "net.rx",
+      "now": "1.47 KiB/s",
+      "unit": "B/s",
+      "format": "rate"
+    },
+    {
+      "address": "net.tx",
+      "now": "301 B/s",
+      "unit": "B/s",
+      "format": "rate"
+    },
+    {
+      "address": "net.up_names",
+      "now": "eno1",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "power.epp",
+      "now": "balance_performance",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "power.governor",
+      "now": "powersave",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "power.on_ac",
+      "now": "no",
+      "unit": "",
+      "format": "bool"
+    },
+    {
+      "address": "power.platform_profile",
+      "now": "balanced",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "power.profile",
+      "now": "balanced",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "swap.percent",
+      "now": "0%",
+      "unit": "%",
+      "format": "percent"
+    },
+    {
+      "address": "swap.total",
+      "now": "3.73 GiB",
+      "unit": "B",
+      "format": "bytes"
+    },
+    {
+      "address": "swap.used",
+      "now": "977 KiB",
+      "unit": "B",
+      "format": "bytes"
+    },
+    {
+      "address": "system.arch",
+      "now": "x86_64",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "system.boot_time",
+      "now": "2023-11-14 23:13",
+      "unit": "s",
+      "format": "time"
+    },
+    {
+      "address": "system.kernel",
+      "now": "7.2.10",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "system.name",
+      "now": "fixture",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "system.os",
+      "now": "NixOS 26.11",
+      "unit": "",
+      "format": "text"
     },
     {
       "address": "system.uptime",
-      "now": "3 d 4 h"
+      "now": "1 h 0 min",
+      "unit": "s",
+      "format": "duration"
+    },
+    {
+      "address": "system.version",
+      "now": "9.9.9",
+      "unit": "",
+      "format": "text"
+    },
+    {
+      "address": "temp.nvme_composite",
+      "now": "42°C",
+      "unit": "°C",
+      "format": "temp"
+    },
+    {
+      "address": "temp.nvme_composite.crit",
+      "now": "85°C",
+      "unit": "°C",
+      "format": "temp"
+    },
+    {
+      "address": "temp.nvme_composite.high",
+      "now": "80°C",
+      "unit": "°C",
+      "format": "temp"
+    },
+    {
+      "address": "volume.level",
+      "now": "75%",
+      "unit": "%",
+      "format": "percent"
+    },
+    {
+      "address": "volume.muted",
+      "now": "no",
+      "unit": "",
+      "format": "bool"
     }
   ],
   "collections": [
     {
-      "name": "disks",
-      "fields": [
-        "name",
-        "mount",
-        "used",
-        "total",
-        "percent"
-      ]
-    },
-    {
       "name": "processes",
       "fields": [
         "pid",
+        "ppid",
         "name",
-        "cpu",
-        "memory",
+        "cmd",
         "user",
-        "command"
+        "cpu",
+        "mem",
+        "status",
+        "start",
+        "read",
+        "write",
+        "io",
+        "gpu",
+        "gpu_mem"
+      ]
+    },
+    {
+      "name": "cores",
+      "fields": [
+        "usage",
+        "freq"
+      ]
+    },
+    {
+      "name": "gpus",
+      "fields": [
+        "name",
+        "short_name",
+        "vendor",
+        "driver",
+        "state",
+        "summary",
+        "usage",
+        "temp",
+        "power",
+        "mem_used",
+        "mem_total",
+        "freq",
+        "freq_max",
+        "fan"
+      ]
+    },
+    {
+      "name": "temps",
+      "fields": [
+        "chip",
+        "kind",
+        "device",
+        "label",
+        "value",
+        "high",
+        "crit"
+      ]
+    },
+    {
+      "name": "fans",
+      "fields": [
+        "chip",
+        "label",
+        "rpm"
+      ]
+    },
+    {
+      "name": "disks",
+      "fields": [
+        "device",
+        "mount",
+        "fs",
+        "used",
+        "available",
+        "total",
+        "percent",
+        "removable"
+      ]
+    },
+    {
+      "name": "disk_io",
+      "fields": [
+        "name",
+        "model",
+        "read",
+        "write"
+      ]
+    },
+    {
+      "name": "net",
+      "fields": [
+        "name",
+        "kind",
+        "up",
+        "addrs",
+        "rx",
+        "tx",
+        "rx_total",
+        "tx_total",
+        "speed"
+      ]
+    },
+    {
+      "name": "displays",
+      "fields": [
+        "name",
+        "state",
+        "connector",
+        "gpu",
+        "connected",
+        "active",
+        "dpms",
+        "internal",
+        "vendor",
+        "model",
+        "year",
+        "size",
+        "mode",
+        "preferred",
+        "max_refresh",
+        "position",
+        "enabled",
+        "headless",
+        "scale",
+        "brightness"
+      ]
+    },
+    {
+      "name": "links",
+      "fields": [
+        "id",
+        "name",
+        "url",
+        "unit",
+        "scope",
+        "port",
+        "up",
+        "local_only",
+        "unit_state"
+      ]
+    },
+    {
+      "name": "activity",
+      "fields": [
+        "t",
+        "phone",
+        "what",
+        "result",
+        "message"
+      ]
+    },
+    {
+      "name": "actions",
+      "fields": [
+        "name",
+        "icon"
+      ]
+    },
+    {
+      "name": "ups",
+      "fields": [
+        "name",
+        "model",
+        "mfr",
+        "status",
+        "power",
+        "link",
+        "ecoflow"
+      ]
+    },
+    {
+      "name": "outlets",
+      "fields": [
+        "source",
+        "id",
+        "desc",
+        "status",
+        "realpower",
+        "voltage",
+        "current",
+        "switchable",
+        "critical"
       ]
     }
   ],
   "actions": [
+    {
+      "id": "power.poweroff",
+      "name": "Shut down",
+      "kind": "power"
+    },
+    {
+      "id": "power.reboot",
+      "name": "Restart",
+      "kind": "power"
+    },
+    {
+      "id": "power.suspend",
+      "name": "Sleep",
+      "kind": "power"
+    },
     {
       "id": "power.lock",
       "name": "Lock",
       "kind": "power"
     },
     {
-      "id": "mode",
-      "name": "Server mode",
+      "id": "profile.set",
+      "name": "Power profile",
+      "kind": "profile"
+    },
+    {
+      "id": "process.signal",
+      "name": "Signal",
+      "kind": "signal"
+    },
+    {
+      "id": "unit.start",
+      "name": "Start",
+      "kind": "units"
+    },
+    {
+      "id": "unit.stop",
+      "name": "Stop",
+      "kind": "units"
+    },
+    {
+      "id": "unit.restart",
+      "name": "Restart",
+      "kind": "units"
+    },
+    {
+      "id": "media.play_pause",
+      "name": "Play or pause",
+      "kind": "media"
+    },
+    {
+      "id": "media.next",
+      "name": "Next",
+      "kind": "media"
+    },
+    {
+      "id": "media.previous",
+      "name": "Previous",
+      "kind": "media"
+    },
+    {
+      "id": "media.seek",
+      "name": "Seek",
+      "kind": "media"
+    },
+    {
+      "id": "volume.set",
+      "name": "Volume",
+      "kind": "media"
+    },
+    {
+      "id": "echo",
+      "name": "Echo",
       "kind": "actions"
     }
   ],
   "links": [
     {
-      "id": "music",
-      "name": "Music"
+      "id": "web",
+      "name": "Web"
     }
   ],
-  "sources": [
-    {
-      "id": "ups",
-      "kind": "nut"
-    }
-  ],
+  "sources": [],
   "dashboards": [
     {
-      "id": "overview",
-      "title": "Overview",
+      "id": "activity",
+      "title": "Activity log",
       "def": {
-        "title": "Overview",
-        "icon": "overview",
+        "icon": "clock",
+        "role": "monitor",
+        "title": "Activity log",
         "widgets": [
           {
-            "type": "gauge",
-            "label": "CPU",
-            "value": "cpu.usage",
-            "max": 100
+            "columns": [
+              {
+                "field": "what",
+                "grow": true
+              },
+              {
+                "field": "result"
+              },
+              {
+                "field": "t",
+                "format": "time"
+              }
+            ],
+            "expand": [
+              {
+                "field": "phone",
+                "label": "Phone"
+              },
+              {
+                "field": "message",
+                "label": "Message"
+              }
+            ],
+            "id": "log",
+            "limit": 500,
+            "search": true,
+            "sort": {
+              "desc": true,
+              "field": "t"
+            },
+            "source": "activity",
+            "type": "table"
           }
         ]
       },
       "from": [
         {
-          "file": "elamond.d/dashboards.toml",
-          "line": 3
+          "file": "elamond.toml",
+          "line": 946
         }
       ],
       "editor": false,
       "own": false
     },
     {
-      "id": "mine",
-      "title": "Mine",
+      "id": "battery",
+      "title": "Battery",
       "def": {
-        "title": "Mine",
+        "icon": "battery",
+        "title": "Battery",
         "widgets": [
           {
-            "type": "value",
-            "label": "Uptime",
-            "value": "system.uptime",
-            "format": "uptime"
+            "color": "battery",
+            "colors": [
+              "battery"
+            ],
+            "floor": 5,
+            "icon": "bolt",
+            "id": "power",
+            "label": "Power draw",
+            "labels": [
+              "Power"
+            ],
+            "type": "graph",
+            "values": [
+              "battery.power"
+            ]
+          },
+          {
+            "icon": "battery",
+            "id": "details",
+            "items": [
+              {
+                "label": "Charge",
+                "value": "battery.percent"
+              },
+              {
+                "label": "State",
+                "value": "battery.status_text"
+              },
+              {
+                "label": "Power",
+                "value": "battery.power"
+              },
+              {
+                "label": "Time",
+                "value": "battery.time_text"
+              },
+              {
+                "label": "Energy now",
+                "value": "battery.energy_now"
+              },
+              {
+                "label": "Full charge",
+                "value": "battery.energy_full"
+              },
+              {
+                "label": "Design capacity",
+                "value": "battery.energy_design"
+              },
+              {
+                "label": "Health",
+                "value": "battery.health"
+              },
+              {
+                "label": "Charge cycles",
+                "value": "battery.cycles"
+              },
+              {
+                "label": "Model",
+                "value": "battery.model"
+              }
+            ],
+            "label": "Details",
+            "type": "list"
           }
         ]
       },
       "from": [
         {
-          "file": "elamond.d/zz-editor.toml",
-          "line": 5
+          "file": "elamond.toml",
+          "line": 913
         }
       ],
-      "editor": true,
-      "own": true
+      "editor": false,
+      "own": false
+    },
+    {
+      "id": "control",
+      "title": "Control",
+      "def": {
+        "icon": "control",
+        "title": "Control",
+        "widgets": [
+          {
+            "columns": [
+              {
+                "field": "name",
+                "grow": true
+              },
+              {
+                "field": "unit_state",
+                "label": "Unit"
+              },
+              {
+                "field": "up",
+                "format": "bool",
+                "map": {
+                  "false": "Down",
+                  "true": "Up"
+                }
+              }
+            ],
+            "expand": [
+              {
+                "field": "url",
+                "label": "Address"
+              },
+              {
+                "field": "unit",
+                "label": "Unit"
+              },
+              {
+                "field": "port",
+                "format": "integer",
+                "label": "Port"
+              }
+            ],
+            "hide_empty": true,
+            "icon": "globe",
+            "id": "links",
+            "label": "Links",
+            "row_actions": [
+              {
+                "action": "unit.start",
+                "label": "Start",
+                "params": {
+                  "link": "{id}"
+                }
+              },
+              {
+                "action": "unit.stop",
+                "label": "Stop",
+                "params": {
+                  "link": "{id}"
+                }
+              },
+              {
+                "action": "unit.restart",
+                "label": "Restart",
+                "params": {
+                  "link": "{id}"
+                }
+              },
+              {
+                "label": "Journal",
+                "open": "unit_log"
+              }
+            ],
+            "row_open": "url",
+            "source": "links",
+            "type": "table"
+          },
+          {
+            "icon": "music",
+            "id": "media",
+            "label": "Media",
+            "type": "media"
+          },
+          {
+            "action": "profile.set",
+            "color": "battery",
+            "icon": "bolt",
+            "id": "profile",
+            "label": "Power profile",
+            "param": "profile",
+            "span": 4,
+            "type": "select",
+            "value": "power.profile"
+          },
+          {
+            "color": "tertiary",
+            "for_each": "actions",
+            "icon": "terminal",
+            "id": "actions",
+            "label": "Actions",
+            "type": "group",
+            "widgets": [
+              {
+                "action": "{item}",
+                "icon": "{item.icon}",
+                "label": "{item.name}",
+                "type": "button"
+              }
+            ]
+          },
+          {
+            "color": "hot",
+            "icon": "power",
+            "id": "power",
+            "label": "Power",
+            "type": "group",
+            "widgets": [
+              {
+                "action": "power.lock",
+                "icon": "lock",
+                "label": "Lock",
+                "span": 1,
+                "type": "button"
+              },
+              {
+                "action": "power.suspend",
+                "icon": "moon",
+                "label": "Sleep",
+                "span": 1,
+                "type": "button"
+              },
+              {
+                "action": "power.reboot",
+                "icon": "restart",
+                "label": "Restart",
+                "span": 1,
+                "type": "button"
+              },
+              {
+                "action": "power.poweroff",
+                "icon": "power",
+                "label": "Shut down",
+                "span": 1,
+                "type": "button"
+              }
+            ]
+          },
+          {
+            "caption": "{displays.summary}",
+            "collapsed": true,
+            "columns": [
+              {
+                "field": "name",
+                "grow": true
+              },
+              {
+                "field": "state"
+              },
+              {
+                "field": "mode"
+              }
+            ],
+            "expand": [
+              {
+                "field": "connector",
+                "label": "Port"
+              },
+              {
+                "field": "gpu",
+                "label": "GPU"
+              },
+              {
+                "field": "size",
+                "label": "Size"
+              },
+              {
+                "field": "preferred",
+                "label": "Best mode"
+              },
+              {
+                "field": "max_refresh",
+                "format": "{:.0}",
+                "label": "Fastest",
+                "unit": "Hz"
+              },
+              {
+                "field": "position",
+                "label": "Position"
+              },
+              {
+                "field": "year",
+                "format": "integer",
+                "label": "Made"
+              }
+            ],
+            "filter": {
+              "connected": true
+            },
+            "hide_empty": true,
+            "icon": "monitor",
+            "id": "displays",
+            "label": "Displays",
+            "source": "displays",
+            "type": "table"
+          },
+          {
+            "collapsed": true,
+            "for_each": "displays",
+            "icon": "monitor",
+            "id": "display_controls",
+            "label": "Monitors",
+            "type": "group",
+            "widgets": [
+              {
+                "action": "display.output.{item.connector}",
+                "caption": "{item.name}",
+                "id": "output",
+                "label": "{item.connector}",
+                "off": "off",
+                "on": "on",
+                "param": "state",
+                "span": 2,
+                "type": "toggle",
+                "value": "display.{item}.output"
+              },
+              {
+                "action": "display.dpms.{item.connector}",
+                "id": "dpms",
+                "label": "{item.connector} DPMS",
+                "off": "off",
+                "on": "on",
+                "param": "state",
+                "span": 2,
+                "type": "toggle",
+                "value": "display.{item}.dpms"
+              },
+              {
+                "action": "display.brightness.{item.connector}",
+                "id": "brightness",
+                "label": "{item.connector} brightness",
+                "param": "level",
+                "span": 4,
+                "type": "slider",
+                "value": "display.{item}.brightness"
+              }
+            ]
+          },
+          {
+            "icon": "terminal",
+            "id": "journal",
+            "label": "Journal",
+            "open": "journal",
+            "role": "monitor",
+            "span": 4,
+            "type": "button"
+          },
+          {
+            "icon": "terminal",
+            "id": "events",
+            "label": "Events",
+            "open": "events",
+            "role": "monitor",
+            "span": 4,
+            "type": "button"
+          },
+          {
+            "icon": "clock",
+            "id": "activity",
+            "label": "Activity log",
+            "open": "activity",
+            "role": "monitor",
+            "span": 4,
+            "type": "button"
+          }
+        ]
+      },
+      "from": [
+        {
+          "file": "elamond.toml",
+          "line": 537
+        }
+      ],
+      "editor": false,
+      "own": false
+    },
+    {
+      "id": "cpu",
+      "title": "CPU",
+      "def": {
+        "icon": "chip",
+        "title": "CPU",
+        "widgets": [
+          {
+            "color": "cpu",
+            "colors": [
+              "cpu"
+            ],
+            "icon": "chip",
+            "id": "load",
+            "label": "Load",
+            "labels": [
+              "CPU"
+            ],
+            "max": 100,
+            "min": 0,
+            "type": "graph",
+            "values": [
+              "cpu.usage"
+            ]
+          },
+          {
+            "color": "cpu",
+            "field": "usage",
+            "icon": "chip",
+            "id": "cores",
+            "label": "Cores",
+            "max": 100,
+            "source": "cores",
+            "span": 4,
+            "type": "bars"
+          },
+          {
+            "icon": "overview",
+            "id": "details",
+            "items": [
+              {
+                "label": "Model",
+                "value": "cpu.model"
+              },
+              {
+                "label": "Cores",
+                "text": "{cpu.cores} cores · {cpu.threads} threads"
+              },
+              {
+                "label": "Temperature",
+                "value": "cpu.temp"
+              },
+              {
+                "label": "Clock (average / top)",
+                "text": "{cpu.freq:mhz} / {cpu.freq_max:mhz}"
+              },
+              {
+                "label": "Load average",
+                "text": "{cpu.load1:load}  {cpu.load5:load}  {cpu.load15:load}"
+              },
+              {
+                "label": "Uptime",
+                "value": "system.uptime"
+              }
+            ],
+            "label": "Details",
+            "type": "list"
+          },
+          {
+            "id": "top",
+            "sort": {
+              "desc": true,
+              "field": "cpu"
+            },
+            "use": "top_processes"
+          }
+        ]
+      },
+      "from": [
+        {
+          "file": "elamond.toml",
+          "line": 675
+        }
+      ],
+      "editor": false,
+      "own": false
+    },
+    {
+      "id": "events",
+      "title": "Events",
+      "def": {
+        "icon": "terminal",
+        "role": "monitor",
+        "title": "Events",
+        "widgets": [
+          {
+            "id": "events",
+            "label": "Events",
+            "level": "info",
+            "scope": "events",
+            "span": 4,
+            "type": "log"
+          }
+        ]
+      },
+      "from": [
+        {
+          "file": "elamond.toml",
+          "line": 983
+        }
+      ],
+      "editor": false,
+      "own": false
+    },
+    {
+      "id": "gpu",
+      "title": "{item.name}",
+      "def": {
+        "for_each": "gpus",
+        "icon": "gpu",
+        "title": "{item.name}",
+        "widgets": [
+          {
+            "color": "gpu",
+            "colors": [
+              "gpu"
+            ],
+            "empty": "{gpu.{item}.summary}",
+            "icon": "gpu",
+            "id": "load",
+            "label": "Load",
+            "labels": [
+              "Load"
+            ],
+            "max": 100,
+            "min": 0,
+            "type": "graph",
+            "values": [
+              "gpu.{item}.usage"
+            ]
+          },
+          {
+            "color": "hot",
+            "colors": [
+              "hot"
+            ],
+            "floor": 60,
+            "icon": "thermometer",
+            "id": "temp",
+            "label": "Temperature",
+            "labels": [
+              "Temperature"
+            ],
+            "type": "graph",
+            "values": [
+              "gpu.{item}.temp"
+            ],
+            "when": "gpu.{item}.temp"
+          },
+          {
+            "icon": "overview",
+            "id": "details",
+            "items": [
+              {
+                "label": "Name",
+                "value": "gpu.{item}.name"
+              },
+              {
+                "label": "Driver",
+                "value": "gpu.{item}.driver"
+              },
+              {
+                "label": "State",
+                "value": "gpu.{item}.summary"
+              },
+              {
+                "label": "Memory",
+                "text": "{gpu.{item}.mem_used:bytes} of {gpu.{item}.mem_total:bytes}"
+              },
+              {
+                "label": "Clock",
+                "text": "{gpu.{item}.freq:mhz} / {gpu.{item}.freq_max:mhz}"
+              },
+              {
+                "label": "Memory clock",
+                "value": "gpu.{item}.mem_freq"
+              },
+              {
+                "label": "Power",
+                "value": "gpu.{item}.power"
+              },
+              {
+                "label": "Fan",
+                "value": "gpu.{item}.fan"
+              }
+            ],
+            "label": "Details",
+            "type": "list"
+          },
+          {
+            "columns": [
+              {
+                "field": "name",
+                "grow": true
+              },
+              {
+                "field": "gpu",
+                "format": "percent"
+              },
+              {
+                "field": "gpu_mem",
+                "format": "bytes"
+              }
+            ],
+            "id": "top",
+            "sort": {
+              "desc": true,
+              "field": "gpu"
+            },
+            "use": "top_processes"
+          }
+        ]
+      },
+      "from": [
+        {
+          "file": "elamond.toml",
+          "line": 766
+        }
+      ],
+      "editor": false,
+      "own": false
+    },
+    {
+      "id": "header",
+      "title": "Header",
+      "def": {
+        "icon": "overview",
+        "title": "Header",
+        "widgets": [
+          {
+            "id": "os",
+            "type": "status",
+            "value": "system.os"
+          },
+          {
+            "id": "uptime",
+            "text": "Up {system.uptime:duration}",
+            "type": "text"
+          },
+          {
+            "id": "power",
+            "levels": {
+              "false": "warning"
+            },
+            "map": {
+              "false": "On battery",
+              "true": "On AC power"
+            },
+            "type": "status",
+            "value": "power.on_ac",
+            "when": "power.on_ac"
+          },
+          {
+            "id": "profile",
+            "map": {
+              "balanced": "Balanced",
+              "performance": "Performance",
+              "power-saver": "Power saver"
+            },
+            "type": "status",
+            "value": "power.profile",
+            "when": "power.profile"
+          }
+        ]
+      },
+      "from": [
+        {
+          "file": "elamond.toml",
+          "line": 111
+        }
+      ],
+      "editor": false,
+      "own": false
+    },
+    {
+      "id": "journal",
+      "title": "Journal",
+      "def": {
+        "icon": "terminal",
+        "role": "monitor",
+        "title": "Journal",
+        "widgets": [
+          {
+            "id": "system",
+            "label": "System journal",
+            "level": "warning",
+            "scope": "system",
+            "span": 4,
+            "type": "log"
+          }
+        ]
+      },
+      "from": [
+        {
+          "file": "elamond.toml",
+          "line": 969
+        }
+      ],
+      "editor": false,
+      "own": false
+    },
+    {
+      "id": "memory",
+      "title": "Memory",
+      "def": {
+        "icon": "memory",
+        "title": "Memory",
+        "widgets": [
+          {
+            "color": "memory",
+            "colors": [
+              "memory",
+              "swap"
+            ],
+            "icon": "memory",
+            "id": "use",
+            "label": "Memory use",
+            "labels": [
+              "RAM",
+              "Swap"
+            ],
+            "max": "mem.total",
+            "min": 0,
+            "type": "graph",
+            "values": [
+              "mem.used",
+              "swap.used"
+            ]
+          },
+          {
+            "icon": "overview",
+            "id": "details",
+            "items": [
+              {
+                "label": "Used",
+                "text": "{mem.used:bytes} of {mem.total:bytes}"
+              },
+              {
+                "label": "Available",
+                "value": "mem.available"
+              },
+              {
+                "label": "Swap",
+                "text": "{swap.used:bytes} of {swap.total:bytes}",
+                "when": "swap.total"
+              }
+            ],
+            "label": "Details",
+            "type": "list"
+          },
+          {
+            "id": "top",
+            "sort": {
+              "desc": true,
+              "field": "mem"
+            },
+            "use": "top_processes"
+          }
+        ]
+      },
+      "from": [
+        {
+          "file": "elamond.toml",
+          "line": 734
+        }
+      ],
+      "editor": false,
+      "own": false
+    },
+    {
+      "id": "network",
+      "title": "Network",
+      "def": {
+        "icon": "network",
+        "title": "Network",
+        "widgets": [
+          {
+            "color": "rx",
+            "colors": [
+              "rx",
+              "tx"
+            ],
+            "floor": 65536,
+            "icon": "network",
+            "id": "traffic",
+            "label": "Traffic",
+            "labels": [
+              "Download",
+              "Upload"
+            ],
+            "type": "graph",
+            "values": [
+              "net.rx",
+              "net.tx"
+            ]
+          },
+          {
+            "columns": [
+              {
+                "field": "name",
+                "grow": true
+              },
+              {
+                "field": "kind"
+              },
+              {
+                "field": "rx",
+                "format": "rate",
+                "label": "↓"
+              },
+              {
+                "field": "tx",
+                "format": "rate",
+                "label": "↑"
+              }
+            ],
+            "expand": [
+              {
+                "field": "rx_total",
+                "format": "bytes",
+                "label": "Received"
+              },
+              {
+                "field": "tx_total",
+                "format": "bytes",
+                "label": "Sent"
+              },
+              {
+                "field": "speed",
+                "format": "integer",
+                "label": "Link speed",
+                "unit": "Mbit/s"
+              },
+              {
+                "field": "addrs",
+                "label": "Addresses"
+              }
+            ],
+            "filter": {
+              "up": true
+            },
+            "icon": "network",
+            "id": "interfaces",
+            "label": "Interfaces",
+            "source": "net",
+            "type": "table"
+          }
+        ]
+      },
+      "from": [
+        {
+          "file": "elamond.toml",
+          "line": 822
+        }
+      ],
+      "editor": false,
+      "own": false
+    },
+    {
+      "id": "overview",
+      "title": "Overview",
+      "def": {
+        "icon": "overview",
+        "title": "Overview",
+        "widgets": [
+          {
+            "caption": "{cpu.temp:temp} · {cpu.freq_max:mhz}",
+            "color": "cpu",
+            "icon": "chip",
+            "id": "cpu",
+            "label": "CPU",
+            "open": "cpu",
+            "type": "gauge",
+            "value": "cpu.usage"
+          },
+          {
+            "caption": "{mem.used:bytes} of {mem.total:bytes}",
+            "color": "memory",
+            "icon": "memory",
+            "id": "memory",
+            "label": "Memory",
+            "open": "memory",
+            "type": "gauge",
+            "value": "mem.percent"
+          },
+          {
+            "caption": "{gpu.{item}.temp:temp} · {gpu.{item}.power:watts}",
+            "color": "gpu",
+            "empty": "{gpu.{item}.summary}",
+            "for_each": "gpus",
+            "icon": "gpu",
+            "id": "gpus",
+            "label": "{item.short_name}",
+            "open": "gpu.{item}",
+            "spark": true,
+            "type": "value",
+            "value": "gpu.{item}.usage"
+          },
+          {
+            "caption": "{fans.summary}",
+            "color": "hot",
+            "icon": "thermometer",
+            "id": "temperature",
+            "label": "Temperature",
+            "open": "sensors",
+            "spark": true,
+            "type": "value",
+            "value": "cpu.temp"
+          },
+          {
+            "caption": "{net.up_names}",
+            "color": "rx",
+            "colors": [
+              "rx",
+              "tx"
+            ],
+            "floor": 65536,
+            "height": "small",
+            "icon": "network",
+            "id": "network",
+            "label": "Network",
+            "labels": [
+              "Download",
+              "Upload"
+            ],
+            "open": "network",
+            "type": "graph",
+            "values": [
+              "net.rx",
+              "net.tx"
+            ]
+          },
+          {
+            "caption": "Read {disk.read:rate} · write {disk.write:rate}",
+            "color": "read",
+            "columns": [
+              {
+                "field": "mount",
+                "grow": true
+              },
+              {
+                "field": "available",
+                "format": "bytes",
+                "label": "free"
+              },
+              {
+                "bar": {
+                  "max": 100
+                },
+                "field": "percent"
+              }
+            ],
+            "icon": "storage",
+            "id": "storage",
+            "label": "Storage",
+            "limit": 3,
+            "open": "storage",
+            "source": "disks",
+            "type": "table"
+          },
+          {
+            "caption": "{battery.status_text} · {battery.power:watts} · {battery.time_text} · health {battery.health:percent}",
+            "color": "battery",
+            "icon": "battery",
+            "id": "battery",
+            "label": "Battery",
+            "open": "battery",
+            "span": 4,
+            "type": "meter",
+            "value": "battery.percent",
+            "when": "battery.percent"
+          }
+        ]
+      },
+      "from": [
+        {
+          "file": "elamond.toml",
+          "line": 142
+        }
+      ],
+      "editor": false,
+      "own": false
+    },
+    {
+      "id": "processes",
+      "title": "Processes",
+      "def": {
+        "icon": "processes",
+        "role": "monitor",
+        "title": "Processes",
+        "widgets": [
+          {
+            "columns": [
+              {
+                "field": "name",
+                "grow": true
+              },
+              {
+                "bar": {
+                  "max": 25
+                },
+                "field": "cpu",
+                "format": "percent",
+                "label": "CPU"
+              },
+              {
+                "field": "mem",
+                "format": "bytes",
+                "label": "Memory"
+              }
+            ],
+            "expand": [
+              {
+                "field": "cmd",
+                "label": "Command"
+              },
+              {
+                "field": "user",
+                "label": "User"
+              },
+              {
+                "field": "pid",
+                "format": "integer",
+                "label": "PID"
+              },
+              {
+                "field": "ppid",
+                "format": "integer",
+                "label": "Parent"
+              },
+              {
+                "field": "status",
+                "label": "State"
+              },
+              {
+                "field": "start",
+                "format": "time",
+                "label": "Started"
+              },
+              {
+                "field": "read",
+                "format": "rate",
+                "label": "Disk read"
+              },
+              {
+                "field": "write",
+                "format": "rate",
+                "label": "Disk write"
+              },
+              {
+                "field": "gpu",
+                "format": "percent",
+                "label": "GPU"
+              },
+              {
+                "field": "gpu_mem",
+                "format": "bytes",
+                "label": "GPU memory"
+              }
+            ],
+            "id": "table",
+            "limit": 500,
+            "row_actions": [
+              {
+                "action": "process.signal",
+                "label": "Quit",
+                "params": {
+                  "pid": "{pid}",
+                  "signal": "term",
+                  "start": "{start}"
+                }
+              },
+              {
+                "action": "process.signal",
+                "label": "Force kill",
+                "params": {
+                  "pid": "{pid}",
+                  "signal": "kill",
+                  "start": "{start}"
+                }
+              }
+            ],
+            "search": [
+              "name",
+              "cmd",
+              "user",
+              "pid"
+            ],
+            "sort": {
+              "desc": true,
+              "field": "cpu"
+            },
+            "sort_labels": {
+              "cpu": "CPU",
+              "gpu": "GPU",
+              "io": "Disk",
+              "mem": "Memory"
+            },
+            "sorts": [
+              "cpu",
+              "mem",
+              "gpu",
+              "io"
+            ],
+            "source": "processes",
+            "type": "table"
+          }
+        ]
+      },
+      "from": [
+        {
+          "file": "elamond.toml",
+          "line": 410
+        }
+      ],
+      "editor": false,
+      "own": false
+    },
+    {
+      "id": "sensors",
+      "title": "Sensors",
+      "def": {
+        "icon": "thermometer",
+        "title": "Sensors",
+        "widgets": [
+          {
+            "color": "cpu",
+            "filter": {
+              "kind": "cpu"
+            },
+            "icon": "chip",
+            "id": "cpu",
+            "label": "Processor",
+            "use": "sensor_table"
+          },
+          {
+            "color": "gpu",
+            "filter": {
+              "kind": "gpu"
+            },
+            "icon": "gpu",
+            "id": "gpu",
+            "label": "Graphics",
+            "use": "sensor_table"
+          },
+          {
+            "color": "read",
+            "filter": {
+              "kind": "storage"
+            },
+            "icon": "storage",
+            "id": "storage",
+            "label": "Storage",
+            "use": "sensor_table"
+          },
+          {
+            "color": "rx",
+            "filter": {
+              "kind": "wireless"
+            },
+            "icon": "network",
+            "id": "wireless",
+            "label": "Wireless",
+            "use": "sensor_table"
+          },
+          {
+            "color": "battery",
+            "filter": {
+              "kind": "battery"
+            },
+            "icon": "battery",
+            "id": "battery",
+            "label": "Battery",
+            "use": "sensor_table"
+          },
+          {
+            "color": "hot",
+            "filter": {
+              "kind": "board"
+            },
+            "icon": "thermometer",
+            "id": "board",
+            "label": "Board",
+            "use": "sensor_table"
+          },
+          {
+            "color": "hot",
+            "filter": {
+              "kind": "other"
+            },
+            "icon": "thermometer",
+            "id": "other",
+            "label": "Other",
+            "use": "sensor_table"
+          },
+          {
+            "columns": [
+              {
+                "field": "label",
+                "grow": true
+              },
+              {
+                "bar": {
+                  "max": "top"
+                },
+                "field": "rpm",
+                "format": "rpm"
+              }
+            ],
+            "hide_empty": true,
+            "icon": "fan",
+            "id": "fans",
+            "label": "Fans",
+            "source": "fans",
+            "type": "table"
+          }
+        ]
+      },
+      "from": [
+        {
+          "file": "elamond.toml",
+          "line": 448
+        }
+      ],
+      "editor": false,
+      "own": false
+    },
+    {
+      "id": "storage",
+      "title": "Storage",
+      "def": {
+        "icon": "storage",
+        "title": "Storage",
+        "widgets": [
+          {
+            "color": "read",
+            "colors": [
+              "read",
+              "write"
+            ],
+            "floor": 1048576,
+            "icon": "storage",
+            "id": "throughput",
+            "label": "Throughput",
+            "labels": [
+              "Read",
+              "Write"
+            ],
+            "type": "graph",
+            "values": [
+              "disk.read",
+              "disk.write"
+            ]
+          },
+          {
+            "columns": [
+              {
+                "field": "name",
+                "grow": true
+              },
+              {
+                "field": "read",
+                "format": "rate",
+                "label": "↓"
+              },
+              {
+                "field": "write",
+                "format": "rate",
+                "label": "↑"
+              }
+            ],
+            "hide_empty": true,
+            "icon": "storage",
+            "id": "devices",
+            "label": "Devices",
+            "source": "disk_io",
+            "type": "table"
+          },
+          {
+            "columns": [
+              {
+                "field": "mount",
+                "grow": true
+              },
+              {
+                "field": "available",
+                "format": "bytes",
+                "label": "free"
+              },
+              {
+                "bar": {
+                  "max": 100
+                },
+                "field": "percent"
+              }
+            ],
+            "expand": [
+              {
+                "field": "used",
+                "format": "bytes",
+                "label": "Used"
+              },
+              {
+                "field": "total",
+                "format": "bytes",
+                "label": "Size"
+              },
+              {
+                "field": "fs",
+                "label": "File system"
+              },
+              {
+                "field": "device",
+                "label": "Device"
+              }
+            ],
+            "icon": "storage",
+            "id": "disks",
+            "label": "File systems",
+            "source": "disks",
+            "type": "table"
+          },
+          {
+            "columns": [
+              {
+                "field": "name",
+                "grow": true
+              },
+              {
+                "field": "read",
+                "format": "rate"
+              },
+              {
+                "field": "write",
+                "format": "rate"
+              }
+            ],
+            "id": "top",
+            "sort": {
+              "desc": true,
+              "field": "io"
+            },
+            "use": "top_processes"
+          }
+        ]
+      },
+      "from": [
+        {
+          "file": "elamond.toml",
+          "line": 857
+        }
+      ],
+      "editor": false,
+      "own": false
+    },
+    {
+      "id": "unit_log",
+      "title": "{item.name}",
+      "def": {
+        "for_each": "links",
+        "icon": "terminal",
+        "role": "monitor",
+        "title": "{item.name}",
+        "widgets": [
+          {
+            "id": "log",
+            "label": "Journal",
+            "scope": "unit",
+            "span": 4,
+            "type": "log",
+            "unit": "{item.unit}"
+          }
+        ]
+      },
+      "from": [
+        {
+          "file": "elamond.toml",
+          "line": 998
+        }
+      ],
+      "editor": false,
+      "own": false
+    },
+    {
+      "id": "ups",
+      "title": "{item.name}",
+      "def": {
+        "for_each": "ups",
+        "icon": "battery",
+        "title": "{item.name}",
+        "widgets": [
+          {
+            "caption": "{{item}.status.since:duration} · {{item}.status.flags}",
+            "icon": "power",
+            "id": "status",
+            "label": "Status",
+            "type": "status",
+            "value": "{item}.status"
+          },
+          {
+            "caption": "{{item}.battery.runtime:duration}",
+            "color": "battery",
+            "icon": "battery",
+            "id": "charge",
+            "label": "Battery",
+            "type": "gauge",
+            "value": "{item}.battery.charge",
+            "when": "{item}.battery.charge"
+          },
+          {
+            "icon": "power",
+            "id": "power",
+            "label": "Power",
+            "source": "{item}",
+            "type": "timeline"
+          },
+          {
+            "icon": "bolt",
+            "id": "now",
+            "label": "Power now",
+            "type": "group",
+            "widgets": [
+              {
+                "color": "rx",
+                "icon": "bolt",
+                "id": "grid",
+                "label": "Grid in",
+                "span": 1,
+                "type": "value",
+                "value": "{item}.input.realpower",
+                "when": "{item}.input.realpower"
+              },
+              {
+                "color": "tx",
+                "icon": "bolt",
+                "id": "output",
+                "label": "Output",
+                "span": 1,
+                "type": "value",
+                "value": "{item}.ups.realpower",
+                "when": "{item}.ups.realpower"
+              },
+              {
+                "icon": "power",
+                "id": "ac",
+                "label": "AC out",
+                "span": 1,
+                "type": "value",
+                "value": "{item}.output.realpower",
+                "when": "{item}.output.realpower"
+              },
+              {
+                "color": "good",
+                "icon": "leaf",
+                "id": "solar1",
+                "label": "Solar 1",
+                "span": 1,
+                "type": "value",
+                "value": "{item}.experimental.input.dc.1.realpower",
+                "when": "{item}.experimental.input.dc.1.realpower"
+              },
+              {
+                "color": "good",
+                "icon": "leaf",
+                "id": "solar2",
+                "label": "Solar 2",
+                "span": 1,
+                "type": "value",
+                "value": "{item}.experimental.input.dc.2.realpower",
+                "when": "{item}.experimental.input.dc.2.realpower"
+              },
+              {
+                "icon": "gauge",
+                "id": "load",
+                "label": "Load",
+                "span": 1,
+                "type": "value",
+                "value": "{item}.ups.load",
+                "when": "{item}.ups.load"
+              }
+            ]
+          },
+          {
+            "icon": "battery",
+            "id": "battery",
+            "items": [
+              {
+                "label": "Charge",
+                "value": "{item}.battery.charge"
+              },
+              {
+                "label": "Runtime",
+                "value": "{item}.battery.runtime"
+              },
+              {
+                "label": "To empty",
+                "value": "{item}.estimate.to_empty"
+              },
+              {
+                "label": "To full",
+                "value": "{item}.estimate.to_full"
+              },
+              {
+                "label": "Charge limit",
+                "value": "{item}.experimental.battery.charge.max"
+              },
+              {
+                "label": "Discharge limit",
+                "value": "{item}.experimental.battery.charge.minimum"
+              },
+              {
+                "format": "percent",
+                "label": "Health",
+                "unit": "%",
+                "value": "{item}.experimental.battery.health"
+              },
+              {
+                "label": "Capacity",
+                "value": "{item}.battery.capacity"
+              },
+              {
+                "label": "Voltage",
+                "value": "{item}.battery.voltage"
+              },
+              {
+                "label": "Current",
+                "value": "{item}.battery.current"
+              }
+            ],
+            "label": "Battery",
+            "type": "list"
+          },
+          {
+            "columns": [
+              {
+                "field": "desc",
+                "grow": true
+              },
+              {
+                "field": "status",
+                "label": "State",
+                "map": {
+                  "off": "Off",
+                  "on": "On"
+                }
+              },
+              {
+                "field": "realpower",
+                "label": "Power"
+              }
+            ],
+            "filter": {
+              "source": "{item}"
+            },
+            "hide_empty": true,
+            "icon": "power",
+            "id": "outlets",
+            "label": "Outlets",
+            "source": "outlets",
+            "type": "table"
+          },
+          {
+            "icon": "bolt",
+            "id": "electrical",
+            "items": [
+              {
+                "label": "Input voltage",
+                "value": "{item}.input.voltage"
+              },
+              {
+                "label": "Output voltage",
+                "value": "{item}.output.voltage"
+              },
+              {
+                "label": "Input frequency",
+                "value": "{item}.input.frequency"
+              },
+              {
+                "label": "Output frequency",
+                "value": "{item}.output.frequency"
+              },
+              {
+                "label": "Battery temperature",
+                "value": "{item}.battery.temperature"
+              },
+              {
+                "label": "Inverter",
+                "value": "{item}.ups.temperature"
+              },
+              {
+                "label": "DC stage",
+                "value": "{item}.experimental.ups.temperature.dc"
+              }
+            ],
+            "label": "Electrical",
+            "type": "list"
+          },
+          {
+            "color": "battery",
+            "colors": [
+              "battery"
+            ],
+            "icon": "battery",
+            "id": "charge_graph",
+            "label": "Charge",
+            "labels": [
+              "Charge"
+            ],
+            "max": 100,
+            "min": 0,
+            "type": "graph",
+            "values": [
+              "{item}.battery.charge"
+            ],
+            "when": "{item}.battery.charge"
+          },
+          {
+            "color": "tx",
+            "colors": [
+              "rx",
+              "tx"
+            ],
+            "icon": "bolt",
+            "id": "watts",
+            "label": "Power",
+            "labels": [
+              "Grid in",
+              "Output"
+            ],
+            "min": 0,
+            "type": "graph",
+            "values": [
+              "{item}.input.realpower",
+              "{item}.ups.realpower"
+            ],
+            "when": "{item}.ups.realpower"
+          },
+          {
+            "color": "good",
+            "colors": [
+              "good",
+              "primary"
+            ],
+            "icon": "leaf",
+            "id": "solar",
+            "label": "Solar",
+            "labels": [
+              "Solar 1",
+              "Solar 2"
+            ],
+            "min": 0,
+            "type": "graph",
+            "values": [
+              "{item}.experimental.input.dc.1.realpower",
+              "{item}.experimental.input.dc.2.realpower"
+            ],
+            "when": "{item}.experimental.input.dc.1.realpower"
+          },
+          {
+            "icon": "chip",
+            "id": "details",
+            "items": [
+              {
+                "label": "Model",
+                "value": "{item}.device.model"
+              },
+              {
+                "label": "Firmware",
+                "value": "{item}.ups.firmware"
+              },
+              {
+                "label": "Rated power",
+                "value": "{item}.ups.realpower.nominal"
+              },
+              {
+                "label": "Low battery at",
+                "value": "{item}.battery.charge.low"
+              },
+              {
+                "label": "Low runtime at",
+                "value": "{item}.battery.runtime.low"
+              }
+            ],
+            "label": "Details",
+            "type": "list"
+          },
+          {
+            "collapsed": true,
+            "for_each": "outlets",
+            "icon": "power",
+            "id": "switches",
+            "label": "Outlets",
+            "type": "group",
+            "widgets": [
+              {
+                "action": "nut.command.{item.source}",
+                "id": "outlet",
+                "label": "{item.desc}",
+                "map": {
+                  "off": "outlet.{item.id}.load.off",
+                  "on": "outlet.{item.id}.load.on"
+                },
+                "off": "outlet.{item.id}.load.off",
+                "on": "outlet.{item.id}.load.on",
+                "param": "cmd",
+                "type": "toggle",
+                "value": "{item.source}.outlet.{item.id}.status"
+              }
+            ]
+          },
+          {
+            "collapsed": true,
+            "icon": "control",
+            "id": "station",
+            "label": "Station",
+            "type": "group",
+            "widgets": [
+              {
+                "action": "nut.set.{item}.experimental.battery.charge.max",
+                "id": "charge_max",
+                "label": "Charge limit",
+                "param": "value",
+                "type": "slider",
+                "value": "{item}.experimental.battery.charge.max"
+              },
+              {
+                "action": "nut.set.{item}.experimental.battery.charge.minimum",
+                "id": "charge_min",
+                "label": "Discharge limit",
+                "param": "value",
+                "type": "slider",
+                "value": "{item}.experimental.battery.charge.minimum"
+              },
+              {
+                "action": "nut.set.{item}.experimental.charger.realpower.max",
+                "id": "charging",
+                "label": "AC charging power",
+                "param": "value",
+                "type": "slider",
+                "value": "{item}.experimental.charger.realpower.max"
+              },
+              {
+                "action": "nut.set.{item}.experimental.display.brightness",
+                "id": "brightness",
+                "label": "Screen brightness",
+                "param": "value",
+                "type": "slider",
+                "value": "{item}.experimental.display.brightness"
+              },
+              {
+                "action": "nut.set.{item}.experimental.output.xboost",
+                "id": "xboost",
+                "label": "X-Boost",
+                "param": "value",
+                "type": "select",
+                "value": "{item}.experimental.output.xboost"
+              },
+              {
+                "action": "nut.set.{item}.experimental.output.ac.timeout",
+                "id": "ac_timeout",
+                "label": "AC timeout",
+                "param": "value",
+                "type": "select",
+                "value": "{item}.experimental.output.ac.timeout"
+              },
+              {
+                "action": "nut.set.{item}.experimental.display.timeout",
+                "id": "screen_timeout",
+                "label": "Screen timeout",
+                "param": "value",
+                "type": "select",
+                "value": "{item}.experimental.display.timeout"
+              },
+              {
+                "action": "nut.command.{item}",
+                "id": "beeper",
+                "label": "Beeper",
+                "map": {
+                  "disabled": "beeper.disable",
+                  "enabled": "beeper.enable"
+                },
+                "off": "beeper.disable",
+                "on": "beeper.enable",
+                "param": "cmd",
+                "type": "toggle",
+                "value": "{item}.ups.beeper.status"
+              }
+            ]
+          }
+        ]
+      },
+      "from": [
+        {
+          "file": "elamond.toml",
+          "line": 236
+        }
+      ],
+      "editor": false,
+      "own": false
     }
   ],
   "profiles": [
     {
-      "id": "pixel-9",
-      "name": "Pixel 9",
+      "id": "default",
+      "name": "Default",
       "def": {
         "dashboards": [
           "overview",
-          "mine"
+          "ups",
+          "processes",
+          "sensors",
+          "control"
         ],
         "header": "header",
         "android": {
-          "widget": "phone",
+          "widget": "",
           "tiles": "",
           "card": ""
         }
       },
       "from": [
         {
-          "file": "elamond.d/phones.toml",
-          "line": 4
-        },
-        {
-          "file": "elamond.d/zz-editor.toml",
-          "line": 12
+          "file": "elamond.toml",
+          "line": 57
         }
       ],
-      "editor": true,
+      "editor": false,
       "clients": [
-        "0123abcd"
+        "id-glance",
+        "id-monitor",
+        "id-operate",
+        "id-admin",
+        "id-owner",
+        "id-old"
       ]
+    },
+    {
+      "id": "owner",
+      "name": "Owner",
+      "def": {
+        "dashboards": [
+          "overview",
+          "control"
+        ],
+        "header": "header",
+        "android": {
+          "widget": "",
+          "tiles": "",
+          "card": ""
+        }
+      },
+      "from": [
+        {
+          "file": "elamond.d/base.toml",
+          "line": 13
+        }
+      ],
+      "editor": false,
+      "clients": []
     }
   ]
 }

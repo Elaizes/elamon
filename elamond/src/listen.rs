@@ -407,6 +407,11 @@ impl Listeners {
 
 	/// Listens on what `listen` comes to now: new addresses are taken, those gone are let go.
 	/// Connections on an address let go stay until they end.
+	/// The port it listens on, as the service started with it.
+	pub fn port(&self) -> u16 {
+		self.port
+	}
+
 	pub fn update(&mut self, plan: &Plan) {
 		let mut seen = BTreeSet::new();
 		self.open.retain(|o| {

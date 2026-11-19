@@ -88,3 +88,15 @@ headless = false
 panel_min = 5
 brightness_step = 5
 ddc_every = 60
+
+# The web page elamond serves (https://<computer>:<port>/), its admin panel and the dashboard
+# editor, for the role `role` (docs/config.md, The web page and the admin API).
+[web]
+page = true
+admin = true
+write = true
+editor = true
+role = "owner"
+cookie_days = 30
+backups = 10
+editor_file = "zz-editor.toml"

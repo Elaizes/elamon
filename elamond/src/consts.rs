@@ -29,6 +29,8 @@ pub mod protocol {
 	pub const PAIRING_DIGITS: u32 = 6;
 	/// Addresses and names in a pairing link: the app reads no more than these.
 	pub const PAIR_HOSTS_MAX: usize = 8;
+	/// The cookie a browser's token is in: `__Host-` keeps it to this origin, over HTTPS, at `/`.
+	pub const COOKIE: &str = "__Host-elamon";
 }
 
 /// How often things are read, as time rather than ticks: `Ticks` turns them into ticks of the
@@ -53,6 +55,8 @@ pub mod cadence {
 	pub const UI_REBUILD: Duration = Duration::from_secs(5);
 	/// A `ui` no client has asked for in this long is forgotten.
 	pub const UI_FORGET: Duration = Duration::from_secs(60);
+	/// How long the admin API keeps what `elamond setup --check` said before asking again.
+	pub const ADMIN_SETUP_CHECK: Duration = Duration::from_secs(60);
 	/// The app a phone says it is (`Elamon-Client`) and the address it comes from are written to
 	/// clients.json at once when they change, then at most this often for the phone: `elamond
 	/// clients` may be as late as this with a phone that keeps saying another, or roaming.
@@ -246,8 +250,14 @@ pub mod limit {
 	pub const SNAPSHOT_TOP: usize = 10;
 	/// Addresses `elamond pair` tries, to tell whether the service runs.
 	pub const SERVICE_CHECK_ADDRS: usize = 3;
-	/// Bytes in the body of a request: `pair`, `rekey`, an action's parameters, a stream's change.
+	/// Bytes in the body of a request: `pair`, `rekey`, an action's parameters, a stream's change,
+	/// the admin API's but those that carry a settings file.
 	pub const BODY_MAX: usize = 4 * 1024;
+	/// Bytes in a request of the admin API that carries a settings file (or a draft for the editor),
+	/// and in a settings file it reads or writes.
+	pub const SETTINGS_BODY_MAX: usize = 1024 * 1024;
+	/// Entries the admin API lists of the activity log and of the events, unless asked for fewer.
+	pub const ADMIN_LIST_MAX: usize = 500;
 	/// Streams one client holds open at once; a new one beyond these ends its oldest.
 	pub const STREAMS_PER_CLIENT: usize = 4;
 	/// `ui` documents kept built at once (one for each role, profile, kind of client and set of
