@@ -65,21 +65,28 @@ class ProtocolContractTest {
 		"0.8/log" to LogPage.serializer(),
 		// And what 0.8.1 adds.
 		"0.8.1/ui-legend" to UiDoc.serializer(),
+		// And what 0.10 adds.
+		"0.10/ui-displays" to UiDoc.serializer(),
+		"0.10/stream-displays" to StreamLine.serializer(),
+		"0.10/snapshot-widget" to DataLine.serializer(),
+		"0.10/action-display-typed" to ActionRequest.serializer(),
 	)
 
 	/** The folders of fixtures under [dir], "" for itself. */
-	private val folders = listOf("", "0.7/", "0.8/", "0.8.1/")
+	private val folders = listOf("", "0.7/", "0.8/", "0.8.1/", "0.10/")
 
 	/** Fixtures that aren't a body the app decodes, and the test that reads them. */
 	private val checkedElsewhere = mapOf(
 		"errors" to "ErrorsTest: every error code and its status",
 		"formats" to "FormatTest: every case the service formats",
+		"0.10/actions-displays" to "MonitorsTest: the answers to a monitor's action, by case",
 	)
 
 	/** Objects keyed by ids rather than by field names: their values are checked together, as a list's items are. */
 	private val maps = setOf(
 		"stream-data.widgets", "stream-data.history", "stream-data-detail.widgets", "stream-data-detail.history", "0.7/stream-ups.widgets",
-		"0.8/stream-sources.widgets", "0.8/stream-log-next.widgets", "0.8/subscribe-log.log",
+		"0.8/stream-sources.widgets", "0.8/stream-log-next.widgets", "0.8/subscribe-log.log", "0.10/stream-displays.widgets",
+		"0.10/snapshot-widget.widgets",
 	)
 
 	/** A group's widgets are widgets: what they have, the dashboards' widgets are checked for. */
@@ -96,18 +103,23 @@ class ProtocolContractTest {
 		"0.8/stream-log-next" to "its fields count as stream-data's (alsoSent)",
 		"0.8/subscribe-log" to "its fields count as subscribe's (alsoSent)",
 		"0.8.1/ui-legend" to "its fields count as ui's (alsoSent)",
+		"0.10/ui-displays" to "its fields count as ui's (alsoSent)",
+		"0.10/stream-displays" to "its fields count as stream-data's (alsoSent)",
+		"0.10/snapshot-widget" to "a data line without its type: its fields count as stream-data's (alsoSent)",
+		"0.10/action-display-typed" to "its fields count as action-request's (alsoSent)",
 	)
 
 	/**
 	 * Fixtures of 0.7 whose fields count as sent in a fixture of the same shape from before, which
 	 * lacks them until the service writes it again at 0.7: a timeline's keys and state, `ranges`,
 	 * a choice's and a request's `confirm_text`; and so of 0.8: a log's keys and state, a row action's
-	 * `open`, a stream's `log`; and of 0.8.1: a timeline's `legend`.
+	 * `open`, a stream's `log`; and of 0.8.1: a timeline's `legend`; and of 0.10: the android profile's
+	 * `widget`, `widget_minutes`, `tiles` and `card`.
 	 */
 	private val alsoSent = mapOf(
-		"ui" to listOf("0.7/ui-ups", "0.8/ui-sources", "0.8.1/ui-legend"),
-		"stream-data" to listOf("0.7/stream-ups", "0.8/stream-sources", "0.8/stream-log-next"),
-		"action-request" to listOf("0.7/action-request-typed"),
+		"ui" to listOf("0.7/ui-ups", "0.8/ui-sources", "0.8.1/ui-legend", "0.10/ui-displays"),
+		"stream-data" to listOf("0.7/stream-ups", "0.8/stream-sources", "0.8/stream-log-next", "0.10/stream-displays", "0.10/snapshot-widget"),
+		"action-request" to listOf("0.7/action-request-typed", "0.10/action-display-typed"),
 		"subscribe" to listOf("0.8/subscribe-log"),
 	)
 
@@ -659,6 +671,54 @@ class ProtocolContractTest {
 		val want = sent.filtered(app, level = "error", search = "timeout").filtered(journal, level = journal.level)
 		val change = assertIs<Tell.Change>(tell(sent, want, ui, Limits.streamReadTimeoutMs(1000))).change
 		assertEquals(fixture("0.8/subscribe-log"), ProtocolJson.encodeToJsonElement(Subscribe.serializer(), change))
+	}
+
+	// ---- elamond 0.10 ------------------------------------------------------------------------------
+
+	@Test
+	fun theAndroidProfileNamesTheDashboardsShownOutsideTheApp() {
+		val ui = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), fixture("0.10/ui-displays"))
+		val android = ui.profile.android
+		assertEquals(listOf("phone", "tiles", "card"), listOf(android.widget, android.tiles, android.card))
+		assertEquals(30, android.widgetMinutes)
+		// Each is in the ui, after the tabs, as far as the role sees it.
+		assertEquals(listOf("control", "phone", "tiles", "card"), ui.dashboards.map { it.id })
+		for (id in listOf(android.widget, android.tiles, android.card)) assertTrue(ui.dashboard(id) != null, "no $id")
+		// A service before 0.10 names none: nothing, and the widget's half hour.
+		val old = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), fixture("ui")).profile.android
+		assertEquals(listOf("", "", ""), listOf(old.widget, old.tiles, old.card))
+		assertEquals(DEFAULT_WIDGET_MINUTES, old.widgetMinutes)
+		assertEquals(AndroidProfile(), Profile().android)
+	}
+
+	@Test
+	fun theMonitorsAreToggledAndSlidAsAnyAction() {
+		val ui = ProtocolJson.decodeFromJsonElement(UiDoc.serializer(), fixture("0.10/ui-displays"))
+		assertTrue("display_control" in ui.service.features)
+		val group = findWidget(ui, "control/display_controls")!!
+		assertEquals(listOf("toggle", "slider", "toggle", "toggle", "slider"), group.widgets!!.map { it.type })
+		val displays = ui.actions.filter { it.id.startsWith("display.") }
+		assertEquals(5, displays.size)
+		assertTrue(displays.all { it.kind == "display" && !it.unlock })
+		// Turning on or off asks; the brightness doesn't, as the volume.
+		assertEquals(listOf(true, false), listOf(ui.action("display.output.DP-1")!!.confirm, ui.action("display.brightness.DP-1")!!.confirm))
+		// Every type of it the app draws: no new one.
+		val types = ui.dashboards.flatMap { allWidgets(it.widgets) }.map { it.type }.toSet()
+		assertTrue(types.all { it in WIDGET_TYPES }, "types the app doesn't draw: ${types - WIDGET_TYPES.toSet()}")
+		// Their states, as a toggle's and a slider's.
+		val data = assertIs<DataLine>(decodeStreamLine(line("0.10/stream-displays")))
+		assertEquals("on", data.widgets.getValue("control/display_controls/output.dp_1").v.text())
+		assertEquals(60.0, data.widgets.getValue("control/display_controls/brightness.dp_1").number)
+	}
+
+	@Test
+	fun theWidgetsSnapshotAsSent() {
+		val line = ProtocolJson.decodeFromJsonElement(DataLine.serializer(), fixture("0.10/snapshot-widget"))
+		assertEquals("phone", line.dashboard)
+		// history=0: none.
+		assertNull(line.history)
+		assertEquals("warning", line.widgets.getValue("phone/temp").level)
+		assertEquals("2 connected · 1 on", line.widgets.getValue("phone/monitors").text)
 	}
 }
 

@@ -163,7 +163,18 @@ data class AndroidProfile(
 	val blur: Boolean = true,
 	val haptics: Boolean = true,
 	@SerialName("keep_screen_on") val keepScreenOn: Boolean = false,
+	/** The dashboard the home-screen widget shows (from elamond 0.10); empty for none. */
+	val widget: String = "",
+	/** Minutes between the widget's readings in the background, as the profile asks (15 to 1440). */
+	@SerialName("widget_minutes") val widgetMinutes: Int = DEFAULT_WIDGET_MINUTES,
+	/** The dashboard whose first four buttons and toggles are the Quick Settings tiles; empty for none. */
+	val tiles: String = "",
+	/** The dashboard the computer's card on the home screen shows; empty for the first figures of the first tab. */
+	val card: String = "",
 )
+
+/** How often the widget's dashboard is read while the profile doesn't say. */
+const val DEFAULT_WIDGET_MINUTES = 30
 
 @Serializable
 data class Dashboard(
@@ -293,7 +304,7 @@ data class Field(val field: String, val label: String? = null, val format: Strin
 data class Action(
 	val id: String,
 	val name: String = "",
-	/** "power", "nut" (a station's), "signal", "actions", "units", "profile" or "media". */
+	/** "power", "nut" (a station's), "signal", "actions", "units", "display" (a monitor's), "profile" or "media". */
 	val kind: String = "actions",
 	val icon: String? = null,
 	val confirm: Boolean = true,
@@ -322,7 +333,11 @@ data class Param(
 data class Choice(
 	val value: String,
 	val label: String? = null,
-	/** What the person types, exactly, before it runs (a station's command that cuts power), and the request carries. */
+	/**
+	 * What the person types, exactly, before it runs, and the request carries: a station's command
+	 * that cuts power (the command itself), or turning off the last monitor that shows a picture (the
+	 * monitor's name, not the value).
+	 */
 	@SerialName("confirm_text") val confirmText: String? = null,
 )
 
