@@ -184,7 +184,7 @@ class EditorTest {
 		assertEquals(obj("""{"dashboards":["overview"]}"""), profileChanges(def, Drafts.withKey(back, PROFILE_TABS, JsonArray(listOf(JsonPrimitive("overview"))))))
 		// The fixture's write, of a profile that had none of it: all of it.
 		val p = fixture("editor-profile").getValue("request").jsonObject
-		assertEquals(p, profileBody("pixel-9", profileChanges(obj("{}"), p.getValue("profile").jsonObject), "9a8b7c6d5e4f3021"))
+		assertEquals(p, profileBody(p.getValue("id").jsonPrimitive.content, profileChanges(obj("{}"), p.getValue("profile").jsonObject), p.getValue("base").jsonPrimitive.content))
 	}
 
 	@Test
@@ -402,7 +402,7 @@ class EditorTest {
 		val saved = fixture("admin-save").getValue("bad_settings").jsonObject
 		val bad = mistakesOf(ElamondException.fromResponse(422, saved.getValue("body").toString())).single()
 		assertEquals(3, bad.line)
-		assertEquals(MistakeAt.InDashboard("mine", listOf(0), "max"), mistakeAt(bad.path))
+		assertEquals(MistakeAt.InDashboard("mine", listOf(0), "span"), mistakeAt(bad.path))
 		// Another refusal has none.
 		assertTrue(mistakesOf(ElamondException.fromResponse(409, """{"error":"changed_on_disk","hash":"0000111122223333"}""")).isEmpty())
 		assertEquals("0000111122223333", ElamondException.fromResponse(409, """{"error":"changed_on_disk","hash":"0000111122223333"}""").body!!["hash"]!!.jsonPrimitive.content)
@@ -413,15 +413,17 @@ class EditorTest {
 		// A dashboard written whole, with the editor's file's hash.
 		val dashboard = fixture("editor-dashboard")
 		val request = dashboard.getValue("request").jsonObject
-		assertEquals(request, dashboardBody("mine", request.getValue("dashboard").jsonObject, "8877665544332211"))
-		assertEquals(EditorSaved(true, "9a8b7c6d5e4f3021", null, 5), ProtocolJson.decodeFromJsonElement(EditorSaved.serializer(), dashboard.getValue("response")))
-		// A profile's tabs, and back to the files.
+		// The editor's file wasn't there yet: no base.
+		assertEquals(request, dashboardBody("mine", request.getValue("dashboard").jsonObject, null))
+		val saved = ProtocolJson.decodeFromJsonElement(EditorSaved.serializer(), dashboard.getValue("response"))
+		assertEquals(EditorSaved(true, saved.hash, null, saved.generation), saved)
+		// A profile's tabs, on the hash the dashboard's write left, and back to the files.
 		val profile = fixture("editor-profile")
 		val p = profile.getValue("request").jsonObject
-		assertEquals(p, profileBody("pixel-9", p.getValue("profile").jsonObject, "9a8b7c6d5e4f3021"))
-		val revert = profile.getValue("revert").jsonObject
-		assertEquals(revert.getValue("request"), tableBody("profile", "pixel-9", "0a1b2c3d4e5f6071"))
-		assertEquals("1763550300789", ProtocolJson.decodeFromJsonElement(EditorSaved.serializer(), revert.getValue("response")).backup)
+		assertEquals(saved.hash, p.getValue("base").jsonPrimitive.content)
+		assertEquals(p, profileBody(p.getValue("id").jsonPrimitive.content, p.getValue("profile").jsonObject, saved.hash))
+		assertEquals("1763550300789", ProtocolJson.decodeFromJsonElement(EditorSaved.serializer(), profile.getValue("response")).backup)
+		assertEquals(obj("""{"profile":"pixel-9","base":"0a1b2c3d4e5f6071"}"""), tableBody("profile", "pixel-9", "0a1b2c3d4e5f6071"))
 		// An editor's file that isn't there yet: no hash, said as null.
 		assertEquals(JsonNull, dashboardBody("mine", obj("{}"), null)["base"])
 		assertEquals(obj("""{"dashboard":"mine","base":"x"}"""), tableBody("dashboard", "mine", "x"))
