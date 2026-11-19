@@ -34,7 +34,7 @@ export function textColumns(columns) {
 	return columns.filter((c) => c.format == null || c.format === 'text');
 }
 
-/** The fields a table's search looks in: those the service names, or its text columns. @param {{ search_fields?: string[], columns?: Column[] }} w */
+/** The fields a table's search looks in: those the service names, or its text columns. @param {{ search_fields?: string[], columns?: Column[], [key: string]: any }} w */
 export function searchFields(w) {
 	return w.search_fields || textColumns(w.columns || []).map((c) => c.field);
 }
@@ -116,7 +116,7 @@ export function fillParams(template, row) {
 /**
  * What a row offers of a table's row actions: the dashboard one opens, `<open>.<the row's key>`,
  * while `ui` has it; or the action one runs, while `ui` has that. One with neither isn't offered.
- * @param {{ dashboards?: { id: string }[], actions?: { id: string }[] }} ui @param {{ row_actions?: any[] }} w @param {Row} row
+ * @param {{ dashboards?: { id: string }[], actions?: { id: string }[], [key: string]: any }} ui @param {{ row_actions?: any[], [key: string]: any }} w @param {Row} row
  * @returns {{ rowAction: any, opens: string | null, runs: any }[]}
  */
 export function rowButtons(ui, w, row) {

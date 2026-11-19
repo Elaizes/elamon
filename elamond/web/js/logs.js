@@ -56,7 +56,7 @@ export function canLoadOlder(l) {
  * With the state `s` the stream sent, for a widget that keeps `keep` lines: its lines in place of
  * these on a reset, else after them, "… n more" before them where it left some out. A note stays
  * until a reset comes without one.
- * @param {LogLines} l @param {{ lines?: LogLine[], reset?: boolean, more?: number, note?: string }} s @param {number} keep @returns {LogLines}
+ * @param {LogLines} l @param {{ lines?: LogLine[], reset?: boolean, more?: number, note?: string, [key: string]: any }} s @param {number} keep @returns {LogLines}
  */
 export function take(l, s, keep) {
 	const base = s.reset ? { ...empty(keep), note: s.note ?? null, generation: ++generations, nextKey: l.nextKey } : { ...l, keep, note: s.note ?? l.note };
