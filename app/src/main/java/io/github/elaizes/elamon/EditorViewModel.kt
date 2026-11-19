@@ -332,7 +332,8 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 		return try {
 			// Asked for by its id in the settings, as the computer takes it.
 			val p = client().preview(previewBody(mapOf(a.dashboard to a.draft), emptyMap(), a.dashboard))
-			p.line?.let { takeHists(p.ui, it) }
+			// Its graphs and sparks, as a stream's are kept: their history replaced, a point added each reading.
+			p.line?.let { takeHists(hists, p.ui, it, intervalMs().toLong()) }
 			val logs = p.line?.let { line -> logsOf(p.ui, line) }.orEmpty()
 			_state.update { it.copy(preview = PreviewView(p, logs, System.currentTimeMillis()), previewNote = null, previewMistakes = emptyList()) }
 			PreviewTry.Shown
@@ -354,23 +355,6 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 			}
 			// Out of reach, or a server's error: again, later; refused: not again until the draft changes.
 			if (ex == null || ex.kind == Kind.Unreachable || ex.status >= SERVER_ERRORS) PreviewTry.Failed else PreviewTry.Refused
-		}
-	}
-
-	/** The preview's graphs and sparks, as a stream's are kept: its history replaced, a point added each reading. */
-	private fun takeHists(ui: UiDoc, line: DataLine) {
-		val dash = ui.dashboard(line.dashboard) ?: return
-		val step = intervalMs().toLong()
-		for (w in allWidgets(dash.widgets)) {
-			val graph = w.type == "graph"
-			if (!graph && !(w.type == "value" && w.spark == true)) continue
-			val count = if (graph) w.series?.size?.coerceAtLeast(1) ?: 1 else 1
-			val window = ((if (graph) w.range else null)?.takeIf { it > 0 } ?: ui.service.historySeconds) * MS_PER_SECOND
-			val h = hists[w.id]?.takeIf { it.seriesCount == count } ?: Hist(count, window).also { hists[w.id] = it }
-			h.windowMs = window
-			h.stepHintMs = step
-			val s = line.widgets[w.id]
-			h.take(line.t, if (graph) s?.numbers.orEmpty() else listOf(s?.number), line.history?.get(w.id))
 		}
 	}
 
@@ -556,7 +540,6 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 	private companion object {
 		/** How long the draft stays the same before the computer previews it again. */
 		const val PREVIEW_SETTLE_MS = 400L
-		const val MS_PER_SECOND = 1000L
 		const val SERVER_ERRORS = 500
 		const val HTTP_TOO_LARGE = 413
 	}

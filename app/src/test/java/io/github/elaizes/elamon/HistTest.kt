@@ -4,7 +4,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import io.github.elaizes.elamon.data.DataLine
 import io.github.elaizes.elamon.data.HistoryEntry
+import io.github.elaizes.elamon.data.ProtocolJson
+import io.github.elaizes.elamon.data.UiDoc
 
 /** A graph's points: the service's history, then each data line's values appended, what falls out of the range dropped. */
 class HistTest {
@@ -191,5 +194,44 @@ class HistTest {
 		assertEquals(5f, h.points(0).v(3))
 		// With nothing yet, the first point is taken.
 		assertTrue(Hist(1).appendEvery(5, listOf(1.0), 120_000))
+	}
+
+	@Test
+	fun aLinesGraphsAndSparksAreKeptAsAStreamKeepsThem() {
+		// What the machine screen and the editor's preview both keep of a line.
+		val ui = ProtocolJson.decodeFromString(
+			UiDoc.serializer(),
+			"""{"version":"v","service":{"id":"x","history_seconds":60},"dashboards":[{"id":"d","widgets":[
+			  {"id":"d/net","type":"graph","series":[{"label":"Down"},{"label":"Up"}],"range":30},
+			  {"id":"d/g","type":"group","widgets":[{"id":"d/g/temp","type":"value","spark":true}]},
+			  {"id":"d/cpu","type":"value"}]},{"id":"e","widgets":[{"id":"e/load","type":"graph"}]}]}""",
+		)
+		fun line(t: Long, dashboard: String = "d", net: String = "[1.5,2.5]") = ProtocolJson.decodeFromString(
+			DataLine.serializer(),
+			"""{"t":$t,"dashboard":"$dashboard","widgets":{"d/net":{"v":$net},"d/g/temp":{"v":50},"d/cpu":{"v":3}}}""",
+		)
+		val hists = HashMap<String, Hist>()
+		val taken = mutableListOf<Pair<String, List<Double?>>>()
+		takeHists(hists, ui, line(100_000), 1000L) { w, v -> taken += w.id to v }
+		// A graph and a spark, in a group too; a plain value, and another dashboard's graph, none.
+		assertEquals(setOf("d/net", "d/g/temp"), hists.keys)
+		assertEquals(listOf<Pair<String, List<Double?>>>("d/net" to listOf(1.5, 2.5), "d/g/temp" to listOf(50.0)), taken)
+		val net = hists.getValue("d/net")
+		assertEquals(2, net.seriesCount)
+		// The graph's range; a spark, as far back as the service keeps.
+		assertEquals(30_000L, net.windowMs)
+		assertEquals(60_000L, hists.getValue("d/g/temp").windowMs)
+		assertEquals(1000L, net.stepHintMs)
+		assertEquals(listOf(1.5f), net.points(0).values())
+		assertEquals(listOf(2.5f), net.points(1).values())
+		// The next line: a point more, in the same Hist.
+		takeHists(hists, ui, line(101_000), 2000L)
+		assertTrue(net === hists.getValue("d/net"))
+		assertEquals(listOf(100_000L, 101_000L), net.points(0).times())
+		assertEquals(2000L, net.stepHintMs)
+		// Another dashboard's line: its own graph's, nothing of this one's.
+		takeHists(hists, ui, line(102_000, dashboard = "e"), 1000L)
+		assertEquals(2, net.size)
+		assertTrue("e/load" in hists)
 	}
 }

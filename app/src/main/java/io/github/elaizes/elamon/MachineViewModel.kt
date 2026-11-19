@@ -703,19 +703,8 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	private fun handleData(line: DataLine, host: String) {
 		val ui = _state.value.ui
 		val dash = ui?.dashboard(line.dashboard)
-		if (ui != null && dash != null) {
-			for (w in allWidgets(dash.widgets)) {
-				val graph = w.type == "graph"
-				if (!graph && !(w.type == "value" && w.spark == true)) continue
-				val count = if (graph) w.series?.size?.coerceAtLeast(1) ?: 1 else 1
-				// A spark reaches as far back as the service keeps.
-				val window = (if (graph) w.range else null)?.takeIf { it > 0 }?.let { it * MS_PER_SECOND } ?: ui.service.historySeconds * MS_PER_SECOND
-				val h = hists[w.id]?.takeIf { it.seriesCount == count } ?: Hist(count, window).also { hists[w.id] = it }
-				h.windowMs = window
-				h.stepHintMs = wanted.value.intervalMs.toLong()
-				val s = line.widgets[w.id]
-				val values = if (graph) s?.numbers.orEmpty() else listOf(s?.number)
-				h.take(line.t, values, line.history?.get(w.id))
+		if (ui != null) {
+			takeHists(hists, ui, line, wanted.value.intervalMs.toLong()) { w, values ->
 				// Over a long range, a point to a bucket.
 				val step = _state.value.ranges[w.id]?.stepMs
 				if (step != null) longHists[w.id]?.appendEvery(line.t, values, step)
@@ -837,10 +826,6 @@ class MachineViewModel(app: Application, private val machineId: String) : Androi
 	class Factory(private val app: Application, private val id: String) : ViewModelProvider.Factory {
 		@Suppress("UNCHECKED_CAST")
 		override fun <T : ViewModel> create(modelClass: Class<T>): T = MachineViewModel(app, id) as T
-	}
-
-	private companion object {
-		const val MS_PER_SECOND = 1000L
 	}
 }
 
