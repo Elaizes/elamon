@@ -1,5 +1,6 @@
 package io.github.elaizes.elamon.ui
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -25,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
@@ -89,7 +91,9 @@ fun LogWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val own = w.level ?: DEFAULT_LOG_LEVEL
 	val filter = scope.logs[w.id]
 	val level = filter?.level ?: own
-	WidgetSection(scope, w, accent(w.color), modifier) {
+	// A log the settings give no icon: the journal's terminal, or the bell of the events.
+	val mark = if (w.icon != null) icon(w.icon) else if (ofEvents(w)) Icons.Default.Notifications else ElIcons.Terminal
+	Section(w.label.orEmpty(), mark, modifier, accent = accent(w.color), onClick = w.open?.let { d -> { scope.open(d) } }) {
 		log?.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Metric.colors.warn) }
 		Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 			for (l in logLevels(own)) {
@@ -125,7 +129,7 @@ private fun LogSearch(scope: DashScope, w: Widget, sent: String) {
 		modifier = Modifier.fillMaxWidth(),
 		singleLine = true,
 		shape = RoundedCornerShape(Radius.field),
-		placeholder = { Text(stringResource(R.string.log_search)) },
+		placeholder = { Text(stringResource(searchHint(w))) },
 		leadingIcon = { Icon(Icons.Default.Search, null) },
 		trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Clear, stringResource(R.string.processes_clear)) } },
 		colors = OutlinedTextFieldDefaults.colors(
@@ -299,6 +303,15 @@ private fun levelLabel(level: String): String = stringResource(
 		else -> R.string.log_level_info
 	},
 )
+
+/** Whether [w] shows the service's events rather than a journal (elamond 0.9). */
+internal fun ofEvents(w: Widget): Boolean = w.scope == EVENTS
+
+/** What the search field of [w] says while empty: the events are searched, not a journal. */
+@StringRes
+internal fun searchHint(w: Widget): Int = if (ofEvents(w)) R.string.log_search_events else R.string.log_search
+
+private const val EVENTS = "events"
 
 /** Keys of the list's rows that aren't lines (theirs are numbers). */
 private const val OLDER = "older"

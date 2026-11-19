@@ -390,6 +390,8 @@
 	<!-- Over a log scrolled up from its newest lines: back down to them, following what comes. -->
 	<string name="log_newest">Newest</string>
 	<string name="log_search">Search the journal</string>
+	<!-- The same over a log of the service's events (elamond 0.9). -->
+	<string name="log_search_events">Search the events</string>
 	<!-- Where the stream left lines out: "… 12 more". -->
 	<plurals name="log_more">
 		<item quantity="one">… %1$d more</item>
