@@ -1209,9 +1209,10 @@ pub fn displays_seen() -> crate::displays::Seen {
 			out(r#"{ "name": "stream", "width": 1920, "height": 1080, "refreshRate": 60, "x": 3840, "y": 0, "scale": 1, "hardwareDetails": { "backend": "headless" } }"#),
 		],
 		light: std::collections::BTreeMap::from([
-			("eDP-1".to_string(), (Way::Backlight("intel_backlight".into()), Some(Level { raw: 48000, max: 96000 }))),
+			("eDP-1".to_string(), (Way::Backlight("intel_backlight".into()), Some(Level { raw: 60000, max: 120000 }))),
 			("DP-1".to_string(), (Way::Ddc(14), Some(Level { raw: 60, max: 100 }))),
 		]),
+		at: None,
 	}
 }
 

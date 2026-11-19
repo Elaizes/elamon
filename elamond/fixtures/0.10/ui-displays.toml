@@ -2,7 +2,7 @@
 # outside the app (its home-screen widget, its Quick Settings tiles, the computer's card).
 #
 # What Hyprland says, in the tests (`displays_seen` in src/fixtures.rs):
-#   eDP-1   the laptop's panel, disabled; its backlight at 48000 of 96000 (50 %)
+#   eDP-1   the laptop's panel, disabled; its backlight at 60000 of 120000 (50 %)
 #   DP-1    on, its picture on; DDC on i2c-14 at 60 of 100: no other screen shows a picture, so
 #           turning it off, or its picture, asks for "DP-1" to be typed
 #   stream  an output without a screen (a stream's): left out, as `headless = false` says

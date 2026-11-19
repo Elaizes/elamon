@@ -566,7 +566,10 @@ fn collect_loop(
 		// Hyprland's word on the monitors, from its own thread: read while a client shows them.
 		hub.displays.want(need.displays);
 		let seen = hub.displays.seen();
-		if need.displays {
+		// Its word as of now, not from before anyone looked: until the thread has read it again, the
+		// monitors count as not read yet (a snapshot waits for them).
+		let monitors_read = seen.instance.is_none() || seen.fresh(&config.displays);
+		if need.displays && monitors_read {
 			displays::merge(&mut reading.sample.displays, &seen, &config.displays);
 		}
 		let mut got = extras.apply(&hub, &rt, wanted.is_some(), need, &mut reading.sample);
@@ -627,7 +630,7 @@ fn collect_loop(
 		let read = ui::Sources {
 			processes: reading.processes.is_some(),
 			gpus: need.gpus,
-			displays: reading.displays,
+			displays: reading.displays && monitors_read,
 			// What the sources' tasks keep is there every reading.
 			sources: true,
 			..got.read

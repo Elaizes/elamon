@@ -126,10 +126,10 @@ mod tests {
 
 	#[test]
 	fn levels_in_percent_and_back() {
-		let l = Level { raw: 90240, max: 96000 };
+		let l = Level { raw: 112800, max: 120000 };
 		assert_eq!(l.percent(), 94.0);
-		assert_eq!(l.raw_of(50.0), 48000);
-		assert_eq!(l.raw_of(140.0), 96000);
+		assert_eq!(l.raw_of(50.0), 60000);
+		assert_eq!(l.raw_of(140.0), 120000);
 		assert_eq!(Level { raw: 3, max: 0 }.percent(), 0.0);
 		assert_eq!(parse_vcp("VCP 10 C 50 100\n"), Some(Level { raw: 50, max: 100 }));
 		assert_eq!(parse_vcp("VCP 10 C 120 100"), Some(Level { raw: 100, max: 100 }));
@@ -149,14 +149,14 @@ mod tests {
 		std::fs::create_dir_all(sys.join("class/drm/card2-DP-10")).unwrap();
 		std::fs::create_dir_all(sys.join("class/backlight/intel_backlight")).unwrap();
 		std::os::unix::fs::symlink("../../i2c-14", dp.join("ddc")).unwrap();
-		std::fs::write(sys.join("class/backlight/intel_backlight/brightness"), "90240\n").unwrap();
-		std::fs::write(sys.join("class/backlight/intel_backlight/max_brightness"), "96000\n").unwrap();
+		std::fs::write(sys.join("class/backlight/intel_backlight/brightness"), "112800\n").unwrap();
+		std::fs::write(sys.join("class/backlight/intel_backlight/max_brightness"), "120000\n").unwrap();
 		assert_eq!(connector_dir(&sys, "DP-1"), Some(dp.clone()));
 		assert_eq!(connector_dir(&sys, "HDMI-A-1"), None);
 		assert_eq!(way_of(&sys, &edp), Some(Way::Backlight("intel_backlight".into())));
 		assert_eq!(way_of(&sys, &dp), Some(Way::Ddc(14)));
 		assert_eq!(way_of(&sys, &sys.join("class/drm/card2-DP-10")), None);
-		assert_eq!(backlight(&sys, "intel_backlight"), Some(Level { raw: 90240, max: 96000 }));
+		assert_eq!(backlight(&sys, "intel_backlight"), Some(Level { raw: 112800, max: 120000 }));
 		assert_eq!(backlight(&sys, "other"), None);
 		std::fs::remove_dir_all(&sys).unwrap();
 	}

@@ -7,7 +7,7 @@ appId: io.github.elaizes.elamon.debug
 ---
 - tapOn: "Smart 1500.*"
 - extendedWaitUntil:
-    visible: "On line.*"
+    visible: "(On line|On battery).*"
     timeout: 20000
 - waitForAnimationToEnd
 - takeScreenshot: 30-ups

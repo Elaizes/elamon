@@ -910,11 +910,14 @@ carries `confirm_text`, the output's name, which the client asks the person to t
 
 The service tells it on the monitors as Hyprland has them when the action comes, not as the
 client last saw them, and does one monitor's action at a time: without the name, or with another,
-403 `confirm_required` with the name in `message`. They are checked in this order: an id the
-computer doesn't have now (an output Hyprland doesn't show, gone since the client saw it), 404
-`no_such_action`; the role, 403 `not_allowed`; control, 403 `control_disabled`; the parameters,
-400 `bad_param`; the typed name, 403 `confirm_required`. Then the service waits up to `[displays]
-wait` seconds for Hyprland to show it done:
+403 `confirm_required` with the name in `message`. They are checked in this order, as every
+action is, on what the client was offered: an id it wasn't, 404 `no_such_action`; the role, 403
+`not_allowed`; control, 403 `control_disabled`; the parameters, 400 `bad_param`; the typed name,
+403 `confirm_required`. Then on what Hyprland says right then: an output it no longer shows (gone
+since), or the picture of one that is off, 404 `no_such_action`; nothing to do (on already), 200;
+the typed name, 403 `confirm_required`. Then the service waits up to `[displays] wait` seconds for
+Hyprland to show it done; an output it doesn't show turned off in that time is turned on again,
+so that a refusal means nothing changed:
 
 | the action | answer |
 |---|---|
@@ -922,6 +925,10 @@ wait` seconds for Hyprland to show it done:
 | Hyprland didn't show it done in time | 502 `failed`, `message` `not_applied` |
 | an output turned on while no screen shows a picture: Hyprland applies a monitor's change with the next picture it draws, so it waits for a screen to wake | 502 `failed`, `message` `waiting_for_a_screen` |
 | logind, `ddcutil` or Hyprland refused | 502 `failed`, `message` their words |
+
+An output turned on gets back its mode, position, scale, rotation and the output it mirrored, as
+Hyprland keeps them; its variable refresh rate, bit depth and colour settings are Hyprland's
+defaults until Hyprland reloads its settings.
 
 The state of each comes in the `displays` collection (`enabled`, `headless`, `scale`, `brightness`)
 and in the values `display.<key>.output` and `display.<key>.dpms` (`on` or `off`; `dpms` only of

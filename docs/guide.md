@@ -618,12 +618,14 @@ screen sleeps, the windows stay where they are), and a brightness slider where t
 be read. The service finds the running Hyprland by itself with `hyprctl`, also as a user unit
 outside your session; `elamond check` and `elamond setup --check` say what is missing, and
 `elamond values displays` shows what it sees. Without Hyprland, or with settings that aren't Lua,
-there is no group and *Displays* is as before. Nothing is read from Hyprland while no phone shows
-Control.
+there is no group and *Displays* is as before. Hyprland is read while a phone shows the monitors
+(Control, or a widget, tile or card that shows them), as the service starts and after an action;
+not otherwise.
 
 - **Turning one off** takes it out of Hyprland's layout, as a key of yours bound to
   `hl.monitor({ output = …, disabled = true })` does: its windows move to the others. **Turning it
-  on** brings it back with the mode, position, scale and rotation it had. A key that turns a
+  on** brings it back with the mode, position, scale and rotation it had (its variable refresh rate,
+  bit depth and colour as Hyprland's defaults, until it reloads). A key that turns a
   monitor on and off by whether Hyprland lists it keeps working: it sees what the phone did, and the
   phone sees what the key did. A monitor your settings turn off at start can be turned on from the
   phone too.

@@ -91,14 +91,14 @@ fn fit_signature(s: &str) -> bool {
 	(1..=128).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
-/// A number for Lua, without a fraction when it has none: `1`, `1.25`.
+/// A number for Lua, as short as it reads back the same, without a fraction when it has none:
+/// `1`, `1.25`, `1.3333333333333333`.
 fn number(x: f64) -> String {
-	let x = (x * 1000.0).round() / 1000.0;
 	format!("{x}")
 }
 
-/// The Lua that turns `name` off: what SUPER+P's `hl.monitor` does, so a key that turns it on
-/// again finds it off.
+/// The Lua that turns `name` off: the `hl.monitor` a key bound to turning a monitor off runs, so
+/// such a key finds it off.
 pub fn lua_off(name: &str) -> String {
 	format!("hl.monitor({{ output = '{name}', disabled = true }})")
 }
@@ -112,12 +112,34 @@ pub fn lua_on(o: &Output) -> String {
 	} else {
 		("preferred".to_string(), "auto".to_string())
 	};
-	let scale = if o.scale.is_finite() && o.scale > 0.0 { number(o.scale) } else { "1".into() };
+	let scale = if o.scale.is_finite() && o.scale > 0.0 { number(clean_scale(o)) } else { "1".into() };
 	let mirror = match o.mirror_of.as_deref() {
 		Some(m) if m != "none" && fit_name(m) => format!(", mirror = '{m}'"),
 		_ => String::new(),
 	};
 	format!("hl.monitor({{ output = '{}', mode = '{mode}', position = '{position}', scale = {scale}, transform = {}{mirror}, disabled = false }})", o.name, o.transform.min(7))
+}
+
+/// The scale Hyprland had, as precise as it takes: `monitors` prints two decimals, so 1.333333 reads
+/// as 1.33, which divides neither side; the scale that gives the same whole logical size does.
+fn clean_scale(o: &Output) -> f64 {
+	if o.width == 0 || o.height == 0 {
+		return o.scale;
+	}
+	// The logical widths within a hundredth of the scale, the nearest whose scale divides the height too.
+	let (w, h) = (o.width as f64, o.height as f64);
+	let near = |l: &f64| (w / l - o.scale).abs();
+	let (lo, hi) = ((w / (o.scale + 0.01)).floor().max(1.0), (w / (o.scale - 0.01).max(0.01)).ceil());
+	let mut best: Option<f64> = None;
+	let mut l = lo;
+	while l <= hi {
+		let s = w / l;
+		if ((h / s) - (h / s).round()).abs() < 1e-6 && (s - o.scale).abs() < 0.01 && best.is_none_or(|b| near(&l) < near(&b)) {
+			best = Some(l);
+		}
+		l += 1.0;
+	}
+	best.map_or(o.scale, |l| w / l)
 }
 
 /// The Lua that puts `name`'s picture to sleep or wakes it: that output alone.
@@ -256,6 +278,11 @@ mod tests {
 		let h = output(r#"{ "name": "stream", "hardwareDetails": { "backend": "headless" }, "scale": 1.25, "mirrorOf": "eDP-1", "transform": 9 }"#);
 		assert!(h.headless() && h.lit());
 		assert_eq!(lua_on(&h), "hl.monitor({ output = 'stream', mode = 'preferred', position = 'auto', scale = 1.25, transform = 7, mirror = 'eDP-1', disabled = false })");
+		// Two decimals of a scale that divides both sides only whole: put back as it was.
+		let odd = output(r#"{ "name": "DP-2", "width": 2560, "height": 1440, "refreshRate": 60, "scale": 1.33 }"#);
+		assert!(lua_on(&odd).contains("scale = 1.3333333333333333,"), "{}", lua_on(&odd));
+		let plain = output(r#"{ "name": "DP-2", "width": 1920, "height": 1080, "refreshRate": 60, "scale": 1.25 }"#);
+		assert!(lua_on(&plain).contains("scale = 1.25,"), "{}", lua_on(&plain));
 		assert!(output(r#"{ "name": "HEADLESS-2" }"#).headless());
 		assert!(!output(r#"{ "name": "HDMI-A-1", "disabled": true }"#).lit());
 	}

@@ -310,7 +310,7 @@ wait "$writer" 2>/dev/null || true
 flow maestro/monitors.yaml
 grep -qx 'disabled=true' "$hypr/outputs/DP-1" || fail "DP-1 isn't off after its name was typed: $(cat "$hypr/outputs/DP-1")"
 grep -qx 'disabled=false' "$hypr/outputs/eDP-1" || fail "eDP-1 isn't on: $(cat "$hypr/outputs/eDP-1")"
-grep -q "hl.monitor({ output = 'eDP-1', mode = '1920x1080.149'" "$hypr/evals" || fail "eDP-1 wasn't turned on with what it had: $(cat "$hypr/evals")"
+grep -q "hl.monitor({ output = 'eDP-1', mode = '1920x1080@144.149'" "$hypr/evals" || fail "eDP-1 wasn't turned on with what it had: $(cat "$hypr/evals")"
 grep -q '"what":"display output DP-1 off","result":"ok"' "$work/data/activity.jsonl" || fail "the activity log has no DP-1 off"
 # A row's sheet, an action's confirmation and its form, and the licences, each turned while open:
 # each action confirmed there runs once. Not on a real phone, where an action unlocks it instead.

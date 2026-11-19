@@ -238,18 +238,18 @@ fn hyprland_is_found_again_and_a_hanging_hyprctl_is_left_behind() {
 	// Two run: the newest.
 	f.instances(&[("two_2", 200), ("three_3", 300)]);
 	f.d.lock().instance = None;
-	assert_eq!(f.d.read(true).instance.as_deref(), Some("three_3"));
+	assert_eq!(f.d.read(true, true).instance.as_deref(), Some("three_3"));
 	// Settings that aren't Lua: none, and no actions.
 	f.d.lock().instance = None;
 	f.flag("hyprlang", true);
-	let seen = f.d.read(true);
+	let seen = f.d.read(true, true);
 	assert_eq!((seen.instance.as_deref(), seen.why.as_deref()), (None, Some("Hyprland's settings aren't Lua")));
 	assert!(specs(&seen, &quick()).is_empty());
 	f.flag("hyprlang", false);
 	// A hyprctl that hangs is killed in its time, and says so.
 	f.flag("hang", true);
 	let started = Instant::now();
-	let seen = f.d.read(true);
+	let seen = f.d.read(true, true);
 	assert!(started.elapsed() < crate::consts::timeout::HYPRCTL * 2, "{:?}", started.elapsed());
 	assert!(seen.why.as_deref().is_some_and(|w| w.contains("took too long")), "{:?}", seen.why);
 	f.flag("hang", false);
@@ -348,4 +348,63 @@ fn settings_without_displays_get_the_starters() {
 	assert_eq!(bare.displays, DisplaysDef::default());
 	let p = bare.profile("default");
 	assert_eq!((p.widget.as_str(), p.tiles.as_str(), p.card.as_str(), p.widget_minutes), ("", "", "", crate::settings::WIDGET_MINUTES));
+}
+
+#[tokio::test]
+async fn what_the_review_found() {
+	let f = Fake::new(quick());
+	f.output("eDP-1", "");
+	f.d.refresh();
+	// An off Hyprland didn't show done is taken back, so it can't come later behind the next action.
+	f.flag("stuck", true);
+	assert_eq!(f.act("display.output.eDP-1", json!({ "state": "off" }), None).await, Err((ErrorCode::Failed, Some(reason::NOT_APPLIED.into()))));
+	let evals = f.evals();
+	assert_eq!(evals.len(), 2, "{evals:?}");
+	assert_eq!(evals[0], hypr::lua_off("eDP-1"));
+	assert!(evals[1].starts_with("hl.monitor({ output = 'eDP-1', mode = ") && evals[1].ends_with("disabled = false })"), "{evals:?}");
+	f.flag("stuck", false);
+	// A disabled output has no picture: its DPMS is no action, whatever a phone's ui said.
+	f.output("eDP-1", "disabled=true\n");
+	assert_eq!(f.act("display.dpms.eDP-1", json!({ "state": "off" }), None).await, Err((ErrorCode::NoSuchAction, None)));
+	// The last screen already asleep: nothing to do asks for nothing.
+	f.output("DP-1", "dpms=false\n");
+	assert_eq!(f.act("display.dpms.DP-1", json!({ "state": "off" }), None).await, Ok(()));
+	// An action doesn't wait on DDC: no getvcp, however due.
+	f.output("DP-1", "");
+	f.d.lock().ddc.clear();
+	let reads = || f.lines("calls").iter().filter(|l| l.contains("getvcp")).count();
+	let n = reads();
+	assert_eq!(f.act("display.dpms.DP-1", json!({ "state": "on" }), None).await, Ok(()));
+	assert_eq!(f.act("display.output.eDP-1", json!({ "state": "on" }), None).await, Ok(()));
+	assert_eq!(reads(), n);
+	// A level that can't be read again keeps the last one.
+	f.d.lock().ddc.insert(14, (Instant::now() - Duration::from_secs(3600), Some(Level { raw: 42, max: 100 })));
+	std::fs::write(f.dir.join("bin/ddcutil"), "#!/bin/sh\nexit 1\n").unwrap();
+	assert_eq!(f.d.refresh().brightness("DP-1"), Some(42.0));
+	// Fresh while just read, not once it is older than two readings and a moment.
+	assert!(f.d.seen().fresh(&quick()));
+	f.d.lock().seen = Arc::new(Seen { at: Some(Instant::now() - Duration::from_secs(60)), ..(*f.d.seen()).clone() });
+	assert!(!f.d.seen().fresh(&quick()));
+}
+
+#[test]
+fn a_panels_least_is_on_the_sliders_steps() {
+	let seen = Seen {
+		instance: Some("x".into()),
+		outputs: vec![serde_json::from_str(r#"{ "name": "eDP-1" }"#).unwrap()],
+		light: BTreeMap::from([("eDP-1".to_string(), (Way::Backlight("panel".into()), Some(Level { raw: 50, max: 100 })))]),
+		..Default::default()
+	};
+	let range = |panel_min: u64, brightness_step: u64| {
+		let def = DisplaysDef { panel_min, brightness_step, ..quick() };
+		let s = specs(&seen, &def).into_iter().find(|s| s.id == "display.brightness.eDP-1").unwrap();
+		match &s.params[0].kind {
+			ParamKind::Range { min, step, .. } => (min.as_u64().unwrap(), step.as_u64().unwrap()),
+			k => panic!("{k:?}"),
+		}
+	};
+	assert_eq!(range(5, 5), (5, 5));
+	assert_eq!(range(3, 5), (5, 5));
+	assert_eq!(range(0, 10), (0, 10));
+	assert_eq!(range(97, 5), (100, 5));
 }

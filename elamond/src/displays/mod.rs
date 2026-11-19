@@ -35,6 +35,8 @@ pub struct Seen {
 	pub outputs: Vec<Output>,
 	/// How each output's brightness is reached, by name, and what it was last.
 	pub light: BTreeMap<String, (Way, Option<Level>)>,
+	/// When Hyprland said it.
+	pub at: Option<Instant>,
 }
 
 impl Seen {
@@ -56,6 +58,12 @@ impl Seen {
 	/// The outputs a client is told of and may act on, as `[displays]` says.
 	pub fn shown<'a>(&'a self, def: &'a DisplaysDef) -> impl Iterator<Item = &'a Output> {
 		self.outputs.iter().filter(move |o| def.headless || !o.headless())
+	}
+
+	/// Whether it was read recently enough to be shown as it is now: within two of `[displays]
+	/// every` and a moment (the thread reads it every `every` while a client shows the monitors).
+	pub fn fresh(&self, def: &DisplaysDef) -> bool {
+		self.at.is_some_and(|t| t.elapsed() <= Duration::from_secs(def.every.max(1) * 2) + cadence::DISPLAYS_LINGER)
 	}
 
 	/// The brightness of `name` now, in percent, where it can be read.
@@ -126,11 +134,13 @@ pub fn specs(seen: &Seen, def: &DisplaysDef) -> Vec<Spec> {
 			out.push(spec("dpms", format!("{} DPMS", o.name), true, on_off(typed)));
 		}
 		if let Some((way, Some(_))) = seen.light.get(&o.name) {
-			let min = if matches!(way, Way::Backlight(_)) { def.panel_min } else { 0 };
+			// On the slider's steps from 0, so that 100 is one of them: a panel's least rounded up to one.
+			let step = def.brightness_step.max(1);
+			let min = if matches!(way, Way::Backlight(_)) { def.panel_min.div_ceil(step) * step } else { 0 }.min(100);
 			let param = Param {
 				id: "level".into(),
 				label: "Brightness".into(),
-				kind: ParamKind::Range { min: min.into(), max: 100.into(), step: def.brightness_step.into(), unit: Some("%".into()) },
+				kind: ParamKind::Range { min: min.into(), max: 100.into(), step: step.into(), unit: Some("%".into()) },
 				optional: false,
 				default: None,
 				typed: BTreeMap::new(),
@@ -183,7 +193,9 @@ pub struct Displays {
 	state: Mutex<State>,
 	wake: Condvar,
 	/// One action on the monitors at a time.
-	acting: tokio::sync::Mutex<()>,
+	acting: Arc<tokio::sync::Mutex<()>>,
+	/// One `ddcutil` at a time: they share the monitors' buses.
+	ddc_bus: Mutex<()>,
 	programs: Programs,
 	sys: PathBuf,
 	dev: PathBuf,
@@ -219,7 +231,8 @@ impl Displays {
 		Displays {
 			state: Mutex::new(State { def: DisplaysDef::default(), wanted_until: None, seen: Arc::default(), instance: None, looked: None, ddc: BTreeMap::new(), said: BTreeSet::new() }),
 			wake: Condvar::new(),
-			acting: tokio::sync::Mutex::new(()),
+			acting: Arc::new(tokio::sync::Mutex::new(())),
+			ddc_bus: Mutex::new(()),
 			programs,
 			sys,
 			dev,
@@ -311,11 +324,14 @@ impl Displays {
 
 	/// What Hyprland says now, read afresh, and kept for the collector.
 	pub fn refresh(&self) -> Arc<Seen> {
-		self.read(false)
+		self.read(false, true)
 	}
 
-	fn read(&self, now: bool) -> Arc<Seen> {
-		let seen = self.look(now);
+	/// What Hyprland says now; `now` looks for Hyprland again if there is none, `ddc` reads an
+	/// external monitor's brightness when it is due (an action doesn't: a monitor waking up would fail
+	/// it, and the phone would wait on it).
+	fn read(&self, now: bool, ddc: bool) -> Arc<Seen> {
+		let seen = self.look(now, ddc);
 		let seen = Arc::new(seen);
 		let mut s = self.lock();
 		if s.seen.why != seen.why
@@ -328,7 +344,7 @@ impl Displays {
 		seen
 	}
 
-	fn look(&self, now: bool) -> Seen {
+	fn look(&self, now: bool, ddc: bool) -> Seen {
 		let Some(hyprctl) = self.programs.hyprctl() else {
 			return Seen { why: Some("hyprctl isn't there".into()), ..Default::default() };
 		};
@@ -353,13 +369,14 @@ impl Displays {
 		for o in outputs.iter().filter(|o| !hypr::fit_name(&o.name)) {
 			self.say_once(format!("an output named {:?} isn't acted on: its name has more than A-Z, a-z, 0-9, _, . and -", o.name));
 		}
-		let light = self.light(&outputs);
-		Seen { instance: Some(instance), why: None, outputs, light }
+		let light = self.light(&outputs, ddc);
+		Seen { instance: Some(instance), why: None, outputs, light, at: Some(Instant::now()) }
 	}
 
 	/// Each output's brightness: a panel's from sysfs every time; an external monitor's through DDC
-	/// every `ddc_every`, only while it shows a picture (reading it may wake it), else its last.
-	fn light(&self, outputs: &[Output]) -> BTreeMap<String, (Way, Option<Level>)> {
+	/// every `ddc_every` (with `ddc`), only while it shows a picture (reading it may wake it), else its
+	/// last; one that doesn't answer keeps its last level.
+	fn light(&self, outputs: &[Output], ddc: bool) -> BTreeMap<String, (Way, Option<Level>)> {
 		let every = Duration::from_secs(self.lock().def.ddc_every);
 		let ddcutil = self.programs.ddcutil();
 		let mut out = BTreeMap::new();
@@ -375,10 +392,14 @@ impl Displays {
 					};
 					let last = self.lock().ddc.get(bus).cloned();
 					match last {
-						Some((at, level)) if at.elapsed() < every || !o.lit() => level.filter(|_| o.lit()),
-						_ if !o.lit() => None,
+						Some((at, level)) if at.elapsed() < every || !o.lit() || !ddc => level.filter(|_| o.lit()),
+						_ if !o.lit() || !ddc => None,
 						_ => {
-							let level = light::ddc_get(program, *bus).ok();
+							let read = {
+								let _bus = self.ddc_bus.lock().unwrap_or_else(|p| p.into_inner());
+								light::ddc_get(program, *bus).ok()
+							};
+							let level = read.or(last.and_then(|(_, l)| l));
 							self.lock().ddc.insert(*bus, (Instant::now(), level));
 							level
 						}
@@ -395,51 +416,64 @@ impl Displays {
 	pub async fn act(self: &Arc<Self>, bus: &crate::bus::Bus, id: &str, params: &BTreeMap<String, Value>, confirm_text: Option<&str>) -> Result<(), (ErrorCode, Option<String>)> {
 		let Some((what, name)) = target(id) else { return Err((ErrorCode::NoSuchAction, None)) };
 		let name = name.to_string();
-		let _one = self.acting.lock().await;
+		// Owned, so that an action whose request goes away still holds it until it is done.
+		let one = self.acting.clone().lock_owned().await;
 		let me = self.clone();
-		let seen = tokio::task::spawn_blocking(move || me.read(true)).await.map_err(|e| (ErrorCode::Failed, Some(e.to_string())))?;
+		let seen = tokio::task::spawn_blocking(move || me.read(true, false)).await.map_err(|e| (ErrorCode::Failed, Some(e.to_string())))?;
 		let def = self.lock().def.clone();
 		let Some(o) = seen.shown(&def).find(|o| o.name == name).cloned() else { return Err((ErrorCode::NoSuchAction, None)) };
 		let Some(instance) = seen.instance.clone() else { return Err((ErrorCode::NoSuchAction, None)) };
 		let state = params.get("state").and_then(Value::as_str);
-		if state == Some("off") && seen.typed_off(&o) && confirm_text != Some(o.name.as_str()) {
-			return Err((ErrorCode::ConfirmRequired, Some(o.name.clone())));
-		}
 		let wait = Duration::from_secs(def.wait);
 		match what {
 			What::Output | What::Dpms => {
+				// A disabled output has no picture to put to sleep or wake.
+				if what == What::Dpms && o.disabled {
+					return Err((ErrorCode::NoSuchAction, None));
+				}
 				let on = state == Some("on");
-				let (lua, done): (String, fn(&Output, bool) -> bool) = match what {
-					What::Output => (if on { hypr::lua_on(&o) } else { hypr::lua_off(&o.name) }, |o, on| o.disabled != on),
-					_ => (hypr::lua_dpms(&o.name, on), |o, on| o.dpms_status == on),
+				let (lua, undo, done): (String, String, fn(&Output, bool) -> bool) = match what {
+					What::Output => (if on { hypr::lua_on(&o) } else { hypr::lua_off(&o.name) }, hypr::lua_on(&o), |o, on| o.disabled != on),
+					_ => (hypr::lua_dpms(&o.name, on), hypr::lua_dpms(&o.name, true), |o, on| o.dpms_status == on),
 				};
+				// Nothing to do asks for nothing.
 				if done(&o, on) {
 					return Ok(());
+				}
+				if !on && seen.typed_off(&o) && confirm_text != Some(o.name.as_str()) {
+					return Err((ErrorCode::ConfirmRequired, Some(o.name.clone())));
 				}
 				let me = self.clone();
 				let asleep = !seen.outputs.iter().any(|x| !x.headless() && x.lit());
 				let result = tokio::task::spawn_blocking(move || {
+					let _one = one;
 					let hyprctl = me.programs.hyprctl().ok_or_else(|| "hyprctl isn't there".to_string())?;
 					hyprctl.eval(&instance, &lua).map_err(|e| e.to_string())?;
 					let deadline = Instant::now() + wait;
-					loop {
+					let shown = loop {
 						if let Ok(outputs) = hyprctl.outputs(&instance)
 							&& outputs.iter().find(|x| x.name == o.name).is_some_and(|x| done(x, on))
 						{
-							return Ok(true);
+							break true;
 						}
 						if Instant::now() >= deadline {
-							return Ok(false);
+							break false;
 						}
 						std::thread::sleep(cadence::DISPLAYS_VERIFY);
+					};
+					// An off Hyprland hasn't applied yet would still come with its next frame, behind the
+					// next action's back (which takes the screen as lit): taken back, so not done means
+					// nothing changed.
+					if !shown && !on {
+						let _ = hyprctl.eval(&instance, &undo);
 					}
+					// What may be done next, and who is last, as Hyprland has it now: with nobody watching
+					// the monitors the thread wouldn't read it again.
+					me.read(false, false);
+					Ok(shown)
 				})
 				.await
 				.map_err(|e| (ErrorCode::Failed, Some(e.to_string())))?;
-				// What may be done next, and who is last, as Hyprland has it now: with nobody watching the
-				// monitors the thread wouldn't read it again.
-				let me = self.clone();
-				tokio::task::spawn_blocking(move || me.refresh()).await.ok();
 				match result {
 					Ok(true) => Ok(()),
 					Ok(false) if what == What::Output && on && asleep => Err((ErrorCode::Failed, Some(reason::WAITING_FOR_A_SCREEN.into()))),
@@ -455,8 +489,12 @@ impl Displays {
 					Way::Backlight(device) => bus.set_brightness("backlight", device, raw).await,
 					Way::Ddc(n) => {
 						let (program, n) = (self.programs.ddcutil(), *n);
+						let me = self.clone();
 						let set = tokio::task::spawn_blocking(move || match program {
-							Some(p) => light::ddc_set(&p, n, raw),
+							Some(p) => {
+								let _bus = me.ddc_bus.lock().unwrap_or_else(|p| p.into_inner());
+								light::ddc_set(&p, n, raw)
+							}
 							None => Err("ddcutil isn't there".into()),
 						})
 						.await
@@ -468,7 +506,8 @@ impl Displays {
 					}
 				};
 				let me = self.clone();
-				tokio::task::spawn_blocking(move || me.refresh()).await.ok();
+				tokio::task::spawn_blocking(move || me.read(false, false)).await.ok();
+				drop(one);
 				result.map_err(|e| (ErrorCode::Failed, Some(e)))
 			}
 		}
@@ -478,7 +517,7 @@ impl Displays {
 	/// acted on (`true`), or what is missing (`false`): Hyprland, `ddcutil`, the I²C bus, a monitor
 	/// that doesn't answer.
 	pub fn check(&self) -> Vec<(bool, String)> {
-		let seen = self.read(true);
+		let seen = self.read(true, true);
 		if let Some(why) = &seen.why {
 			return vec![(false, format!("monitors: not turned on and off from a phone: {why}"))];
 		}
@@ -501,7 +540,7 @@ impl Displays {
 
 	/// `elamond values displays`: what the service sees of each output, and the actions it offers.
 	pub fn listing(&self, def: &DisplaysDef) -> String {
-		let seen = self.read(true);
+		let seen = self.read(true, true);
 		let Some(instance) = &seen.instance else {
 			return format!("Monitors aren't acted on: {}.\n", seen.why.as_deref().unwrap_or("no Hyprland"));
 		};
