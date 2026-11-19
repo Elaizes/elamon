@@ -16,6 +16,7 @@ import { actionRunner, confirmDialog } from './actions.js';
 import { errorText } from './errors.js';
 import { isFingerprint, colonFingerprint, printedFingerprint } from './fingerprint.js';
 import * as F from './format.js';
+import { intervalOf, historyMsOf } from './consts.js';
 
 /** Every widget type this page draws, as `ui`, the stream and a preview ask for them: keep it to the types widgets/ has. */
 export const DRAWS = 'value,gauge,meter,status,graph,list,bars,table,button,toggle,select,slider,text,group,media,timeline,log';
@@ -73,7 +74,6 @@ export function dashboardView(ui, dashboard, hooks = {}) {
 	const live = !hooks.preview && typeof hooks.runAction === 'function';
 	const actions = new Map((ui.actions || []).map((a) => [a.id, a]));
 	const dashboards = new Set((ui.dashboards || []).map((d) => d.id));
-	const service = ui.service || /** @type {any} */ ({});
 	/** @type {import('./widgets/common.js').Env} */
 	const env = {
 		ui,
@@ -82,8 +82,8 @@ export function dashboardView(ui, dashboard, hooks = {}) {
 		live,
 		action: (id) => (id ? actions.get(id) || null : null),
 		controlOn: !ui.control || ui.control.enabled !== false,
-		intervalMs: (ui.profile && ui.profile.interval_ms) || service.interval_ms || 1000,
-		historyMs: (service.history_seconds || 600) * 1000,
+		intervalMs: intervalOf(ui),
+		historyMs: historyMsOf(ui),
 		memory: hooks.memory || new Map(),
 		asked: { sort: { ...(hooks.asked && hooks.asked.sort) }, log: { ...(hooks.asked && hooks.asked.log) } },
 		make,
@@ -307,10 +307,10 @@ export function mountMachine(root, ctx, tab) {
 			const dash = u ? (u.dashboards || []).find((x) => x.id === d) : null;
 			return dash ? allWidgets(dash.widgets || []).filter((w) => w.type === 'log').map((w) => w.id) : [];
 		};
-		const u = /** @type {Ui} */ (ctx.ui());
 		fresh.stream = new Stream(
 			{ dashboard: current || '', sort: {}, log: {} },
-			{ widgets: DRAWS, intervalMs: (u.profile && u.profile.interval_ms) || (u.service && u.service.interval_ms) || 1000, logsOf },
+			// The interval of the `ui` there is now: a new one with another profile counts at once.
+			{ widgets: DRAWS, intervalMs: () => intervalOf(ctx.ui()), logsOf },
 			{
 				line: (l) => fresh.sink.line?.(l),
 				status: (st) => {

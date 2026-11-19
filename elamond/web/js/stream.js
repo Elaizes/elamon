@@ -18,6 +18,11 @@ export function retryDelay(attempt) {
 	return RETRY_MS[Math.min(Math.max(attempt, 0), RETRY_MS.length - 1)];
 }
 
+/** How long without a line before the connection is taken as gone, at a reading every `intervalMs`. @param {number} intervalMs */
+export function silenceMs(intervalMs) {
+	return Math.max(SILENCE_MS, MISSED_LINES * (Number.isFinite(intervalMs) ? intervalMs : 0));
+}
+
 /**
  * What the stream is asked to send: the dashboard on screen, tables in another order than their
  * own (field by table id), logs with another filter than their own (by log id).
@@ -104,7 +109,8 @@ function copy(w) {
 export class Stream {
 	/**
 	 * @param {Want} want what to send from the start
-	 * @param {{ widgets: string, intervalMs: number, logsOf: (dashboard: string) => string[] }} opts
+	 * @param {{ widgets: string, intervalMs: () => number, logsOf: (dashboard: string) => string[] }} opts
+	 * `intervalMs` is read at each line, so a profile's new interval counts from the next one
 	 * @param {Handlers} handlers
 	 */
 	constructor(want, opts, handlers) {
@@ -201,10 +207,9 @@ export class Stream {
 
 	/** Reads one stream to its end; whether to try again. @param {number} run @param {AbortController} ctrl @returns {Promise<boolean>} */
 	async read(run, ctrl) {
-		const silence = Math.max(SILENCE_MS, MISSED_LINES * this.opts.intervalMs);
 		const kick = () => {
 			if (this.watchdog) clearTimeout(this.watchdog);
-			this.watchdog = setTimeout(() => ctrl.abort(), silence);
+			this.watchdog = setTimeout(() => ctrl.abort(), silenceMs(this.opts.intervalMs()));
 		};
 		try {
 			kick();

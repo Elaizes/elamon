@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { readLine, changeFor, applied, retryDelay, Stream } from '../js/stream.js';
+import { readLine, changeFor, applied, retryDelay, silenceMs, SILENCE_MS, Stream } from '../js/stream.js';
+import { intervalOf, historyMsOf, DEFAULT_INTERVAL_MS, DEFAULT_HISTORY_S } from '../js/consts.js';
 
 const fx = (name) => JSON.parse(readFileSync(new URL(`../../fixtures/${name}`, import.meta.url), 'utf8'));
 
@@ -74,7 +75,7 @@ test('a stream: its lines, a change told by its id, and a drop said', async (t) 
 	t.mock.timers.enable({ apis: ['setTimeout'] });
 	const lines = [];
 	const statuses = [];
-	const s = new Stream(want('home'), { widgets: 'value,gauge', intervalMs: 1000, logsOf }, { line: (l) => lines.push(l.kind), status: (st) => statuses.push(st) });
+	const s = new Stream(want('home'), { widgets: 'value,gauge', intervalMs: () => 1000, logsOf }, { line: (l) => lines.push(l.kind), status: (st) => statuses.push(st) });
 	s.start();
 	s.set({ dashboard: 'detail', sort: { 'detail/procs': 'mem' } });
 	for (let i = 0; i < 20 && !statuses.includes('down'); i++) await new Promise((r) => setImmediate(r));
@@ -104,9 +105,27 @@ test('401 from the stream: back to pairing', async () => {
 	globalThis.document = { hidden: false, addEventListener: () => {}, removeEventListener: () => {} };
 	globalThis.fetch = async () => new Response('{"error":"unauthorized"}', { status: 401 });
 	let told = false;
-	const s = new Stream(want('home'), { widgets: 'value', intervalMs: 1000, logsOf }, { unauthorized: () => (told = true) });
+	const s = new Stream(want('home'), { widgets: 'value', intervalMs: () => 1000, logsOf }, { unauthorized: () => (told = true) });
 	s.start();
 	for (let i = 0; i < 20 && !told; i++) await new Promise((r) => setImmediate(r));
 	assert.equal(told, true);
 	assert.equal(s.status, 'stopped');
+});
+
+test("the watchdog waits by the interval of the ui there is now", () => {
+	const ui = fx('ui.json');
+	assert.equal(intervalOf(ui), ui.profile.interval_ms);
+	assert.equal(intervalOf({ ...ui, profile: { ...ui.profile, interval_ms: 9000 } }), 9000);
+	assert.equal(intervalOf({ service: { interval_ms: 2000 } }), 2000);
+	assert.equal(intervalOf(null), DEFAULT_INTERVAL_MS);
+	assert.equal(historyMsOf(ui), ui.service.history_seconds * 1000);
+	assert.equal(historyMsOf({}), DEFAULT_HISTORY_S * 1000);
+	assert.equal(silenceMs(1000), SILENCE_MS);
+	assert.equal(silenceMs(9000), 4 * 9000);
+	// Read at each line: a profile's new interval counts without a new stream.
+	let interval = 1000;
+	const s = new Stream({ dashboard: 'home', sort: {}, log: {} }, { widgets: 'value', intervalMs: () => interval, logsOf: () => [] }, {});
+	assert.equal(silenceMs(s.opts.intervalMs()), SILENCE_MS);
+	interval = 10000;
+	assert.equal(silenceMs(s.opts.intervalMs()), 40000);
 });
