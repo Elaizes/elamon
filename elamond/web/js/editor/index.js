@@ -17,7 +17,7 @@ import { Previewer } from './preview.js';
 import { profileCard } from './profile.js';
 import { widgetForm } from './side.js';
 import { addDialog } from './add.js';
-import { ask } from './ask.js';
+import { confirmDialog } from '../actions.js';
 import { errorSentence } from '../admin/errors.js';
 
 /**
@@ -202,7 +202,7 @@ class Editor {
 			e.stopImmediatePropagation();
 			const to = location.href;
 			history.pushState(null, '', this.here);
-			ask(S.editor.leaveTitle, S.editor.leaveText, S.editor.leaveGo, true).then((ok) => {
+			confirmDialog(S.editor.leaveTitle, S.editor.leaveText, S.editor.leaveGo, true, null).then((ok) => {
 				if (!ok || this.gone) return;
 				this.leaving = true;
 				location.href = to;
@@ -826,7 +826,7 @@ class Editor {
 
 	/** "Back to the files": the editor's version of this dashboard taken out. */
 	async revert() {
-		if (!(await ask(S.editor.revertTitle, S.editor.revertText, S.editor.revert))) return;
+		if (!(await confirmDialog(S.editor.revertTitle, S.editor.revertText, S.editor.revert, false, null))) return;
 		try {
 			const r = await api('/api/v1/admin/editor/revert', { body: { dashboard: this.id, base: this.desc.hash } });
 			this.say(fill(S.editor.reverted, r.generation ?? '?'), 'normal');
@@ -839,7 +839,7 @@ class Editor {
 
 	/** @param {string} id */
 	async revertProfile(id) {
-		if (!(await ask(S.editor.revertProfileTitle, S.editor.revertProfileText, S.editor.revert))) return;
+		if (!(await confirmDialog(S.editor.revertProfileTitle, S.editor.revertProfileText, S.editor.revert, false, null))) return;
 		try {
 			const r = await api('/api/v1/admin/editor/revert', { body: { profile: id, base: this.desc.hash } });
 			this.profiles.delete(id);
@@ -853,7 +853,7 @@ class Editor {
 
 	/** Deletes a dashboard only the editor's file has (and its place among the editor's tabs). */
 	async del() {
-		if (!(await ask(S.editor.deleteTitle, fill(S.editor.deleteText, String(this.dash.value.title || this.id)), S.editor.deleteDashboard, true))) return;
+		if (!(await confirmDialog(S.editor.deleteTitle, fill(S.editor.deleteText, String(this.dash.value.title || this.id)), S.editor.deleteDashboard, true, null))) return;
 		try {
 			const r = await api('/api/v1/admin/editor/delete', { body: { dashboard: this.id, base: this.desc.hash } });
 			this.ctx.toast(fill(S.editor.deleted, r.generation ?? '?'));
@@ -867,7 +867,7 @@ class Editor {
 
 	/** Leaves for another address, asking first while something isn't saved. @param {string} hash */
 	async leave(hash) {
-		if (this.dirty() && !(await ask(S.editor.leaveTitle, S.editor.leaveText, S.editor.leaveGo, true))) return;
+		if (this.dirty() && !(await confirmDialog(S.editor.leaveTitle, S.editor.leaveText, S.editor.leaveGo, true, null))) return;
 		this.leaving = true;
 		this.ctx.go(hash);
 	}

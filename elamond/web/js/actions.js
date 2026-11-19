@@ -152,9 +152,12 @@ export function typedChoice(action, params) {
 
 /**
  * A modal `<dialog>`: `body` under a title, Cancel and the confirming button; resolves with what
- * `result()` gives on confirming, or null. `ready()` says whether the button may be pressed.
+ * `result()` gives on confirming, or null. `ready()` says whether the button may be pressed. A
+ * `loud` one is framed in red (what it does can't be undone from here); `keep` is handed the
+ * dialog, for whoever closes it with what it belongs to.
  * @template T
- * @param {{ title: string, icon?: string | null, body: Node[], button: string, danger?: boolean, ready?: () => boolean, result: () => T, focus?: HTMLElement }} o
+ * @param {{ title: string, icon?: string | null, body: Node[], button: string, danger?: boolean, ready?: () => boolean, result: () => T, focus?: HTMLElement,
+ *   loud?: boolean, keep?: (dialog: HTMLDialogElement) => void }} o
  * @returns {{ promise: Promise<T | null>, update: () => void }}
  */
 function dialog(o) {
@@ -165,7 +168,7 @@ function dialog(o) {
 		h('h2', { id: titleId, class: 'dialog-title' }, o.icon ? icon(o.icon, 'dialog-icon') : null, o.title),
 		...o.body,
 		h('div', { class: 'actions' }, cancel, ok));
-	const dlg = h('dialog', { class: 'panels-dialog', 'aria-labelledby': titleId }, form);
+	const dlg = h('dialog', { class: o.loud ? 'panels-dialog loud' : 'panels-dialog', 'aria-labelledby': titleId }, form);
 	const update = () => {
 		ok.disabled = o.ready ? !o.ready() : false;
 	};
@@ -192,15 +195,29 @@ function dialog(o) {
 		dlg.addEventListener('close', () => finish(null));
 	});
 	document.body.append(dlg);
+	o.keep?.(dlg);
 	update();
 	dlg.showModal();
 	(o.focus || (o.danger ? cancel : ok)).focus();
 	return { promise, update };
 }
 
-/** Asks a yes-or-no question before an action. @param {string} title @param {string | null} body @param {string} button @param {boolean} danger @param {string | null | undefined} iconName */
-export function confirmDialog(title, body, button, danger, iconName) {
-	return dialog({ title, icon: iconName, body: body ? [h('p', null, body)] : [], button, danger, result: () => true }).promise;
+/**
+ * Asks a yes-or-no question: before an action, before what the admin panel or the editor can't
+ * undo. Resolves true when it is confirmed, null otherwise. `body` is a paragraph, or several
+ * (strings each a paragraph).
+ * @param {string} title @param {string | null | import('./dom.js').Child[]} body @param {string} button @param {boolean} danger
+ * @param {string | null | undefined} iconName @param {{ loud?: boolean, keep?: (dialog: HTMLDialogElement) => void }} [more]
+ */
+export function confirmDialog(title, body, button, danger, iconName, more = {}) {
+	const parts = body == null ? [] : Array.isArray(body) ? body : [body];
+	/** @type {Node[]} */
+	const nodes = [];
+	for (const p of parts) {
+		if (p == null || p === false) continue;
+		nodes.push(typeof p === 'string' || typeof p === 'number' ? h('p', null, String(p)) : p);
+	}
+	return dialog({ title, icon: iconName, body: nodes, button, danger, result: () => true, loud: more.loud, keep: more.keep }).promise;
 }
 
 /** Asks for `text` to be typed, exactly. @param {Action} action @param {{ value: string, confirm_text?: string }} choice @param {string} button */

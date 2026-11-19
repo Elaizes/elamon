@@ -6,6 +6,7 @@ import { S, fill } from '../strings.js';
 import { errorSentence, isAbort, isRefusal } from './errors.js';
 import { classifyDiff } from './diff.js';
 import { fileHref } from './names.js';
+import { confirmDialog } from '../actions.js';
 
 /** @typedef {import('./types.js').Env} Env */
 /** @typedef {import('../dom.js').Child} Child */
@@ -256,30 +257,13 @@ export function dialog(env, o) {
 }
 
 /**
- * Asks before something is done. Resolves true when it is confirmed.
+ * Asks before something is done, as the page asks before an action; closed with the section.
+ * Resolves true when it is confirmed.
  * @param {Env} env @param {{ title: string, body: Child[], confirm: string, danger?: boolean, loud?: boolean }} o
  * @returns {Promise<boolean>}
  */
-export function confirmed(env, o) {
-	return new Promise((resolve) => {
-		let yes = false;
-		const dlg = dialog(env, {
-			title: o.title,
-			body: o.body,
-			loud: o.loud,
-			buttons: [
-				{ text: S.core.cancel },
-				{
-					text: o.confirm,
-					cls: o.danger ? 'danger' : 'primary',
-					run: () => {
-						yes = true;
-					},
-				},
-			],
-		});
-		dlg.addEventListener('close', () => resolve(yes));
-	});
+export async function confirmed(env, o) {
+	return (await confirmDialog(o.title, o.body, o.confirm, !!o.danger, null, { loud: o.loud, keep: (d) => env.keep(d) })) === true;
 }
 
 /** A check box with its label. @param {string} text @param {boolean} [checked] */
