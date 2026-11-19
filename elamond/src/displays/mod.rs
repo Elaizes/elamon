@@ -197,8 +197,11 @@ fn say(s: &str) {
 }
 
 impl Displays {
+	/// On this computer: `/sys` and `/dev`, or the folders `ELAMON_SYSFS` and `ELAMON_DEV` name (an
+	/// end-to-end test's own, so a stand-in monitor never reaches a real backlight or bus).
 	pub fn new() -> Displays {
-		Displays::with(Programs::Found, PathBuf::from("/sys"), PathBuf::from("/dev"))
+		let root = |var: &str, default: &str| std::env::var_os(var).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(default));
+		Displays::with(Programs::Found, root("ELAMON_SYSFS", "/sys"), root("ELAMON_DEV", "/dev"))
 	}
 
 	/// For a command: what it finds goes to the person, not to the journal.
