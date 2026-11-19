@@ -148,12 +148,13 @@ data class QuickAction(
 
 /**
  * The card of a computer that answers: the figures of the dashboard its profile's `card` names, or
- * without one those of its first tab, as before 0.10; read with [snapshot] by its ui as kept ([ui]
- * with false), or the computer's own (true) where that is out of date ([readDashboard]). What fails
- * is thrown, for [cardError].
+ * without one those of its first tab, as before 0.10; read with [snapshot] by the computer's own ui
+ * ([ui] with true), whose actions the card's quick actions run, asking before them as the profile
+ * says now. With [fresh] false, by the ui as kept (false), the computer's own where that is out of
+ * date ([readDashboard]). What fails is thrown, for [cardError].
  */
-internal suspend fun cardReading(ui: suspend (fresh: Boolean) -> UiDoc, snapshot: suspend (String) -> DataLine): Live {
-	val (doc, line) = readDashboard(ui, ::cardDashboard, snapshot)
+internal suspend fun cardReading(ui: suspend (fresh: Boolean) -> UiDoc, snapshot: suspend (String) -> DataLine, fresh: Boolean = true): Live {
+	val (doc, line) = readDashboard(ui, ::cardDashboard, snapshot, fresh = fresh)
 	if (line == null) return Live.Online(emptyList())
 	val card = ownCard(doc) ?: return Live.Online(homeStats(doc, tabsShown(doc).first(), line.widgets))
 	val quick = cardQuick(doc, card, line.widgets)

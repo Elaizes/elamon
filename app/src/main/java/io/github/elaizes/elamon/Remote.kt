@@ -70,7 +70,8 @@ suspend fun uiOf(machine: Machine, client: ElamondClient, cache: UiCache, store:
 		return it
 	}
 	return client.ui().also {
-		cache.putUi(machine.id, it, ticket)
+		// Asked for at every reading by the card and the tiles: written only when it changed.
+		if (cache.ui(machine.id)?.version != it.version) cache.putUi(machine.id, it, ticket)
 		store.takeEndpoints(machine.id, pin, it.service.endpoints)
 	}
 }
@@ -83,16 +84,20 @@ data class Reading(val ui: UiDoc, val line: DataLine?)
  * with false), or, where that is out of date, once more by the computer's own (true). Out of date: the
  * dashboard refused (gone from what the computer shows this phone: renamed, or the role or profile
  * changed), a reading with a widget the kept ui hasn't (the dashboards changed), or, with
- * [freshWithout], none named in it at all (the profile may name one since). What fails is thrown.
+ * [freshWithout], none named in it at all (the profile may name one since). With [fresh], by the
+ * computer's own from the start, and only once: what runs actions from it (the card, the tiles)
+ * asks before them as the profile says now, an unlock or a confirmation added to it since
+ * included; no snapshot says the `ui` changed. What fails is thrown.
  */
 suspend fun readDashboard(
 	ui: suspend (fresh: Boolean) -> UiDoc,
 	pick: (UiDoc) -> String?,
 	snapshot: suspend (String) -> DataLine,
 	freshWithout: Boolean = false,
+	fresh: Boolean = false,
 ): Reading {
-	var doc = ui(false)
-	var again = true
+	var doc = ui(fresh)
+	var again = !fresh
 	while (true) {
 		val id = pick(doc)
 		if (id == null) {
