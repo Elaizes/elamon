@@ -571,7 +571,8 @@ private fun BoardEditor(
 	val scope = if (ui != null && shownDash != null) {
 		// Drawn as on the computer's screen, but nothing in it runs: every touch opens the widget's sheet instead.
 		val launcher = ActionLauncher(LocalGuard.current, { _, _, _, _ -> }, ui, name, res, tap = {}, form = form, running = ActionsState())
-		val shownState = MachineState(conn = Conn.Live, host = machineState.host, ui = ui, data = line?.let { mapOf(shownDash.id to it) }.orEmpty(), receivedAt = view.receivedAt, logs = view.logs)
+		// A preview that couldn't be asked for again is old, as a stream's numbers are while it reconnects.
+		val shownState = MachineState(conn = if (view.stale) Conn.Reconnecting else Conn.Live, host = machineState.host, ui = ui, data = line?.let { mapOf(shownDash.id to it) }.orEmpty(), receivedAt = view.receivedAt, logs = view.logs)
 		DashScope(machineId, ui, shownDash.id, line?.widgets.orEmpty(), machineVm, shownState, name, open = {}, actions = launcher, folds = folds, tables = tables, sorts = emptyMap(), logs = emptyMap(), hist = hist)
 	} else null
 	val haptics = LocalHapticFeedback.current
@@ -615,6 +616,7 @@ private fun BoardEditor(
 	) {
 		EditorNotes(state, desc, mistakes.elsewhere, onTakeTheirs, onSaveMine)
 		Mistakes(mistakes.ofKeys.values.flatten())
+		if (view?.stale == true) Pill(stringResource(R.string.editor_preview_stale), Metric.colors.warn, dot = true)
 		state.previewNote?.let { Text(it.text(res), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 		val widgets = Drafts.widgets(state.draft)
 		if (widgets.isEmpty()) {

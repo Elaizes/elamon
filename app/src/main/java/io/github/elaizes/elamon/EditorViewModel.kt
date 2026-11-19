@@ -69,8 +69,34 @@ sealed interface Editing {
 /** Another editor wrote the editor's file since it was read: [mine] whether what is open here is among what changed. */
 data class EditorConflict(val mine: Boolean)
 
-/** The preview: the `ui` with the draft and a reading of its dashboard, and its logs' lines. */
-data class PreviewView(val preview: Preview, val logs: Map<String, LogLines>, val receivedAt: Long)
+/**
+ * The preview: the `ui` with the draft and a reading of its dashboard, and its logs' lines. [stale]
+ * once asking for it again failed: its numbers are old, as a stream's are while it reconnects.
+ */
+data class PreviewView(val preview: Preview, val logs: Map<String, LogLines>, val receivedAt: Long, val stale: Boolean = false)
+
+/** What one ask for the preview came to. */
+private enum class PreviewTry {
+	/** The computer previewed it. */
+	Shown,
+
+	/** It couldn't (out of reach, a server's error): asked again, later the more in a row fail. */
+	Failed,
+
+	/** It said no to this draft: not asked again until the draft changes. */
+	Refused,
+}
+
+/**
+ * How long the preview waits before it is asked for again, after [failures] asks in a row came to
+ * nothing: an interval after one shown, then longer and longer, as a lost computer is looked for
+ * again ([Limits.backoffMs]), never sooner than an interval.
+ */
+fun previewWaitMs(failures: Int, intervalMs: Int): Long =
+	if (failures <= 0) intervalMs.toLong() else maxOf(intervalMs.toLong(), Limits.backoffMs(failures - 1))
+
+/** [s] after asking for its preview failed with [note]: the last one that worked stays, marked old. */
+fun previewFailed(s: EditorState, note: Message?): EditorState = s.copy(preview = s.preview?.copy(stale = true), previewNote = note)
 
 data class EditorState(
 	val desc: EditorDescription? = null,
@@ -256,7 +282,8 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 
 	/**
 	 * The screen is shown: the computer previews the draft, at once, again after each change has
-	 * settled, and every interval meanwhile, as a stream's readings come. Not shown, it stops.
+	 * settled, and every interval meanwhile, as a stream's readings come; while it can't, less and
+	 * less often ([previewWaitMs]). Not shown, it stops.
 	 */
 	fun setVisible(visible: Boolean) {
 		if (!visible) {
@@ -269,7 +296,15 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 			asked.filterNotNull().settle(PREVIEW_SETTLE_MS).collectLatest { a ->
 				// Places change with the draft: the points of the widget there before aren't this one's.
 				hists.clear()
-				while (previewOnce(a)) delay(intervalMs().toLong())
+				var failures = 0
+				while (true) {
+					when (previewOnce(a)) {
+						PreviewTry.Shown -> failures = 0
+						PreviewTry.Failed -> failures++
+						PreviewTry.Refused -> break
+					}
+					delay(previewWaitMs(failures, intervalMs()))
+				}
 			}
 		}
 	}
@@ -279,15 +314,15 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 		return ui?.let { Intervals.effective(it.profile.intervalMs, it.service.intervalMs) } ?: Intervals.DEFAULT_MS
 	}
 
-	/** Asks for one preview of [a]; false when asking again won't change the answer. */
-	private suspend fun previewOnce(a: PreviewAsk): Boolean {
+	/** Asks for one preview of [a]. */
+	private suspend fun previewOnce(a: PreviewAsk): PreviewTry {
 		return try {
 			// Asked for by its id in the settings, as the computer takes it.
 			val p = client().preview(previewBody(mapOf(a.dashboard to a.draft), emptyMap(), a.dashboard))
 			p.line?.let { takeHists(p.ui, it) }
 			val logs = p.line?.let { line -> logsOf(p.ui, line) }.orEmpty()
 			_state.update { it.copy(preview = PreviewView(p, logs, System.currentTimeMillis()), previewNote = null, previewMistakes = emptyList()) }
-			true
+			PreviewTry.Shown
 		} catch (e: CancellationException) {
 			throw e
 		} catch (e: Exception) {
@@ -295,17 +330,17 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 			val ex = e as? ElamondException
 			when {
 				// The last preview that worked stays, the mistakes beside it.
-				ex?.code == "bad_settings" -> _state.update { it.copy(previewMistakes = mistakesOf(ex), previewNote = Message.Res(R.string.editor_preview_mistakes)) }
+				ex?.code == "bad_settings" -> _state.update { previewFailed(it, Message.Res(R.string.editor_preview_mistakes)).copy(previewMistakes = mistakesOf(ex)) }
 				// Nothing the role sees in it yet (an empty dashboard), or one made for each item of a
 				// collection, which the computer has under its items' ids alone.
 				ex?.code == "no_such_dashboard" -> {
 					val each = a.draft["for_each"] != null
 					_state.update { it.copy(preview = null, previewNote = Message.Res(if (each) R.string.editor_preview_for_each else R.string.editor_preview_empty)) }
 				}
-				else -> _state.update { it.copy(previewNote = messageFor(e)) }
+				else -> _state.update { previewFailed(it, messageFor(e)) }
 			}
-			// Refused: not again until something changes.
-			ex == null || ex.kind == Kind.Unreachable || ex.status >= SERVER_ERRORS
+			// Out of reach, or a server's error: again, later; refused: not again until the draft changes.
+			if (ex == null || ex.kind == Kind.Unreachable || ex.status >= SERVER_ERRORS) PreviewTry.Failed else PreviewTry.Refused
 		}
 	}
 

@@ -499,6 +499,8 @@
 	<string name="editor_not_shown">Not shown now (%1$s): a value not there, its condition, or this phone\'s role.</string>
 	<!-- In a group's child's sheet: back to the group, "Back to Group · More". -->
 	<string name="editor_back_to">Back to %1$s</string>
+	<!-- Over a preview the computer couldn't be asked for again (out of reach): its numbers are old. -->
+	<string name="editor_preview_stale">Not up to date</string>
 	<string name="editor_preview_mistakes">The preview shows the dashboard as it was before the mistakes marked.</string>
 	<string name="editor_preview_empty">Nothing to preview yet: add a widget this phone can see.</string>
 	<string name="editor_preview_for_each">This dashboard is made for each item of a collection that has none on this computer now, so there is nothing to preview: its widgets show as cards to edit here.</string>
