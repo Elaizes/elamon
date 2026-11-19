@@ -297,7 +297,7 @@ mod tests {
 		}
 		let weird = output(r#"{ "name": "x", "mirrorOf": "a'); os.exit() --" }"#);
 		assert!(!lua_on(&weird).contains("os.exit"));
-		assert!(fit_signature("acc1aa0bfd4b_1794744869_1309111766") && !fit_signature("../x") && !fit_signature(""));
+		assert!(fit_signature("0123abcd_1700000000_42") && !fit_signature("../x") && !fit_signature(""));
 	}
 
 	#[test]
