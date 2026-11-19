@@ -30,6 +30,10 @@ appId: io.github.elaizes.elamon.debug
 - extendedWaitUntil:
     visible: "Added Gauge"
     timeout: 10000
+# The note goes before the widget under it is tapped: a tap on it isn't one on the widget.
+- extendedWaitUntil:
+    notVisible: "Added Gauge"
+    timeout: 15000
 # Last in the dashboard, as its example has it.
 - scrollUntilVisible:
     element: "Gauge · CPU"
