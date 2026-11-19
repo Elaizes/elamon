@@ -729,6 +729,57 @@
 				testScript = builtins.readFile ./nix/events-test.py;
 			};
 
+			# elamond and the monitors under Hyprland, on one machine: a Hyprland of its own on Lua
+			# settings, drawn by Mesa's software renderer on QEMU's virtio GPU (its screen Virtual-1), and
+			# two outputs without a screen, found by the service by itself, turned off and on and put to
+			# sleep through the API as Hyprland then says; the last screen off only with its name typed.
+			# Then elamond's own stand-in hyprctl with a laptop's panel off, a monitor and a stream's
+			# output: what a phone is offered, may and may not do, the activity log, and ddcutil where
+			# the module's option puts it.
+			checks.x86_64-linux.displays = nixpkgs.legacyPackages.x86_64-linux.testers.runNixOSTest {
+				name = "elamond-displays";
+				nodes.machine = { pkgs, ... }: {
+					imports = [ self.nixosModules.default ];
+					# A GPU with a screen, which Mesa draws on in software, as Hyprland's own VM test has it.
+					virtualisation.qemu.options = [ "-vga none" "-device virtio-gpu-pci" ];
+					virtualisation.memorySize = 2048;
+					virtualisation.cores = 2;
+					hardware.graphics.enable = true;
+					# alice logged in on tty1: the seat's session, which Hyprland started from her user
+					# manager takes the screen through.
+					services.getty.autologinUser = "alice";
+					# Each output in a place of its own, so that one turned off and on again leaves the
+					# others where they were (Hyprland moves those placed `auto`).
+					environment.etc."hypr/elamon-test.lua".text = ''
+						hl.monitor({ output = "Virtual-1", mode = "preferred", position = "0x0", scale = 1 })
+						hl.monitor({ output = "A", mode = "1920x1080@60", position = "1280x0", scale = 1 })
+						hl.monitor({ output = "B", mode = "1920x1080@60", position = "3200x0", scale = 1 })
+						hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
+						hl.config({
+							animations = { enabled = false },
+							misc = { disable_hyprland_logo = true, disable_splash_rendering = true, force_default_wallpaper = 0 },
+						})
+					'';
+					# The stand-in hyprctl of elamond's own tests, which keeps its state beside itself: the test
+					# copies it into a folder of alice's, ahead of Hyprland's on the service's PATH.
+					environment.etc."elamon-test/hyprctl-stand-in".source = ./elamond/src/displays/hyprctl-stand-in.sh;
+					services.elamond = {
+						enable = true;
+						users = [ "alice" ];
+						ddcutil = true;
+						settings = {
+							control = true;
+							# The outputs without a screen too: the real Hyprland here has two.
+							displays.headless = true;
+							displays.every = 1;
+						};
+					};
+					users.users.alice = { isNormalUser = true; uid = 1000; linger = true; };
+					environment.systemPackages = [ pkgs.curl pkgs.jq pkgs.hyprland ];
+				};
+				testScript = builtins.readFile ./nix/displays-test.py;
+			};
+
 			devShells.x86_64-linux = {
 				default = dev.mkShell {
 					packages = [
