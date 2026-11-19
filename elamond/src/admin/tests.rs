@@ -51,15 +51,29 @@ fn cookie_of(headers: &HeaderMap) -> Option<(String, String)> {
 	(name == crate::web::cookie_name("id")).then(|| (token.to_string(), attrs.trim().to_string()))
 }
 
-/// A browser paired from the page with a code made as `elamond pair --role <role>` does.
-async fn pair_browser(hub: &Arc<Hub>, role: crate::access::Role) -> String {
-	let p = store::new_pairing(&hub.dir, role, None, false).unwrap();
-	let (status, headers, body) = send(hub, browser("POST", "/api/v1/pair", None, Some(ORIGIN), &format!(r#"{{"code":"{}","device":""}}"#, p.code))).await;
-	assert_eq!(status, StatusCode::OK, "{body}");
-	assert!(body.get("token").is_none(), "a browser's token is never in the body: {body}");
-	let (token, attrs) = cookie_of(&headers).expect("a cookie");
-	assert_eq!(attrs, "Max-Age=2592000; Path=/; Secure; HttpOnly; SameSite=Strict");
-	token
+/// `value` written as the fixture `0.11/<name>.json`.
+fn write_fixture(name: &str, value: &Value) {
+	crate::fixtures::check_text(&format!("0.11/{name}.json"), &(serde_json::to_string_pretty(value).unwrap() + "\n"));
+}
+
+/// `v` with each of `keys` (at any depth) that is a string set to `to`: what changes from run to run.
+fn steady(mut v: Value, keys: &[(&str, &str)]) -> Value {
+	fn walk(v: &mut Value, keys: &[(&str, &str)]) {
+		match v {
+			Value::Object(o) => {
+				for (k, x) in o.iter_mut() {
+					match keys.iter().find(|(key, _)| key == k) {
+						Some((_, to)) if x.is_string() => *x = json!(to),
+						_ => walk(x, keys),
+					}
+				}
+			}
+			Value::Array(a) => a.iter_mut().for_each(|x| walk(x, keys)),
+			_ => {}
+		}
+	}
+	walk(&mut v, keys);
+	v
 }
 
 #[tokio::test]
@@ -115,7 +129,16 @@ async fn a_browser_pairs_with_a_cookie_its_page_never_sees() {
 	let (status, _, v) = send(&hub, browser("POST", "/api/v1/pair", None, None, &body)).await;
 	assert_eq!((status, v["error"].as_str()), (StatusCode::FORBIDDEN, Some("bad_origin")));
 	store::clear_pairing(&hub.dir);
-	let token = pair_browser(&hub, crate::access::Role::Admin).await;
+	let bad = json!({ "status": status.as_u16(), "body": v });
+	let p = store::new_pairing(&hub.dir, crate::access::Role::Admin, None, false).unwrap();
+	let req = json!({ "code": p.code, "device": "" });
+	let (status, headers, body) = send(&hub, browser("POST", "/api/v1/pair", None, Some(ORIGIN), &req.to_string())).await;
+	assert_eq!(status, StatusCode::OK, "{body}");
+	assert!(body.get("token").is_none(), "a browser's token is never in the body: {body}");
+	let (token, attrs) = cookie_of(&headers).expect("a cookie");
+	assert_eq!(attrs, "Max-Age=2592000; Path=/; Secure; HttpOnly; SameSite=Strict");
+	let set = headers[header::SET_COOKIE].to_str().unwrap().replace(&token, "token");
+	let client = body["client_id"].as_str().unwrap().to_string();
 	let list = store::load_clients_in(&hub.dir).unwrap();
 	let me = list.iter().find(|c| c.web).expect("the browser, paired as web");
 	assert_eq!(me.name, "Firefox on Linux");
@@ -140,9 +163,19 @@ async fn a_browser_pairs_with_a_cookie_its_page_never_sees() {
 	let (status, _, v) = send(&hub, browser("POST", "/api/v1/rekey", Some(&token), Some(ORIGIN), r#"{"device":"x"}"#)).await;
 	assert_eq!((status, v["error"].as_str()), (StatusCode::FORBIDDEN, Some("rekey_refused")));
 	// Forget this browser: unpaired, cookie cleared.
-	let (status, headers, _) = send(&hub, browser("POST", "/api/v1/unpair", Some(&token), Some(ORIGIN), "")).await;
+	let (status, headers, forget) = send(&hub, browser("POST", "/api/v1/unpair", Some(&token), Some(ORIGIN), "")).await;
 	assert_eq!(status, StatusCode::OK);
 	assert!(cookie_of(&headers).is_some_and(|(t, _)| t.is_empty()));
+	write_fixture(
+		"pair-web",
+		&json!({
+			"request": { "headers": { "Elamon-Client": "web/0.11.0", "Origin": ORIGIN, "Content-Type": "application/json" }, "body": { "code": "123456", "device": "" } },
+			"response": { "status": 200, "headers": { "Set-Cookie": set }, "body": steady(body.clone(), &[("client_id", "89abcdef")]) },
+			"bad_origin": bad,
+			"forget": { "status": 200, "headers": { "Set-Cookie": headers[header::SET_COOKIE].to_str().unwrap() }, "body": forget },
+		}),
+	);
+	assert!(!client.is_empty());
 	assert_eq!(send(&hub, browser("GET", "/api/v1/ui", Some(&token), None, "")).await.0, StatusCode::UNAUTHORIZED);
 	remove_test_dir(&hub.dir);
 }
@@ -297,22 +330,27 @@ async fn a_drop_in_written_from_the_page() {
 	let (status, v) = call(&hub, "POST", "/api/v1/admin/file/save", "owner", &save(broken, Value::Null)).await;
 	assert_eq!((status, v["error"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_settings")), "{v}");
 	assert!(!hub.place.dropins().join("mine.toml").exists());
+	let mut answers = serde_json::Map::new();
+	answers.insert("bad_settings".into(), json!({ "status": 422, "body": v }));
 	// Sound: written, taken up at once, the owner's ui has the dashboard.
 	let generation = hub.config_gen();
 	let (status, v) = call(&hub, "POST", "/api/v1/admin/file/save", "owner", &save(good, Value::Null)).await;
 	assert_eq!(status, StatusCode::OK, "{v}");
 	assert!(v["generation"].as_u64().unwrap() > generation);
+	answers.insert("saved".into(), json!({ "status": 200, "body": v }));
 	let (_, ui) = call(&hub, "GET", "/api/v1/ui", "owner", "").await;
 	assert!(ui["tabs"].as_array().unwrap().iter().any(|t| t == "mine"), "{}", ui["tabs"]);
 	let hash = v["hash"].as_str().unwrap().to_string();
 	// Saved again with a stale base: 409 and the hash now.
 	let (status, v) = call(&hub, "POST", "/api/v1/admin/file/save", "owner", &save(good, json!("0000000000000000"))).await;
 	assert_eq!((status, v["error"].as_str(), v["hash"].as_str()), (StatusCode::CONFLICT, Some("changed_on_disk"), Some(hash.as_str())));
+	answers.insert("changed_on_disk".into(), json!({ "status": 409, "body": v }));
 	// A new action from the page runs.
 	let with_action = format!("{good}[actions.hello]\nname = \"Hello\"\ncommand = [\"echo\", \"hello from the page\"]\nconfirm = false\n");
 	let (status, v) = call(&hub, "POST", "/api/v1/admin/file/save", "owner", &save(&with_action, json!(hash))).await;
 	assert_eq!(status, StatusCode::OK, "{v}");
 	let backup = v["backup"].as_str().unwrap().to_string();
+	answers.insert("saved_over".into(), json!({ "status": 200, "body": steady(v.clone(), &[("backup", "1763550200456")]) }));
 	let (status, v) = call(&hub, "POST", "/api/v1/actions/hello", "owner", "{}").await;
 	assert_eq!(status, StatusCode::OK, "{v}");
 	assert!(v["output"].as_str().unwrap().contains("hello from the page"), "{v}");
@@ -326,7 +364,20 @@ async fn a_drop_in_written_from_the_page() {
 	for bad in ["../x.toml", "elamond.d/../../x.toml", "/etc/passwd", "elamond.d/x.sh"] {
 		let (status, v) = call(&hub, "POST", "/api/v1/admin/file/save", "owner", &json!({ "name": bad, "text": "", "base": null }).to_string()).await;
 		assert_eq!((status, v["error"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_name")), "{bad}");
+		answers.insert("bad_name".into(), json!({ "status": 400, "body": v }));
 	}
+	// Refusals of their own, as the service words them (each asserted in a test of its own).
+	for (case, status, body) in [
+		("read_only", 403, json!({ "error": "read_only", "message": "set in Nix: change it in your NixOS or Home Manager configuration" })),
+		("writes_off", 403, json!({ "error": "writes_off", "message": "held_off" })),
+		("writes_off_control", 403, json!({ "error": "writes_off", "message": "control" })),
+		("not_allowed", 403, json!({ "error": "not_allowed" })),
+		("admin_off", 403, json!({ "error": "admin_off" })),
+		("at_computer", 403, json!({ "error": "at_computer" })),
+	] {
+		answers.insert(case.into(), json!({ "status": status, "body": body }));
+	}
+	write_fixture("admin-save", &Value::Object(answers));
 	// The activity log says what, never what the file holds.
 	let log = hub.activity.newest(50);
 	assert!(log.iter().any(|e| e.what == "settings: saved elamond.d/mine.toml (5 lines)" && e.result == "ok"), "{log:?}");
@@ -385,6 +436,7 @@ async fn the_dashboard_editor() {
 	let file = hub.place.dropins().join("zz-editor.toml");
 	let text = std::fs::read_to_string(&file).unwrap();
 	assert!(text.starts_with(super::editor::HEADER) && text.contains("[[dashboards.mine.widgets]]"), "{text}");
+	let mut dashboard_fixture = json!({ "request": body, "file": text, "response": v });
 	let (status, v) = call(
 		&hub,
 		"POST",
@@ -394,6 +446,8 @@ async fn the_dashboard_editor() {
 	)
 	.await;
 	assert_eq!(status, StatusCode::OK, "{v}");
+	let profile_request = json!({ "id": d["profile"], "profile": { "dashboards": ["overview", "mine"] }, "base": dashboard_fixture["response"]["hash"] });
+	let profile_fixture = json!({ "request": profile_request, "file": std::fs::read_to_string(&file).unwrap(), "response": steady(v.clone(), &[("backup", "1763550300789")]) });
 	let (_, ui) = call(&hub, "GET", "/api/v1/ui", "owner", "").await;
 	let mine = ui["dashboards"].as_array().unwrap().iter().find(|d| d["id"] == "mine").expect("the new dashboard in ui");
 	assert_eq!(mine["widgets"].as_array().unwrap().len(), 3);
@@ -408,6 +462,9 @@ async fn the_dashboard_editor() {
 	.await;
 	assert_eq!((status, v["error"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_settings")), "{v}");
 	assert!(!std::fs::read_to_string(&file).unwrap().contains("command"));
+	dashboard_fixture["a_command"] = json!({ "request": { "id": "mine", "dashboard": { "title": "Mine", "command": ["sh", "-c", "true"] }, "base": "…" }, "response": v });
+	write_fixture("editor-dashboard", &dashboard_fixture);
+	write_fixture("editor-profile", &profile_fixture);
 	// An existing dashboard overridden, and back to the files.
 	let (_, d) = call(&hub, "GET", "/api/v1/admin/editor", "owner", "").await;
 	let overview = d["dashboards"].as_array().unwrap().iter().find(|x| x["id"] == "overview").unwrap().clone();

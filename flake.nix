@@ -781,6 +781,67 @@
 				testScript = builtins.readFile ./nix/displays-test.py;
 			};
 
+			# elamond's web page and admin API on one machine: the page with the headers that keep it to
+			# itself; a browser paired as owner by a cookie of the service's own name, which its script
+			# never sees and which changes nothing but from its own page; a phone paired as admin kept
+			# out; a drop-in and the dashboard editor's writes in ui at once, and what is broken or has
+			# a command refused and not written; the main file from the Nix store only read; `elamond
+			# control off` and `control = false` stopping the writes; and a certificate a test CA signed
+			# for a name, presented to a browser that asks for that name alone, never named to phones,
+			# and only while its key is 600.
+			checks.x86_64-linux.web = nixpkgs.legacyPackages.x86_64-linux.testers.runNixOSTest {
+				name = "elamond-web";
+				nodes.machine = { pkgs, ... }: {
+					imports = [ self.nixosModules.default ];
+					# A test CA and a certificate it signs for desk.example.net, made at boot and so never in
+					# the Nix store: the CA's key root's alone, the certificate's alice's alone.
+					systemd.services.web-cert = {
+						wantedBy = [ "multi-user.target" ];
+						before = [ "user@1000.service" ];
+						path = [ pkgs.coreutils pkgs.openssl ];
+						serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+						script = ''
+							umask 077
+							mkdir -p /var/lib/certs
+							cd /var/lib/certs
+							if ! test -s desk.example.net.crt; then
+								openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 30 \
+									-keyout ca.key -out ca.pem -subj "/CN=Elamon test CA" \
+									-addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign,cRLSign
+								openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+									-keyout desk.example.net.key -out desk.example.net.csr -subj "/CN=desk.example.net"
+								printf '%s\n' 'subjectAltName = DNS:desk.example.net' 'basicConstraints = CA:FALSE' \
+									'keyUsage = critical, digitalSignature' 'extendedKeyUsage = serverAuth' \
+									'subjectKeyIdentifier = hash' 'authorityKeyIdentifier = keyid' > desk.example.net.ext
+								openssl x509 -req -in desk.example.net.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 30 \
+									-extfile desk.example.net.ext -out desk.example.net.crt
+							fi
+							chmod 644 ca.pem desk.example.net.crt
+							chmod 755 /var/lib/certs
+							chown alice:users desk.example.net.crt desk.example.net.key
+							chmod 600 desk.example.net.key
+						'';
+					};
+					services.elamond = {
+						enable = true;
+						users = [ "alice" ];
+						settings = {
+							control = true;
+							# Names that reach the computer: the real certificate's is never told to phones.
+							names = [ "elamon.example.net" "desk.example.net" ];
+							web = {
+								cert_name = "desk.example.net";
+								cert_file = "/var/lib/certs/desk.example.net.crt";
+								key_file = "/var/lib/certs/desk.example.net.key";
+							};
+						};
+					};
+					users.users.alice = { isNormalUser = true; uid = 1000; linger = true; };
+					environment.systemPackages = [ pkgs.curl pkgs.jq pkgs.openssl ];
+				};
+				testScript = builtins.readFile ./nix/web-test.py;
+			};
+
 			devShells.x86_64-linux = {
 				default = dev.mkShell {
 					packages = [

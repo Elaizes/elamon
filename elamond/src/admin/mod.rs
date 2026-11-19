@@ -164,6 +164,8 @@ async fn setup_lines() -> Vec<(bool, String)> {
 
 /// `GET /api/v1/admin/state`.
 async fn state(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>) -> Response {
+	// `elamond control off` as it is now, not as last looked.
+	hub.sync_control_off();
 	let config = hub.config();
 	let frame = hub.frame.borrow().clone();
 	let mut features = crate::server::features_of(&frame.features, config.control);

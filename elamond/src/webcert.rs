@@ -29,8 +29,9 @@ pub struct State {
 	pub message: String,
 }
 
-/// What a file looked like when read: modified and length, to notice a new one.
-type Stamp = Option<(SystemTime, u64)>;
+/// What a file looked like when read: modified, length, changed (a `chmod` too) and mode, to
+/// notice a new one or one made readable to the service alone.
+type Stamp = Option<(SystemTime, u64, i64, u32)>;
 
 /// The name, the files and their stamps a certificate was read with.
 type Read = (String, PathBuf, PathBuf, Stamp, Stamp);
@@ -39,8 +40,9 @@ type Read = (String, PathBuf, PathBuf, Stamp, Stamp);
 type Loaded = (String, Arc<CertifiedKey>, Option<u64>);
 
 fn stamp(p: &Path) -> Stamp {
+	use std::os::unix::fs::MetadataExt;
 	let m = fs::metadata(p).ok()?;
-	Some((m.modified().ok()?, m.len()))
+	Some((m.modified().ok()?, m.len(), m.ctime(), m.mode()))
 }
 
 /// Picks the certificate for a connection: the real one for its name, the service's own else.
@@ -307,11 +309,15 @@ mod tests {
 		assert!(!state.ok && k.is_none());
 		let (state, k) = load("late.example.net", &late_cert, &late_key, 70_000_000_000);
 		assert!(!state.ok && state.message.starts_with("expired on") && k.is_none(), "{state:?}");
-		// A key others may read isn't presented.
+		// A key others may read isn't presented; made 600, it is, the files as they were.
 		use std::os::unix::fs::PermissionsExt;
 		fs::set_permissions(&late_key, fs::Permissions::from_mode(0o644)).unwrap();
 		let (state, k) = load("late.example.net", &late_cert, &late_key, 1_800_000_000);
 		assert!(!state.ok && state.message.contains("chmod 600") && k.is_none(), "{state:?}");
+		let late = WebDef { cert_name: Some("late.example.net".into()), cert_file: Some(late_cert.clone()), key_file: Some(late_key.clone()), ..WebDef::default() };
+		assert!(!resolver.refresh(&late, 1_800_000_000).unwrap().unwrap().ok);
+		fs::set_permissions(&late_key, fs::Permissions::from_mode(0o600)).unwrap();
+		assert!(resolver.refresh(&late, 1_800_000_000).unwrap().unwrap().ok);
 		// Without a certificate in the settings, none.
 		assert_eq!(resolver.refresh(&WebDef::default(), 0), Some(None));
 		assert!(resolver.web.read().unwrap().is_none());
