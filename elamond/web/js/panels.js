@@ -11,7 +11,7 @@ import { columns } from './layout.js';
 import { makeGrid } from './widgets/grid.js';
 import { make } from './widgets/index.js';
 import { setLevel } from './widgets/common.js';
-import { Stream } from './stream.js';
+import { Stream, keptAsked } from './stream.js';
 import { actionRunner, confirmDialog } from './actions.js';
 import { errorText } from './errors.js';
 import { isFingerprint, colonFingerprint, printedFingerprint } from './fingerprint.js';
@@ -318,7 +318,7 @@ export function mountMachine(root, ctx, tab) {
 					fresh.sink.status?.(st);
 				},
 				unauthorized: () => fresh.sink.unauthorized?.(),
-				refused: (e) => fresh.sink.refused?.(e),
+				refused: (e, body) => fresh.sink.refused?.(e, body),
 			},
 		);
 		session = fresh;
@@ -344,11 +344,36 @@ export function mountMachine(root, ctx, tab) {
 			showStatus(st);
 		},
 		unauthorized: () => toPairing(),
-		refused(e) {
-			if (e.code === 'no_such_dashboard') refreshUi();
-			else ctx.toast(errorText(e), 'warning');
+		refused(e, body) {
+			if (e.code === 'no_such_dashboard') return void refreshUi();
+			ctx.toast(errorText(e), 'warning');
+			// What was refused isn't asked again: a table's order (`bad_sort` names the table), the
+			// logs' filters of the change (`bad_param` `log`). The rest is asked for anew.
+			let dropped = false;
+			if (e.code === 'bad_sort') {
+				for (const id of e.detail ? [e.detail] : Object.keys(body.sort || {})) if (id in s.asked.sort) dropped = delete s.asked.sort[id];
+			} else if (e.code === 'bad_param' && e.detail === 'log') {
+				for (const id of Object.keys(body.log || {})) if (id in s.asked.log) dropped = delete s.asked.log[id];
+			}
+			if (!dropped) return;
+			s.stream.set({ sort: { ...s.asked.sort }, log: { ...s.asked.log } });
+			if (!gone) redraw();
 		},
 	};
+
+	/** Keeps of what was asked of the stream only what `ui` still has. */
+	function pruneAsked() {
+		const kept = keptAsked(s.asked, ui.dashboards || []);
+		s.asked.sort = kept.sort;
+		s.asked.log = kept.log;
+		s.stream.forget(kept.gone);
+	}
+
+	/** The dashboard drawn again, with the last line at once: its tables' chips as asked now. */
+	function redraw() {
+		drawView();
+		if (lastData && lastData.dashboard === current) view?.update({ ...lastData, history: undefined });
+	}
 
 	/** @param {import('./stream.js').Status} st */
 	function showStatus(st) {
@@ -381,6 +406,7 @@ export function mountMachine(root, ctx, tab) {
 		if (gone) return;
 		if (!u) return toPairing();
 		ui = u;
+		pruneAsked();
 		if (!known(current)) {
 			current = tabsOf()[0] || null;
 			parent = null;
@@ -390,7 +416,7 @@ export function mountMachine(root, ctx, tab) {
 			view?.update({ ...lastData, history: undefined });
 			chips?.update(lastData);
 		}
-		if (current) s.stream.set({ dashboard: current });
+		if (current) s.stream.set({ dashboard: current, sort: { ...s.asked.sort }, log: { ...s.asked.log } });
 	}
 
 	function drawTop() {
@@ -569,9 +595,11 @@ export function mountMachine(root, ctx, tab) {
 	if (current && !tabsOf().includes(current)) parent = tabsOf().includes(remembered) ? remembered : tabsOf()[0] || null;
 	if (current && location.hash !== `#/tab/${encodeURIComponent(current)}`) history.replaceState(null, '', `#/tab/${encodeURIComponent(current)}`);
 	if (current && tabsOf().includes(current) && !parent) state.save('tab', current);
+	// A stream taken over from the page before may have been asked for what this `ui` no longer has.
+	pruneAsked();
 	render();
 	if (current) {
-		s.stream.set({ dashboard: current });
+		s.stream.set({ dashboard: current, sort: { ...s.asked.sort }, log: { ...s.asked.log } });
 		if (s.status === 'stopped') s.stream.start();
 	}
 

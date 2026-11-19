@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { readLine, changeFor, applied, retryDelay, silenceMs, SILENCE_MS, Stream } from '../js/stream.js';
+import { readLine, changeFor, applied, retryDelay, silenceMs, SILENCE_MS, keptAsked, Stream } from '../js/stream.js';
 import { intervalOf, historyMsOf, DEFAULT_INTERVAL_MS, DEFAULT_HISTORY_S } from '../js/consts.js';
 
 const fx = (name) => JSON.parse(readFileSync(new URL(`../../fixtures/${name}`, import.meta.url), 'utf8'));
@@ -128,4 +128,59 @@ test("the watchdog waits by the interval of the ui there is now", () => {
 	assert.equal(silenceMs(s.opts.intervalMs()), SILENCE_MS);
 	interval = 10000;
 	assert.equal(silenceMs(s.opts.intervalMs()), 40000);
+});
+
+test("what was asked of the stream is kept only while ui has its table, field and log", () => {
+	const ui = fx('ui.json');
+	const logs = fx('0.8/ui-sources.json');
+	const dashboards = [...ui.dashboards, ...logs.dashboards];
+	const asked = {
+		sort: { 'detail/procs': 'mem', 'detail/gone': 'mem', 'home/old': 'cpu' },
+		log: { 'sources/journal': { level: 'error' }, 'sources/old_log': { level: 'info' } },
+	};
+	const kept = keptAsked(asked, dashboards);
+	assert.deepEqual(kept.sort, { 'detail/procs': 'mem' });
+	assert.deepEqual(kept.log, { 'sources/journal': { level: 'error' } });
+	assert.deepEqual(kept.gone.sort(), ['detail/gone', 'home/old', 'sources/old_log']);
+	// A field the table no longer offers goes, the table staying: back to its own order.
+	const fewer = dashboards.map((d) => ({ ...d, widgets: d.widgets.map((w) => (w.id === 'detail/procs' ? { ...w, sorts: ['cpu'] } : w)) }));
+	assert.deepEqual(keptAsked(asked, fewer).sort, {});
+	assert.ok(!keptAsked(asked, fewer).gone.includes('detail/procs'));
+});
+
+test('a refused change is handed back, and a widget gone is told nothing', async () => {
+	globalThis.document = { hidden: false, addEventListener: () => {}, removeEventListener: () => {} };
+	const posts = [];
+	let close;
+	globalThis.fetch = async (url, init) => {
+		if (String(url).startsWith('/api/v1/stream?')) {
+			const enc = new TextEncoder();
+			return new Response(new ReadableStream({ start: (c) => { c.enqueue(enc.encode(JSON.stringify(fx('stream-open.json')) + '\n')); close = () => c.close(); } }), { status: 200 });
+		}
+		const b = JSON.parse(init.body);
+		posts.push(b);
+		if (b.sort && b.sort['detail/bad']) return new Response(JSON.stringify({ error: 'bad_sort', message: 'detail/bad' }), { status: 400 });
+		return new Response('{"ok":true}', { status: 200 });
+	};
+	const refused = [];
+	const s = new Stream(want('home'), { widgets: 'value', intervalMs: () => 1000, logsOf }, { refused: (e, body) => refused.push([e.code, e.detail, body]) });
+	s.start();
+	for (let i = 0; i < 20 && !s.id; i++) await new Promise((r) => setImmediate(r));
+	s.set({ sort: { 'detail/procs': 'mem', 'detail/bad': 'x' } });
+	for (let i = 0; i < 20 && !refused.length; i++) await new Promise((r) => setImmediate(r));
+	assert.deepEqual(refused, [['bad_sort', 'detail/bad', { sort: { 'detail/procs': 'mem', 'detail/bad': 'x' } }]]);
+	// Refused whole: nothing of it is taken as sent.
+	assert.deepEqual(s.sent.sort, {});
+	// The page asks again without the refused one.
+	s.set({ sort: { 'detail/procs': 'mem' } });
+	for (let i = 0; i < 20 && posts.length < 2; i++) await new Promise((r) => setImmediate(r));
+	assert.deepEqual(posts[1], { sort: { 'detail/procs': 'mem' } });
+	for (let i = 0; i < 20 && s.telling; i++) await new Promise((r) => setImmediate(r));
+	// A table gone with a new ui: dropped on both sides, and no `null` sent for it.
+	s.forget(['detail/procs']);
+	s.set({ sort: {} });
+	for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+	assert.equal(posts.length, 2);
+	s.stop();
+	close && close();
 });

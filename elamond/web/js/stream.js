@@ -94,15 +94,57 @@ export function applied(sent, body) {
 	return { dashboard: body.dashboard ?? sent.dashboard, sort, log };
 }
 
+/**
+ * What was asked of the stream that `dashboards` (a new `ui`'s) still have: a table's order by a
+ * field the table still offers (its own `sort` or one of `sorts`), a log's filter while the log is
+ * there. `gone` are the widgets no longer there at all: the stream is told nothing of them.
+ * @param {{ sort: Record<string, string>, log: Record<string, any> }} asked
+ * @param {{ widgets?: any[] }[]} dashboards
+ * @returns {{ sort: Record<string, string>, log: Record<string, any>, gone: string[] }}
+ */
+export function keptAsked(asked, dashboards) {
+	/** @type {Map<string, any>} */
+	const tables = new Map();
+	/** @type {Set<string>} */
+	const logs = new Set();
+	/** @param {any[] | undefined} list */
+	const walk = (list) => {
+		for (const w of Array.isArray(list) ? list : []) {
+			if (!w || typeof w.id !== 'string') continue;
+			if (w.type === 'table') tables.set(w.id, w);
+			else if (w.type === 'log') logs.add(w.id);
+			walk(w.widgets);
+		}
+	};
+	for (const d of dashboards || []) walk(d && d.widgets);
+	/** @type {Record<string, string>} */
+	const sort = {};
+	/** @type {Record<string, any>} */
+	const log = {};
+	/** @type {string[]} */
+	const gone = [];
+	for (const [id, field] of Object.entries(asked.sort)) {
+		const t = tables.get(id);
+		if (!t) gone.push(id);
+		else if ((t.sort && t.sort.field === field) || (Array.isArray(t.sorts) && t.sorts.includes(field))) sort[id] = field;
+	}
+	for (const [id, filter] of Object.entries(asked.log)) {
+		if (logs.has(id)) log[id] = filter;
+		else gone.push(id);
+	}
+	return { sort, log, gone };
+}
+
 /** @param {Want} w @returns {Want} */
 function copy(w) {
 	return { dashboard: w.dashboard, sort: { ...w.sort }, log: { ...w.log } };
 }
 
 /**
+ * `refused` is handed the change that was refused whole, to drop what it asked for.
  * @typedef {'connecting' | 'live' | 'down' | 'paused' | 'stopped'} Status
  * @typedef {{ line?: (line: Line) => void, status?: (status: Status) => void, unauthorized?: () => void,
- *   refused?: (e: ApiError) => void }} Handlers
+ *   refused?: (e: ApiError, body: NonNullable<ReturnType<typeof changeFor>>) => void }} Handlers
  */
 
 /** The stream of one page: start it once, tell it what to send, stop it when the page goes. */
@@ -167,6 +209,16 @@ export class Stream {
 	set(want) {
 		this.want = { ...this.want, ...want };
 		this.tell();
+	}
+
+	/** Widgets no longer there (a new `ui`): their orders and filters are dropped, and the stream told nothing of them. @param {string[]} ids */
+	forget(ids) {
+		for (const w of [this.want, this.sent]) {
+			for (const id of ids) {
+				delete w.sort[id];
+				delete w.log[id];
+			}
+		}
 	}
 
 	halt() {
@@ -272,7 +324,7 @@ export class Stream {
 				const keep = e.code !== 'no_such_dashboard' && this.refusals < MAX_REFUSALS;
 				this.want = { ...copy(this.sent), dashboard: keep ? this.want.dashboard : this.sent.dashboard };
 				this.again = keep && this.want.dashboard !== this.sent.dashboard;
-				this.handlers.refused?.(e);
+				this.handlers.refused?.(e, body);
 			} else {
 				// The computer can't be reached: the stream will drop and open again with what is wanted.
 			}
