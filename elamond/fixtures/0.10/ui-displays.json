@@ -1,5 +1,5 @@
 {
-  "version": "d44ea9da567c692d",
+  "version": "5b53d106a42a00fa",
   "service": {
     "id": "0123456789abcdef0123456789abcdef",
     "name": "fixture",
@@ -100,7 +100,7 @@
               "id": "control/display_controls/dpms.dp_1",
               "type": "toggle",
               "span": 2,
-              "label": "DPMS",
+              "label": "DP-1 DPMS",
               "action": "display.dpms.DP-1",
               "param": "state",
               "on": "on",

@@ -969,7 +969,7 @@ Errors are `{ "error": "<code>" }`, some with a `message`, with these statuses (
 |---|---|
 | 400 | `bad_param` (with `message`, the parameter), `bad_sort`, `unknown_signal` |
 | 401 | `unauthorized` |
-| 403 | `no_pairing`, `wrong_code`, `pair_declined`, `too_many_phones` (64 are paired), `rekey_refused`, `control_disabled`, `not_permitted` (polkit refused, or a protected process), `not_allowed` (the client's role doesn't allow it), `confirm_required` (a station's command that is typed in, without its text; the text in `message`) |
+| 403 | `no_pairing`, `wrong_code`, `pair_declined`, `too_many_phones` (64 are paired), `rekey_refused`, `control_disabled`, `not_permitted` (polkit refused, or a protected process), `not_allowed` (the client's role doesn't allow it), `confirm_required` (a station's command, or a monitor turned off while no other screen shows a picture, without its typed text; the text in `message`) |
 | 404 | `not_found`, `no_such_process`, `no_such_action`, `no_such_dashboard`, `no_such_widget` (no such graph, timeline or log in the client's `ui`), `no_such_stream`, `no_art` |
 | 409 | `process_changed` |
 | 500 | `storage` |

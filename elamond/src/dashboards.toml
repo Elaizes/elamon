@@ -536,7 +536,7 @@ collapsed = true
 for_each = "displays"
 widgets = [
   { id = "output", type = "toggle", label = "{item.connector}", caption = "{item.name}", value = "display.{item}.output", action = "display.output.{item.connector}", param = "state", on = "on", off = "off", span = 2 },
-  { id = "dpms", type = "toggle", label = "DPMS", value = "display.{item}.dpms", action = "display.dpms.{item.connector}", param = "state", on = "on", off = "off", span = 2 },
+  { id = "dpms", type = "toggle", label = "{item.connector} DPMS", value = "display.{item}.dpms", action = "display.dpms.{item.connector}", param = "state", on = "on", off = "off", span = 2 },
   { id = "brightness", type = "slider", label = "{item.connector} brightness", value = "display.{item}.brightness", action = "display.brightness.{item.connector}", param = "level", span = 4 },
 ]
 
