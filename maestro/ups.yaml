@@ -45,7 +45,7 @@ appId: io.github.elaizes.elamon.debug
 - takeScreenshot: 34-ups-beeper
 - tapOn: "Beeper"
 - extendedWaitUntil:
-    visible: "Beeper\\?"
+    visible: "Beeper: .*\\?"
     timeout: 10000
 - takeScreenshot: 35-ups-beeper-confirm
 - tapOn:
