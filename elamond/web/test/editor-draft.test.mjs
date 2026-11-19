@@ -186,10 +186,17 @@ test("a profile's write holds what was changed here, never what the files set", 
 	assert.equal(addTab(q.value, 'mine'), true);
 	assert.equal(addTab(q.value, 'mine'), false);
 	assert.deepEqual(changes(q.start, q.value), { dashboards: [...own.def.dashboards, 'mine'] });
-	// A key taken out, or put back as it was, isn't written: it stays as the files say.
-	delete q.value.header;
+	// Put back as it was, it isn't written: the editor's file keeps what it has.
 	q.value.dashboards.pop();
 	assert.deepEqual(changes(q.start, q.value), {});
+	// A key taken out is null: back to what the other files say; of the app's, each key.
+	delete q.value.header;
+	assert.deepEqual(changes(q.start, q.value), { header: null });
+	delete p.value.android.widget;
+	assert.deepEqual(changes(p.start, p.value).android, { widget: null, tiles: 'tiles' });
+	delete p.value.android;
+	assert.deepEqual(changes(p.start, p.value).android, { widget: null, tiles: null, card: null });
+	p.value.android = { widget: 'phone', tiles: 'tiles', card: '' };
 	// After a save, what was written is what the next change is measured from.
 	p.value.header = 'mine';
 	rebase(p);

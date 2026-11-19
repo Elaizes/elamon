@@ -61,24 +61,27 @@ export function rebase(d) {
 }
 
 /**
- * What of a table changed from what it started as: each key whose value changed, and of a table in
- * it (a profile's `android`), the keys of that which did. A key taken out is left out, as one that
- * didn't change: written so, it stays as the files say. What a profile's write sends, never the
- * values it only shows from the files.
- * @param {Record<string, any>} start @param {Record<string, any>} now @returns {Record<string, any>}
+ * What of a table changed from what it started as, as a profile's write sends it: each key whose
+ * value changed, `null` for one taken out (back to what the other files say), and of a table in it
+ * (a profile's `android`), the keys of that which did. A key that didn't change is left out: the
+ * editor's file keeps it as it has it. Never the values it only shows from the files.
+ * @param {Record<string, any> | null | undefined} start @param {Record<string, any> | null | undefined} now
+ * @returns {Record<string, any>}
  */
 export function changes(start, now) {
 	const table = (/** @type {unknown} */ v) => !!v && typeof v === 'object' && !Array.isArray(v);
+	const a0 = start || {};
+	const b0 = now || {};
 	/** @type {Record<string, any>} */
 	const out = {};
-	for (const k of Object.keys(now || {})) {
-		const a = start ? start[k] : undefined;
-		const b = now[k];
-		if (b === undefined || stable(a) === stable(b)) continue;
-		if (table(a) && table(b)) {
+	for (const k of new Set([...Object.keys(a0), ...Object.keys(b0)])) {
+		const a = a0[k];
+		const b = b0[k];
+		if (stable(a) === stable(b)) continue;
+		if (table(a) && (table(b) || b === undefined)) {
 			const inner = changes(a, b);
 			if (Object.keys(inner).length) out[k] = inner;
-		} else out[k] = clone(b);
+		} else out[k] = b === undefined ? null : clone(b);
 	}
 	return out;
 }

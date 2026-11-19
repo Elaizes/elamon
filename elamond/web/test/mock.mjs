@@ -380,8 +380,15 @@ function editorWrite(what, b) {
 		if (!p) return [422, { error: 'bad_settings', mistakes: [{ file: d.file, line: null, path: `profiles.${b.id}`, message: 'no such profile' }] }];
 		const missing = (b.profile.dashboards || []).findIndex((x) => !d.dashboards.some((y) => y.id === x));
 		if (missing >= 0) return [422, { error: 'bad_settings', mistakes: [{ file: d.file, line: null, path: `profiles.${b.id}.dashboards[${missing}]`, message: `no dashboard ${b.profile.dashboards[missing]}` }] }];
-		// The editor's part of it is what was sent; the rest stays as the files say.
-		Object.assign(p, { def: { ...p.def, ...b.profile, android: { ...p.def.android, ...(b.profile.android || {}) } }, editor: true });
+		// As the service takes a profile's part: a key sent is set, `null` takes it back to the other
+		// files, a key left out stays as the editor's file has it.
+		const files = (fx('0.11/editor.json').profiles.find((x) => x.id === b.id) || { def: {} }).def;
+		const def = { ...p.def, android: { ...p.def.android } };
+		for (const [k, v] of Object.entries(b.profile || {})) {
+			if (k === 'android' && v && typeof v === 'object') for (const [a, x] of Object.entries(v)) def.android[a] = x === null ? (files.android || {})[a] : x;
+			else def[k] = v === null ? files[k] : v;
+		}
+		Object.assign(p, { def, editor: true });
 	} else if (what === 'revert') {
 		const original = fx('0.11/editor.json');
 		if (b.dashboard) {
