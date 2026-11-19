@@ -2,7 +2,7 @@
 import { card, captionLine, figure, setLevel, numberOf, accent } from './common.js';
 import { sharpCanvas, cssColor, levelColor } from './canvas.js';
 import { drawChart } from './chart.js';
-import { Hist } from '../history.js';
+import { keptHist } from '../history.js';
 import * as F from '../format.js';
 
 /** @param {import('./common.js').Widget} w @param {import('./common.js').Env} env @returns {import('./common.js').Instance} */
@@ -16,7 +16,7 @@ export function create(w, env) {
 	let last;
 	/** @type {ReturnType<typeof sharpCanvas> | null} */
 	let spark = null;
-	const hist = new Hist(1, env.historyMs, env.intervalMs);
+	const hist = keptHist(env.memory, w.id, 1, env.historyMs, env.intervalMs);
 	if (w.spark) {
 		spark = sharpCanvas('spark', (ctx, width, height) => {
 			const color = levelColor(spark ? spark.el : el, last?.level, last?.blend, accent(w.color)) || cssColor(el, accent(w.color));

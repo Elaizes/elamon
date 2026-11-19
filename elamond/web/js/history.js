@@ -49,6 +49,24 @@ export function spanParts(ms) {
 	return ['d', Math.round(ms / DAY_MS)];
 }
 
+/**
+ * The points a view kept of widget `id` (in a page's `memory`), so a dashboard drawn again (the
+ * settings changed) goes on with them; new ones where there were none, or of another shape.
+ * @param {Map<string, any>} memory @param {string} id @param {number} series @param {number} windowMs @param {number} stepHintMs
+ */
+export function keptHist(memory, id, series, windowMs, stepHintMs) {
+	const key = `${id}#points`;
+	const had = memory.get(key);
+	if (had instanceof Hist && had.series === Math.max(1, series)) {
+		had.setWindow(windowMs);
+		had.stepHintMs = stepHintMs;
+		return had;
+	}
+	const h = new Hist(series, windowMs, stepHintMs);
+	memory.set(key, h);
+	return h;
+}
+
 /** Only a memory guard: two hours at a point a second. The window decides what stays. */
 export const MAX_POINTS = 7200;
 /** A step this many times the usual one is a gap: no line across it. */

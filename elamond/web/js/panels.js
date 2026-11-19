@@ -49,7 +49,7 @@ function acts(w) {
 /** Control is off on the computer: why, and how to turn it on there. @param {string | null | undefined} reason */
 function controlOff(reason) {
 	const [text, code, where] =
-		reason === 'held_off' ? [P.controlHeldOff, 'elamond control on', null] : reason === 'settings_unreadable' ? [P.controlUnreadable, 'elamond check', null] : [P.controlOffBody, 'control = true', P.controlOffWhere];
+		reason === 'held_off' ? [P.controlHeldOff, P.controlHeldOffRun, null] : reason === 'settings_unreadable' ? [P.controlUnreadable, P.controlUnreadableRun, null] : [P.controlOffBody, P.controlOffSetting, P.controlOffWhere];
 	return h('section', { class: 'card w control-off', role: 'note' },
 		h('div', { class: 'w-head' }, icon('lock', 'w-icon'), h('h3', { class: 'w-title' }, P.controlOff)),
 		h('p', null, text), h('pre', { class: 'mono code' }, code), where ? h('p', { class: 'muted' }, where) : null);
@@ -276,6 +276,8 @@ export function mountMachine(root, ctx, tab) {
 	let view = null;
 	/** @type {ReturnType<typeof headerChips> | null} */
 	let chips = null;
+	/** The last line of the dashboard on screen, to draw it again at once when the settings change. @type {Data | null} */
+	let lastData = null;
 
 	const run = actionRunner({ ui: () => ui, toast: ctx.toast, unauthorized: () => toPairing() });
 
@@ -331,7 +333,10 @@ export function mountMachine(root, ctx, tab) {
 				if (l.ui && l.ui !== ui.version) refreshUi();
 			} else if (l.kind === 'data') {
 				chips?.update(l.data);
-				if (l.data.dashboard === current) view?.update(l.data);
+				if (l.data.dashboard === current) {
+					lastData = l.data;
+					view?.update(l.data);
+				}
 			}
 		},
 		status(st) {
@@ -352,6 +357,7 @@ export function mountMachine(root, ctx, tab) {
 		setText(banner, down ? S.core.noConnection : '');
 		// No stale numbers: what was shown goes when the connection does, or the page hides.
 		if (down || st === 'paused') {
+			lastData = null;
 			view?.clear();
 			chips?.clear();
 		}
@@ -380,6 +386,10 @@ export function mountMachine(root, ctx, tab) {
 			parent = null;
 		}
 		render();
+		if (lastData && lastData.dashboard === current) {
+			view?.update({ ...lastData, history: undefined });
+			chips?.update(lastData);
+		}
 		if (current) s.stream.set({ dashboard: current });
 	}
 
@@ -538,6 +548,7 @@ export function mountMachine(root, ctx, tab) {
 		const isTab = tabsOf().includes(id) && !from;
 		current = id;
 		parent = isTab ? null : from;
+		lastData = null;
 		if (isTab) state.save('tab', id);
 		const hash = `#/tab/${encodeURIComponent(id)}`;
 		if (how === 'push' && location.hash !== hash) {

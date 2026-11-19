@@ -41,14 +41,12 @@ export const S = {
 		pairNoPairing: 'The computer isn’t waiting for a browser. Run elamond pair on it first, or wait until the one asking now is answered.',
 		pairDeclined: 'The computer didn’t allow this browser. Run elamond pair again and answer y.',
 		pairTooMany: 'The computer has as many clients paired as it takes. Revoke one there with elamond revoke, then pair again.',
-		pairBadOrigin: 'The computer refused a request that didn’t come from its own page. Open the page at the computer’s address and try again.',
 		pairTimedOut: 'No answer from the computer in time. Run elamond pair again.',
 		pairFailed: 'Can’t pair: {0}',
 
 		// The computer's page
 		tabs: 'Dashboards',
 		chips: 'At a glance',
-		role: 'Role: {0}',
 		roleGlance: 'Glance',
 		roleMonitor: 'Monitor',
 		roleOperate: 'Operate',
@@ -64,8 +62,6 @@ export const S = {
 		forgetFailed: 'The computer didn’t unpair this browser: {0}. Run elamond revoke there to be sure.',
 		noTabs: 'This browser’s role or profile has no dashboards on this computer.',
 		back: 'Back',
-		paused: 'Paused while the page is hidden.',
-		connecting: 'Connecting…',
 
 		// Widgets
 		loading: 'Loading…',
@@ -73,12 +69,9 @@ export const S = {
 		notice: 'Notice',
 		fold: 'Fold',
 		unfold: 'Unfold',
-		open: 'Open',
 		opens: 'Opens {0}',
-		previewNote: 'Preview: controls here run nothing.',
 		empty: 'Nothing here right now',
 		search: 'Search',
-		clearSearch: 'Clear the search',
 		sortBy: 'Order',
 		total: '{0} in all',
 		found: '{0} of {1}',
@@ -106,7 +99,6 @@ export const S = {
 		timelineLegend: '{0} · {1}',
 		timelineTouched: '{0} · {1} – {2} · {3}',
 		barsSummary: '{0}: {1} bars, average {2}, highest {3}',
-		gaugeOf: '{0} of {1}',
 
 		// Logs
 		logLevels: 'Least level shown',
@@ -138,19 +130,19 @@ export const S = {
 		unmute: 'Unmute',
 		volume: 'Volume',
 		position: 'Position',
-		cover: 'Cover',
 
 		// Actions
 		controlOff: 'Control is off',
 		controlOffBody: 'This computer only lets clients watch. To also act on it from here, turn control on in the service’s settings:',
 		controlOffWhere: 'in ~/.config/elamon/elamond.toml, or services.elamond.settings.control = true on NixOS.',
+		controlOffSetting: 'control = true',
 		controlHeldOff: 'Someone at the computer held control off for every client. To let them act again, run there:',
+		controlHeldOffRun: 'elamond control on',
 		controlUnreadable: 'The service’s settings files stopped parsing, so it keeps control off until they read again. To see what is wrong, run on the computer:',
-		running: 'Running…',
+		controlUnreadableRun: 'elamond check',
 		done: 'Done',
 		exitCode: 'Exit {0}',
 		timedOut: 'Timed out',
-		output: 'Output',
 		noOutput: '(no output)',
 		continue: 'Continue',
 		question: '{0}?',
@@ -174,11 +166,6 @@ export const S = {
 		typedOtherTitle: 'Type the text to go on',
 		typedOtherBody: 'Type “{0}” to go on.',
 		typedOtherField: 'Text',
-		paramsTitle: '{0}',
-		yes: 'yes',
-		no: 'no',
-		on: 'On',
-		off: 'Off',
 
 		// Errors, by the service's codes
 		errUnauthorized: 'The computer no longer accepts this browser. Pair again.',

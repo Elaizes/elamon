@@ -33,8 +33,9 @@ export function create(w, env) {
 	const kept = env.asked.log[w.id];
 	let level = kept ? kept.level : own;
 	let search = kept && kept.search ? kept.search : '';
-	/** @type {L.LogLines | null} */
-	let model = null;
+	const modelKey = `${w.id}#lines`;
+	/** Its lines, kept in the page's memory so a dashboard drawn again (the settings changed) goes on with them. @type {L.LogLines | null} */
+	let model = env.memory.get(modelKey) || null;
 	let follow = true;
 	/** @type {ReturnType<typeof setTimeout> | null} */
 	let settle = null;
@@ -136,6 +137,7 @@ export function create(w, env) {
 
 	/** @param {boolean} scroll whether to follow the newest */
 	function render(scroll = true) {
+		env.memory.set(modelKey, model);
 		if (!model) {
 			status.hidden = false;
 			setText(status, env.live ? S.panels.loading : S.panels.logPreview);

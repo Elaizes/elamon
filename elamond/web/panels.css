@@ -216,7 +216,7 @@ button.t-main:hover, a.t-main:hover { background: var(--surface-2); }
 .dash-grid.inner .in-group > .action-button:hover:not(:disabled) { background: color-mix(in srgb, var(--surface) 70%, var(--line)); }
 .button-mark { display: inline-grid; place-items: center; width: 24px; color: var(--accent, var(--tertiary)); flex: none; }
 .button-text { display: grid; min-width: 0; flex: 1; }
-.button-label { font-weight: 600; overflow-wrap: anywhere; }
+.button-label { font-weight: 600; overflow-wrap: break-word; }
 .button-caption { font-size: 0.85rem; }
 .button-outcome:empty { display: none; }
 .button-outcome { padding: 0 12px 6px; }
@@ -233,6 +233,11 @@ button.t-main:hover, a.t-main:hover { background: var(--surface-2); }
 .in-group > .switch-row { background: var(--surface); }
 .switch-row:hover:not(:disabled) { background: var(--surface-2); }
 .switch-row > .w-icon { color: var(--accent, var(--primary)); }
+.w-toggle, .w-button { container-type: inline-size; }
+@container (max-width: 210px) {
+	.switch-row > .w-icon, .row-button .button-mark { display: none; }
+	.switch-row, .row-button { padding: 8px; gap: 8px; }
+}
 .switch-track { position: relative; width: 46px; height: 28px; border-radius: 999px; background: var(--line); flex: none; margin-left: auto; transition: background 0.2s; }
 .switch-knob { position: absolute; top: 4px; left: 4px; width: 20px; height: 20px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 3px rgb(0 0 0 / 0.3); transition: transform 0.2s; }
 .switch-row[aria-checked="true"] .switch-track { background: var(--primary); }

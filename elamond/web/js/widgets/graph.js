@@ -6,7 +6,7 @@ import { api } from '../api.js';
 import { card, captionLine, accent, chips } from './common.js';
 import { sharpCanvas, cssColor } from './canvas.js';
 import { drawChart } from './chart.js';
-import { Hist, rangeChips, spanParts } from '../history.js';
+import { Hist, keptHist, rangeChips, spanParts } from '../history.js';
 import { timeTicks, axisLabels, nearestIndex, timeAtX, chartX, tooltipLeft } from '../chartmath.js';
 import { errorText } from '../errors.js';
 import { S, fill } from '../strings.js';
@@ -34,7 +34,7 @@ export function spanLabel(ms) {
 /** How long ago, for a live chart's pointer. @param {number} seconds */
 function ago(seconds) {
 	if (seconds < 2) return S.panels.chartNow;
-	return fill(S.panels.chartAgo, seconds < 60 ? `${seconds} s` : F.duration(seconds));
+	return fill(S.panels.chartAgo, seconds < 60 ? fill(S.panels.rangeSeconds, seconds) : F.duration(seconds));
 }
 
 /** A time axis's label. @param {'time' | 'day' | 'month' | 'year'} unit @param {number} ms */
@@ -67,7 +67,7 @@ export function create(w, env) {
 	const first = series[0];
 	const small = w.height === 'small';
 	const liveMs = (typeof w.range === 'number' && w.range > 0 ? w.range : env.historyMs / 1000) * 1000;
-	const live = new Hist(series.length, liveMs, env.intervalMs);
+	const live = keptHist(env.memory, w.id, series.length, liveMs, env.intervalMs);
 	const binary = first.format === 'bytes' || first.format === 'rate';
 	const floor = typeof w.floor === 'number' ? w.floor : 1;
 	const colorOf = (/** @type {any} */ ser) => accent(ser.color || w.color);
