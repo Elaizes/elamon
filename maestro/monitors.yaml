@@ -44,6 +44,12 @@ appId: io.github.elaizes.elamon.debug
     rightOf: "Cancel"
 - waitForAnimationToEnd
 - takeScreenshot: 53-monitors-panel-on
+# Folded again and back at the top, as Control was: the flows after this one scroll down from there.
+- tapOn: "Monitors"
+- scrollUntilVisible:
+    element: "Local web"
+    direction: UP
+    timeout: 20000
 - scrollUntilVisible:
     element: "Overview"
     direction: LEFT
