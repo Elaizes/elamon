@@ -181,7 +181,7 @@ class Editor {
 			desc: () => this.desc,
 			dash: () => this.dash.value,
 			hooks: {
-				select: (path, open) => this.select(path, open),
+				select: (path, open, into) => this.select(path, open, into),
 				move: (from, parent, index) => this.move(from, parent, index),
 				nudge: (path, delta) => this.nudge(path, delta),
 				span: (path, n) => this.span(path, n),
@@ -214,8 +214,6 @@ class Editor {
 		};
 		this.onKey = (/** @type {KeyboardEvent} */ e) => {
 			if (e.key === 'Escape' && this.selected && !document.querySelector('dialog[open]')) {
-				const t = /** @type {Element | null} */ (e.target);
-				if (t && t.closest && t.closest('.ed-combo')) return;
 				const was = this.selected;
 				this.select(null);
 				this.canvas.focus(was);
@@ -453,6 +451,7 @@ class Editor {
 			changed: (shape) => {
 				this.changed(shape);
 				if (shape) this.renderSide();
+				else this.canvas.relabel(path);
 			},
 			close: () => {
 				this.select(null);
@@ -484,17 +483,20 @@ class Editor {
 		this.previewer.soon(shape ? 150 : 400);
 	}
 
-	/** @param {import('./draft.js').WidgetPath | null} path @param {boolean} [open] whether the form opens (as a sheet on a narrow screen) */
-	select(path, open = false) {
+	/**
+	 * Picks a widget. @param {import('./draft.js').WidgetPath | null} path @param {boolean} [open] whether its form opens (a
+	 * sheet on a narrow screen) @param {boolean} [into] whether the focus goes into the form (from the keyboard)
+	 */
+	select(path, open = false, into = false) {
 		const same = !!path && !!this.selected && samePath(path, this.selected);
 		this.selected = path;
 		this.sheetOpen = !!path && (open || (same && this.sheetOpen));
 		this.canvas.select(path);
 		if (!same || open) this.renderSide();
 		else this.side && this.side.classList.toggle('open', this.sheetOpen);
-		if (path && open && this.side && window.matchMedia('(max-width: 900px)').matches) {
-			const first = this.side.querySelector('input, select, textarea, button');
-			if (first instanceof HTMLElement) first.focus({ preventScroll: true });
+		if (path && open && this.side && (into || window.matchMedia('(max-width: 900px)').matches)) {
+			const first = this.side.querySelector(into ? '.ed-section input, .ed-section select, .ed-section textarea' : 'button');
+			if (first instanceof HTMLElement) first.focus({ preventScroll: !into });
 		}
 	}
 

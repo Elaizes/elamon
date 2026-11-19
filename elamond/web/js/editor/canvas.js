@@ -11,7 +11,7 @@ import { spanOf, spanRange, nameOf, typeLabel, isGroup, matchDrawn } from './des
 /**
  * What the canvas asks of the editor.
  * @typedef {{
- *   select: (path: import('./draft.js').WidgetPath | null, open?: boolean) => void,
+ *   select: (path: import('./draft.js').WidgetPath | null, open?: boolean, into?: boolean) => void,
  *   move: (from: import('./draft.js').WidgetPath, parent: import('./draft.js').WidgetPath, index: number) => void,
  *   nudge: (path: import('./draft.js').WidgetPath, delta: -1 | 1) => void,
  *   span: (path: import('./draft.js').WidgetPath, span: number) => void,
@@ -304,6 +304,18 @@ export class Canvas {
 		return bar;
 	}
 
+	/** A widget's name changed in its form: its frame says the new one. @param {import('./draft.js').WidgetPath} path */
+	relabel(path) {
+		const cell = this.el.querySelector(`.ed-cell[data-path="${pathKey(path)}"]`);
+		const w = this.widget(pathKey(path));
+		if (!(cell instanceof HTMLElement) || !w) return;
+		const desc = this.opts.desc();
+		const name = nameOf(desc, w);
+		const span = cell.querySelector(':scope > .ed-bar .ed-name > span');
+		if (span) span.textContent = name;
+		cell.setAttribute('aria-label', fill(S.editor.cellLabel, name, typeLabel(desc, w.type), spanOf(desc, w)));
+	}
+
 	/** Picks a widget: its frame is marked. @param {import('./draft.js').WidgetPath | null} path */
 	select(path) {
 		this.selected = path;
@@ -336,7 +348,7 @@ export class Canvas {
 			hooks.span(path, spanOf(this.opts.desc(), w) + (e.key === 'ArrowLeft' ? -1 : 1));
 		} else if (e.key === 'Enter' || e.key === ' ') {
 			e.preventDefault();
-			hooks.select(path, true);
+			hooks.select(path, true, true);
 		} else if (e.key === 'Delete' || e.key === 'Backspace') {
 			e.preventDefault();
 			hooks.remove(path);
