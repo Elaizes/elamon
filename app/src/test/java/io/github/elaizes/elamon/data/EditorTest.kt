@@ -122,6 +122,48 @@ class EditorTest {
 	}
 
 	@Test
+	fun aProfilesFormIsTheDescriptions() {
+		val d = description()
+		// The editor's part of a profile: its tabs and header, then, under android, the dashboards shown outside the app.
+		assertEquals(listOf("dashboards", "header"), d.profileKeys.map { it.key })
+		assertEquals("list", d.profileKeys[0].kind)
+		assertEquals("dashboard", d.profileKeys[0].item!!.to)
+		assertEquals("dashboard", d.profileKeys[1].to)
+		assertEquals(listOf("widget", "tiles", "card"), d.androidKeys.map { it.key })
+		assertTrue(d.androidKeys.all { it.kind == "ref" && it.to == "dashboard" && it.label!!.isNotBlank() && !it.hint.isNullOrBlank() })
+		// Every key a profile's def has, the description has a form for.
+		for (p in d.profiles) {
+			assertEquals(p.def.keys - PROFILE_ANDROID, d.profileKeys.map { it.key }.toSet(), p.id)
+			assertEquals(p.def.getValue(PROFILE_ANDROID).jsonObject.keys, d.androidKeys.map { it.key }.toSet(), p.id)
+		}
+	}
+
+	@Test
+	fun aProfileWriteSendsWhatChangedAlone() {
+		val def = description().profile("default")!!.def
+		val android = def.getValue(PROFILE_ANDROID).jsonObject
+		assertEquals(obj("{}"), profileChanges(def, def))
+		// A tab added ("add it to my tabs"): the tabs alone, not the header nor the Android dashboards the profile has from the files.
+		val tabs = Drafts.withKey(def, PROFILE_TABS, JsonArray(def.getValue(PROFILE_TABS).jsonArray + JsonPrimitive("mine")))
+		assertEquals(
+			obj("""{"id":"default","profile":{"dashboards":["overview","ups","processes","sensors","control","mine"]},"base":"h"}"""),
+			profileBody("default", profileChanges(def, tabs), "h"),
+		)
+		// One of android's: that one alone, in android.
+		val widget = Drafts.withKey(def, PROFILE_ANDROID, Drafts.withKey(android, "widget", JsonPrimitive("phone")))
+		assertEquals(obj("""{"android":{"widget":"phone"}}"""), profileChanges(def, widget))
+		// Taken out: null, back to what the other files say.
+		assertEquals(obj("""{"header":null}"""), profileChanges(def, Drafts.withKey(def, "header", null)))
+		assertEquals(obj("""{"android":{"card":null}}"""), profileChanges(def, Drafts.withKey(def, PROFILE_ANDROID, Drafts.withKey(android, "card", null))))
+		// Changed, and changed back: nothing of it.
+		val back = Drafts.withKey(widget, PROFILE_ANDROID, android)
+		assertEquals(obj("""{"dashboards":["overview"]}"""), profileChanges(def, Drafts.withKey(back, PROFILE_TABS, JsonArray(listOf(JsonPrimitive("overview"))))))
+		// The fixture's write, of a profile that had none of it: all of it.
+		val p = fixture("editor-profile").getValue("request").jsonObject
+		assertEquals(p, profileBody("pixel-9", profileChanges(obj("{}"), p.getValue("profile").jsonObject), "9a8b7c6d5e4f3021"))
+	}
+
+	@Test
 	fun aWidgetWithUseStartsFromItsTemplate() {
 		val d = description()
 		// The stock Sensors and CPU dashboards: tables made of the service's templates, with no type of their own.

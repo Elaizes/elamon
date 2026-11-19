@@ -1,5 +1,6 @@
 package io.github.elaizes.elamon.data
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -30,6 +31,10 @@ data class EditorDescription(
 	/** The asking phone's own profile. */
 	val profile: String? = null,
 	val dashboard: EditorDashboardKeys = EditorDashboardKeys(),
+	/** The keys of the editor's part of a profile (its tabs, its header), but `android`. */
+	@SerialName("profile_keys") val profileKeys: List<EditorKey> = emptyList(),
+	/** The keys of a profile's `android` the editor writes: the dashboards shown outside the app. */
+	@SerialName("android_keys") val androidKeys: List<EditorKey> = emptyList(),
 	/** The keys every widget takes. */
 	val common: List<EditorKey> = emptyList(),
 	val types: List<EditorType> = emptyList(),
@@ -409,11 +414,35 @@ fun dashboardBody(id: String, dashboard: JsonObject, hash: String?): JsonObject 
 	put("base", base(hash))
 }
 
-/** `POST /api/v1/admin/editor/profile`: the profile [id]'s tabs, header and Android dashboards. */
+/** `POST /api/v1/admin/editor/profile`: of the profile [id]'s tabs, header and Android dashboards, those in [profile] ([profileChanges]). */
 fun profileBody(id: String, profile: JsonObject, hash: String?): JsonObject = buildJsonObject {
 	put("id", id)
 	put("profile", profile)
 	put("base", base(hash))
+}
+
+/** The key of a profile that holds its tabs, and the table that holds the dashboards shown outside the app. */
+const val PROFILE_TABS = "dashboards"
+const val PROFILE_ANDROID = "android"
+
+/**
+ * What a profile's write sends of [draft], the profile's part as changed here from [base], as it was
+ * read: the keys changed alone, each of `android`'s on its own, one taken out as null (back to what
+ * the other files say). What the profile only has from elsewhere (another file, the defaults) is
+ * never written into the editor's file.
+ */
+fun profileChanges(base: JsonObject, draft: JsonObject): JsonObject {
+	fun changed(b: JsonObject, d: JsonObject, skip: String?): Map<String, JsonElement> =
+		(d.keys + b.keys).filter { it != skip && d[it] != b[it] }.associateWith { d[it] ?: JsonNull }
+	val out = LinkedHashMap(changed(base, draft, PROFILE_ANDROID))
+	val b = base[PROFILE_ANDROID] as? JsonObject
+	val d = draft[PROFILE_ANDROID] as? JsonObject
+	when {
+		b != null && d != null -> changed(b, d, null).takeIf { it.isNotEmpty() }?.let { out[PROFILE_ANDROID] = JsonObject(it) }
+		// Not a table on one side: as any other key.
+		base[PROFILE_ANDROID] != draft[PROFILE_ANDROID] -> out[PROFILE_ANDROID] = draft[PROFILE_ANDROID] ?: JsonNull
+	}
+	return JsonObject(out)
 }
 
 /** What the editor's write of [table] (`dashboard` or `profile`) [id] is undone or taken out by: `…/revert`, `…/delete`. */

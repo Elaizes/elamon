@@ -574,13 +574,8 @@
 		<item quantity="one">%1$d paired client has it</item>
 		<item quantity="other">%1$d paired clients have it</item>
 	</plurals>
-	<string name="editor_tabs">Tabs</string>
-	<string name="editor_header">Header</string>
-	<string name="editor_header_hint">The chips under the computer\'s name, on every tab</string>
+	<!-- Over the keys of a profile's android table: the dashboards shown outside the app. -->
 	<string name="editor_android">Outside the app</string>
-	<string name="editor_android_widget">Home-screen widget</string>
-	<string name="editor_android_tiles">Quick Settings tiles</string>
-	<string name="editor_android_card">The computer\'s card on the home screen</string>
 	<!-- A new dashboard. -->
 	<string name="editor_new_title">New dashboard</string>
 	<string name="editor_new_name">Title</string>

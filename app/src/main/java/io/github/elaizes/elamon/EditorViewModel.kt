@@ -47,7 +47,9 @@ import io.github.elaizes.elamon.data.editorWrite
 import io.github.elaizes.elamon.data.mistakesOf
 import io.github.elaizes.elamon.data.preview
 import io.github.elaizes.elamon.data.previewBody
+import io.github.elaizes.elamon.data.PROFILE_TABS
 import io.github.elaizes.elamon.data.profileBody
+import io.github.elaizes.elamon.data.profileChanges
 import io.github.elaizes.elamon.data.tableBody
 import io.github.elaizes.elamon.data.text
 
@@ -356,7 +358,8 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 						if (editing.isNew && editing.toTabs) tabbed = intoTabs(c, desc, editing.id, r.hash)
 					}
 					is Editing.Tabs -> {
-						c.editorWrite(EDITOR_PROFILE_PATH, profileBody(editing.profile, draft, desc.hash))
+						// What changed here alone: what the profile has from the other files stays theirs.
+						c.editorWrite(EDITOR_PROFILE_PATH, profileBody(editing.profile, profileChanges(s.base, draft), desc.hash))
 						_state.update { it.copy(base = draft) }
 					}
 				}
@@ -374,12 +377,16 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 		}
 	}
 
-	/** The new dashboard [id] added to the tabs of the phone's own profile, after the editor's file got [hash]; whether it was. */
+	/**
+	 * The new dashboard [id] added to the tabs of the phone's own profile, after the editor's file got
+	 * [hash]; whether it was. Its tabs alone are written: its header and Android dashboards stay as
+	 * they come.
+	 */
 	private suspend fun intoTabs(c: ElamondClient, desc: EditorDescription, id: String, hash: String?): Boolean {
 		val own = desc.profile(desc.profile) ?: return false
-		val tabs = (own.def["dashboards"] as? JsonArray)?.toList() ?: tabsKept()
+		val tabs = (own.def[PROFILE_TABS] as? JsonArray)?.toList() ?: return false
 		if (tabs.any { it.text() == id }) return true
-		val profile = Drafts.withKey(own.def, "dashboards", JsonArray(tabs + JsonPrimitive(id)))
+		val profile = profileChanges(own.def, Drafts.withKey(own.def, PROFILE_TABS, JsonArray(tabs + JsonPrimitive(id))))
 		return try {
 			c.editorWrite(EDITOR_PROFILE_PATH, profileBody(own.id, profile, hash))
 			true
@@ -390,9 +397,6 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 			false
 		}
 	}
-
-	/** The tabs as the computer shows this phone, one for each dashboard of the settings. */
-	private fun tabsKept(): List<JsonElement> = kept?.tabs.orEmpty().map { it.substringBefore('.') }.distinct().map(::JsonPrimitive)
 
 	/**
 	 * After a write: what the editor offers read again (the file's new hash), and the computer's `ui`

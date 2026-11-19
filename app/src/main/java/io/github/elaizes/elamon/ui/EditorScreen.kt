@@ -104,11 +104,8 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
 import io.github.elaizes.elamon.ActionsState
 import io.github.elaizes.elamon.Conn
 import io.github.elaizes.elamon.EditorState
@@ -125,12 +122,12 @@ import io.github.elaizes.elamon.data.Dashboard
 import io.github.elaizes.elamon.data.Drafts
 import io.github.elaizes.elamon.data.EditorDescription
 import io.github.elaizes.elamon.data.EditorFrom
-import io.github.elaizes.elamon.data.EditorKey
 import io.github.elaizes.elamon.data.Grid
 import io.github.elaizes.elamon.data.Machine
 import io.github.elaizes.elamon.data.Mistake
 import io.github.elaizes.elamon.data.WIDGETS
 import io.github.elaizes.elamon.data.MistakeAt
+import io.github.elaizes.elamon.data.PROFILE_ANDROID
 import io.github.elaizes.elamon.data.Widget
 import io.github.elaizes.elamon.data.isSettingsId
 import io.github.elaizes.elamon.data.mistakeAt
@@ -399,7 +396,7 @@ fun EditorScreen(
 private const val REVERT = "revert"
 private const val DELETE = "delete"
 private const val RELOAD = "reload"
-private const val ANDROID = "android"
+private const val ANDROID = PROFILE_ANDROID
 private const val TYPE = EditorDescription.TYPE
 private const val ICON = "icon"
 
@@ -888,7 +885,11 @@ private fun DashboardKeysSheet(
 	}
 }
 
-/** The tabs of a profile: whose, which dashboards in which order, the header, and the dashboards of the phone's widget, tiles and card. */
+/**
+ * The tabs of a profile: whose, and the keys of its the editor writes as the description has them
+ * (which dashboards in which order, the header), then those of its `android` (the dashboards of the
+ * phone's widget, tiles and card).
+ */
 @Composable
 private fun TabsEditor(
 	state: EditorState,
@@ -905,13 +906,13 @@ private fun TabsEditor(
 	val profile = desc.profile(tabs.profile)
 	val placed = state.allMistakes.map { it to mistakeAt(it.path) }
 	val ofKey = placed.mapNotNull { (m, a) -> (a as? MistakeAt.InProfile)?.takeIf { it.profile == tabs.profile }?.let { (it.key ?: "") to m.message } }.groupBy({ it.first }, { it.second })
+	val ofAndroid = ofKey.filterKeys { it.startsWith("$ANDROID.") }.mapKeys { it.key.removePrefix("$ANDROID.") }
 	val elsewhere = placed.filter { (_, a) -> (a as? MistakeAt.InProfile)?.profile != tabs.profile }.map { it.first }
 	val fixed = fixedBy(lower, state.base)
-	val android = state.draft[ANDROID] as? JsonObject ?: JsonObject(emptyMap())
+	val android = state.draft[ANDROID] as? JsonObject
 	val baseAndroid = state.base[ANDROID] as? JsonObject ?: JsonObject(emptyMap())
 	val fixedAndroid = fixedBy(lower, baseAndroid)
 	var picking by rememberSaveable { mutableStateOf(false) }
-	val dashboardRef = { key: String, label: String, hint: String? -> EditorKey(key = key, kind = "ref", to = "dashboard", label = label, hint = hint) }
 	Column(
 		Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(editorPadding()),
 		verticalArrangement = Arrangement.spacedBy(Space.l),
@@ -929,22 +930,13 @@ private fun TabsEditor(
 				Text(pluralStringResource(R.plurals.editor_profile_clients, p.clients.size, p.clients.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			}
 		}
-		val list = EditorKey(key = "dashboards", kind = "list", label = stringResource(R.string.editor_tabs), of = buildJsonObject {
-			put("kind", JsonPrimitive("ref"))
-			put("to", JsonPrimitive("dashboard"))
-		})
-		KeyField(list, state.draft["dashboards"], { onKey("dashboards", it) }, env, ofKey["dashboards"].orEmpty(), fixed("dashboards"))
-		KeyField(dashboardRef("header", stringResource(R.string.editor_header), stringResource(R.string.editor_header_hint)), state.draft["header"], { onKey("header", it) }, env, ofKey["header"].orEmpty(), fixed("header"))
-		Text(stringResource(R.string.editor_android), style = MaterialTheme.typography.titleMedium)
-		for ((key, label) in listOf(WIDGET to R.string.editor_android_widget, TILES to R.string.editor_android_tiles, CARD to R.string.editor_android_card)) {
-			KeyField(dashboardRef(key, stringResource(label), null), android[key], { onAndroid(key, it) }, env, ofKey["$ANDROID.$key"].orEmpty(), fixedAndroid(key))
-		}
-		// What else the profile's table holds, as the computer has it: kept, as JSON.
-		for (k in state.draft.keys - setOf("dashboards", "header", ANDROID)) {
-			KeyField(EditorKey(key = k), state.draft[k], { onKey(k, it) }, env, ofKey[k].orEmpty(), fixed(k))
-		}
-		for (k in android.keys - setOf(WIDGET, TILES, CARD)) {
-			KeyField(EditorKey(key = "$ANDROID.$k"), android[k], { onAndroid(k, it) }, env, ofKey["$ANDROID.$k"].orEmpty(), fixedAndroid(k))
+		// Its keys as the description has them; what else the computer has in it, kept, as JSON. An
+		// `android` that isn't a table is one of those.
+		ObjectFields(desc.profileKeys, state.draft, onKey, env, emptyList(), ofKey, fixed, skip = if (android != null) setOf(ANDROID) else emptySet())
+		if (android != null || desc.androidKeys.isNotEmpty()) {
+			Text(stringResource(R.string.editor_android), style = MaterialTheme.typography.titleMedium)
+			Mistakes(ofKey[ANDROID].orEmpty())
+			ObjectFields(desc.androidKeys, android ?: JsonObject(emptyMap()), onAndroid, env, emptyList(), ofAndroid, fixedAndroid)
 		}
 	}
 	if (picking) {
@@ -956,10 +948,6 @@ private fun TabsEditor(
 		)
 	}
 }
-
-private const val WIDGET = "widget"
-private const val TILES = "tiles"
-private const val CARD = "card"
 
 /** A new dashboard: its id, its title, empty or a copy of another, and whether this phone's tabs get it. */
 @Composable
