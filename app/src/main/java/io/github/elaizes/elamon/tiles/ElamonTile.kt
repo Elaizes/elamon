@@ -1,0 +1,197 @@
+package io.github.elaizes.elamon.tiles
+
+import android.annotation.SuppressLint
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.graphics.drawable.Icon
+import android.os.Build
+import android.service.quicksettings.Tile
+import android.service.quicksettings.TileService
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import io.github.elaizes.elamon.R
+import io.github.elaizes.elamon.Reach
+import io.github.elaizes.elamon.Reading
+import io.github.elaizes.elamon.data.Machine
+import io.github.elaizes.elamon.data.MachineStore
+import io.github.elaizes.elamon.data.UiCache
+import io.github.elaizes.elamon.data.UiDoc
+import io.github.elaizes.elamon.reach
+import io.github.elaizes.elamon.readDashboard
+import io.github.elaizes.elamon.ui.iconRes
+import io.github.elaizes.elamon.ui.tapOf
+import io.github.elaizes.elamon.ui.text
+import io.github.elaizes.elamon.ui.toggledOn
+import io.github.elaizes.elamon.uiOf
+
+/**
+ * A Quick Settings tile: the [slot]th button or toggle of the dashboard the profile's `tiles` names,
+ * of the computer chosen in the settings (or the one paired). Named and drawn as the widget, a
+ * toggle on while its value is its `on`; a tap runs it, the phone unlocked first where it is locked,
+ * and what the computer says to ask before it asked in the app's own way ([TileActionActivity]).
+ * Without such a widget, it says so and does nothing.
+ */
+abstract class ElamonTile : TileService() {
+	/** Which of the tiles this is, from 0. */
+	abstract val slot: Int
+
+	private var scope: CoroutineScope? = null
+
+	/** What a tap runs, as last drawn: the computer and the widget; null for nothing. */
+	private var shown: Pair<Machine, TileSlot>? = null
+
+	override fun onStartListening() {
+		super.onStartListening()
+		val s = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+		scope?.cancel()
+		scope = s
+		s.launch {
+			val machine = tilesMachine(this@ElamonTile)
+			// At once, as last read; then as the computer says now, toggles and profile alike.
+			draw(machine, machine?.let { UiCache.get(this@ElamonTile).ui(it.id) })
+			if (machine == null) return@launch
+			val reading = TileReading.read(this@ElamonTile, machine) ?: return@launch
+			draw(machine, reading.ui)
+		}
+	}
+
+	override fun onStopListening() {
+		scope?.cancel()
+		scope = null
+		super.onStopListening()
+	}
+
+	override fun onDestroy() {
+		scope?.cancel()
+		super.onDestroy()
+	}
+
+	override fun onClick() {
+		super.onClick()
+		val (machine, slot) = shown ?: return
+		// A locked phone is unlocked first, whatever the action asks after.
+		if (isLocked) unlockAndRun { tap(machine, slot) } else tap(machine, slot)
+	}
+
+	private fun tap(machine: Machine, slot: TileSlot) {
+		val on = TileMemory.on[slot.widget.id] == true
+		val tap = tapOf(slot.widget, slot.action, on)
+		if (asksFirst(slot, tap.params)) {
+			open(TileActionActivity.intent(this, machine.id, slot.widget.id, on))
+			return
+		}
+		runForTile(this, machine, slot.widget.id, slot.action, tap.params, null)
+		// Turned as it was tapped, until a reading says otherwise.
+		if (slot.toggle) TileMemory.on[slot.widget.id] = !on
+	}
+
+	/** What asks before the action, over whatever is on screen, the panel closed. */
+	// Android 14 takes only a PendingIntent; before it, only an Intent.
+	@SuppressLint("StartActivityAndCollapseDeprecated")
+	private fun open(intent: Intent) {
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+			startActivityAndCollapse(PendingIntent.getActivity(this, slot, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+		} else {
+			@Suppress("DEPRECATION")
+			startActivityAndCollapse(intent)
+		}
+	}
+
+	/** The tile as [ui] of [machine] has it, or as a tile with nothing to do. */
+	private fun draw(machine: Machine?, ui: UiDoc?) {
+		val tile = qsTile ?: return
+		val s = ui?.let { tileSlots(it).getOrNull(slot) }
+		shown = if (machine != null && s != null) machine to s else null
+		val subtitle: String
+		if (machine == null || ui == null || s == null) {
+			tile.label = getString(R.string.tile_label, slot + 1)
+			tile.icon = Icon.createWithResource(this, R.drawable.ic_control)
+			tile.state = Tile.STATE_UNAVAILABLE
+			subtitle = getString(R.string.tile_no_action)
+		} else {
+			val id = s.widget.id
+			val note = TileMemory.note(id, System.currentTimeMillis())
+			val on = s.toggle && TileMemory.on[id] == true
+			tile.label = s.label
+			tile.icon = Icon.createWithResource(this, iconRes(s.icon))
+			tile.state = when {
+				!ui.control.enabled -> Tile.STATE_UNAVAILABLE
+				on -> Tile.STATE_ACTIVE
+				else -> Tile.STATE_INACTIVE
+			}
+			subtitle = when {
+				id in TileMemory.running -> getString(R.string.tile_running)
+				note != null -> note.text.text(resources)
+				!ui.control.enabled -> getString(R.string.control_off)
+				else -> machine.name
+			}
+			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && s.toggle) {
+				tile.stateDescription = getString(if (on) R.string.tile_on else R.string.tile_off)
+			}
+		}
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) tile.subtitle = subtitle
+		tile.updateTile()
+	}
+}
+
+class Tile1 : ElamonTile() {
+	override val slot = 0
+}
+
+class Tile2 : ElamonTile() {
+	override val slot = 1
+}
+
+class Tile3 : ElamonTile() {
+	override val slot = 2
+}
+
+class Tile4 : ElamonTile() {
+	override val slot = 3
+}
+
+/**
+ * One short reading for the tiles as the panel opens: the computer's `ui` as kept (its own where
+ * that is out of date or names no tiles dashboard) and a snapshot of the tiles' dashboard, for the
+ * toggles' states. The four tiles share it.
+ */
+object TileReading {
+	private val lock = Mutex()
+	private var last: Triple<String, Long, Reading>? = null
+
+	/** A reading as fresh as this is shared rather than asked for again. */
+	private const val SHARED_MS = 5_000L
+
+	suspend fun read(context: Context, machine: Machine): Reading? = lock.withLock {
+		val now = System.currentTimeMillis()
+		last?.takeIf { (id, at, _) -> id == machine.id && now - at in 0 until SHARED_MS }?.let { return it.third }
+		val store = MachineStore.get(context)
+		val cache = UiCache.get(context)
+		// Taken before asking: forgotten meanwhile, the computer's answer isn't kept.
+		val ticket = cache.ticket(machine.id)
+		val r = try {
+			val client = (reach(machine, store) as? Reach.Reached)?.client ?: return null
+			readDashboard(
+				ui = { fresh -> uiOf(machine, client, cache, store, fresh, ticket) },
+				pick = ::tilesDashboard,
+				snapshot = { client.snapshot(it, history = false) },
+				freshWithout = true,
+			)
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			return null
+		}
+		val states = r.line?.widgets.orEmpty()
+		for (s in tileSlots(r.ui)) if (s.toggle && s.widget.id in states) TileMemory.on[s.widget.id] = toggledOn(s.widget, states[s.widget.id])
+		last = Triple(machine.id, now, r)
+		r
+	}
+}

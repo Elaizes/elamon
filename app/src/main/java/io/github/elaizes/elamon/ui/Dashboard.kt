@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
@@ -220,40 +221,7 @@ fun accent(name: String?): Color {
 }
 
 /** An icon the settings name (docs/config.md, "Icons"); `overview` for one this app doesn't know. */
-@Composable fun icon(name: String?): ImageVector = when (name) {
-	"battery" -> ElIcons.Battery
-	"bolt" -> ElIcons.Bolt
-	"chip" -> ElIcons.Chip
-	"clock" -> ElIcons.Clock
-	"control" -> ElIcons.Control
-	"eye" -> ElIcons.Eye
-	"fan" -> ElIcons.Fan
-	"gauge" -> ElIcons.Gauge
-	"globe" -> ElIcons.Globe
-	"gpu" -> ElIcons.Gpu
-	"help" -> ElIcons.Help
-	"laptop" -> ElIcons.Laptop
-	"leaf" -> ElIcons.Leaf
-	"lock" -> ElIcons.Lock
-	"memory" -> ElIcons.Memory
-	"monitor" -> ElIcons.Monitor
-	"moon" -> ElIcons.Moon
-	"music" -> ElIcons.Music
-	"network" -> ElIcons.Network
-	"next" -> ElIcons.Next
-	"pause" -> ElIcons.Pause
-	"play" -> ElIcons.Play
-	"power" -> ElIcons.Power
-	"previous" -> ElIcons.Previous
-	"processes" -> ElIcons.Processes
-	"restart" -> ElIcons.Restart
-	"rocket" -> ElIcons.Rocket
-	"storage" -> ElIcons.Storage
-	"terminal" -> ElIcons.Terminal
-	"thermometer" -> ElIcons.Thermometer
-	"volume" -> ElIcons.Volume
-	else -> ElIcons.Overview
-}
+@Composable fun icon(name: String?): ImageVector = ImageVector.vectorResource(iconRes(name))
 
 /** The service's level as a colour: [good] while normal, turning amber, then red. Null without a level. */
 @Composable

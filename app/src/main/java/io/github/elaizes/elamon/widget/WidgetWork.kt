@@ -19,6 +19,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import io.github.elaizes.elamon.Outside
+import io.github.elaizes.elamon.tiles.refreshTiles
 import io.github.elaizes.elamon.Reach
 import io.github.elaizes.elamon.Settings
 import io.github.elaizes.elamon.data.ElamondException
@@ -178,10 +179,11 @@ object WidgetWork {
 
 /**
  * A computer paired or forgotten: the widgets follow (one that showed a computer forgotten shows the
- * first paired), their work with them, and a computer newly shown is read at once.
+ * first paired), their work with them, and a computer newly shown is read at once; and the tiles.
  */
 fun machinesChanged(context: Context) {
 	val ctx = context.applicationContext
+	refreshTiles(ctx)
 	WidgetWork.sync(ctx)
 	WidgetWork.catchUp(ctx)
 	Outside.scope.launch { runCatching { ElamonWidget().updateAll(ctx) } }

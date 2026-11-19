@@ -89,7 +89,8 @@ class GuardState : ViewModel() {
 	var confirming by mutableStateOf<Pending?>(null)
 	/** What is typed into the confirmation that asks for a text. */
 	var typed by mutableStateOf("")
-	var unlocking: Pending? = null
+	/** The action the unlock prompt is for, while it is up: watched by a screen that has nothing else to show. */
+	var unlocking by mutableStateOf<Pending?>(null)
 	val messages = Channel<String>(capacity = Limits.MESSAGES_KEPT, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 }
 

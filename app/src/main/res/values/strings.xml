@@ -424,4 +424,19 @@
 	<string name="widget_choose_title">Show which computer?</string>
 	<string name="widget_choose_now">Shown now</string>
 	<string name="widget_choose_profile">Profile “%1$s”</string>
+	<!-- 0.10: the Quick Settings tiles, as the phone lists them to add, and one with nothing to run. -->
+	<string name="tile_1">Elamon tile 1</string>
+	<string name="tile_2">Elamon tile 2</string>
+	<string name="tile_3">Elamon tile 3</string>
+	<string name="tile_4">Elamon tile 4</string>
+	<string name="tile_label">Elamon tile %1$d</string>
+	<string name="tile_no_action">No action</string>
+	<!-- Under a tile's name while its action runs. -->
+	<string name="tile_running">Running…</string>
+	<!-- A toggle's tile, read aloud. -->
+	<string name="tile_on">On</string>
+	<string name="tile_off">Off</string>
+	<!-- Settings, with several computers paired: which one the tiles act on. -->
+	<string name="settings_tiles">Quick Settings tiles</string>
+	<string name="settings_tiles_body">The tiles run the first four buttons and toggles of the dashboard the computer\'s profile names in tiles.</string>
 </resources>
