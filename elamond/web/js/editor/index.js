@@ -54,16 +54,6 @@ async function describe() {
 	return normalise(await api('/api/v1/admin/editor'));
 }
 
-/** What an answer that isn't 2xx means, in words. @param {unknown} e */
-function words(e) {
-	if (!(e instanceof ApiError)) return S.core.unreachable;
-	const E = /** @type {Record<string, string>} */ (S.editor.errors);
-	if (e.code === 'writes_off') return errorSentence(e);
-	const known = E[e.code];
-	if (known) return e.detail && e.code !== 'not_allowed' ? `${known} (${e.detail})` : known;
-	return fill(S.editor.errorCode, e.code, e.detail || '');
-}
-
 // ---------------------------------------------------------------- a new dashboard
 
 /** `#/edit`: an id and a title, or a copy of a dashboard there is. @param {HTMLElement} root @param {import('../types.js').Ctx} ctx */
@@ -133,7 +123,7 @@ function mountNew(root, ctx) {
 		.catch((e) => {
 			if (gone) return;
 			clear(box);
-			box.append(h('p', { class: 'note critical' }, words(e)), h('button', { type: 'button', onclick: () => ctx.go('#/edit') }, S.core.retry));
+			box.append(h('p', { class: 'note critical' }, errorSentence(e)), h('button', { type: 'button', onclick: () => ctx.go('#/edit') }, S.core.retry));
 		});
 	return () => {
 		gone = true;
@@ -231,7 +221,7 @@ class Editor {
 		} catch (e) {
 			if (this.gone) return;
 			clear(this.el);
-			this.el.append(h('p', { class: 'note critical' }, words(e)), h('button', { type: 'button', onclick: () => this.ctx.go(location.hash) }, S.core.retry));
+			this.el.append(h('p', { class: 'note critical' }, errorSentence(e)), h('button', { type: 'button', onclick: () => this.ctx.go(location.hash) }, S.core.retry));
 			return;
 		}
 		if (this.gone) return;
@@ -634,7 +624,7 @@ class Editor {
 			this.note(S.editor.previewMistakes, true);
 		} else if (e instanceof ApiError && e.code === 'no_such_dashboard') {
 			this.note(S.editor.previewNone, true);
-		} else this.note(fill(S.editor.previewFailed, words(e)), true);
+		} else this.note(fill(S.editor.previewFailed, errorSentence(e)), true);
 		this.canvas.el.classList.remove('stale');
 	}
 
@@ -778,7 +768,7 @@ class Editor {
 			if (partly) await this.reload(false);
 			return;
 		}
-		this.say(partly ? `${S.editor.partlySaved} ${words(e)}` : words(e), 'critical');
+		this.say(partly ? `${S.editor.partlySaved} ${errorSentence(e)}` : errorSentence(e), 'critical');
 		if (partly) await this.reload(false);
 	}
 
@@ -799,7 +789,7 @@ class Editor {
 		try {
 			this.desc = await describe();
 		} catch (e) {
-			this.say(words(e), 'critical');
+			this.say(errorSentence(e), 'critical');
 			return;
 		}
 		if (this.gone) return;

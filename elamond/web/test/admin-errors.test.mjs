@@ -10,9 +10,12 @@ const save = JSON.parse(readFileSync(new URL('../../fixtures/0.11/admin-save.jso
 const from = (a) => new ApiError(a.status, a.body.error, a.body.message ?? null, a.body);
 
 test('each code of the admin API has a sentence', () => {
-	for (const code of ['not_allowed', 'admin_off', 'bad_origin', 'at_computer', 'bad_name', 'changed_on_disk', 'not_found', 'unauthorized']) {
+	for (const code of ['not_allowed', 'admin_off', 'bad_origin', 'at_computer', 'bad_name', 'changed_on_disk', 'not_found']) {
 		assert.equal(errorSentence(new ApiError(403, code, null, { error: code })), S.admin.errors.codes[code], code);
 	}
+	// A code the admin API doesn't answer alone, as the rest of the page words it, as a sentence.
+	assert.equal(errorSentence(new ApiError(401, 'unauthorized', null, { error: 'unauthorized' })), S.panels.errUnauthorized);
+	assert.equal(errorSentence(new ApiError(403, 'control_disabled', null, { error: 'control_disabled' })), `${S.panels.errControlDisabled}.`);
 	assert.equal(errorSentence(from(save.not_allowed)), "Your role doesn't allow this.");
 	assert.equal(errorSentence(from(save.admin_off)), S.admin.errors.codes.admin_off);
 	assert.equal(errorSentence(from(save.at_computer)), S.admin.errors.codes.at_computer);

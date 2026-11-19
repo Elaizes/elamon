@@ -32,7 +32,7 @@ export function makeEnv(ctx) {
 				// No longer paired (revoked, or the cookie expired): back to pairing, once.
 				if (isRefusal(e) && e.status === 401 && !gone && !ctrl.signal.aborted) {
 					gone = true;
-					ctx.toast(S.admin.errors.codes.unauthorized, 'warning');
+					ctx.toast(S.panels.errUnauthorized, 'warning');
 					ctx.go('#/');
 				}
 				throw e;

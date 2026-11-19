@@ -4,8 +4,9 @@ import { readFileSync } from 'node:fs';
 import { isFingerprint, colonFingerprint, printedFingerprint } from '../js/fingerprint.js';
 import { asked, snap, asNumber, initial, valid, phraseWith, togglePhrase, typedChoice, valueWords } from '../js/actions.js';
 import { errorText } from '../js/errors.js';
+import { errorSentence } from '../js/admin/errors.js';
 import { ApiError } from '../js/api.js';
-import { S } from '../js/strings.js';
+import { S, fill } from '../js/strings.js';
 
 const fx = (name) => JSON.parse(readFileSync(new URL(`../../fixtures/${name}`, import.meta.url), 'utf8'));
 const ui = fx('ui.json');
@@ -78,7 +79,15 @@ test('refusals in words', () => {
 	assert.equal(said(403, { error: 'wrong_code' }), S.panels.pairWrongCode);
 	assert.equal(said(403, { error: 'bad_origin' }), S.panels.errBadOrigin);
 	assert.match(said(418, { error: 'later_code' }), /later_code/);
-	for (const e of fx('errors.json')) assert.ok(said(e.status, { error: e.error }).length > 0);
+	// Every code the service answers has words of its own, never only "the computer said: <code>":
+	// the admin panel's for all; the dashboards' and pairing's for all but those the admin API alone
+	// answers (docs/protocol.md, what came with elamond 0.11).
+	const adminOnly = new Set(['admin_off', 'writes_off', 'read_only', 'at_computer', 'bad_name', 'changed_on_disk', 'bad_settings']);
+	for (const e of fx('errors.json')) {
+		const err = new ApiError(e.status, e.error, null, { error: e.error });
+		assert.notEqual(errorSentence(err), fill(S.admin.errors.other, e.error), e.error);
+		if (!adminOnly.has(e.error)) assert.notEqual(errorText(err), fill(S.panels.errCode, e.error), e.error);
+	}
 	assert.equal(errorText(new TypeError('fetch failed')), S.panels.errUnreachable);
 });
 

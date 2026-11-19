@@ -1,6 +1,8 @@
 // A refusal in words: the service's error code as a sentence (strings.js), with its own words
-// (`message`) where it gave some that the sentence doesn't already say.
+// (`message`) where it gave some that the sentence doesn't already say. The admin panel's and the
+// editor's; a code the admin API alone doesn't answer is worded as the rest of the page words it.
 import { S, fill } from '../strings.js';
+import { codeWords } from '../errors.js';
 
 /** @typedef {{ status: number, code: string, detail?: string | null, body?: any }} Refusal */
 
@@ -62,7 +64,9 @@ export function errorSentence(e) {
 		}
 		default: {
 			const known = /** @type {Record<string, string>} */ (E.codes)[e.code];
+			const page = codeWords(e.code);
 			if (known) sentence = known;
+			else if (page) sentence = /[.!?…]$/.test(page) ? page : fill(E.sentence, page);
 			else if (e.code === 'http_413') sentence = E.too_large;
 			else if (/^http_5\d\d$/.test(e.code)) sentence = fill(E.server, e.status);
 			else sentence = fill(E.other, e.code);

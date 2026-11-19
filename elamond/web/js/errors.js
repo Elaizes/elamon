@@ -29,7 +29,13 @@ const CODES = {
 	not_allowed: P.errNotAllowed,
 	confirm_required: P.errConfirmRequired,
 	process_changed: P.errProcessChanged,
+	rekey_refused: P.errRekeyRefused,
 };
+
+/** The page's words for an error code, or null for one it has none for. @param {string} code */
+export function codeWords(code) {
+	return Object.hasOwn(CODES, code) ? CODES[code] : null;
+}
 
 /** What a `failed` says, where it is one of the service's own words rather than the system's. */
 /** @type {Record<string, string>} */
