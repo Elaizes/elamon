@@ -61,7 +61,7 @@ fn settings_with(hub: &Hub, files: &[FileDraft], editor: Option<&super::editor::
 	if let Some(draft) = editor {
 		sources = super::editor::sources_with_draft(hub, sources, draft).map_err(|m| bad_settings(&m))?;
 	}
-	settings::read_sources(&sources).map_err(|m| {
+	let mut config = settings::read_sources(&sources).map_err(|m| {
 		let shown: Vec<settings::Mistake> = m
 			.into_iter()
 			.map(|mut x| {
@@ -70,7 +70,9 @@ fn settings_with(hub: &Hub, files: &[FileDraft], editor: Option<&super::editor::
 			})
 			.collect();
 		bad_settings(&shown)
-	})
+	})?;
+	place.name_sources(&mut config);
+	Ok(config)
 }
 
 pub async fn preview(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>, Extension(app): Extension<ClientApp>, Json(req): Json<PreviewRequest>) -> Response {

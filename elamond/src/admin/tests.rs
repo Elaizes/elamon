@@ -159,7 +159,10 @@ async fn the_admin_api_is_the_owner_s() {
 	assert_eq!(status, StatusCode::OK, "{state}");
 	assert_eq!(state["you"]["role"], "owner");
 	assert!(state["files"].as_array().unwrap().iter().any(|f| f["name"] == "elamond.toml"));
-	// features: admin and editor for the owner only.
+	// features: admin and editor for the owner only; the `ui` of an owner's browser is the contract's.
+	let owner_web = router(hub.clone()).oneshot(crate::server::tests::request_from("GET", "/api/v1/ui", "t-owner", "web/0.11.0", "")).await.unwrap();
+	let owner_web: Value = serde_json::from_slice(&axum::body::to_bytes(owner_web.into_body(), usize::MAX).await.unwrap()).unwrap();
+	crate::fixtures::check_text("0.11/ui-owner.json", &(serde_json::to_string_pretty(&owner_web).unwrap() + "\n"));
 	let (_, ui) = call(&hub, "GET", "/api/v1/ui", "owner", "").await;
 	let features: Vec<&str> = ui["service"]["features"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
 	assert!(features.contains(&"admin") && features.contains(&"editor"), "{features:?}");
@@ -419,6 +422,11 @@ async fn the_dashboard_editor() {
 	.await;
 	assert_eq!(status, StatusCode::OK, "{p}");
 	assert!(p["ui"]["tabs"].as_array().unwrap().iter().any(|t| t == "draft"));
+	let preview_fixture = json!({
+		"request": { "editor": { "dashboards": { "draft": { "title": "Draft", "widgets": [{ "type": "gauge", "value": "cpu.usage", "max": 100 }] } } }, "dashboard": "draft" },
+		"response": p,
+	});
+	crate::fixtures::check_text("0.11/admin-preview.json", &(serde_json::to_string_pretty(&preview_fixture).unwrap() + "\n"));
 	assert_eq!(p["data"]["dashboard"], "draft");
 	assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
 	// A dashboard with `for_each`: its first item's.

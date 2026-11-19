@@ -88,8 +88,13 @@ impl Place {
 	/// line.
 	pub fn load(&self) -> Result<Config, String> {
 		let mut config = crate::settings::load(&self.files()).map_err(|m| crate::settings::join_mistakes(&m))?;
-		// Where a profile is, as a person finds it: within the settings' folder, from there; in a file
-		// Home Manager links there, the file in the Nix store, which says it is set in Nix.
+		self.name_sources(&mut config);
+		Ok(config)
+	}
+
+	/// Where each profile is, as a person finds it: within the settings' folder, from there; in a
+	/// file Home Manager links there, the file in the Nix store, which says it is set in Nix.
+	pub fn name_sources(&self, config: &mut Config) {
 		for w in config.profile_sources.values_mut() {
 			if from_nix_store(Path::new(&w.file))
 				&& let Ok(real) = fs::canonicalize(&w.file)
@@ -99,7 +104,6 @@ impl Place {
 				w.file = within.display().to_string();
 			}
 		}
-		Ok(config)
 	}
 
 	/// What the settings files look like on disk now, to notice an edit. The resolved path is
