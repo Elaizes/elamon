@@ -266,12 +266,6 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 		ask()
 	}
 
-	/** The draft as it was: what an undo puts back. */
-	fun restore(draft: JsonObject) {
-		_state.update { edited(it, draft) }
-		ask()
-	}
-
 	/** Changes the draft to the computer's own copy again. */
 	fun dropMine() {
 		val s = _state.value

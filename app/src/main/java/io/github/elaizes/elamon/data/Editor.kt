@@ -94,7 +94,7 @@ data class EditorDescription(
 	}
 
 	/** How many of four columns [widget] takes: its own `span`, else its template's, else its type's, else two. */
-	fun spanOf(widget: JsonObject): Int = wholeOf(valueOf(widget, Drafts.SPAN)) ?: type(typeOf(widget))?.span ?: DEFAULT_SPAN
+	fun spanOf(widget: JsonObject): Int = wholeOf(valueOf(widget, SPAN)) ?: type(typeOf(widget))?.span ?: DEFAULT_SPAN
 
 	/** What a widget is called in the forms: its type's label, else the type as written. */
 	fun typeLabel(widget: JsonObject): String {
@@ -110,6 +110,7 @@ data class EditorDescription(
 		const val DEFAULT_SPAN = 2
 		const val TYPE = "type"
 		const val LABEL = "label"
+		const val SPAN = "span"
 
 		/** The key that names a widget's template, and the one that fills its placeholders. */
 		const val USE = "use"
@@ -380,17 +381,11 @@ object Drafts {
 	fun setKey(dashboard: JsonObject, path: List<Int>, key: String, value: JsonElement?): JsonObject =
 		change(dashboard, path) { withKey(it, key, value) }
 
-	/** The widget at [path] [span] columns wide; its type's own width again with null. */
-	fun span(dashboard: JsonObject, path: List<Int>, span: Int?): JsonObject =
-		setKey(dashboard, path, SPAN, span?.let { JsonPrimitive(it.coerceIn(1, Grid.COLUMNS)) })
-
 	/** The keys of [widget] the description has no form for: kept as they are, offered as JSON text. */
 	fun unknownKeys(widget: JsonObject, known: List<EditorKey>): List<String> {
 		val names = known.map { it.key }.toSet()
 		return widget.keys.filter { it !in names }
 	}
-
-	const val SPAN = "span"
 }
 
 /**

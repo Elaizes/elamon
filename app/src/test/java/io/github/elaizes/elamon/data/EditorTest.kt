@@ -285,11 +285,10 @@ class EditorTest {
 		assertEquals(listOf("value", "gauge", "button"), Drafts.widgets(draft).map { it.jsonObject["type"]!!.jsonPrimitive.content })
 		// Out of range: nothing moves.
 		assertEquals(draft, Drafts.move(draft, emptyList(), 7, 0))
-		// A width of its own, kept within the grid; its type's again without.
-		draft = Drafts.span(draft, listOf(1), 4)
+		// A width of its own; its type's again without.
+		draft = Drafts.setKey(draft, listOf(1), "span", JsonPrimitive(4))
 		assertEquals(4, d.spanOf(Drafts.widget(draft, listOf(1))!!))
-		assertEquals(4, Drafts.widget(Drafts.span(draft, listOf(1), 9), listOf(1))!!["span"]!!.jsonPrimitive.content.toInt())
-		draft = Drafts.span(draft, listOf(1), null)
+		draft = Drafts.setKey(draft, listOf(1), "span", null)
 		assertNull(Drafts.widget(draft, listOf(1))!!["span"])
 		assertEquals(d.type("gauge")!!.span, d.spanOf(Drafts.widget(draft, listOf(1))!!))
 		// Taken out.
@@ -316,7 +315,7 @@ class EditorTest {
 		draft = Drafts.add(draft, group, d.type("gauge")!!.newWidget())
 		draft = Drafts.move(draft, group, 1, 0)
 		draft = Drafts.setKey(draft, group + 0, "label", JsonPrimitive("Inner"))
-		draft = Drafts.span(draft, group + 1, 1)
+		draft = Drafts.setKey(draft, group + 1, "span", JsonPrimitive(1))
 		assertEquals(1, Drafts.widgets(draft).size)
 		val inner = Drafts.widgets(Drafts.widget(draft, group)!!)
 		assertEquals(listOf("Inner", first), inner.map { it.jsonObject["label"]!!.jsonPrimitive.content })
@@ -354,7 +353,7 @@ class EditorTest {
 			  {"type":"sparkle","shine":"bright"}]}""",
 		)
 		var draft = Drafts.setKey(def, listOf(0), "label", JsonPrimitive("Processor"))
-		draft = Drafts.span(draft, listOf(0), 1)
+		draft = Drafts.setKey(draft, listOf(0), "span", JsonPrimitive(1))
 		draft = Drafts.add(draft, emptyList(), d.type("value")!!.newWidget())
 		draft = Drafts.move(draft, emptyList(), 2, 0)
 		val sent = dashboardBody("mine", draft, d.hash).toString()
