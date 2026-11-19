@@ -146,15 +146,18 @@ export function adminPanel(method, sub, b, q) {
 		case 'GET pairing':
 			if (pending.code && pending.expires < now()) pending = { code: null };
 			return ok(pending);
-		case 'POST pairing':
-			if (!ROLES.includes(b.role)) return no(400, 'bad_param', { message: 'role' });
-			if (ROLES.indexOf(b.role) > ROLES.indexOf(you.role)) return no(403, 'not_allowed');
-			pending = { ...pairingFx.pending, code: String(100000 + Math.floor(Math.random() * 900000)), expires: now() + 300, role: b.role, profile: b.profile ?? null, ask: null };
+		case 'POST pairing': {
+			// No role asked for: the settings' default_role, as the service gives it.
+			const role = b.role === undefined ? 'admin' : b.role;
+			if (!ROLES.includes(role)) return no(400, 'bad_param', { message: 'role' });
+			if (ROLES.indexOf(role) > ROLES.indexOf(you.role)) return no(403, 'not_allowed');
+			pending = { ...pairingFx.pending, code: String(100000 + Math.floor(Math.random() * 900000)), expires: now() + 300, role, profile: b.profile ?? null, ask: null };
 			// Someone gives the code a few seconds later.
 			setTimeout(() => {
 				if (pending.code) pending.ask = { ...pairingFx.pending.ask, at: now() };
 			}, 6000);
 			return ok(pending);
+		}
 		case 'POST pairing/answer':
 			if (!pending.ask || pending.ask.id !== b.ask) return no(404, 'not_found');
 			if (b.allow) clients.clients.push({ id: pending.ask.id.slice(0, 8), name: pending.ask.name, role: pending.role, profile: b.take ? pending.ask.offer : pending.profile, own_profile: null, kind: 'web', app: 'web/0.11.0', address: pending.ask.address, seen: now(), created: now(), from: null, added: [], you: false });

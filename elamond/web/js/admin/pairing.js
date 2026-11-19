@@ -13,9 +13,6 @@ import { PAIRING_POLL_MS, TICK_MS, QR_QUIET, QR_PIXELS, QR_DARK, QR_LIGHT } from
 /** @typedef {import('./types.js').Pending} Pending */
 /** @typedef {import('./types.js').AdminClients} AdminClients */
 
-/** The role a new code starts with, when the asker may give it. */
-const DEFAULT_ROLE = 'admin';
-
 /** @type {import('./index.js').Mount} */
 export function mountPairing(main, env) {
 	const T = S.admin.pairing;
@@ -29,6 +26,8 @@ export function mountPairing(main, env) {
 	let askShown = '';
 	/** @type {AdminClients | null} */
 	let meta = null;
+	/** The role a code is for when none is asked for: the settings' `default_role`, where they say it. @type {string | null} */
+	let defaultRole = null;
 	/** @type {Pending | null} */
 	let pending = null;
 	/** A note for the form after a code went away: answered, withdrawn, used or expired. */
@@ -81,7 +80,10 @@ export function mountPairing(main, env) {
 
 	const start = async () => {
 		try {
-			meta = /** @type {AdminClients} */ (await env.call('clients'));
+			const [clients, settings] = await Promise.all([env.call('clients'), env.call('settings').catch(() => null)]);
+			meta = /** @type {AdminClients} */ (clients);
+			const role = settings && settings.settings ? settings.settings.default_role : null;
+			defaultRole = typeof role === 'string' ? role : null;
 		} catch (e) {
 			if (env.quiet(e)) return;
 			clear(box);
@@ -101,14 +103,24 @@ export function mountPairing(main, env) {
 		const m = /** @type {AdminClients} */ (meta);
 		const roleNames = /** @type {Record<string, string>} */ (S.admin.roleNames);
 		const give = m.can_give || [];
-		const first = give.includes(DEFAULT_ROLE) ? DEFAULT_ROLE : give[give.length - 1];
-		const role = h('select', { id: 'adm-pair-role' }, ...give.map((r) => h('option', { value: r, selected: r === first }, roleNames[r] || r)));
+		// No role asked for, the service gives the settings' default: chosen first, unless it is
+		// one this client may not give.
+		const byDefault = defaultRole == null || give.includes(defaultRole);
+		const role = h(
+			'select',
+			{ id: 'adm-pair-role' },
+			byDefault ? h('option', { value: '', selected: true }, defaultRole ? fill(T.roleDefault, roleNames[defaultRole] || defaultRole) : T.roleDefaultUnknown) : null,
+			...give.map((r, i) => h('option', { value: r, selected: !byDefault && i === give.length - 1 }, roleNames[r] || r)),
+		);
 		const profile = h('select', { id: 'adm-pair-profile' }, h('option', { value: '' }, S.admin.clients.defaultProfile), ...(m.profiles || []).map((p) => h('option', { value: p }, p)));
 		const make = h('button', { type: 'button', class: 'primary' }, T.make);
 		make.addEventListener('click', async () => {
 			make.disabled = true;
 			try {
-				const p = await env.call('pairing', { role: role.value, profile: profile.value || null });
+				/** @type {{ role?: string, profile: string | null }} */
+				const body = { profile: profile.value || null };
+				if (role.value) body.role = role.value;
+				const p = await env.call('pairing', body);
 				after = '';
 				show(p && p.code ? p : await env.call('pairing'));
 			} catch (e) {

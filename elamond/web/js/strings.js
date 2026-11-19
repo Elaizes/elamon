@@ -402,6 +402,8 @@ export const S = {
 			newCode: 'A new code',
 			intro: 'A code pairs one phone or browser. Whoever gives it waits here until you let them in.',
 			make: 'Make a code',
+			roleDefault: 'As the settings say (default_role): {0}',
+			roleDefaultUnknown: 'As the settings say (default_role)',
 			code: 'Code',
 			codeIs: 'The code: {0}',
 			expiresIn: 'Expires in',
