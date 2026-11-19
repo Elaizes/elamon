@@ -35,6 +35,9 @@ type Stamp = Option<(SystemTime, u64)>;
 /// The name, the files and their stamps a certificate was read with.
 type Read = (String, PathBuf, PathBuf, Stamp, Stamp);
 
+/// The real certificate as loaded: the name it is for, it, and when it expires.
+type Loaded = (String, Arc<CertifiedKey>, Option<u64>);
+
 fn stamp(p: &Path) -> Stamp {
 	let m = fs::metadata(p).ok()?;
 	Some((m.modified().ok()?, m.len()))
@@ -44,8 +47,8 @@ fn stamp(p: &Path) -> Stamp {
 #[derive(Debug)]
 pub struct Resolver {
 	own: RwLock<Arc<CertifiedKey>>,
-	/// The real one and the name it is for, while it loads.
-	web: RwLock<Option<(String, Arc<CertifiedKey>)>>,
+	/// The real one, the name it is for and when it expires, while it loads.
+	web: RwLock<Option<Loaded>>,
 	/// The files and their stamps as last read, to read them again only when they change.
 	read: RwLock<Option<Read>>,
 }
@@ -54,7 +57,7 @@ impl ResolvesServerCert for Resolver {
 	fn resolve(&self, hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
 		if let Some(sni) = hello.server_name()
 			&& let Ok(web) = self.web.read()
-			&& let Some((name, key)) = web.as_ref()
+			&& let Some((name, key, _)) = web.as_ref()
 			&& same_name(sni, name)
 		{
 			return Some(key.clone());
@@ -103,7 +106,14 @@ impl Resolver {
 		};
 		let seen = (name.clone(), cert.clone(), key.clone(), stamp(cert), stamp(key));
 		if self.read.read().ok().and_then(|r| r.clone()).as_ref() == Some(&seen) {
-			return None;
+			// The same files: only an expiry since is news, and the certificate goes.
+			let expired = self.web.read().ok().and_then(|w| w.as_ref().and_then(|(_, _, until)| *until)).filter(|u| *u <= now);
+			let until = expired?;
+			if let Ok(mut w) = self.web.write() {
+				*w = None;
+			}
+			let message = format!("expired on {}", crate::store::format_date(until));
+			return Some(Some(State { name: name.clone(), ok: false, until: Some(until), message }));
 		}
 		if let Ok(mut r) = self.read.write() {
 			*r = Some(seen);
@@ -112,8 +122,8 @@ impl Resolver {
 		if let Ok(mut w) = self.web.write() {
 			// A certificate that doesn't load leaves the one before, if any, else the service's own.
 			if let Some(k) = loaded {
-				*w = Some((name.clone(), Arc::new(k)));
-			} else if w.as_ref().is_some_and(|(n, _)| n != name) {
+				*w = Some((name.clone(), Arc::new(k), state.until));
+			} else if w.as_ref().is_some_and(|(n, _, _)| n != name) {
 				*w = None;
 			}
 		}
@@ -276,8 +286,15 @@ mod tests {
 		assert!(state.message.starts_with("valid until 4096-01-01"), "{}", state.message);
 		// Nothing changed: nothing to say.
 		assert_eq!(resolver.refresh(&web, 1_800_000_000), None);
-		let (name, _) = resolver.web.read().unwrap().clone().unwrap();
+		let (name, _, _) = resolver.web.read().unwrap().clone().unwrap();
 		assert_eq!(name, "desk.example.net");
+		// Expired while the service runs: the same files, and it goes.
+		let gone = resolver.refresh(&web, 70_000_000_000).unwrap().unwrap();
+		assert!(!gone.ok && gone.message.starts_with("expired on"), "{gone:?}");
+		assert!(resolver.web.read().unwrap().is_none());
+		let _ = fs::write(&cert, fs::read(&cert).unwrap());
+		resolver.read.write().unwrap().take();
+		assert!(resolver.refresh(&web, 1_800_000_000).unwrap().unwrap().ok);
 		// A key that isn't the certificate's: said, and the one before stays.
 		let (_, other_key) = pem_pair(&dir, "other.example.net");
 		fs::copy(&other_key, &key).unwrap();

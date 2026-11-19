@@ -142,11 +142,11 @@ pub(crate) fn mistakes_json(mistakes: &[settings::Mistake]) -> Value {
 
 // ---- the service -------------------------------------------------------------------------
 
-/// What `elamond setup --check` says, read at most once a minute: it looks at the unit, the
-/// firewall, polkit and the buses, and asks the service's own port.
 /// What `elamond setup --check` said, and when.
 type SetupSaid = Option<(Instant, Vec<(bool, String)>)>;
 
+/// What `elamond setup --check` says, read at most once a minute: it looks at the unit, the
+/// firewall, polkit and the buses, and asks the service's own port.
 async fn setup_lines() -> Vec<(bool, String)> {
 	static LAST: Mutex<SetupSaid> = Mutex::new(None);
 	if let Some((at, lines)) = LAST.lock().unwrap_or_else(|p| p.into_inner()).as_ref()
@@ -174,8 +174,7 @@ async fn state(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>) -
 	let cert = hub.web_cert.read().ok().and_then(|c| c.clone());
 	let broken = hub.settings_broken();
 	let place = hub.place.clone();
-	let editor_file = config.web.editor_file.clone();
-	let files = tokio::task::spawn_blocking(move || files::list(&place, &editor_file)).await.unwrap_or_default();
+	let files = tokio::task::spawn_blocking(move || files::list(&place)).await.unwrap_or_default();
 	Json(json!({
 		"service": {
 			"id": hub.id,
@@ -318,12 +317,26 @@ struct RevokeRequest {
 	with_added: bool,
 }
 
+/// The clients `id` names among `list` (and those added with its key, with `with_added`), as
+/// `elamond clients` takes them, for `who` to change: one id (never `all`), and none of a role above
+/// its own.
+fn chosen_for(list: &[store::Client], id: &str, with_added: bool, who: &Caller) -> Result<Vec<String>, ErrorCode> {
+	if id == "all" {
+		return Err(ErrorCode::BadParam);
+	}
+	let (chosen, _) = crate::choose(list, id, with_added).map_err(|_| ErrorCode::NotFound)?;
+	if list.iter().any(|c| chosen.contains(&c.id) && c.role > who.role) {
+		return Err(ErrorCode::NotAllowed);
+	}
+	Ok(chosen)
+}
+
 /// Changes the clients `id` names (and those added with its key, with `with_added`) under the lock
 /// of clients.json, as `elamond clients` does: `change` returns whether it changed one.
-fn change_clients(hub: &Hub, id: &str, with_added: bool, mut change: impl FnMut(&mut store::Client) -> bool) -> Result<Vec<String>, ErrorCode> {
+fn change_clients(hub: &Hub, who: &Caller, id: &str, with_added: bool, mut change: impl FnMut(&mut store::Client) -> bool) -> Result<Vec<String>, ErrorCode> {
 	let _lock = store::lock_clients(&hub.dir).map_err(|_| ErrorCode::Storage)?;
 	let mut list = store::load_clients_in(&hub.dir).map_err(|_| ErrorCode::Storage)?;
-	let (chosen, _) = crate::choose(&list, id, with_added).map_err(|_| ErrorCode::NotFound)?;
+	let chosen = chosen_for(&list, id, with_added, who)?;
 	let mut changed = Vec::new();
 	for c in list.iter_mut().filter(|c| chosen.contains(&c.id)) {
 		if change(c) {
@@ -347,7 +360,7 @@ async fn client_role(State(hub): State<Arc<Hub>>, Extension(who): Extension<Call
 		if role > who.role {
 			return Err(error(ErrorCode::NotAllowed));
 		}
-		let changed = change_clients(&hub, &id, req.with_added, |c| std::mem::replace(&mut c.role, role) != role).map_err(error)?;
+		let changed = change_clients(&hub, &who, &id, req.with_added, |c| std::mem::replace(&mut c.role, role) != role).map_err(error)?;
 		Ok(changed)
 	})();
 	done(&hub, &who, what, answer)
@@ -367,7 +380,7 @@ async fn client_profile(State(hub): State<Arc<Hub>>, Extension(who): Extension<C
 			return Err(error_with(ErrorCode::BadParam, "profile"));
 		}
 		let profile = req.profile.clone();
-		change_clients(&hub, &id, req.with_added, |c| std::mem::replace(&mut c.profile, profile.clone()) != profile).map_err(error)
+		change_clients(&hub, &who, &id, req.with_added, |c| std::mem::replace(&mut c.profile, profile.clone()) != profile).map_err(error)
 	})();
 	done(&hub, &who, what, answer)
 }
@@ -382,11 +395,11 @@ async fn client_revoke(State(hub): State<Arc<Hub>>, Extension(who): Extension<Ca
 		return r;
 	}
 	let (dir, place) = (hub.dir.clone(), hub.place.clone());
-	let (target, with_added) = (id.clone(), req.with_added);
+	let (target, with_added, asker) = (id.clone(), req.with_added, who.clone());
 	let gone = tokio::task::spawn_blocking(move || -> Result<Vec<store::Client>, ErrorCode> {
 		let _lock = store::lock_clients(&dir).map_err(|_| ErrorCode::Storage)?;
 		let list = store::load_clients_in(&dir).map_err(|_| ErrorCode::Storage)?;
-		let (chosen, _) = crate::choose(&list, &target, with_added).map_err(|_| ErrorCode::NotFound)?;
+		let chosen = chosen_for(&list, &target, with_added, &asker)?;
 		let keep: Vec<store::Client> = list.iter().filter(|c| !chosen.contains(&c.id)).cloned().collect();
 		store::save_clients_in(&dir, &keep).map_err(|_| ErrorCode::Storage)?;
 		let gone: Vec<store::Client> = list.into_iter().filter(|c| chosen.contains(&c.id)).collect();
@@ -404,7 +417,7 @@ async fn client_revoke(State(hub): State<Arc<Hub>>, Extension(who): Extension<Ca
 	}
 	let mut res = done(&hub, &who, what, ids);
 	if itself && who.web {
-		res.headers_mut().append(axum::http::header::SET_COOKIE, crate::web::clear_cookie());
+		res.headers_mut().append(axum::http::header::SET_COOKIE, crate::web::clear_cookie(&crate::web::cookie_name(&hub.id)));
 	}
 	res
 }
@@ -462,7 +475,8 @@ async fn pairing_new(State(hub): State<Arc<Hub>>, Extension(who): Extension<Call
 		record(&hub, &who, what, ErrorCode::WritesOff.as_str(), None);
 		return r;
 	}
-	if role > who.role {
+	// Nor in place of a code made for a role above its own (`elamond pair --role owner`).
+	if role > who.role || store::load_pairing(&hub.dir).is_some_and(|p| p.role > who.role) {
 		record(&hub, &who, what, ErrorCode::NotAllowed.as_str(), None);
 		return error(ErrorCode::NotAllowed);
 	}
@@ -475,24 +489,26 @@ async fn pairing_new(State(hub): State<Arc<Hub>>, Extension(who): Extension<Call
 		Ok(_) => {
 			eprintln!("pairing: \"{}\" ({}) made a code from the page for {}", who.name, who.id, role.as_str());
 			record(&hub, &who, what, "ok", None);
-			pairing_json(&hub)
+			pairing_json(&hub, &who)
 		}
 		Err(e) => error_with(ErrorCode::Storage, e.to_string()),
 	}
 }
 
-/// `GET /api/v1/admin/pairing`: the pending code, its QR codes and the client waiting with it.
-async fn pairing(State(hub): State<Arc<Hub>>) -> Response {
-	pairing_json(&hub)
+/// `GET /api/v1/admin/pairing`: the pending code, its QR codes and the client waiting with it; a
+/// code for a role above the asker's isn't its to see.
+async fn pairing(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>) -> Response {
+	pairing_json(&hub, &who)
 }
 
-fn pairing_json(hub: &Hub) -> Response {
-	let Some(p) = store::load_pairing(&hub.dir) else { return Json(json!({ "code": null })).into_response() };
+fn pairing_json(hub: &Hub, who: &Caller) -> Response {
+	let Some(p) = store::load_pairing(&hub.dir).filter(|p| p.role <= who.role) else { return Json(json!({ "code": null })).into_response() };
 	let config = hub.config();
 	let endpoints = hub.endpoints();
 	let hosts: Vec<String> = endpoints.iter().take(crate::consts::protocol::PAIR_HOSTS_MAX).cloned().collect();
 	let app_link = crate::pairing_link(&hub.id, &hub.name, config.port, &hub.fingerprint(), &p.code, &hosts);
-	let web_link = hosts.first().map(|h| format!("https://{}:{}/#pair={}", bracketed(h), config.port, p.code));
+	let real = hub.web_cert.read().ok().and_then(|c| c.clone()).filter(|c| c.ok).map(|c| c.name);
+	let web_link = real.as_ref().or(hosts.first()).map(|h| format!("https://{}:{}/#pair={}", bracketed(h), config.port, p.code));
 	let ask = p.ask.as_ref().filter(|a| a.allow.is_none()).map(|a| {
 		json!({ "id": a.id, "name": a.name, "address": a.address, "at": a.at, "replaces": a.replaces.as_ref().map(|r| json!({ "id": r.id, "name": r.name, "profile": r.profile })), "offer": a.offer })
 	});
@@ -544,6 +560,10 @@ async fn pairing_answer(State(hub): State<Arc<Hub>>, Extension(who): Extension<C
 	let Some(p) = store::load_pairing(&hub.dir).filter(|p| p.ask.as_ref().is_some_and(|a| a.id == req.ask && a.allow.is_none())) else {
 		return error(ErrorCode::NotFound);
 	};
+	if p.role > who.role {
+		record(&hub, &who, what, ErrorCode::NotAllowed.as_str(), None);
+		return error(ErrorCode::NotAllowed);
+	}
 	match store::answer_pairing(&hub.dir, &p.code, &req.ask, req.allow, req.take) {
 		Ok(()) => {
 			record(&hub, &who, what, "ok", None);
@@ -555,7 +575,7 @@ async fn pairing_answer(State(hub): State<Arc<Hub>>, Extension(who): Extension<C
 
 /// `POST /api/v1/admin/pairing/withdraw`.
 async fn pairing_withdraw(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>) -> Response {
-	if let Some(p) = store::read_pairing(&hub.dir) {
+	if let Some(p) = store::read_pairing(&hub.dir).filter(|p| p.role <= who.role) {
 		store::clear_pairing_code(&hub.dir, &p.code);
 		record(&hub, &who, "pairing code withdrawn".into(), "ok", None);
 	}

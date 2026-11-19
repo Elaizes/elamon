@@ -137,7 +137,7 @@ fn note_of(file: &Named, editor_file: &str) -> Option<&'static str> {
 }
 
 /// The set's files for `admin/state`.
-pub fn list(place: &Place, _editor_file: &str) -> Vec<Value> {
+pub fn list(place: &Place) -> Vec<Value> {
 	named(place)
 		.into_iter()
 		.map(|f| {
@@ -404,15 +404,32 @@ pub fn apply(place: &Place, w: &Write, keep: u64) -> Result<Written, Refused> {
 
 /// Runs a write for `who` with the lock of writes held, takes the settings up at once, says it in
 /// the journal and the activity log, and answers as `file/save` does.
-pub async fn write(hub: &Arc<Hub>, who: &Caller, what: String, file: Named, base: Option<String>, put: Option<(PathBuf, String)>, remove: Option<PathBuf>) -> Response {
+/// What a write may hold: `Any` (a settings file, and so any command) or `Dashboards` (the
+/// dashboard editor's: no command).
+#[derive(Clone, Copy, PartialEq)]
+pub enum Holds {
+	Any,
+	Dashboards,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn write(hub: &Arc<Hub>, who: &Caller, what: String, holds: Holds, file: Named, base: Option<String>, put: Option<(PathBuf, String)>, remove: Option<PathBuf>) -> Response {
 	if let Some(r) = writes_refused(hub) {
 		record(hub, who, what, ErrorCode::WritesOff.as_str(), None);
 		return r;
 	}
+	// A settings file may add a command: written from here only while the settings let clients act.
+	if holds == Holds::Any && !hub.config().control {
+		record(hub, who, what, ErrorCode::WritesOff.as_str(), Some("control".into()));
+		return error_with(ErrorCode::WritesOff, "control");
+	}
 	let _held = hub.writes.lock().await;
-	let (place, keep) = (hub.place.clone(), hub.config().web.backups);
+	let (place, keep, dir) = (hub.place.clone(), hub.config().web.backups, hub.dir.clone());
 	let file2 = file.clone();
 	let done = tokio::task::spawn_blocking(move || {
+		// phones.toml is pairing's too: written under the lock pairing writes it under.
+		let phones = file2.kind == "dropin" && file2.path.file_name().is_some_and(|n| n == crate::phones::FILE);
+		let _pairing = if phones { Some(store::lock_clients(&dir).map_err(|e| Refused::Io(e.to_string()))?) } else { None };
 		let w = Write { file: &file2, base: base.as_deref(), put: put.as_ref().map(|(p, t)| (p.as_path(), t.as_str())), remove: remove.as_deref() };
 		apply(&place, &w, keep)
 	})
@@ -447,7 +464,7 @@ pub async fn save(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>
 	};
 	let what = format!("settings: saved {} ({} lines)", file.name, req.text.lines().count());
 	let path = file.path.clone();
-	write(&hub, &who, what, file, req.base, Some((path, req.text)), None).await
+	write(&hub, &who, what, Holds::Any, file, req.base, Some((path, req.text)), None).await
 }
 
 #[derive(Deserialize)]
@@ -474,7 +491,7 @@ pub async fn restore(State(hub): State<Arc<Hub>>, Extension(who): Extension<Call
 	};
 	let what = format!("settings: restored {} from backup {}", file.name, req.backup);
 	let path = file.path.clone();
-	write(&hub, &who, what, file, req.base, Some((path, text)), None).await
+	write(&hub, &who, what, Holds::Any, file, req.base, Some((path, text)), None).await
 }
 
 #[derive(Deserialize)]
@@ -498,7 +515,7 @@ pub async fn rename(State(hub): State<Arc<Hub>>, Extension(who): Extension<Calle
 	};
 	let what = format!("settings: renamed {} to {}", file.name, to.name);
 	let from = file.path.clone();
-	write(&hub, &who, what, file, req.base, Some((to.path, text)), Some(from)).await
+	write(&hub, &who, what, Holds::Any, file, req.base, Some((to.path, text)), Some(from)).await
 }
 
 #[derive(Deserialize)]
@@ -516,7 +533,7 @@ pub async fn delete(State(hub): State<Arc<Hub>>, Extension(who): Extension<Calle
 	};
 	let what = format!("settings: deleted {}", file.name);
 	let gone = file.path.clone();
-	write(&hub, &who, what, file, req.base, None, Some(gone)).await
+	write(&hub, &who, what, Holds::Any, file, req.base, None, Some(gone)).await
 }
 
 // ---- a difference, line by line ------------------------------------------------------------

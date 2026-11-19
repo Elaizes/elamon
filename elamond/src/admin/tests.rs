@@ -28,7 +28,7 @@ fn browser(method: &str, path: &str, cookie: Option<&str>, origin: Option<&str>,
 		.header(protocol::CLIENT_HEADER, "web/0.11.0")
 		.extension(ConnectInfo(SocketAddr::from(([192, 0, 2, 30], 50000))));
 	if let Some(c) = cookie {
-		b = b.header(header::COOKIE, format!("{}={c}", protocol::COOKIE));
+		b = b.header(header::COOKIE, format!("{}={c}", crate::web::cookie_name("id")));
 	}
 	if let Some(o) = origin {
 		b = b.header(header::ORIGIN, o);
@@ -48,7 +48,7 @@ fn cookie_of(headers: &HeaderMap) -> Option<(String, String)> {
 	let v = headers.get(header::SET_COOKIE)?.to_str().ok()?.to_string();
 	let (pair, attrs) = v.split_once(';')?;
 	let (name, token) = pair.split_once('=')?;
-	(name == protocol::COOKIE).then(|| (token.to_string(), attrs.trim().to_string()))
+	(name == crate::web::cookie_name("id")).then(|| (token.to_string(), attrs.trim().to_string()))
 }
 
 /// A browser paired from the page with a code made as `elamond pair --role <role>` does.
@@ -353,8 +353,15 @@ async fn the_dashboard_editor() {
 	let (hub, _tx) = hub(true);
 	let (status, d) = call(&hub, "GET", "/api/v1/admin/editor", "owner", "").await;
 	assert_eq!(status, StatusCode::OK, "{d}");
-	// The contract's fixture is this description, as the test settings make it.
-	crate::fixtures::check_text("0.11/editor.json", &(serde_json::to_string_pretty(&d).unwrap() + "\n"));
+	// The contract's fixture is this description, as the test settings make it; a date or a time
+	// is written in the computer's zone, which a build's isn't always.
+	let mut fixed = d.clone();
+	for v in fixed["values"].as_array_mut().unwrap() {
+		if ["date", "time"].contains(&v["format"].as_str().unwrap_or("")) {
+			v["now"] = json!("(in the computer's time zone)");
+		}
+	}
+	crate::fixtures::check_text("0.11/editor.json", &(serde_json::to_string_pretty(&fixed).unwrap() + "\n"));
 	for t in d["types"].as_array().unwrap() {
 		for k in t["keys"].as_array().unwrap().iter().chain(d["common"].as_array().unwrap()) {
 			for field in ["key", "kind", "label", "hint"] {
@@ -460,5 +467,64 @@ async fn the_real_certificate_s_name_is_never_a_phone_s_endpoint() {
 	});
 	hub.set_reach(crate::server::Reach { addrs: vec!["192.0.2.7".parse().unwrap()], tailscale: Some("DESK.tail0000.ts.net".into()) });
 	assert_eq!(*hub.endpoints(), vec!["192.0.2.7".to_string()]);
+	remove_test_dir(&hub.dir);
+}
+
+#[tokio::test]
+async fn files_need_control_the_editor_does_not() {
+	let (hub, _tx) = hub(false);
+	let (status, v) = call(&hub, "POST", "/api/v1/admin/file/save", "owner", &json!({ "name": "elamond.d/x.toml", "text": "", "base": null }).to_string()).await;
+	assert_eq!((status, v["error"].as_str(), v["message"].as_str()), (StatusCode::FORBIDDEN, Some("writes_off"), Some("control")), "{v}");
+	let body = json!({ "id": "mine", "dashboard": { "title": "Mine", "widgets": [{ "type": "text", "text": "hi" }] }, "base": null });
+	let (status, v) = call(&hub, "POST", "/api/v1/admin/editor/dashboard", "owner", &body.to_string()).await;
+	assert_eq!(status, StatusCode::OK, "{v}");
+	remove_test_dir(&hub.dir);
+}
+
+#[tokio::test]
+async fn nobody_acts_on_a_role_above_their_own() {
+	let (hub, _tx) = hub_with(true, |h| {
+		let mut c = (*h.config()).clone();
+		c.web.role = crate::access::Role::Admin;
+		h.set_config(c);
+	});
+	for (path, body) in [
+		("/api/v1/admin/clients/id-owner/role", r#"{"role":"glance"}"#),
+		("/api/v1/admin/clients/id-owner/profile", r#"{"profile":"owner"}"#),
+		("/api/v1/admin/clients/id-owner/revoke", "{}"),
+	] {
+		let (status, v) = call(&hub, "POST", path, "admin", body).await;
+		assert_eq!((status, v["error"].as_str()), (StatusCode::FORBIDDEN, Some("not_allowed")), "{path}");
+	}
+	let (status, _) = call(&hub, "POST", "/api/v1/admin/clients/all/revoke", "admin", "{}").await;
+	assert_eq!(status, StatusCode::BAD_REQUEST);
+	assert_eq!(store::load_clients_in(&hub.dir).unwrap().len(), 6);
+	// A code made at the computer for an owner isn't an admin's to see, answer or replace.
+	store::new_pairing(&hub.dir, crate::access::Role::Owner, None, true).unwrap();
+	let (_, p) = call(&hub, "GET", "/api/v1/admin/pairing", "admin", "").await;
+	assert_eq!(p["code"], Value::Null, "{p}");
+	let (status, _) = call(&hub, "POST", "/api/v1/admin/pairing", "admin", r#"{"role":"monitor"}"#).await;
+	assert_eq!(status, StatusCode::FORBIDDEN);
+	assert_eq!(store::load_pairing(&hub.dir).unwrap().role, crate::access::Role::Owner);
+	remove_test_dir(&hub.dir);
+}
+
+#[tokio::test]
+async fn a_profile_written_from_the_editor_keeps_following_the_files() {
+	let (hub, _tx) = hub(true);
+	let (_, d) = call(&hub, "GET", "/api/v1/admin/editor", "owner", "").await;
+	let mine = d["profile"].as_str().unwrap().to_string();
+	let def = d["profiles"].as_array().unwrap().iter().find(|p| p["id"] == mine.as_str()).unwrap()["def"].clone();
+	// All it has, sent back as it is: nothing to write but what changed.
+	let mut part = def.clone();
+	part["dashboards"] = json!(["overview", "processes"]);
+	let (status, v) = call(&hub, "POST", "/api/v1/admin/editor/profile", "owner", &json!({ "id": mine, "profile": part, "base": d["hash"] }).to_string()).await;
+	assert_eq!(status, StatusCode::OK, "{v}");
+	let text = std::fs::read_to_string(hub.place.dropins().join("zz-editor.toml")).unwrap();
+	assert!(text.contains("dashboards = [\"overview\", \"processes\"]"), "{text}");
+	assert!(!text.contains("header =") && !text.contains(".android]"), "inherited values written: {text}");
+	// Deleting what the editor hasn't: 404.
+	let (status, _) = call(&hub, "POST", "/api/v1/admin/editor/delete", "owner", &json!({ "dashboard": "nothing", "base": v["hash"] }).to_string()).await;
+	assert_eq!(status, StatusCode::NOT_FOUND);
 	remove_test_dir(&hub.dir);
 }

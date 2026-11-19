@@ -2378,7 +2378,7 @@
     },
     {
       "address": "system.boot_time",
-      "now": "2023-11-14 23:13",
+      "now": "(in the computer's time zone)",
       "unit": "s",
       "format": "time"
     },

@@ -734,6 +734,10 @@ pub fn clear_pairing_code(dir: &Path, code: &str) {
 /// A new code, uniformly random, for a phone with `role` and `profile`, to be let in by the person
 /// at `elamond pair` when `confirm`.
 pub fn new_pairing(dir: &Path, role: Role, profile: Option<&str>, confirm: bool) -> io::Result<Pairing> {
+	new_pairing_made(dir, role, profile, confirm, false)
+}
+
+fn new_pairing_made(dir: &Path, role: Role, profile: Option<&str>, confirm: bool, from_page: bool) -> io::Result<Pairing> {
 	let span = 10u32.pow(protocol::PAIRING_DIGITS);
 	let code = loop {
 		let n = u32::from_le_bytes(random_bytes::<4>());
@@ -750,7 +754,7 @@ pub fn new_pairing(dir: &Path, role: Role, profile: Option<&str>, confirm: bool)
 		profile: profile.map(str::to_string),
 		confirm,
 		ask: None,
-		from_page: false,
+		from_page,
 	};
 	save_pairing(dir, &p)?;
 	Ok(p)
@@ -759,10 +763,7 @@ pub fn new_pairing(dir: &Path, role: Role, profile: Option<&str>, confirm: bool)
 /// A new code made from the admin panel, in place of any pending one: its client always waits to be
 /// let in, by the page or by `elamond pair` when that runs.
 pub fn new_pairing_from_page(dir: &Path, role: Role, profile: Option<&str>) -> io::Result<Pairing> {
-	let mut p = new_pairing(dir, role, profile, true)?;
-	p.from_page = true;
-	save_pairing(dir, &p)?;
-	Ok(p)
+	new_pairing_made(dir, role, profile, true, true)
 }
 
 /// Gives the answer `allow` to the phone `ask_id` waiting with the code `code`, and `take` to the

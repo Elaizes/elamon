@@ -92,29 +92,34 @@ pub async fn api_headers(req: Request, next: axum::middleware::Next) -> Response
 
 // ---- a browser's session -----------------------------------------------------------------
 
-/// The token in a request's cookie, if it has one.
-pub fn cookie_token(headers: &HeaderMap) -> Option<String> {
+/// The cookie of the service `id`: `__Host-elamon-` and the first 8 of its id, so services on other
+/// ports of one host (a test one, another computer's forwarded) keep cookies of their own.
+pub fn cookie_name(id: &str) -> String {
+	format!("{}-{}", protocol::COOKIE, id.get(..8).unwrap_or(id))
+}
+
+/// The token in a request's cookie `name`, if it has one.
+pub fn cookie_token(headers: &HeaderMap, name: &str) -> Option<String> {
 	headers
 		.get_all(header::COOKIE)
 		.iter()
 		.filter_map(|v| v.to_str().ok())
 		.flat_map(|v| v.split(';'))
 		.filter_map(|c| c.trim().split_once('='))
-		.find(|(name, _)| *name == protocol::COOKIE)
+		.find(|(n, _)| *n == name)
 		.map(|(_, value)| value.trim().trim_matches('"').to_string())
 		.filter(|t| !t.is_empty())
 }
 
-/// The cookie that holds `token` for `days`.
-pub fn set_cookie(token: &str, days: u64) -> HeaderValue {
+/// The cookie `name` that holds `token` for `days`.
+pub fn set_cookie(name: &str, token: &str, days: u64) -> HeaderValue {
 	let max_age = days.saturating_mul(86_400);
-	HeaderValue::from_str(&format!("{}={token}; Max-Age={max_age}; Path=/; Secure; HttpOnly; SameSite=Strict", protocol::COOKIE))
-		.unwrap_or(HeaderValue::from_static(""))
+	HeaderValue::from_str(&format!("{name}={token}; Max-Age={max_age}; Path=/; Secure; HttpOnly; SameSite=Strict")).unwrap_or(HeaderValue::from_static(""))
 }
 
-/// The cookie cleared: a browser forgets the token.
-pub fn clear_cookie() -> HeaderValue {
-	HeaderValue::from_str(&format!("{}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict", protocol::COOKIE)).unwrap_or(HeaderValue::from_static(""))
+/// The cookie `name` cleared: a browser forgets the token.
+pub fn clear_cookie(name: &str) -> HeaderValue {
+	HeaderValue::from_str(&format!("{name}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict")).unwrap_or(HeaderValue::from_static(""))
 }
 
 /// Whether a request comes from the page itself: its `Origin` is `https://` and the `Host` it was
@@ -240,13 +245,16 @@ mod tests {
 
 	#[test]
 	fn the_cookie() {
-		assert_eq!(cookie_token(&headers(&[("cookie", "a=1; __Host-elamon=tok; b=2")])), Some("tok".into()));
-		assert_eq!(cookie_token(&headers(&[("cookie", "a=1"), ("cookie", "__Host-elamon=t2")])), Some("t2".into()));
-		assert_eq!(cookie_token(&headers(&[("cookie", "elamon=tok; __Host-elamon=")])), None);
-		assert_eq!(cookie_token(&headers(&[])), None);
-		let set = set_cookie("tok", 30);
-		assert_eq!(set.to_str().unwrap(), "__Host-elamon=tok; Max-Age=2592000; Path=/; Secure; HttpOnly; SameSite=Strict");
-		assert!(clear_cookie().to_str().unwrap().starts_with("__Host-elamon=; Max-Age=0;"));
+		let name = cookie_name("0123456789abcdef");
+		assert_eq!(name, "__Host-elamon-01234567");
+		assert_eq!(cookie_token(&headers(&[("cookie", "a=1; __Host-elamon-01234567=tok; b=2")]), &name), Some("tok".into()));
+		assert_eq!(cookie_token(&headers(&[("cookie", "a=1"), ("cookie", "__Host-elamon-01234567=t2")]), &name), Some("t2".into()));
+		// Another service's on the same host isn't this one's.
+		assert_eq!(cookie_token(&headers(&[("cookie", "__Host-elamon-89abcdef=tok; __Host-elamon-01234567=")]), &name), None);
+		assert_eq!(cookie_token(&headers(&[]), &name), None);
+		let set = set_cookie(&name, "tok", 30);
+		assert_eq!(set.to_str().unwrap(), "__Host-elamon-01234567=tok; Max-Age=2592000; Path=/; Secure; HttpOnly; SameSite=Strict");
+		assert!(clear_cookie(&name).to_str().unwrap().starts_with("__Host-elamon-01234567=; Max-Age=0;"));
 	}
 
 	#[test]

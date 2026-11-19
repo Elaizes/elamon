@@ -266,9 +266,42 @@ pub fn sources_with_draft(hub: &Hub, mut sources: Vec<Source>, draft: &Draft) ->
 
 // ---- writing ------------------------------------------------------------------------------
 
+/// Leaves out of `draft`'s profiles the keys whose values are what the other files make them
+/// already: a profile written from the editor keeps following the profile it `use`s for the rest.
+fn trim_inherited(hub: &Hub, sources: &[Source], draft: &mut Draft) {
+	if draft.profiles.values().all(Option::is_none) {
+		return;
+	}
+	let none = Draft { dashboards: BTreeMap::new(), profiles: draft.profiles.keys().map(|id| (id.clone(), None)).collect() };
+	let Some(lower) = sources_with_draft(hub, sources.to_vec(), &none).ok().and_then(|s| settings::read_sources(&s).ok()) else { return };
+	for (id, part) in &mut draft.profiles {
+		let Some(part) = part else { continue };
+		if !lower.profiles.contains_key(id) {
+			continue;
+		}
+		let p = lower.profile(id);
+		if part.get("dashboards") == Some(&json!(p.dashboards)) {
+			part.remove("dashboards");
+		}
+		if part.get("header") == Some(&json!(p.header)) {
+			part.remove("header");
+		}
+		if let Some(Value::Object(a)) = part.get_mut("android") {
+			for (k, v) in [("widget", &p.widget), ("tiles", &p.tiles), ("card", &p.card)] {
+				if a.get(k) == Some(&json!(v)) {
+					a.remove(k);
+				}
+			}
+			if a.is_empty() {
+				part.remove("android");
+			}
+		}
+	}
+}
+
 /// Writes `draft` to the editor's file for `who`, as a save of the file is written (`base`, its
 /// hash as the client read it).
-async fn write_draft(hub: &Arc<Hub>, who: &Caller, what: String, draft: Draft, base: Option<String>) -> Response {
+async fn write_draft(hub: &Arc<Hub>, who: &Caller, what: String, mut draft: Draft, base: Option<String>) -> Response {
 	if let Some(r) = editor_off(hub) {
 		return r;
 	}
@@ -277,6 +310,7 @@ async fn write_draft(hub: &Arc<Hub>, who: &Caller, what: String, draft: Draft, b
 		Ok(s) => s,
 		Err(m) => return bad_settings(&m),
 	};
+	trim_inherited(hub, &sources, &mut draft);
 	let at = file.path.display().to_string();
 	let new = match sources_with_draft(hub, sources, &draft) {
 		Ok(s) => s.into_iter().find(|s| s.name == at).map(|s| s.text).unwrap_or_default(),
@@ -286,7 +320,7 @@ async fn write_draft(hub: &Arc<Hub>, who: &Caller, what: String, draft: Draft, b
 		}
 	};
 	let path = file.path.clone();
-	files::write(hub, who, what, file, base, Some((path, new)), None).await
+	files::write(hub, who, what, files::Holds::Dashboards, file, base, Some((path, new)), None).await
 }
 
 #[derive(Deserialize)]
@@ -361,6 +395,10 @@ pub async fn delete(State(hub): State<Arc<Hub>>, Extension(who): Extension<Calle
 	let sources = settings::read_files(&hub.place.files()).unwrap_or_default();
 	let path = settings::join("dashboards", &req.dashboard);
 	let elsewhere = sources.iter().filter(|s| s.name != at).any(|s| settings::lines_of(&s.text).contains_key(&path));
+	let here = sources.iter().find(|s| s.name == at).is_some_and(|s| settings::lines_of(&s.text).contains_key(&path));
+	if !here {
+		return crate::server::error(ErrorCode::NotFound);
+	}
 	if elsewhere {
 		return error_with(ErrorCode::BadParam, "dashboard: another settings file has it too; Back to the files takes the editor's out");
 	}
@@ -371,19 +409,30 @@ pub async fn delete(State(hub): State<Arc<Hub>>, Extension(who): Extension<Calle
 		&& let Ok(t) = s.text.parse::<toml::Table>()
 		&& let Some(profiles) = t.get("profiles").and_then(toml::Value::as_table)
 	{
+		let gone = req.dashboard.as_str();
 		for (id, p) in profiles {
-			let Some(tabs) = p.get("dashboards").and_then(toml::Value::as_array) else { continue };
-			if !tabs.iter().any(|d| d.as_str() == Some(req.dashboard.as_str())) {
+			let tabs = p.get("dashboards").and_then(toml::Value::as_array);
+			let a = p.get("android").and_then(toml::Value::as_table);
+			let names_it = tabs.is_some_and(|t| t.iter().any(|d| d.as_str() == Some(gone)))
+				|| p.get("header").and_then(toml::Value::as_str) == Some(gone)
+				|| a.is_some_and(|a| ANDROID_KEYS.iter().any(|k| a.get(*k).and_then(toml::Value::as_str) == Some(gone)));
+			if !names_it {
 				continue;
 			}
+			// What it said of the others stays; where it named this one, the other files say again.
 			let mut part = Map::new();
-			part.insert("dashboards".into(), json!(tabs.iter().filter_map(toml::Value::as_str).filter(|d| *d != req.dashboard).collect::<Vec<_>>()));
-			if let Some(h) = p.get("header").and_then(toml::Value::as_str) {
+			if let Some(tabs) = tabs {
+				part.insert("dashboards".into(), json!(tabs.iter().filter_map(toml::Value::as_str).filter(|d| *d != gone).collect::<Vec<_>>()));
+			}
+			if let Some(h) = p.get("header").and_then(toml::Value::as_str).filter(|h| *h != gone) {
 				part.insert("header".into(), json!(h));
 			}
-			if let Some(a) = p.get("android").and_then(toml::Value::as_table) {
-				let android: Map<String, Value> = ANDROID_KEYS.iter().filter_map(|k| a.get(*k).and_then(toml::Value::as_str).map(|v| (k.to_string(), json!(v)))).collect();
-				part.insert("android".into(), Value::Object(android));
+			if let Some(a) = a {
+				let android: Map<String, Value> =
+					ANDROID_KEYS.iter().filter_map(|k| a.get(*k).and_then(toml::Value::as_str).filter(|v| *v != gone).map(|v| (k.to_string(), json!(v)))).collect();
+				if !android.is_empty() {
+					part.insert("android".into(), Value::Object(android));
+				}
 			}
 			draft.profiles.insert(id.clone(), Some(part));
 		}

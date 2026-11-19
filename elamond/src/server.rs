@@ -825,14 +825,14 @@ async fn auth(State(hub): State<Arc<Hub>>, mut req: Request, next: Next) -> Resp
 	let bearer_token = req.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(bearer).map(str::to_string);
 	let (token, by_cookie) = match bearer_token {
 		Some(t) => (Some(t), false),
-		None => (crate::web::cookie_token(req.headers()), true),
+		None => (crate::web::cookie_token(req.headers(), &crate::web::cookie_name(&hub.id)), true),
 	};
 	let Some(token) = token else { return error(ErrorCode::Unauthorized) };
 	let hash = store::sha256_hex(token.as_bytes());
 	let Some(who) = hub.authorized(&hash).filter(|w| w.web == by_cookie) else {
 		let mut refused = error(ErrorCode::Unauthorized);
 		if by_cookie {
-			refused.headers_mut().append(header::SET_COOKIE, crate::web::clear_cookie());
+			refused.headers_mut().append(header::SET_COOKIE, crate::web::clear_cookie(&crate::web::cookie_name(&hub.id)));
 		}
 		return refused;
 	};
@@ -853,7 +853,7 @@ async fn auth(State(hub): State<Arc<Hub>>, mut req: Request, next: Next) -> Resp
 	req.extensions_mut().insert(TokenHash(hash));
 	let mut res = next.run(req).await;
 	if renew && res.status().is_success() {
-		res.headers_mut().append(header::SET_COOKIE, crate::web::set_cookie(&token, hub.config().web.cookie_days));
+		res.headers_mut().append(header::SET_COOKIE, crate::web::set_cookie(&crate::web::cookie_name(&hub.id), &token, hub.config().web.cookie_days));
 	}
 	res
 }
@@ -1161,7 +1161,7 @@ async fn pair(
 				o.remove("token");
 			}
 			let mut res = Json(body).into_response();
-			res.headers_mut().append(header::SET_COOKIE, crate::web::set_cookie(&token, hub.config().web.cookie_days));
+			res.headers_mut().append(header::SET_COOKIE, crate::web::set_cookie(&crate::web::cookie_name(&hub.id), &token, hub.config().web.cookie_days));
 			res
 		}
 		Err(e) => {
@@ -1252,7 +1252,7 @@ async fn unpair(State(hub): State<Arc<Hub>>, Extension(who): Extension<Caller>) 
 	let web = who.web;
 	let mut res = unpair_self(&hub, &who).await;
 	if web && (res.status().is_success() || res.status() == axum::http::StatusCode::UNAUTHORIZED) {
-		res.headers_mut().append(header::SET_COOKIE, crate::web::clear_cookie());
+		res.headers_mut().append(header::SET_COOKIE, crate::web::clear_cookie(&crate::web::cookie_name(&hub.id)));
 	}
 	res
 }

@@ -2214,8 +2214,6 @@ fn check_source_id(id: &str, push: &mut impl FnMut(String, String)) {
 	}
 }
 
-/// A `command`, `http` or `file` source as the settings can tell it is sound, without running,
-/// asking or reading anything.
 /// `[web]`: the editor's file a drop-in's name, and a real certificate's three keys all or none.
 fn check_web(w: &WebDef, push: &mut impl FnMut(String, String)) {
 	if !is_settings_file_name(&w.editor_file) {
@@ -2235,6 +2233,8 @@ fn check_web(w: &WebDef, push: &mut impl FnMut(String, String)) {
 	}
 }
 
+/// A `command`, `http` or `file` source as the settings can tell it is sound, without running,
+/// asking or reading anything.
 fn check_feed(id: &str, f: &Feed, push: &mut impl FnMut(String, String)) {
 	let path = join("sources", id);
 	let at = |key: &str| join(&path, key);
