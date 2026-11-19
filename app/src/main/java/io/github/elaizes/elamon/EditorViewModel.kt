@@ -47,7 +47,9 @@ import io.github.elaizes.elamon.data.editorWrite
 import io.github.elaizes.elamon.data.mistakesOf
 import io.github.elaizes.elamon.data.preview
 import io.github.elaizes.elamon.data.previewBody
+import io.github.elaizes.elamon.data.PROFILE_TABS
 import io.github.elaizes.elamon.data.profileBody
+import io.github.elaizes.elamon.data.profileChanges
 import io.github.elaizes.elamon.data.tableBody
 import io.github.elaizes.elamon.data.text
 
@@ -67,8 +69,44 @@ sealed interface Editing {
 /** Another editor wrote the editor's file since it was read: [mine] whether what is open here is among what changed. */
 data class EditorConflict(val mine: Boolean)
 
-/** The preview: the `ui` with the draft and a reading of its dashboard, and its logs' lines. */
-data class PreviewView(val preview: Preview, val logs: Map<String, LogLines>, val receivedAt: Long)
+/**
+ * The preview: the `ui` with the draft and a reading of its dashboard, and its logs' lines. [stale]
+ * once asking for it again failed: its numbers are old, as a stream's are while it reconnects.
+ */
+data class PreviewView(val preview: Preview, val logs: Map<String, LogLines>, val receivedAt: Long, val stale: Boolean = false)
+
+/** What one ask for the preview came to. */
+private enum class PreviewTry {
+	/** The computer previewed it. */
+	Shown,
+
+	/** It couldn't (out of reach, a server's error): asked again, later the more in a row fail. */
+	Failed,
+
+	/** It said no to this draft: not asked again until the draft changes. */
+	Refused,
+}
+
+/**
+ * How long the preview waits before it is asked for again, after [failures] asks in a row came to
+ * nothing: an interval after one shown, then longer and longer, as a lost computer is looked for
+ * again ([Limits.backoffMs]), never sooner than an interval.
+ */
+fun previewWaitMs(failures: Int, intervalMs: Int): Long =
+	if (failures <= 0) intervalMs.toLong() else maxOf(intervalMs.toLong(), Limits.backoffMs(failures - 1))
+
+/** [s] with the draft changed to [draft]: the last write's mistakes go, with what they were about. */
+fun edited(s: EditorState, draft: JsonObject): EditorState = s.copy(draft = draft, mistakes = emptyList())
+
+/**
+ * [s] when what it was to open (at first, or read again) isn't in the computer's settings, [why]:
+ * with nothing open, the screen says so; with something open, that stays as it was, and [why] is
+ * to be said instead (the second).
+ */
+fun notInSettings(s: EditorState, why: Message): Pair<EditorState, Message?> = if (s.editing == null) s.copy(failed = why) to null else s to why
+
+/** [s] after asking for its preview failed with [note]: the last one that worked stays, marked old. */
+fun previewFailed(s: EditorState, note: Message?): EditorState = s.copy(preview = s.preview?.copy(stale = true), previewNote = note)
 
 data class EditorState(
 	val desc: EditorDescription? = null,
@@ -83,7 +121,7 @@ data class EditorState(
 	val preview: PreviewView? = null,
 	/** Why there is no preview, or an old one, now. */
 	val previewNote: Message? = null,
-	/** What the computer didn't take of the last write: until the next write. */
+	/** What the computer didn't take of the last write: until the draft changes, or the next write. */
 	val mistakes: List<Mistake> = emptyList(),
 	/** What the last preview found wrong with the draft: until one finds nothing. */
 	val previewMistakes: List<Mistake> = emptyList(),
@@ -124,7 +162,7 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 	/** The graphs' and sparks' points in the preview, by widget id. */
 	private val hists = HashMap<String, Hist>()
 
-	/** The `ui` kept of the computer: its interval, and what a preview's `ui` leaves out. */
+	/** The `ui` kept of the computer: its interval, until a preview has one. */
 	private var kept: UiDoc? = null
 	private var client: ElamondClient? = null
 
@@ -190,7 +228,10 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 				is Editing.Board -> editing.id
 				is Editing.Tabs -> editing.profile
 			}
-			_state.update { it.copy(failed = Message.Res(R.string.editor_not_in_settings, listOf(name))) }
+			// Read again (Reload) and gone meanwhile: what is open stays, and the snackbar says why.
+			val (next, why) = notInSettings(_state.value, Message.Res(R.string.editor_not_in_settings, listOf(name)))
+			_state.value = next
+			why?.let(::say)
 			return
 		}
 		_state.update { it.copy(editing = editing, draft = def, base = def, mistakes = emptyList(), conflict = null, failed = null) }
@@ -221,13 +262,7 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 
 	/** The draft changed by [change]. */
 	fun change(change: (JsonObject) -> JsonObject) {
-		_state.update { it.copy(draft = change(it.draft)) }
-		ask()
-	}
-
-	/** The draft as it was: what an undo puts back. */
-	fun restore(draft: JsonObject) {
-		_state.update { it.copy(draft = draft) }
+		_state.update { edited(it, change(it.draft)) }
 		ask()
 	}
 
@@ -254,7 +289,8 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 
 	/**
 	 * The screen is shown: the computer previews the draft, at once, again after each change has
-	 * settled, and every interval meanwhile, as a stream's readings come. Not shown, it stops.
+	 * settled, and every interval meanwhile, as a stream's readings come; while it can't, less and
+	 * less often ([previewWaitMs]). Not shown, it stops.
 	 */
 	fun setVisible(visible: Boolean) {
 		if (!visible) {
@@ -267,7 +303,15 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 			asked.filterNotNull().settle(PREVIEW_SETTLE_MS).collectLatest { a ->
 				// Places change with the draft: the points of the widget there before aren't this one's.
 				hists.clear()
-				while (previewOnce(a)) delay(intervalMs().toLong())
+				var failures = 0
+				while (true) {
+					when (previewOnce(a)) {
+						PreviewTry.Shown -> failures = 0
+						PreviewTry.Failed -> failures++
+						PreviewTry.Refused -> break
+					}
+					delay(previewWaitMs(failures, intervalMs()))
+				}
 			}
 		}
 	}
@@ -277,15 +321,16 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 		return ui?.let { Intervals.effective(it.profile.intervalMs, it.service.intervalMs) } ?: Intervals.DEFAULT_MS
 	}
 
-	/** Asks for one preview of [a]; false when asking again won't change the answer. */
-	private suspend fun previewOnce(a: PreviewAsk): Boolean {
+	/** Asks for one preview of [a]. */
+	private suspend fun previewOnce(a: PreviewAsk): PreviewTry {
 		return try {
 			// Asked for by its id in the settings, as the computer takes it.
-			val p = client().preview(previewBody(mapOf(a.dashboard to a.draft), emptyMap(), a.dashboard), kept)
-			p.line?.let { takeHists(p.ui, it) }
+			val p = client().preview(previewBody(mapOf(a.dashboard to a.draft), emptyMap(), a.dashboard))
+			// Its graphs and sparks, as a stream's are kept: their history replaced, a point added each reading.
+			p.line?.let { takeHists(hists, p.ui, it, intervalMs().toLong()) }
 			val logs = p.line?.let { line -> logsOf(p.ui, line) }.orEmpty()
 			_state.update { it.copy(preview = PreviewView(p, logs, System.currentTimeMillis()), previewNote = null, previewMistakes = emptyList()) }
-			true
+			PreviewTry.Shown
 		} catch (e: CancellationException) {
 			throw e
 		} catch (e: Exception) {
@@ -293,34 +338,17 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 			val ex = e as? ElamondException
 			when {
 				// The last preview that worked stays, the mistakes beside it.
-				ex?.code == "bad_settings" -> _state.update { it.copy(previewMistakes = mistakesOf(ex), previewNote = Message.Res(R.string.editor_preview_mistakes)) }
+				ex?.code == "bad_settings" -> _state.update { previewFailed(it, Message.Res(R.string.editor_preview_mistakes)).copy(previewMistakes = mistakesOf(ex)) }
 				// Nothing the role sees in it yet (an empty dashboard), or one made for each item of a
 				// collection, which the computer has under its items' ids alone.
 				ex?.code == "no_such_dashboard" -> {
 					val each = a.draft["for_each"] != null
 					_state.update { it.copy(preview = null, previewNote = Message.Res(if (each) R.string.editor_preview_for_each else R.string.editor_preview_empty)) }
 				}
-				else -> _state.update { it.copy(previewNote = messageFor(e)) }
+				else -> _state.update { previewFailed(it, messageFor(e)) }
 			}
-			// Refused: not again until something changes.
-			ex == null || ex.kind == Kind.Unreachable || ex.status >= SERVER_ERRORS
-		}
-	}
-
-	/** The preview's graphs and sparks, as a stream's are kept: its history replaced, a point added each reading. */
-	private fun takeHists(ui: UiDoc, line: DataLine) {
-		val dash = ui.dashboard(line.dashboard) ?: return
-		val step = intervalMs().toLong()
-		for (w in allWidgets(dash.widgets)) {
-			val graph = w.type == "graph"
-			if (!graph && !(w.type == "value" && w.spark == true)) continue
-			val count = if (graph) w.series?.size?.coerceAtLeast(1) ?: 1 else 1
-			val window = ((if (graph) w.range else null)?.takeIf { it > 0 } ?: ui.service.historySeconds) * MS_PER_SECOND
-			val h = hists[w.id]?.takeIf { it.seriesCount == count } ?: Hist(count, window).also { hists[w.id] = it }
-			h.windowMs = window
-			h.stepHintMs = step
-			val s = line.widgets[w.id]
-			h.take(line.t, if (graph) s?.numbers.orEmpty() else listOf(s?.number), line.history?.get(w.id))
+			// Out of reach, or a server's error: again, later; refused: not again until the draft changes.
+			if (ex == null || ex.kind == Kind.Unreachable || ex.status >= SERVER_ERRORS) PreviewTry.Failed else PreviewTry.Refused
 		}
 	}
 
@@ -356,7 +384,8 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 						if (editing.isNew && editing.toTabs) tabbed = intoTabs(c, desc, editing.id, r.hash)
 					}
 					is Editing.Tabs -> {
-						c.editorWrite(EDITOR_PROFILE_PATH, profileBody(editing.profile, draft, desc.hash))
+						// What changed here alone: what the profile has from the other files stays theirs.
+						c.editorWrite(EDITOR_PROFILE_PATH, profileBody(editing.profile, profileChanges(s.base, draft), desc.hash))
 						_state.update { it.copy(base = draft) }
 					}
 				}
@@ -374,12 +403,16 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 		}
 	}
 
-	/** The new dashboard [id] added to the tabs of the phone's own profile, after the editor's file got [hash]; whether it was. */
+	/**
+	 * The new dashboard [id] added to the tabs of the phone's own profile, after the editor's file got
+	 * [hash]; whether it was. Its tabs alone are written: its header and Android dashboards stay as
+	 * they come.
+	 */
 	private suspend fun intoTabs(c: ElamondClient, desc: EditorDescription, id: String, hash: String?): Boolean {
 		val own = desc.profile(desc.profile) ?: return false
-		val tabs = (own.def["dashboards"] as? JsonArray)?.toList() ?: tabsKept()
+		val tabs = (own.def[PROFILE_TABS] as? JsonArray)?.toList() ?: return false
 		if (tabs.any { it.text() == id }) return true
-		val profile = Drafts.withKey(own.def, "dashboards", JsonArray(tabs + JsonPrimitive(id)))
+		val profile = profileChanges(own.def, Drafts.withKey(own.def, PROFILE_TABS, JsonArray(tabs + JsonPrimitive(id))))
 		return try {
 			c.editorWrite(EDITOR_PROFILE_PATH, profileBody(own.id, profile, hash))
 			true
@@ -390,9 +423,6 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 			false
 		}
 	}
-
-	/** The tabs as the computer shows this phone, one for each dashboard of the settings. */
-	private fun tabsKept(): List<JsonElement> = kept?.tabs.orEmpty().map { it.substringBefore('.') }.distinct().map(::JsonPrimitive)
 
 	/**
 	 * After a write: what the editor offers read again (the file's new hash), and the computer's `ui`
@@ -504,7 +534,6 @@ class EditorViewModel(app: Application, private val machineId: String, private v
 	private companion object {
 		/** How long the draft stays the same before the computer previews it again. */
 		const val PREVIEW_SETTLE_MS = 400L
-		const val MS_PER_SECOND = 1000L
 		const val SERVER_ERRORS = 500
 		const val HTTP_TOO_LARGE = 413
 	}

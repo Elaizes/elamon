@@ -287,7 +287,7 @@
 	<string name="help_editor">7. Editing dashboards</string>
 	<string name="help_editor_who">A phone the computer gives the role owner edits its dashboards and the tabs of its profiles here, in forms, with no settings file to write: in a computer\'s menu, Edit dashboard, New dashboard and Edit tabs. The computer gives the role (elamond clients role ID owner), and its Elamon service has to be 0.11 or newer, with the editor on in its settings.</string>
 	<string name="help_editor_how">Edit shows the dashboard as it looks. Touch and hold a widget\'s handle, then drag it to another\'s place; tap a widget for its settings and its width; Add widget offers what the computer can show, each with an example. What the forms offer, the computer describes. Buttons, switches and a table\'s rows only pick an action the computer\'s settings already have: the editor writes no commands.</string>
-	<string name="help_editor_save">Saving unlocks the phone first, whatever the profile asks before actions: it changes the computer\'s settings. The computer checks them, then writes what you saved to a settings file of its own, over the others:</string>
+	<string name="help_editor_save">Saving unlocks the phone first, whatever the profile asks before actions: it changes the computer\'s settings. The computer checks them, then writes what you saved to the editor\'s own file in elamond.d, over the others: the one [web] editor_file names, zz-editor.toml unless set.</string>
 	<string name="help_editor_back">Back to the files takes a dashboard or a profile\'s tabs out of that file again, as the other files have them; a dashboard only that file has is deleted instead. If it was changed elsewhere meanwhile (the computer\'s web page, another phone), the editor says so and keeps your changes until you choose.</string>
 	<string name="help_editor_web">The rest of the admin panel (the settings files, the paired phones, pairing, holding control off) is the computer\'s web page, in a browser on its address:</string>
 	<string name="help_guide">Full guide</string>
@@ -499,6 +499,8 @@
 	<string name="editor_not_shown">Not shown now (%1$s): a value not there, its condition, or this phone\'s role.</string>
 	<!-- In a group's child's sheet: back to the group, "Back to Group · More". -->
 	<string name="editor_back_to">Back to %1$s</string>
+	<!-- Over a preview the computer couldn't be asked for again (out of reach): its numbers are old. -->
+	<string name="editor_preview_stale">Not up to date</string>
 	<string name="editor_preview_mistakes">The preview shows the dashboard as it was before the mistakes marked.</string>
 	<string name="editor_preview_empty">Nothing to preview yet: add a widget this phone can see.</string>
 	<string name="editor_preview_for_each">This dashboard is made for each item of a collection that has none on this computer now, so there is nothing to preview: its widgets show as cards to edit here.</string>
@@ -506,6 +508,8 @@
 	<string name="editor_dashboard_id">Id: %1$s</string>
 	<!-- The files and lines that set a dashboard: "elamond.d/dashboards.toml:3". -->
 	<string name="editor_set_in">Set in %1$s</string>
+	<!-- A settings file in the Nix store, made by the computer's Nix settings, and where in it: "elamond.toml:12, from Nix". -->
+	<string name="editor_from_nix">%1$s, from Nix</string>
 	<string name="editor_revert">Back to the files</string>
 	<string name="editor_revert_title">Back to the files?</string>
 	<!-- %1$s: the editor's file, "elamond.d/zz-editor.toml". -->
@@ -535,7 +539,7 @@
 	<string name="editor_required">%1$s (needed)</string>
 	<string name="editor_clear">Clear %1$s</string>
 	<string name="editor_default">Unless set: %1$s</string>
-	<!-- %1$s: the settings files below the editor's that set it. -->
+	<!-- %1$s: where a settings file below the editor's sets it, "elamond.toml:12". -->
 	<string name="editor_fixed">Also set in %1$s: it can be changed here, not taken out.</string>
 	<string name="editor_between">From %1$s to %2$s</string>
 	<string name="editor_pick">Choose</string>
@@ -574,18 +578,13 @@
 		<item quantity="one">%1$d paired client has it</item>
 		<item quantity="other">%1$d paired clients have it</item>
 	</plurals>
-	<string name="editor_tabs">Tabs</string>
-	<string name="editor_header">Header</string>
-	<string name="editor_header_hint">The chips under the computer\'s name, on every tab</string>
+	<!-- Over the keys of a profile's android table: the dashboards shown outside the app. -->
 	<string name="editor_android">Outside the app</string>
-	<string name="editor_android_widget">Home-screen widget</string>
-	<string name="editor_android_tiles">Quick Settings tiles</string>
-	<string name="editor_android_card">The computer\'s card on the home screen</string>
 	<!-- A new dashboard. -->
 	<string name="editor_new_title">New dashboard</string>
 	<string name="editor_new_name">Title</string>
 	<string name="editor_new_id">Id</string>
-	<string name="editor_new_id_rule">Up to 32 of a–z, 0–9, _ and -, as the settings name it</string>
+	<string name="editor_new_id_rule">Up to 32 of a–z, 0–9, _ and -, starting with a letter or a digit</string>
 	<string name="editor_new_id_taken">The computer has a dashboard of this id already</string>
 	<string name="editor_new_from">Start from</string>
 	<string name="editor_new_empty">An empty dashboard</string>
