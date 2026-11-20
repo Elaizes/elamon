@@ -72,7 +72,7 @@ describes, saved to a drop-in of its own, never a command.
 
 Each phone or browser has a role, set on the computer: glancing at the basics, watching everything,
 everyday control, all of it, or, for your own, the settings too. Every request to act is kept in an
-activity log, and `elamond control off` stops every phone at once.
+activity log, and `elamond control off` stops every phone and browser at once.
 
 Moving is kept simple: `elamond backup` saves the computer's identity and its paired phones in one
 file only you can read, which `elamond restore` puts back on a reinstalled or new computer without
@@ -128,16 +128,16 @@ four Quick Settings tiles that run its actions; which, the computer's profile sa
 7. For a browser, open `https://<computer>:47823/` and type in the code of `elamond pair`
    ([details](docs/guide.md#11-in-a-browser)).
 
-The phone and the computer talk directly, over the local network or a VPN they share: TCP 47823,
-and UDP 5353 for finding the computer by itself. The service can listen on chosen interfaces only
-(`listen = ["tailscale0"]`), and announces itself only on the local network. Its pairing QR code
-carries the computer's Tailscale name and names you give (`names = [...]`) after its addresses, so
-the phone still finds it when they change. Everything is encrypted, a phone is paired only when
-you let it in at the computer, each phone has its own key that the computer can revoke, and the
-service only acts on the computer when told it may, starting and stopping only the units its
-settings name ([security](docs/guide.md#17-security)). Nothing goes through a server of anyone's,
-with one exception that is yours to make: name an ntfy topic, and the service posts its events to
-that ntfy server, without names of units, disks or the computer unless you ask for them.
+Phones and browsers talk to the computer directly, over the local network or a VPN they share: TCP
+47823, and UDP 5353 for the app to find the computer by itself. The service can listen on chosen
+interfaces only (`listen = ["tailscale0"]`), and announces itself only on the local network. Its
+pairing QR code carries the computer's Tailscale name and names you give (`names = [...]`) after its
+addresses, so the phone still finds it when they change. Everything is encrypted, a phone or a
+browser is paired only when you let it in at the computer, each has its own key that the computer
+can revoke, and the service only acts on the computer when told it may, starting and stopping only
+the units its settings name ([security](docs/guide.md#17-security)). Nothing goes through a server
+of anyone's, with one exception that is yours to make: name an ntfy topic, and the service posts its
+events to that ntfy server, without names of units, disks or the computer unless you ask for them.
 
 ## Technical notes
 
@@ -164,6 +164,10 @@ that ntfy server, without names of units, disks or the computer unless you ask f
   with it; a web service is asked through the computer's `curl`, without following redirects; the
   journal is read through `journalctl` as the service's user (the system's in the
   `systemd-journal` group), and only while a phone shows it.
+- The web page is files built into elamond as they are, HTML, CSS and JavaScript with nothing
+  compiled or bundled, the same on every computer of a version. It runs only its own scripts (its
+  Content-Security-Policy allows no other), and a browser keeps its key in an HttpOnly cookie that
+  the page's scripts can't read.
 - Charts reach back further than the ten minutes in memory: the service keeps what they show on
   disk, every 10 seconds for a day, every 5 minutes for 30 days and every hour from then on.
 - The service uses about 0.3 % of one CPU core while no phone watches, 1–2.5 % while one does
@@ -190,12 +194,16 @@ Tests:
 ```sh
 nix develop -c bash -c 'cd elamond && cargo test' # the service, and the protocol fixtures in elamond/fixtures
 nix develop -c ./gradlew :app:testDebugUnitTest    # app, against the same fixtures
-nix flake check                                   # VM tests: the NixOS module, a UPS on a mock station, the sources and the journal, events
+nix develop -c node --test elamond/web/test/*.test.mjs  # the web page
+nix develop -c tsc -p elamond/web/jsconfig.json        # the web page's types
+nix develop .#browser -c elamond/web/test/browser.sh   # the page in a headless Chromium, against a throwaway service
+nix flake check                                   # VM tests: the NixOS module, a UPS on a mock station, the sources and the journal, events, the monitors, the web page
 maestro/run.sh                                    # the app on an emulator only (a real phone: --yes-real-phone), against a throwaway service
 ```
 
-The protocol between the app and the service: [docs/protocol.md](docs/protocol.md); the settings,
-dashboards and profiles: [docs/config.md](docs/config.md).
+The protocol between the service and its clients, the app and the page:
+[docs/protocol.md](docs/protocol.md); the settings, dashboards and profiles:
+[docs/config.md](docs/config.md).
 
 ## Where it's going
 
