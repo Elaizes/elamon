@@ -1,10 +1,10 @@
 # Elamon settings reference (settings schema 3)
 
-Everything the app and the web page show, and everything a phone may run, is set on the computer,
-in elamond's settings: the dashboards and their widgets, the actions, how each phone looks and
-behaves (its *profile*). The app keeps nothing of it but its own scale and, if you turn it on, a
-theme of its own; it draws what the service describes. These
-settings are TOML on every distribution; on NixOS the module's `settings` mirror them one to one.
+Everything the app and the web page show, and everything a phone may run, is set on the computer, in
+elamond's settings: the dashboards and their widgets, the actions, how each phone looks and behaves
+(its *profile*). The app keeps nothing of it but its own scale and, if you turn it on, a theme of
+its own; it draws what the service describes. These settings are TOML on every distribution; on
+NixOS the module's `settings` mirror them one to one.
 
 The files are all there is. The service reads these, in this order, a later one adding to and
 overriding an earlier one, and nothing under them:
@@ -19,29 +19,29 @@ What isn't in them the service doesn't have: a dashboard taken out of elamond.to
 put back from somewhere. Only the built-in actions (`power.*`, `profile.set`, `unit.*`…) come
 with elamond itself, being what it can do rather than settings.
 
-A table with an id (`[dashboards.power]`, `[actions.mode]`, `[links.jellyfin]`,
-`[profiles.owner]`, `[templates.history]`, `[sources.eco]`) merges with the one of the same id
-before it, key by key, as `[history]` does; a list (`widgets`, `listen`, `dashboards` in a profile,
-`commands` or `command` of a source) replaces the one before it whole.
-So a drop-in can add a dashboard, change one key of one in elamond.toml, or replace its widgets.
+A table with an id (`[dashboards.power]`, `[actions.mode]`, `[links.jellyfin]`, `[profiles.owner]`,
+`[templates.history]`, `[sources.eco]`) merges with the one of the same id before it, key by key, as
+`[history]` does; a list (`widgets`, `listen`, `dashboards` in a profile, `commands` or `command` of
+a source) replaces the one before it whole. So a drop-in can add a dashboard, change one key of one
+in elamond.toml, or replace its widgets.
 
 `elamond check [FILE]` reads the settings as the service would and names the file and line of each
 mistake; `elamond edit [FILE]` opens the file in `$VISUAL` or `$EDITOR` and doesn't keep a broken
 one; `elamond schema` prints the JSON Schema of these settings, for editors that check TOML against
 one (taplo, Even Better TOML: `#:schema` at the top of the file, as the starter files have it);
-`elamond defaults` prints the
-settings elamond starts with ([below](#the-defaults-beside-defaultstoml)); `elamond values` lists
-the values this computer has now, and `elamond values <source>` those of a [source](#sources),
-read there and then.
+`elamond defaults` prints the settings elamond starts with
+([below](#the-defaults-beside-defaultstoml)); `elamond values` lists the values this computer has
+now, and `elamond values <source>` those of a [source](#sources), read there and then.
 
 ## The starter file
 
 Where there is no elamond.toml, `elamond setup` and the service's first start write the settings
 elamond starts with, in three files:
 
-- `elamond.toml`, short: `schema = 3` and the top-level keys (control, where it listens, names,
-  the role and profile new phones get), each with a line on what it does, commented-out examples of
-  a link and an action, and the `default` profile;
+- `elamond.toml`, short: `schema = 3` and the top-level keys (control, where it listens, names, the
+  role and profile new phones get), each with a line on what it does, commented-out examples of a
+  link and an action, the `default` profile, and the [`[displays]`](#monitors) and
+  [`[web]`](#the-web-page-and-the-admin-api) tables;
 - `elamond.d/dashboards.toml` (unless one is there already): every standard dashboard (`header`,
   `overview`, `ups`, `processes`, `sensors`, `control`, and the pages their tiles open) and the
   templates they use;
@@ -83,8 +83,8 @@ writes the starter files at its next start ([above](#the-starter-file)); until t
 all there is.
 
 `schema` says which settings these are. `3` is a whole file, as this page describes; another number
-is a mistake (a file written for a newer elamond). A drop-in may say
-`schema = 3` too, and nothing else.
+is a mistake (a file written for a newer elamond). A drop-in may say `schema = 3` too, and nothing
+else.
 
 ### The defaults beside: defaults.toml
 
@@ -120,73 +120,20 @@ doesn't add it to them by itself.
 
 ### Nix
 
-On NixOS and with Home Manager, `services.elamond.settings` holds the defaults with `mkDefault`,
-and `schema = 3`: what you set there overrides them key by key, a list (a dashboard's `widgets`)
+On NixOS and with Home Manager, `services.elamond.settings` holds the defaults with `mkDefault`, and
+`schema = 3`: what you set there overrides them key by key, a list (a dashboard's `widgets`)
 replacing theirs whole, and a table of your own (`dashboards.desk`, `profiles.owner`) adds to them.
-`services.elamond.defaults` holds them as they are, read-only. The settings are written into the
-Nix store and `ELAMON_CONFIG` names them (Home Manager links elamond.toml to them); the drop-ins in
+`services.elamond.defaults` holds them as they are, read-only. The settings are written into the Nix
+store and `ELAMON_CONFIG` names them (Home Manager links elamond.toml to them); the drop-ins in
 ~/.config/elamon/elamond.d/, phones.toml among them, are still your own to write. Under the NixOS
-module, an elamond.toml of your own in ~/.config/elamon is read right after the module's, as a drop-in would be, so nothing it held is
-lost; the journal and `elamond check` say so.
-
-## The web page and the admin API
-
-elamond serves a web page on its own port (`https://<computer>:47823/`), paired as the app is, with
-the code of `elamond pair` ([guide](guide.md#in-a-browser)). It shows the dashboards of the
-browser's profile and, to the role `role` names, an admin panel: the service's state, the settings
-merged with where each part comes from, the clients and their roles, pairing, `control off`, an
-editor of the settings files, and a dashboard editor (also in the app 0.11). Whoever may use it may
-write the settings, and so add a command and run it.
-
-```toml
-[web]
-page = true
-admin = true
-write = true
-editor = true
-role = "owner"
-cookie_days = 30
-backups = 10
-editor_file = "zz-editor.toml"
-# A real certificate for one name, presented to browsers that reach the computer by it:
-# cert_name = "desk.example.net"
-# cert_file = "/var/lib/certs/desk.example.net.crt"
-# key_file = "/var/lib/certs/desk.example.net.key"
-```
-
-| key | type | default | |
-|---|---|---|---|
-| `page` | bool | `true` | serve the page at `/`; off, `/` is 404 and only the app is served |
-| `admin` | bool | `true` | the admin API: the page's admin panel and both dashboard editors |
-| `write` | bool | `true` | let the admin API write the settings (the files and the dashboard editor); off, it only shows them |
-| `editor` | bool | `true` | the dashboard editor, in the page and in the app |
-| `role` | `admin` \| `owner` | `owner` | the least role the admin API is open to |
-| `cookie_days` | integer, 1–400 | 30 | how long a browser stays paired without opening the page |
-| `backups` | integer, 0–100 | 10 | backups kept of each settings file the admin API writes, in `~/.config/elamon/backups/` |
-| `editor_file` | file name | `zz-editor.toml` | the drop-in in `elamond.d/` the dashboard editor writes; it is read after the others whose names sort before it |
-| `cert_name` | host name | | the name a real certificate is for; browsers that reach the computer by it get that certificate, every other client the service's own; phones are never told it (`endpoints`, the pairing link), as the app pins the service's own |
-| `cert_file` | path | | that certificate and its chain, PEM |
-| `key_file` | path | | its private key, PEM, readable by you alone (`chmod 600`): one others may read isn't presented |
-
-`elamond pair --role owner` pairs a client with the role `owner`; `elamond clients role ID owner`
-gives it to one paired. A client of the role may give any role up to its own from the admin panel.
-`elamond control off` stops the admin API's writes too, and only `elamond control on` at the
-computer lets go of it.
-
-What the admin API writes it writes as `elamond edit` does: only once the settings with the change
-are sound, in one step, with a backup of the file as it was. Under Nix the main file is read-only
-(it is in the Nix store): the admin panel shows it and writes drop-ins. The dashboard editor writes
-only `[dashboards.<id>]` and the tabs, header and Android dashboards of `[profiles.<id>]`, to
-`editor_file`, and never a command: its buttons and switches pick among the actions there are.
-
-The certificate files are read again when they change; one that doesn't load, isn't for its key or
-has expired is said in the journal, by `elamond check` and by `elamond setup --check`, and the
-service presents the one before (or its own) meanwhile.
+module, an elamond.toml of your own in ~/.config/elamon is read right after the module's, as a
+drop-in would be, so nothing it held is lost; the journal and `elamond check` say so.
 
 ## Phones
 
-Each paired phone has a profile of its own, in `~/.config/elamon/elamond.d/phones.toml`: a drop-in
-the service writes when a phone pairs, which is yours to edit like any other. A key you add to a
+Each paired phone, and each paired browser, has a profile of its own, in
+`~/.config/elamon/elamond.d/phones.toml`: a drop-in the service writes when a phone pairs, which is
+yours to edit like any other. A key you add to a
 phone's table changes how that phone looks, at once; `use` names the profile it starts from.
 
 ```toml
@@ -328,7 +275,7 @@ kind = "nut"
 ups = "ups"
 capacity_wh = 2048
 user = "elamon"
-password_file = "/home/me/.config/elamon/nut.password"
+password_file = "/home/YOUR_USER/.config/elamon/nut.password"
 commands = ["outlet.*.load.*", "beeper.*"]
 settings = ["experimental.battery.charge.max", "experimental.output.xboost"]
 outlets."1".critical = true
@@ -402,7 +349,7 @@ interval = 60
 [sources.app]
 kind = "http"
 url = "http://localhost:8080/status"
-token_file = "/home/me/.config/elamon/app.token"
+token_file = "/home/YOUR_USER/.config/elamon/app.token"
 interval = 30
 
 [sources.charge]
@@ -424,13 +371,14 @@ interval = 5
 | `interval` | all three | integer, seconds, 1–86 400 | 10 | how often it is read while it is needed |
 | `timeout` | all three | integer, seconds, 1–60 | 5 | a read that takes longer fails; it may be longer than `interval` |
 | `history` | all three | bool | `false` | keep the [long history](#the-long-history) of its numbers |
-| `role` | all three | `glance` \| `monitor` \| `operate` \| `admin` | `monitor` | the least role that sees its values |
+| `role` | all three | role | `monitor` | the least role that sees its values |
 
 A source is read only while it is needed: while some client has a dashboard (or the header) on
 screen that shows one of its values, while a graph or a spark of the settings shows one, or with
-`history = true`, or while an enabled [rule](#rules) looks at one; otherwise not at all. Needed again, it is read at once if its last read is older
-than `interval`. One read of a source runs at a time, the next waiting for it; a slow one never
-holds up the computer's readings or another source's.
+`history = true`, or while an enabled [rule](#rules) looks at one; otherwise not at all. Needed
+again, it is read at once if its last read is older than `interval`. One read of a source runs at a
+time, the next waiting for it; a slow one never holds up the computer's readings or another
+source's.
 
 - A command runs as elamond's user, with nothing on its input, in a process group of its own:
   at its `timeout` it is killed, and once it ends whatever it started is killed too. What it prints
@@ -516,7 +464,7 @@ named before `events`, is overridden by events.toml without a word.
 
 ```toml
 [notify.phone]
-topic_file = "/home/you/.config/elamon/ntfy.topic"   # chmod 600; its first line is the topic
+topic_file = "/home/YOUR_USER/.config/elamon/ntfy.topic"   # chmod 600; its first line is the topic
 
 [rules.disk]
 above = 85                     # the standard rule, sooner
@@ -731,16 +679,15 @@ Every action also needs control: `control = true`, and no `elamond control off`.
 
 ### Station actions
 
-A `nut` [source](#sources) with `commands` adds `nut.command.<source>`, whose one parameter `cmd`
-is a choice of the commands the station offers that a pattern of `commands` matches, each
-labelled as upsd describes it (`Turn off AC outlets, group 2`). With `settings`, each writable
-variable a pattern matches that takes a list of values (`ENUM`) or one range (`RANGE`) is an
-action `nut.set.<source>.<variable>` with one parameter `value`, the list as a choice or the range
-on a step of 1 in the variable's unit; one of another kind, or of several ranges, isn't offered,
-and the journal says so once.
-They come once upsd has said what the station offers, and stay while it can't be reached; until
-then the widgets that run them are left out, and so is a toggle whose `on` or `off` isn't among
-them.
+A `nut` [source](#sources) with `commands` adds `nut.command.<source>`, whose one parameter `cmd` is
+a choice of the commands the station offers that a pattern of `commands` matches, each labelled as
+upsd describes it (`Turn off AC outlets, group 2`). With `settings`, each writable variable a
+pattern matches that takes a list of values (`ENUM`) or one range (`RANGE`) is an action
+`nut.set.<source>.<variable>` with one parameter `value`, the list as a choice or the range on a
+step of 1 in the variable's unit; one of another kind, or of several ranges, isn't offered, and the
+journal says so once. They come once upsd has said what the station offers, and stay while it can't
+be reached; until then the widgets that run them are left out, and so is a toggle whose `on` or
+`off` isn't among them.
 
 Each asks before it runs. One that cuts this computer's power has to be typed in on the phone,
 whatever the profile's `confirm_actions`: a command on an outlet with `critical = true` but the one
@@ -790,9 +737,9 @@ Settings from before 0.10, without `[displays]`, get these. The activity log has
 
 How a client looks and behaves. The app saves none of this: it takes its profile from the computer
 with the dashboards. Only with *Own theme* on in the app's settings does the phone's own theme go
-over `theme`, `pure_black` and `android.dynamic_color`. Each paired phone has one of its own in [phones.toml](#phones), which `use`s
-another (`elamond pair --profile ID`, or `default_profile`); `elamond clients profile ID PROFILE`
-gives it any other.
+over `theme`, `pure_black` and `android.dynamic_color`. Each paired phone has one of its own in
+[phones.toml](#phones), which `use`s another (`elamond pair --profile ID`, or `default_profile`);
+`elamond clients profile ID PROFILE` gives it any other.
 
 ```toml
 [profiles.owner]
@@ -842,6 +789,60 @@ The part every client reads:
 
 A `use` chain is followed to its end (a loop is a mistake); `android` and `web` are inherited key by
 key as well. A profile that names a dashboard that doesn't exist is a mistake.
+
+## The web page and the admin API
+
+elamond serves a web page on its own port (`https://<computer>:47823/`), paired as the app is, with
+the code of `elamond pair` ([guide](guide.md#in-a-browser)). It shows the dashboards of the
+browser's profile and, to the role `role` names, the admin panel and the dashboard editor (also in
+the app 0.11): see the guide's [admin panel](guide.md#12-the-admin-panel) and
+[editing dashboards](guide.md#13-editing-dashboards). Whoever may use the admin panel may write the
+settings, and so add a command and run it.
+
+```toml
+[web]
+page = true
+admin = true
+write = true
+editor = true
+role = "owner"
+cookie_days = 30
+backups = 10
+editor_file = "zz-editor.toml"
+# A real certificate for one name, presented to browsers that reach the computer by it:
+# cert_name = "desk.example.net"
+# cert_file = "/var/lib/certs/desk.example.net.crt"
+# key_file = "/var/lib/certs/desk.example.net.key"
+```
+
+| key | type | default | |
+|---|---|---|---|
+| `page` | bool | `true` | serve the page at `/`; off, `/` is 404 and only the app is served |
+| `admin` | bool | `true` | the admin API: the page's admin panel and both dashboard editors |
+| `write` | bool | `true` | let the admin API write the settings (the files and the dashboard editor); off, it only shows them |
+| `editor` | bool | `true` | the dashboard editor, in the page and in the app |
+| `role` | `admin` \| `owner` | `owner` | the least role the admin API is open to |
+| `cookie_days` | integer, 1–400 | 30 | how long a browser stays paired without opening the page |
+| `backups` | integer, 0–100 | 10 | backups kept of each settings file the admin API writes, in `~/.config/elamon/backups/` |
+| `editor_file` | file name | `zz-editor.toml` | the drop-in in `elamond.d/` the dashboard editor writes; it is read after the others whose names sort before it |
+| `cert_name` | host name | | the name a real certificate is for; browsers that reach the computer by it get that certificate, every other client the service's own; phones are never told it (`endpoints`, the pairing link), as the app pins the service's own |
+| `cert_file` | path | | that certificate and its chain, PEM |
+| `key_file` | path | | its private key, PEM, readable by you alone (`chmod 600`): one others may read isn't presented |
+
+Writing a settings file, which may add a command, also needs `control = true`, as running one does;
+the dashboard editor's writes, which can't add one, don't. `elamond control off` stops both, and
+only `elamond control on` at the computer lets go of it. Who gets the role `owner`, and how:
+[the guide](guide.md#who-has-it).
+
+What the admin API writes it writes as `elamond edit` does: only once the settings with the change
+are sound, in one step, with a backup of the file as it was. Under Nix the main file is read-only
+(it is in the Nix store): the admin panel shows it and writes drop-ins. The dashboard editor writes
+only `[dashboards.<id>]` and the tabs, header and Android dashboards of `[profiles.<id>]`, to
+`editor_file`, and never a command: its buttons and switches pick among the actions there are.
+
+The certificate files are read again when they change; one that doesn't load, isn't for its key or
+has expired is said in the journal, by `elamond check` and by `elamond setup --check`, and the
+service presents the one before (or its own) meanwhile.
 
 ## Dashboards
 
@@ -1173,13 +1174,13 @@ A `command`, `http` or `file` source has values by its `format`:
 | `<id>.age` | whole seconds since the last good read; unit `s`, format `duration` | from the first good read on |
 | `<id>.error` | why the last read failed; role `monitor` at least | while it fails |
 
-Keys and the parts of a path are written in `A-Z`, `a-z`, `0-9`, `_` and `-`, anything else
-becoming `_` (`build info` → `build_info`; an empty one is `_`); `exit`, `age` and `error` are the
-service's own, and a key or leaf of one of those names is left out. A value has no unit, and the
-format `number`, `text` or `bool` as it is (`<id>.age` aside): the widget says the rest with its
-own `unit` and `format` (`format = "time"` for a Unix time in seconds; `unit = "%"` for a
-battery's charge read from /sys). The service guesses nothing from
-a name: a key `temperature` gets no °C and no limits. Their role is the source's `role`.
+Keys and the parts of a path are written in `A-Z`, `a-z`, `0-9`, `_` and `-`, anything else becoming
+`_` (`build info` → `build_info`; an empty one is `_`); `exit`, `age` and `error` are the service's
+own, and a key or leaf of one of those names is left out. A value has no unit, and the format
+`number`, `text` or `bool` as it is (`<id>.age` aside): the widget says the rest with its own `unit`
+and `format` (`format = "time"` for a Unix time in seconds; `unit = "%"` for a battery's charge read
+from /sys). The service guesses nothing from a name: a key `temperature` gets no °C and no limits.
+Their role is the source's `role`.
 
 A command that exits with another code than 0 reads well only when what it printed gives at least
 one value (beside its `<id>.exit`); one that gives none fails, as `exited with 7: <the first line
