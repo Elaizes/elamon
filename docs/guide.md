@@ -2077,14 +2077,14 @@ follow the version by themselves; only what you set in `settings` stays as it wa
 
 ### When changes apply
 
-- Dashboards, profiles (phone tables too), links, actions, sources, `[history]`, `control`,
-  `default_role`, `default_profile`, `names` and `[web]`: as soon as the service rereads the files.
-  It does when one of them changes, or at once on `systemctl --user reload elamond`. An open phone
-  fetches its new tabs by itself.
-- What the admin panel and the dashboard editor save: at once, and open phones and pages get it.
-- Roles (`elamond clients role`) and `elamond clients profile`: at once.
 - `port`, `listen`, `name`, `mdns`, `interval_ms` and `history_minutes`: after a restart of the
   service.
+- Everything else, from dashboards, profiles (phone tables too), links, actions and sources to
+  `control`, the rules, `[displays]` and `[web]`: as soon as the service rereads the files. It does
+  when one of them changes, or at once on `systemctl --user reload elamond`. An open phone fetches
+  its new tabs by itself.
+- What the admin panel and the dashboard editor save: at once, and open phones and pages get it.
+- Roles (`elamond clients role`) and `elamond clients profile`: at once.
 - With Nix: after the rebuild (`nixos-rebuild switch`, `home-manager switch`), which also checks
   the settings and fails on a mistake.
 
