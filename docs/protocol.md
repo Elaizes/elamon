@@ -18,14 +18,11 @@ new kind of widget.
 
 Every shape below, with each optional field filled in, is in
 [`elamond/fixtures`](../elamond/fixtures): the service's tests write those files and the app's
-tests read them, so the two can't drift apart. Those elamond 0.7 adds are in
-[`elamond/fixtures/0.7`](../elamond/fixtures/0.7) until the service writes them and the app reads
-them ([below](#what-came-with-elamond-07)), those 0.8 adds in
-[`elamond/fixtures/0.8`](../elamond/fixtures/0.8) ([below](#what-came-with-elamond-08)), and
-those 0.8.1 adds in [`elamond/fixtures/0.8.1`](../elamond/fixtures/0.8.1)
-([below](#what-came-with-elamond-081)), those 0.10 adds in
-[`elamond/fixtures/0.10`](../elamond/fixtures/0.10) ([below](#what-came-with-elamond-010)), and those 0.11
-adds in [`elamond/fixtures/0.11`](../elamond/fixtures/0.11) ([below](#what-came-with-elamond-011)).
+tests read them, so the two can't drift apart. What each version added is in a folder of its own,
+`elamond/fixtures/<version>`, listed under that version below: [0.7](#what-came-with-elamond-07),
+[0.8](#what-came-with-elamond-08), [0.8.1](#what-came-with-elamond-081),
+[0.9](#what-came-with-elamond-09), [0.10](#what-came-with-elamond-010) and
+[0.11](#what-came-with-elamond-011).
 
 ## Versions and what each side can do
 
@@ -144,6 +141,24 @@ writes them and the app reads them. Then, with the service at 0.8.0, these chang
 `hello.json` (`version` 0.8.0, `widgets` 3) and `ui-default.json` (Control's *Journal* button,
 the Links table's row action `{ open, label }`, and the `journal` dashboard).
 
+### What came with elamond 0.8.1
+
+A timeline's legend in shares of the time. The API stays 2 and `widgets` 3: it is one key a client
+may ignore.
+
+| new | where |
+|---|---|
+| `legend` of `timeline` (`duration`, `percent` or `both`) | [widgets in `ui`](#widgets-in-ui) |
+
+What an app of 0.7 or 0.8 sees of a 0.8.1 service: what it saw before; it ignores `legend` and
+words the legend in durations. An app of 0.6.2 or before gets a `timeline` as a `text`, as before.
+An app of 0.8.1 with an older service gets no `legend`, and words it in durations as well.
+
+The fixtures 0.8.1 adds are in `elamond/fixtures/0.8.1/`: `ui-legend.toml` (the settings: four
+timelines of the 0.7 fixture station, without `legend` and with each of its values), with what an
+app shows under each in its comments; `ui-legend.json` (its `ui` for an admin `android` client).
+They move up beside the others once the service writes them there and the app reads them.
+
 ### What came with elamond 0.9
 
 Events: what the rules of the settings and `elamond notify` tell, kept by the service, sent on by
@@ -168,24 +183,6 @@ admin `android` client); `stream-events.json` (the dashboard's first `data` line
 (`GET /api/v1/log` of it, before its oldest line); `events.jsonl` (the file the events are kept
 in); `ntfy.json` (what the target and one with names are sent for each event: the bodies of the
 requests to ntfy, the topic in them a placeholder).
-
-### What came with elamond 0.8.1
-
-A timeline's legend in shares of the time. The API stays 2 and `widgets` 3: it is one key a client
-may ignore.
-
-| new | where |
-|---|---|
-| `legend` of `timeline` (`duration`, `percent` or `both`) | [widgets in `ui`](#widgets-in-ui) |
-
-What an app of 0.7 or 0.8 sees of a 0.8.1 service: what it saw before; it ignores `legend` and
-words the legend in durations. An app of 0.6.2 or before gets a `timeline` as a `text`, as before.
-An app of 0.8.1 with an older service gets no `legend`, and words it in durations as well.
-
-The fixtures 0.8.1 adds are in `elamond/fixtures/0.8.1/`: `ui-legend.toml` (the settings: four
-timelines of the 0.7 fixture station, without `legend` and with each of its values), with what an
-app shows under each in its comments; `ui-legend.json` (its `ui` for an admin `android` client).
-They move up beside the others once the service writes them there and the app reads them.
 
 ### What came with elamond 0.10
 
