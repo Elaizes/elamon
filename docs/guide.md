@@ -52,7 +52,7 @@ server.
 - [11. In a browser](#11-in-a-browser)
 - [12. The admin panel](#12-the-admin-panel)
 - [13. Editing dashboards](#13-editing-dashboards)
-- [14. Settings reference](#14-settings-reference)
+- [14. How the settings work](#14-how-the-settings-work)
 - [15. Updating, moving and removing](#15-updating-moving-and-removing)
 - [16. Troubleshooting](#16-troubleshooting)
 - [17. Security](#17-security)
@@ -527,7 +527,7 @@ The service notices the change within a few seconds by itself, or at once with
 On NixOS, set it through the module instead: `services.elamond.settings.control = true;`. The
 service then reads its settings from a read-only file the module builds, and a rebuild that changes
 them restarts every user's service. Settings you add by hand go in a drop-in beside it,
-`~/.config/elamon/elamond.d/*.toml` ([section 14](#14-settings-reference)).
+`~/.config/elamon/elamond.d/*.toml` ([section 14](#where-the-settings-live)).
 
 With control on, each phone does as much as its role allows: `admin` (the default) everything below,
 other roles less ([section 6](#6-roles-who-may-do-what)). `elamond control off` stops them all at
@@ -1825,7 +1825,7 @@ the computer's*.
 When the settings with your changes wouldn't read, nothing is written either: the service names the
 widget and the key, and the editor marks them.
 
-## 14. Settings reference
+## 14. How the settings work
 
 Everything a phone or a browser shows comes from the computer it is paired with. The app keeps no
 display settings of its own: it draws what the service describes, and what its dashboard editor
