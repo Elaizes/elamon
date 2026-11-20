@@ -377,9 +377,7 @@ outlet, and its switches and settings ([section 7](#7-upses-and-power-stations))
 Charts are full the moment you open a computer, because the service keeps the last ten minutes
 (`history_minutes`), and they reach back past a restart of the service. Where the phone was away
 or its screen was off, the line has a gap. A medium or large chart also offers longer ranges,
-from 1 hour to all of it: the service keeps what charts show every 10 seconds for a day, every
-5 minutes for 30 days and every hour from then on
-([section 7](#graphs-that-reach-back-the-long-history)).
+from 1 hour to all of it ([below](#graphs-that-reach-back-the-long-history)).
 
 **The ⋮ menu** has *Settings*, *Help* and *Forget computer*. With the `owner` role and elamond 0.11
 it also has *Edit dashboard*, *New dashboard* and *Edit tabs*
@@ -396,6 +394,43 @@ be told, the app says so: remove the phone there with `elamond revoke` ([section
 - The app streams only while it's on screen, so it costs no battery or data in the background.
 - *Nothing to show here* means the phone's role or profile shows none of the computer's dashboards.
   On the computer, `elamond clients role` or `elamond clients profile` changes that.
+
+### Graphs that reach back: the long history
+
+Beside the last ten minutes it keeps in memory (`history_minutes`), the service keeps on disk every
+value a graph or a spark of the settings shows, and every number of a source that keeps its
+history, 256 a source at most: a UPS's or a power station's unless it says `history = false`
+([section 7](#7-upses-and-power-stations)), and one of your own readings with `history = true`
+([section 8](#8-your-own-readings)). Each point is the mean of the readings in it:
+
+| Every | Kept | For the ranges |
+|---|---|---|
+| 10 seconds | a day | 1 h, 24 h |
+| 5 minutes | 30 days | 7 days, 30 days |
+| hour | for good, or `keep` days | Year, All |
+
+A medium or large graph, and a timeline, offers them as chips over it, beside its own range
+(*10 min* on most graphs): tap one to see that far back, and drag a finger across it to read a
+moment. A small graph never does, and `ranges = false` in a widget's settings leaves them out.
+
+- **It survives restarts.** The service writes it every 5 minutes and as it stops, so a crash loses
+  those minutes at most; after a restart, the graphs start from it.
+- **Its size.** About 0.3 MB a value the first year and 70 KB a year after: a computer's graphs
+  some 4 MB, a power station's ninety-odd numbers some 25 MB the first year and 6 MB a year after.
+  `elamond check` says how much there is:
+
+  ```
+  history: 12.3 MiB in 274 files (oldest 2026-11-16), not in backups
+  ```
+- **It isn't in backups.** It's in `~/.local/share/elamon/history/`, which `elamond backup` leaves
+  out: copy the folder to keep it. Deleting it loses the long ranges and nothing else.
+- **How long the hourly points stay** is the settings' `[history]`
+  ([docs/config.md](config.md#the-long-history)):
+
+  ```toml
+  [history]
+  keep = 365      # days, 30 or more; "all", the default, keeps them for good
+  ```
 
 ### Settings
 
@@ -831,7 +866,7 @@ station has and leaves out what it hasn't, the same for a UPS and an EcoFlow:
 - the power in and out and the solar inputs, the battery (its limits, health and the estimates to
   empty and to full), each outlet with its watts, the voltages, frequencies and temperatures;
 - graphs of the charge and the power, reaching back as far as the service has kept
-  ([below](#graphs-that-reach-back-the-long-history)), and the model and firmware;
+  ([section 4](#graphs-that-reach-back-the-long-history)), and the model and firmware;
 - folded at the bottom, once you allow it, a switch for each outlet and the beeper, and the
   station's settings: the charge and discharge limits, the charging power, X-Boost, timeouts, the
   screen ([below](#switching-outlets-and-changing-settings)).
@@ -1019,41 +1054,6 @@ whichever range is shown. On the station's tab itself, it goes under
 so a station without it leaves it out (`value = "{item}.battery.charger.status"`,
 `when = "{item}.battery.charger.status"`); under Nix, after the standard widgets with `++`
 ([section 14](#dashboards-and-widgets)).
-
-### Graphs that reach back: the long history
-
-This is for every graph, the computer's as much as a station's. Beside the last ten minutes it keeps
-in memory (`history_minutes`), the service keeps on disk every value a graph or a spark of the
-settings shows, and every number of each source (256 a source at most; `history = false` on a source
-keeps only those its graphs show), each point the mean of the readings in it:
-
-| Every | Kept | For the ranges |
-|---|---|---|
-| 10 seconds | a day | 1 h, 24 h |
-| 5 minutes | 30 days | 7 days, 30 days |
-| hour | for good, or `keep` days | Year, All |
-
-A medium or large graph, and a timeline, offers them as chips over it, beside its own range
-(*10 min* on most graphs): tap one to see that far back, and drag a finger across it to read a
-moment. A small graph never does, and `ranges = false` in a widget's settings leaves them out.
-
-- **It survives restarts.** The service writes it every 5 minutes and as it stops, so a crash loses
-  those minutes at most; after a restart, the graphs start from it.
-- **Its size.** About 0.3 MB a value the first year and 70 KB a year after: a computer's graphs
-  some 4 MB, a power station's ninety-odd numbers some 25 MB the first year and 6 MB a year after.
-  `elamond check` says how much there is:
-
-  ```
-  history: 12.3 MiB in 274 files (oldest 2026-11-16), not in backups
-  ```
-- **It isn't in backups.** It's in `~/.local/share/elamon/history/`, which `elamond backup` leaves
-  out: copy the folder to keep it. Deleting it loses the long ranges and nothing else.
-- **How long the hourly points stay** is the settings' `[history]`:
-
-  ```toml
-  [history]
-  keep = 365      # days, 30 or more; "all", the default, keeps them for good
-  ```
 
 ### History from before elamond: `upst record`
 
