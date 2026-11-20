@@ -1384,16 +1384,12 @@ and is tried again for half an hour. All of these are keys of the target.
 
 ### The rules you start with
 
-| rule | tells | on |
-|---|---|---|
-| `disk` | a filesystem above 90% for a minute; calm again at 88% | yes |
-| `cpu-temp` | the CPU as hot as its sensor calls critical, for 30 seconds | yes |
-| `unit` | a link's unit that failed ([Links](#links)) | yes |
-| `battery` | the laptop's battery below 15% and not charging | yes |
-| `ups-battery`, `ups-low`, `ups-link` | a UPS on battery and the power back (with how long it was gone), its battery low, upsd not answering for a minute | yes |
-| `gpu-temp` | a GPU as hot as critical | no: reading an NVIDIA card's values wakes it, every half minute |
-| `power-saver` | the power profile turned to power-saver | no |
-| `boot` | the computer started | no |
+Seven are on: `disk` (a filesystem above 90%), `cpu-temp` (the CPU as hot as its sensor calls
+critical), `unit` (a [link](#links)'s unit that failed), `battery` (the laptop's, below 15% and not
+on AC), and for a UPS `ups-battery`, `ups-low` and `ups-link` (on battery and the power back, its
+battery low, upsd not answering). Three are off: `gpu-temp` (reading an NVIDIA card's values wakes
+it), `power-saver` and `boot`. How long each waits and when it calls the trouble over:
+[docs/config.md](config.md#rules).
 
 A new install has them in `~/.config/elamon/elamond.d/events.toml`; under Nix they are the
 module's defaults. Settings from before 0.9 have none: `elamond defaults rules` and `elamond
@@ -2028,8 +2024,8 @@ profile. Only what belongs to one phone goes in its table: phone tables come and
 
 #### Each phone's own profile
 
-When a phone pairs, the service adds a table for it to `elamond.d/phones.toml`, named after the
-phone. The line above it says which phone has it, with the ID `elamond clients` shows:
+When a phone or a browser pairs, the service adds a table for it to `elamond.d/phones.toml`, named
+after it. The line above it says which client has it, with the ID `elamond clients` shows:
 
 ```toml
 # Galaxy S25, paired 2026-11-12 (0123abcd)
@@ -2039,24 +2035,20 @@ use = "default"
 ```
 
 - Its id comes from the phone's name (`Galaxy S25` → `galaxy-s25`; a second one of that name gets
-  `galaxy-s25-2`).
+  `galaxy-s25-2`). It uses `default_profile`, or the profile `elamond pair --profile` names.
 - **To change one phone,** add keys to its table: `theme = "light"`, `dashboards = [...]`. The phone
   follows within seconds, with its screen open. To change every phone, change the profile they use.
 - The service only adds tables, takes them out and writes the lines above them. Your keys and
   comments stay.
+- **Pairing again keeps it.** The same phone paired again (a new QR code, another address) keeps its
+  table: the app proves it's the same phone, and `elamond pair` says so when it asks. A phone that
+  was reset or unpaired is offered the table a phone of its name left: *A phone named "Galaxy S25"
+  had the profile galaxy-s25. Give it to this one?*
+- **Unpairing.** `elamond revoke` takes the table out when it's as pairing wrote it and nothing else
+  uses it. *Forget computer* in the app always keeps it, with an `# Unpaired` note, for the phone to
+  get back.
 
-| When | Its table |
-|---|---|
-| `elamond pair` | a new one, using `default_profile` |
-| `elamond pair --profile owner` | a new one, with `use = "owner"` |
-| `elamond pair --profile galaxy-s25`, a table no paired phone has | the phone takes that table as it is |
-| the same phone pairs again (a new QR code, another address), its key still good | kept: the app proves it's the same phone, and the old entry goes. `elamond pair` says so when it asks |
-| a phone pairs whose key is gone (the phone was reset, or unpaired), and a phone of its name left a table | `elamond pair` asks: *A phone named "Galaxy S25" had the profile galaxy-s25. Give it to this one?* (not with `--yes` or `--profile`) |
-| `elamond revoke` | taken out if it's as pairing wrote it and nothing else uses it; otherwise kept, with an `# Unpaired` note |
-| *Forget computer* in the app | always kept, with a note: `# Unpaired 2026-11-15; kept for a phone paired again (elamond pair offers it to one named "Galaxy S25").` |
-
-`elamond check` names each table no paired phone has: when it was unpaired, and that `elamond pair`
-offers it to a phone of that name, or that you can take it out. The exact rules are in
+Every case, and what `elamond check` says of a table no paired phone has:
 [docs/config.md](config.md#phones).
 
 #### A shared profile instead: `elamond clients profile`
