@@ -283,9 +283,25 @@ anything in `h` the link would be refused, so `elamond pair` then prints only th
 A client takes each entry of `h` as an IPv4 address, an IPv6 address (with or without brackets) or
 a DNS name, and refuses the link whole for anything else or for more than 8. It reaches the
 computer at any of them and accepts it only with the `id` and the certificate `fp` of the link, so
-a name or address that leads to another computer is never taken for it. Stopping
-`elamond pair` withdraws its code. The phone that pairs with it gets the role `elamond pair --role` named, or
+a name or address that leads to another computer is never taken for it. Stopping `elamond pair`
+withdraws its code. The phone that pairs with it gets the role `elamond pair --role` named, or
 `default_role` from the settings ([roles](#roles)), and a profile of its own ([profiles](#profiles)).
+
+20 wrong codes in all, from wherever they come, use the code up. Attempts are judged one at a
+time, and each wrong one is answered after a second; neither that second nor a phone waiting to be
+let in (below) holds up anyone else's attempt.
+
+The person at the computer lets the phone in. A phone that gives the right code is shown
+at the running `elamond pair` (`Phone "<device>" from <address> asks to pair as <role>. Allow?
+[y/N]`), and the service keeps its request open until the answer comes, 90 seconds at most. A yes
+gives the usual answer; a no, no answer in time, an `elamond pair` that was stopped or is gone, or a
+phone that hangs up is answered 403 `pair_declined`, and the code no longer works. While a phone
+waits, its code is spoken for: any other attempt with it gets `no_pairing`. A client waits for the
+answer for longer than those 90 seconds (the app waits 100), and says meanwhile to confirm on
+the computer. `elamond pair --yes`, for scripts, pairs whichever phone gives the code at once.
+
+At most 64 clients, phones and browsers, are paired at once, keys of their own
+([`rekey`](#post-apiv1rekey)) included.
 
 ### Where the computer is: `endpoints`
 
@@ -308,21 +324,6 @@ only as an address or a DNS name, as `h`'s are), only from an answer that came o
 it pinned for that computer and to its token; the one that worked last stays the first it tries.
 None of them makes a computer of another: whatever answers there is accepted only with the paired
 id and certificate.
-
-20 wrong codes in all, from wherever they come, use the code up. Attempts are judged one at a
-time, and each wrong one is answered after a second; neither that second nor a phone waiting to be
-let in (below) holds up anyone else's attempt.
-
-The person at the computer lets the phone in. A phone that gives the right code is shown
-at the running `elamond pair` (`Phone "<device>" from <address> asks to pair as <role>. Allow?
-[y/N]`), and the service keeps its request open until the answer comes, 90 seconds at most. A yes
-gives the usual answer; a no, no answer in time, an `elamond pair` that was stopped or is gone, or a
-phone that hangs up is answered 403 `pair_declined`, and the code no longer works. While a phone
-waits, its code is spoken for: any other attempt with it gets `no_pairing`. A client waits for the
-answer for longer than those 90 seconds (the app waits 100), and says meanwhile to confirm on
-the computer. `elamond pair --yes`, for scripts, pairs whichever phone gives the code at once.
-
-At most 64 phones are paired at once, keys of their own ([`rekey`](#post-apiv1rekey)) included.
 
 ### `POST /api/v1/pair` (no token)
 
@@ -417,6 +418,16 @@ or no longer parses (it is never written over).
 A service before 0.6.2 answers 404 `not_found`; a client then forgets the computer all the same and
 says to run `elamond revoke` there, as it does when it can't reach the computer.
 
+## A new certificate
+
+`elamond rotate-cert` gives the service a new key and certificate, deleting the old key; its id
+stays the same. The service presents the new certificate within seconds (from the next connection;
+those open keep theirs). Nothing leads a phone from the certificate it pinned to the new one: every
+phone sees the certificate changed, and is unpaired (`elamond revoke`) and paired again. Services
+before 0.6.2 also signed a new certificate over with the old one, served at
+`GET /api/v1/identity/rotations`; that route is gone (404 `not_found`), and an app that asks it
+reports the certificate changed.
+
 ## The page
 
 `GET /` answers the page, `GET /web/<file>` its scripts, styles, icon and manifest: files built into
@@ -481,16 +492,6 @@ from files for the name the browser reaches it by ([config.md](config.md#the-web
 it doesn't warn. That certificate goes only to a client that asks for that name (SNI); every other
 connection gets the service's own, which the app pins. So that the app never asks for that name, it
 is left out of `endpoints` and of the pairing link.
-
-## A new certificate
-
-`elamond rotate-cert` gives the service a new key and certificate, deleting the old key; its id
-stays the same. The service presents the new certificate within seconds (from the next connection;
-those open keep theirs). Nothing leads a phone from the certificate it pinned to the new one: every
-phone sees the certificate changed, and is unpaired (`elamond revoke`) and paired again. Services
-before 0.6.2 also signed a new certificate over with the old one, served at
-`GET /api/v1/identity/rotations`; that route is gone (404 `not_found`), and an app that asks it
-reports the certificate changed.
 
 ## Roles
 
@@ -1045,14 +1046,14 @@ reload of Hyprland puts every output back as its settings have it.
 The cover (PNG, JPEG or WebP, 4 MiB at most), when the player has it in a local file; for roles that
 see media. 404 `no_art`.
 
-### Connections
+## Connections
 
 A connection has 10 seconds for its TLS handshake, then 15 for its first request,
 and 15 for the headers of each request after it, an idle wait between requests included: a client
 reconnects as it would after any closed connection. A stream, once its headers are read, isn't
 bound by these. A client has 4 streams open at most; a fifth ends its oldest.
 
-### Activity log
+## Activity log
 
 Every acting request is recorded, let through or refused, with how it ended. The service keeps up
 to 500, in a private file in its data directory (`activity.jsonl`), so they survive restarts.
