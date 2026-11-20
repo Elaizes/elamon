@@ -50,12 +50,13 @@ tests read them, so the two can't drift apart. What each version added is in a f
 Anyone on the network may ask, so it says which service this is and which versions it speaks, and
 nothing of what the computer can do: that a paired client reads in `ui` (`service.features`).
 `fingerprint` (since 0.11) is the SHA-256 of the certificate it presents, which anyone connecting
-sees anyway: the page shows it beside what to compare it with ([pairing a browser](#a-browsers-session)).
+sees anyway: the page shows it beside what to compare it with
+([a browser's session](#a-browsers-session)).
 
 ### The client says what it is
 
-Every request with a token carries `Elamon-Client: <kind>/<version>`: `android/0.6.0`, later
-`web/0.8.0`. The service shows it in `elamond clients`, with the address the client's requests came
+Every request with a token carries `Elamon-Client: <kind>/<version>`: `android/0.11.0`,
+`web/0.11.0`. The service shows it in `elamond clients`, with the address the client's requests came
 from last, and gives each client the profile's part for its kind. The kinds are `android` and
 `web`; a request without the header, with one that isn't `<kind>/<version>` (a version of letters,
 digits and `.+-_`), or with a kind the service doesn't know, is taken as `android` of an unknown
@@ -335,9 +336,9 @@ id and certificate.
 after up to 90 seconds while the person at `elamond pair` decides.
 403: `{ "error": "wrong_code" }`, `{ "error": "no_pairing" }` when no code is pending (or a phone
 that gave it waits to be let in), `{ "error": "pair_declined" }` when the phone wasn't let in,
-`{ "error": "too_many_phones" }` when 64 are paired already; 413 for a body over 4 KiB. `device` is cleaned
-(controls and Unicode format characters taken out, 64 characters kept) and is `Phone` when nothing
-is left.
+`{ "error": "too_many_phones" }` when 64 are paired already; 413 for a body over 4 KiB. `device` is
+cleaned (controls and Unicode format characters taken out, 64 characters kept) and is `Phone` when
+nothing is left.
 
 `profile` is the phone's own profile, a table the service adds for it to
 [phones.toml](config.md#phones) as it pairs, which uses the profile `elamond pair --profile` named
@@ -346,17 +347,17 @@ or `default_profile`; where phones.toml can't take one, the profile the phone ha
 
 `previous`, optional, is for a phone that pairs again with a computer it is paired with already
 (after a new pairing link, or to reach it at another address): its entry there and that entry's
-token, as proof that it is the same phone. A client sends it only over the certificate it pinned
-for that computer, never to one it is still to trust. With the right code, a `previous` whose token
-is that entry's makes the new entry take the old one's own profile (its table in phones.toml, and
-the profile it had), and unpairs the old entry once the new one is added: it is the same phone,
-whose old token the app drops. The person at `elamond pair` is told so in its question (`It
-replaces "Galaxy S25" (0123abcd) and keeps its profile galaxy-s25.`). The role is still the one `elamond pair`
-gives, never the old entry's; `elamond pair --profile` still decides, when given. A `previous` that
-proves nothing (an entry not paired, a token not its own) changes nothing, and the pairing goes
-on as without it: no profile is taken and nothing unpaired. Without a `previous`, a profile left by
-an unpaired phone of the same name is given to the new one only when the person at `elamond pair`
-says so (never with `--yes`, nor with `--profile`).
+token, as proof that it is the same phone. A client sends it only over the certificate it pinned for
+that computer, never to one it is still to trust. With the right code, a `previous` whose token is
+that entry's makes the new entry take the old one's own profile (its table in phones.toml, and the
+profile it had), and unpairs the old entry once the new one is added: it is the same phone, whose
+old token the app drops. The person at `elamond pair` is told so in its question
+(`It replaces "Galaxy S25" (0123abcd) and keeps its profile galaxy-s25.`). The role is still the one
+`elamond pair` gives, never the old entry's; `elamond pair --profile` still decides, when given. A
+`previous` that proves nothing (an entry not paired, a token not its own) changes nothing, and the
+pairing goes on as without it: no profile is taken and nothing unpaired. Without a `previous`, a
+profile left by an unpaired phone of the same name is given to the new one only when the person at
+`elamond pair` says so (never with `--yes`, nor with `--profile`).
 
 The token goes in every other request as `Authorization: Bearer <token>`. Without a valid one
 the service answers 401 `{ "error": "unauthorized" }`. A phone removed with `elamond revoke` gets
@@ -386,10 +387,10 @@ app before 0.6.2.
 
 200, as pairing answers: `{ "token": "…", "client_id": "…", "id": "<service id>", "name": "<computer name>", "role": "<role>", "profile": "<profile id>", "endpoints": ["…"] }`.
 It is a new entry among the paired phones, named `device`, with a new token, the role of the entry
-whose token asked and a profile of its own in phones.toml that uses that entry's. That token stays good: the phone it came from keeps working until
-`elamond revoke` of its own entry, which leaves the new one paired. `elamond clients` shows the
-new entry as added with the key of the one that asked, and `elamond revoke` of that one names the
-entries added with its key.
+whose token asked and a profile of its own in phones.toml that uses that entry's. That token stays
+good: the phone it came from keeps working until `elamond revoke` of its own entry, which leaves the
+new one paired. `elamond clients` shows the new entry as added with the key of the one that asked,
+and `elamond revoke` of that one names the entries added with its key.
 
 Any role may ask, and none is raised (a `role` in the body is ignored). A token gives one key of
 its own: only an entry paired with a code may ask, and once; the entry that asked again, or the
@@ -407,13 +408,13 @@ stay paired. Any role may ask, and it needs no control (it works with `control =
 `elamond control off`). No body is read.
 
 200 `{ "ok": true }`: from then on its token gets 401 and any stream it has open ends. A browser's
-answer clears its cookie. Its own
-table in [phones.toml](config.md#phones) stays, whatever is in it, with a note above it
+answer clears its cookie. Its own table in [phones.toml](config.md#phones) stays, whatever is in it,
+with a note above it
 (`# Unpaired <date>; kept for a phone paired again (elamond pair offers it to one named "<name>").`),
 so that `elamond pair` offers it to the phone when it pairs again. The service's journal says
 `pairing: "<name>" (<id>) unpaired itself`, and the [activity log](#activity-log) `unpaired itself`.
-500 `storage` when the list of phones can't be written,
-or no longer parses (it is never written over).
+500 `storage` when the list of phones can't be written, or no longer parses (it is never written
+over).
 
 A service before 0.6.2 answers 404 `not_found`; a client then forgets the computer all the same and
 says to run `elamond revoke` there, as it does when it can't reach the computer.
@@ -477,9 +478,9 @@ browser, is 401 `unauthorized`. A request let in by the cookie is of kind `web`,
 answered 401 with the cookie cleared (`Max-Age=0`).
 
 Every request let in by the cookie other than `GET` and `HEAD` must come from the page: its `Origin`
-is `https://` and the `Host` it was sent to, or, without `Origin`, it has `Sec-Fetch-Site:
-same-origin`. Any other is 403 `bad_origin`, and does nothing. This is on top of `SameSite=Strict`,
-with which no other site's page sends the cookie at all.
+is `https://` and the `Host` it was sent to, or, without `Origin`, it has
+`Sec-Fetch-Site: same-origin`. Any other is 403 `bad_origin`, and does nothing. This is on top of
+`SameSite=Strict`, with which no other site's page sends the cookie at all.
 
 [`POST /api/v1/unpair`](#post-apiv1unpair) by the cookie (*Forget this browser*) unpairs the
 browser and clears the cookie. `elamond clients` shows a browser as `web 0.11.0`, by its name.
@@ -488,10 +489,11 @@ A browser has a profile of its own in [phones.toml](config.md#phones), as a phon
 The page shows the certificate's fingerprint (from `hello`) beside what to compare it with: the one
 the browser shows for the page, and the one `elamond pair` prints. While the service presents its
 own certificate, the browser warns once, and again after `elamond rotate-cert`; with a certificate
-from files for the name the browser reaches it by ([config.md](config.md#the-web-page-and-the-admin-api)),
-it doesn't warn. That certificate goes only to a client that asks for that name (SNI); every other
-connection gets the service's own, which the app pins. So that the app never asks for that name, it
-is left out of `endpoints` and of the pairing link.
+from files for the name the browser reaches it by
+([config.md](config.md#the-web-page-and-the-admin-api)), it doesn't warn. That certificate goes only
+to a client that asks for that name (SNI); every other connection gets the service's own, which the
+app pins. So that the app never asks for that name, it is left out of `endpoints` and of the pairing
+link.
 
 ## Roles
 
@@ -544,7 +546,7 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
 ```json
 {
   "version": "5c1f0e2a9d3b7a41",
-  "service": { "id": "…", "name": "…", "version": "0.10.0", "interval_ms": 1000, "history_seconds": 600,
+  "service": { "id": "…", "name": "…", "version": "0.11.0", "interval_ms": 1000, "history_seconds": 600,
                "features": ["control", "media", "power", "power_profiles", "processes", "units", "ups"],
                "endpoints": ["192.0.2.10", "100.64.0.7", "desk.example.net"] },
   "role": "admin",
@@ -562,40 +564,42 @@ goes. Query: `widgets`, the widget types the client draws, comma-separated
 }
 ```
 
-- `version` changes whenever anything else in the document would: the settings, the client's role
-  or profile, control turned on or off, the endpoints, a GPU, disk, sensor or interface that comes or goes (a
-  label or title that holds values follows them within 5 seconds). A
-  client keeps the last document of each computer (a cache, not settings) to start at once and to
-  show while offline, and fetches it again when a stream says `ui` with another version.
-- `service.features` says what this computer can offer at all (whatever the client's role),
-  sorted: `control` (`control = true` in the settings), `power` (logind can power off, restart,
-  sleep or lock), `power_profiles` (power-profiles-daemon or tuned-ppd), `units` (systemd), `media`
-  (a session bus for MPRIS), `processes`, `displays` (a GPU whose monitors DRM tells of), `display_control` (a Hyprland with Lua settings, which the service acts on the monitors through: [monitors](#monitors-kind-display)), `nvml` (an
-  NVIDIA GPU NVML can read), `ups` (the settings have a `nut` [source](config.md#sources), whether
-  upsd answers or not), and for the client's role alone `admin` (the [admin API](#admin-api) is
-  open to it) and `editor` ([the dashboard editor](#the-dashboard-editor) too). A client ignores those it doesn't know.
+- `version` changes whenever anything else in the document would: the settings, the client's role or
+  profile, control turned on or off, the endpoints, a GPU, disk, sensor or interface that comes or
+  goes (a label or title that holds values follows them within 5 seconds). A client keeps the last
+  document of each computer (a cache, not settings) to start at once and to show while offline, and
+  fetches it again when a stream says `ui` with another version.
+- `service.features` says what this computer can offer at all (whatever the client's role), sorted:
+  `control` (`control = true` in the settings), `power` (logind can power off, restart, sleep or
+  lock), `power_profiles` (power-profiles-daemon or tuned-ppd), `units` (systemd), `media` (a
+  session bus for MPRIS), `processes`, `displays` (a GPU whose monitors DRM tells of),
+  `display_control` (a Hyprland with Lua settings, which the service acts on the monitors through:
+  [monitors](#monitors-kind-display)), `nvml` (an NVIDIA GPU NVML can read), `ups` (the settings
+  have a `nut` [source](config.md#sources), whether upsd answers or not), and for the client's role
+  alone `admin` (the [admin API](#admin-api) is open to it) and `editor`
+  ([the dashboard editor](#the-dashboard-editor) too). A client ignores those it doesn't know.
 - `service.endpoints`: where the computer is now ([pairing](#where-the-computer-is-endpoints)).
 - `profile` holds the part every client reads, and the part for this client's kind (`android` or
-  `web`) only. For an `admin` and an `owner`, `source` says where the profile's table is, for the person to change it:
-  the file that set it last (relative to the settings' folder, `~/.config/elamon`, when it is in
-  it; `elamond.toml`, `elamond.d/phones.toml`) and the line of its `[profiles.<id>]` there; for
-  other roles it is left out.
-- `tabs` are the profile's dashboards the role sees, in order (one for each item of a dashboard
-  with `for_each`); `dashboards` the tabs, then the header, then the dashboards their widgets
-  open, and those theirs open, then those the tables' row actions open
+  `web`) only. For an `admin` and an `owner`, `source` says where the profile's table is, for the
+  person to change it: the file that set it last (relative to the settings' folder,
+  `~/.config/elamon`, when it is in it; `elamond.toml`, `elamond.d/phones.toml`) and the line of its
+  `[profiles.<id>]` there; for other roles it is left out.
+- `tabs` are the profile's dashboards the role sees, in order (one for each item of a dashboard with
+  `for_each`); `dashboards` the tabs, then the header, then the dashboards their widgets open, and
+  those theirs open, then those the tables' row actions open
   ([below](#row-actions-that-open-a-dashboard)), then, for an `android` client, those the profile's
-  `android` names for the app's home-screen widget, tiles and card (`widget`, `tiles`, `card`), and, in a
-  [preview](#post-apiv1adminpreview), the dashboard it asks for, each once and as far as the role sees. A
-  dashboard the role sees none of the widgets of isn't there, nor an `open` to a dashboard that
-  isn't.
+  `android` names for the app's home-screen widget, tiles and card (`widget`, `tiles`, `card`), and,
+  in a [preview](#post-apiv1adminpreview), the dashboard it asks for, each once and as far as the
+  role sees. A dashboard the role sees none of the widgets of isn't there, nor an `open` to a
+  dashboard that isn't.
 - `header` is the profile's `header` dashboard, whose widgets a client draws as small chips under
   the computer's name on every tab; `null` when the profile has none or the role sees none of it.
 - `actions` are those the role may run and the computer can do. `confirm` and `unlock` are final:
   the action's own, the profile's `confirm_actions` and `unlock.for` already applied. A client asks
   before running an action with `confirm`, unlocks the phone first for one with `unlock` (within the
-  profile's `unlock.grace`, an unlock for a kind covers the kinds after it in
-  `power`, `nut`, `signal`, `actions`, `units`, `display`, `profile`, `media`), and asks for the values of
-  `params` a widget doesn't fix. A choice with `confirm_text` is asked to be typed in
+  profile's `unlock.grace`, an unlock for a kind covers the kinds after it in `power`, `nut`,
+  `signal`, `actions`, `units`, `display`, `profile`, `media`), and asks for the values of `params`
+  a widget doesn't fix. A choice with `confirm_text` is asked to be typed in
   ([station actions](#station-actions-kind-nut)). The built-in actions come first, in their order,
   then the [station actions](#station-actions-kind-nut) by source and the command one before the
   settings by variable, then the settings' own by id.
@@ -650,13 +654,13 @@ A `toggle`'s `on` and `off` are values its action's `param` takes: one the actio
 station's command it doesn't offer, or `commands` doesn't allow) leaves the toggle out.
 
 A `log` shows lines of the systemd journal ([config.md](config.md#the-journal-log)): `scope` is
-`system` (as far as the service's user may read it), `user` (that user's own), `unit` (the
-journal of `unit`, a link's unit) or, from 0.9, `events` (no journal: the service's own
-[events](config.md#events-and-notifications)); `level` the least level it shows at first, of `debug`, `info`,
-`notice`, `warning`, `error` and `critical`; `lines` how many a client keeps on screen (10–1000);
-`search` whether it offers a search field. Its lines come in the stream ([its
-state](#a-logs-state)), as the client filters them ([`log`](#post-apiv1streamid)), and older ones
-from [`/log`](#get-apiv1log). Its role is `monitor` at least, and with `scope` `events` the
+`system` (as far as the service's user may read it), `user` (that user's own), `unit` (the journal
+of `unit`, a link's unit) or, from 0.9, `events` (no journal: the service's own
+[events](config.md#events-and-notifications)); `level` the least level it shows at first, of
+`debug`, `info`, `notice`, `warning`, `error` and `critical`; `lines` how many a client keeps on
+screen (10–1000); `search` whether it offers a search field. Its lines come in the stream
+([its state](#a-logs-state)), as the client filters them ([`log`](#post-apiv1streamid)), and older
+ones from [`/log`](#get-apiv1log). Its role is `monitor` at least, and with `scope` `events` the
 role the settings give the events (`[events]`'s `role`).
 
 ### Row actions that open a dashboard
@@ -941,14 +945,15 @@ They are checked in this order: the role, control, then the parameters. The body
 `confirm_text` out otherwise, and a service before 0.7 ignores it.
 
 `process.signal` with `start` signals only the process that started then: if the pid now belongs to
-another, 409 `process_changed`; a negative `start` is 400 `bad_param`. `unit.*` act on the unit of the link given, only one the settings
-name; system units also need polkit's leave ([the guide](guide.md#power-the-profile-and-system-units-polkit)).
+another, 409 `process_changed`; a negative `start` is 400 `bad_param`. `unit.*` act on the unit of
+the link given, only one the settings name; system units also need polkit's leave
+([the guide](guide.md#power-the-profile-and-system-units-polkit)).
 
 ### Station actions (kind `nut`)
 
-A UPS [source](config.md#sources) whose settings list `commands` or `settings` adds actions of
-kind `nut`, ids of the service's own, once upsd has told what the station offers (they stay
-offered after, while upsd can't be reached); until then the widgets that run them are left out:
+A UPS [source](config.md#sources) whose settings list `commands` or `settings` adds actions of kind
+`nut`, ids of the service's own, once upsd has told what the station offers (they stay offered
+after, while upsd can't be reached); until then the widgets that run them are left out:
 
 | id | parameter | |
 |---|---|---|
@@ -969,8 +974,8 @@ whatever the profile's `confirm_actions`), and sends beside the parameters:
 Those are the commands on an outlet the settings call `critical` but the one that turns it on
 (`outlet.1.load.off`), and the commands upst-core counts as dangerous that aren't about one
 outlet (`load.off`, `shutdown.*`, `calibrate.start`…); turning another outlet off is asked as any
-action is. Without the text, or with another, the service refuses: 403 `confirm_required`, with the text
-in `message`. A `confirm_text` where none is needed is ignored.
+action is. Without the text, or with another, the service refuses: 403 `confirm_required`, with the
+text in `message`. A `confirm_text` where none is needed is ignored.
 
 They are checked in this order: an id the computer doesn't have, 404 `no_such_action`; the role,
 403 `not_allowed`; control (`control = false`, `elamond control off`), 403 `control_disabled`; a
@@ -1007,8 +1012,9 @@ unless `[displays] headless` says ([config.md](config.md#monitors)).
 Their least role is `[displays] role` (`operate` unless it says `admin`); turning an output or its
 picture on or off asks before it runs (`confirm`), its brightness doesn't; each unlocks as the
 profile's `unlock.for` says for the kind `display`. Turning off, or putting to sleep, an output with
-a screen while no other with a screen shows a picture (on, its picture on) is typed in: the choice `off`
-carries `confirm_text`, the output's name, which the client asks the person to type, and sends:
+a screen while no other with a screen shows a picture (on, its picture on) is typed in: the choice
+`off` carries `confirm_text`, the output's name, which the client asks the person to type, and
+sends:
 
 ```json
 { "params": { "state": "off" }, "confirm_text": "DP-1" }
@@ -1048,10 +1054,10 @@ see media. 404 `no_art`.
 
 ## Connections
 
-A connection has 10 seconds for its TLS handshake, then 15 for its first request,
-and 15 for the headers of each request after it, an idle wait between requests included: a client
-reconnects as it would after any closed connection. A stream, once its headers are read, isn't
-bound by these. A client has 4 streams open at most; a fifth ends its oldest.
+A connection has 10 seconds for its TLS handshake, then 15 for its first request, and 15 for the
+headers of each request after it, an idle wait between requests included: a client reconnects as it
+would after any closed connection. A stream, once its headers are read, isn't bound by these. A
+client has 4 streams open at most; a fifth ends its oldest.
 
 ## Activity log
 
@@ -1069,30 +1075,30 @@ Clients read it as the `activity` collection (role `monitor`). Each entry:
 `what` reads like `power reboot`, `profile balanced`, `signal term 1234 firefox`,
 `action Mode server`, `unit restart nginx.service`, `media play_pause`, `volume 40 %`,
 `phone added: Pixel 9`, `nut eco outlet.2.load.off` (a station's command: the source and the
-command), `nut eco experimental.battery.charge.max 90` (a setting: the source, the variable and
-its value), `display output DP-1 off`, `display dpms DP-1 on`, `display brightness eDP-1 40 %`; a station's `message` is `done` or why it failed. Requests that were let
-through are also in the journal (`journalctl --user -u elamond`).
+command), `nut eco experimental.battery.charge.max 90` (a setting: the source, the variable and its
+value), `display output DP-1 off`, `display dpms DP-1 on`, `display brightness eDP-1 40 %`; a
+station's `message` is `done` or why it failed. Requests that were let through are also in the
+journal (`journalctl --user -u elamond`).
 
 ## Admin API
 
 For the role `[web] role` names (`owner` unless the settings say) and above, whether by the cookie
 of a browser or the `Bearer` token of a phone; any other role gets 403 `not_allowed`, and with
-`[web] admin = false` every role gets 403 `admin_off` (the editor's routes too with `[web] editor =
-false`, its `message` `editor`). Bodies are JSON, up to 1 MiB for those that
-carry a settings file or a draft (`file/check`, `file/save`, `preview`, `editor/dashboard`) and 4 KiB
-for the others. A request that changes something — a client's role,
-profile or pairing, control, a settings file, a dashboard — is recorded in the
-[activity log](#activity-log) under the client that asked (what was changed, never what a file
-holds), and so is one refused for its role.
+`[web] admin = false` every role gets 403 `admin_off` (the editor's routes too with
+`[web] editor = false`, its `message` `editor`). Bodies are JSON, up to 1 MiB for those that carry a
+settings file or a draft (`file/check`, `file/save`, `preview`, `editor/dashboard`) and 4 KiB for
+the others. A request that changes something — a client's role, profile or pairing, control, a
+settings file, a dashboard — is recorded in the [activity log](#activity-log) under the client that
+asked (what was changed, never what a file holds), and so is one refused for its role.
 
 Writing the settings (`file/save`, `file/restore`, `file/rename`, `file/delete` and the editor's
-writes) is refused with 403 `writes_off` while `[web] write = false` or `elamond control off` holds (its
-`message` says which: `settings` or `held_off`); writing a settings file (which may add a command)
-also while the settings have `control = false` (`message` `control`), the dashboard editor's writes
-(which can't) not; changing clients and pairing from the page, while `elamond control off` holds.
-No client changes one whose role is above its own, nor sees, answers or replaces a pairing code for
-a role above its own; `all`, which `elamond clients` takes, the API doesn't (400 `bad_param`). Only the person at
-the computer lets go of `elamond control off`.
+writes) is refused with 403 `writes_off` while `[web] write = false` or `elamond control off` holds
+(its `message` says which: `settings` or `held_off`); writing a settings file (which may add a
+command) also while the settings have `control = false` (`message` `control`), the dashboard
+editor's writes (which can't) not; changing clients and pairing from the page, while
+`elamond control off` holds. No client changes one whose role is above its own, nor sees, answers or
+replaces a pairing code for a role above its own; `all`, which `elamond clients` takes, the API
+doesn't (400 `bad_param`). Only the person at the computer lets go of `elamond control off`.
 
 `ui` tells a client what of this it may use: `admin` in `service.features` when its role reaches
 `[web] role` and `[web] admin` is on, `editor` when `[web] editor` is on too.
@@ -1139,13 +1145,14 @@ part came from.
 }
 ```
 
-`whence` gives, for each path up to three keys deep (`dashboards.cpu.title`, `dashboards.cpu.widgets[2]`;
-a key that isn't of letters, digits, `_` and `-` alone is quoted: `dashboards."ups.eco"`), the file
-(its index in `files`) and line that set it last. `changes` are what `elamond defaults --diff`
-prints: `kind` is `added`, `changed` or `removed` against the built-in defaults, `path` a top-level
-key or a table with an id, `keys` the keys of that table that differ, each with the file and line
-that set it (none for `removed`). `warnings` are those of `elamond check`. While the files don't
-parse, `settings` is `null` and `mistakes` says why, each with its file and line.
+`whence` gives, for each path up to three keys deep (`dashboards.cpu.title`,
+`dashboards.cpu.widgets[2]`; a key that isn't of letters, digits, `_` and `-` alone is quoted:
+`dashboards."ups.eco"`), the file (its index in `files`) and line that set it last. `changes` are
+what `elamond defaults --diff` prints: `kind` is `added`, `changed` or `removed` against the
+built-in defaults, `path` a top-level key or a table with an id, `keys` the keys of that table that
+differ, each with the file and line that set it (none for `removed`). `warnings` are those of
+`elamond check`. While the files don't parse, `settings` is `null` and `mistakes` says why, each
+with its file and line.
 
 ### Clients
 
@@ -1196,8 +1203,8 @@ or `{ "code": null }`. `qr.modules` is the QR code's modules row by row, `1` dar
 client that gave the right code and waits to be let in (with `replaces`, the entry it proved it was,
 and `offer`, a profile left by an unpaired client of its name), else `null`. A code made from the
 page takes the place of any pending one (an `elamond pair` waiting with that one stops) and always
-waits to be let in, by the page; the page may also answer a client waiting with a code `elamond pair`
-made, as `elamond pair` would.
+waits to be let in, by the page; the page may also answer a client waiting with a code
+`elamond pair` made, as `elamond pair` would.
 
 - `POST /api/v1/admin/pairing/answer` `{ "ask": "<id>", "allow": true, "take": false }` lets it in or turns it away (`take`: give it `offer`)
 - `POST /api/v1/admin/pairing/withdraw` withdraws the code
@@ -1252,8 +1259,8 @@ or, for the editor, `"editor": { "dashboards": { "mine": { … } }, "profiles": 
 `{ "ui": { … }, "data": { … } }`: the `ui` the asking client would get with the draft, the dashboard
 asked for among its tabs, and that dashboard's `data` from the reading there is now, as a stream's
 `data` line has it without `type`. A source or action of the draft only is never started: its values
-are missing. A dashboard with `for_each` is shown by its first item's (`gpus.nvidia` for `gpus`). 422
-`bad_settings` with `mistakes` for a draft that doesn't parse, 404 `no_such_dashboard` for a
+are missing. A dashboard with `for_each` is shown by its first item's (`gpus.nvidia` for `gpus`).
+422 `bad_settings` with `mistakes` for a draft that doesn't parse, 404 `no_such_dashboard` for a
 dashboard the draft doesn't have or the role sees nothing of (a new one with no widgets yet).
 
 ## The dashboard editor
@@ -1307,15 +1314,16 @@ A key is `{ "key", "kind", "label", "hint" }` and, by its kind, more:
 | `any` | any one of `of` | `of`: a list of keys without their `key` |
 
 each with `required: true` when it must be there (a key's default, where it has one, is in
-[config.md](config.md#widgets); a type's width is its `span`). Every
-widget takes the keys of `common` and those of its type; a dashboard, those of `dashboard.keys`; the
-editor's part of a profile, those of `profile_keys` and, under `android`, `android_keys`. A widget
-with `use` starts from that template of `templates` (as the settings merge them), its type among it. A
-key or kind a client doesn't know it keeps as it is and offers as JSON text, never drops: what it
-sends back holds every key it was given. `def` is a dashboard as the settings merge it (before
-templates), and a profile's tabs, header and Android dashboards; `from` the files that set it,
-lowest first, each with `nix: true` when it is in the Nix store; `below` the keys the files below the editor's set, which a write may change but not
-leave out; `editor` says the editor's file overrides it, `own` that only the editor's file has it. `profile` is the asking client's own.
+[config.md](config.md#widgets); a type's width is its `span`). Every widget takes the keys of
+`common` and those of its type; a dashboard, those of `dashboard.keys`; the editor's part of a
+profile, those of `profile_keys` and, under `android`, `android_keys`. A widget with `use` starts
+from that template of `templates` (as the settings merge them), its type among it. A key or kind a
+client doesn't know it keeps as it is and offers as JSON text, never drops: what it sends back holds
+every key it was given. `def` is a dashboard as the settings merge it (before templates), and a
+profile's tabs, header and Android dashboards; `from` the files that set it, lowest first, each with
+`nix: true` when it is in the Nix store; `below` the keys the files below the editor's set, which a
+write may change but not leave out; `editor` says the editor's file overrides it, `own` that only
+the editor's file has it. `profile` is the asking client's own.
 
 ### Writing
 
@@ -1331,15 +1339,15 @@ with `mistakes` (their `path` names the dashboard, widget and key, `dashboards.m
 
 A dashboard holds `title`, `icon`, `role`, `for_each` and `widgets` and nothing else; a profile,
 `dashboards`, `header` and `android` with `widget`, `tiles` and `card`; anything else in a body is
-422 `bad_settings`. A widget is one of the settings' (any key a widget takes, checked as any
-drop-in is): a button, switch, choice or row runs an action the settings have, by id, and the
-editor writes no actions, sources, links, rules or targets. The dashboard is written whole
-(`[dashboards.<id>]` with every key it has, `widgets` the whole list): since the files merge key by
-key, what is on screen is what the settings then say. A key a file below the editor's sets can be
-changed but not taken out: 422 with the file and line that set it. A profile's body sets the keys it has and
-takes out those that are `null` (back to what the other files say), and leaves the rest as the
-editor's file had them; one whose value is what the other files say already is taken out too: the
-profile keeps following them (and the profile it `use`s).
+422 `bad_settings`. A widget is one of the settings' (any key a widget takes, checked as any drop-in
+is): a button, switch, choice or row runs an action the settings have, by id, and the editor writes
+no actions, sources, links, rules or targets. The dashboard is written whole (`[dashboards.<id>]`
+with every key it has, `widgets` the whole list): since the files merge key by key, what is on
+screen is what the settings then say. A key a file below the editor's sets can be changed but not
+taken out: 422 with the file and line that set it. A profile's body sets the keys it has and takes
+out those that are `null` (back to what the other files say), and leaves the rest as the editor's
+file had them; one whose value is what the other files say already is taken out too: the profile
+keeps following them (and the profile it `use`s).
 
 ## Errors
 
@@ -1357,16 +1365,16 @@ Errors are `{ "error": "<code>" }`, some with a `message`, with these statuses (
 | 500 | `storage` |
 | 502 | `failed`, with `message` |
 
-`failed` carries a `message`: either one of `unknown_player`, `no_value` (`volume.set` with
-neither `level` nor `muted`), `no_track`, `no_session`, `no_system_bus`, `no_session_bus`,
+`failed` carries a `message`: either one of `unknown_player`, `no_value` (`volume.set` with neither
+`level` nor `muted`), `no_track`, `no_session`, `no_system_bus`, `no_session_bus`,
 `no_power_profiles`, `volume_failed`, `mute_failed`, `timed_out`, or the system's own error text
 (D-Bus, a command, `journalctl`, upsd or the station; for a station's command upsd took without
 saying the station did it, `accepted by upsd but not confirmed by the station`; for a monitor's,
 `not_applied` when Hyprland didn't show it done in time, `waiting_for_a_screen` when it waits for a
-screen to wake to turn one on). A request whose JSON
-or query the service can't read at all gets a plain-text 400, 415 or 422, and a body over its limit
-(4 KiB for `pair`, `rekey`, `actions`, `stream` and the admin API's, 1 MiB for those that carry a
-settings file) a plain-text 413; JSON is the answer's type with a code, plain text without.
+screen to wake to turn one on). A request whose JSON or query the service can't read at all gets a
+plain-text 400, 415 or 422, and a body over its limit (4 KiB for `pair`, `rekey`, `actions`,
+`stream` and the admin API's, 1 MiB for those that carry a settings file) a plain-text 413; JSON is
+the answer's type with a code, plain text without.
 
 In [`errors.json`](../elamond/fixtures/errors.json) the codes come in this table's order:
 `confirm_required` after `not_allowed`, `no_such_widget` after `no_such_dashboard`; those elamond
