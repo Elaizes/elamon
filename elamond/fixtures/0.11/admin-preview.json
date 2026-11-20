@@ -18,11 +18,11 @@
   },
   "response": {
     "ui": {
-      "version": "b4fc005bbb3df1f2",
+      "version": "8f274407a0c60775",
       "service": {
         "id": "id",
         "name": "test",
-        "version": "0.11.0",
+        "version": "0.11.1",
         "interval_ms": 250,
         "history_seconds": 2,
         "features": [

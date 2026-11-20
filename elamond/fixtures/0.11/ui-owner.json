@@ -1,9 +1,9 @@
 {
-  "version": "095e3251a3ff555a",
+  "version": "a945af47d1f79c29",
   "service": {
     "id": "id",
     "name": "test",
-    "version": "0.11.0",
+    "version": "0.11.1",
     "interval_ms": 250,
     "history_seconds": 2,
     "features": [
