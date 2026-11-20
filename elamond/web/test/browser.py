@@ -688,7 +688,7 @@ def test_editor(T):
 	expect(tabs.last).to_have_value('made')
 	# The service's preview of the draft, drawn in its cells with the readings now.
 	expect(page.get_by_role('listitem', name=re.compile(r'^CPU, '))).to_contain_text(re.compile(r'\d+\s*%'))
-	expect(page.get_by_role('listitem', name=re.compile(r'^Uptime, '))).to_contain_text(re.compile(r'\d+ (d|h|min|s)\b'))
+	expect(page.get_by_role('listitem', name=re.compile(r'^Uptime, ')).get_by_role('region', name='Uptime', exact=True)).to_contain_text(re.compile(r'\d+ (d|h|min|s)\b'))
 	shot(page, '19-editor-new')
 	page.get_by_role('button', name='Save', exact=True).click()
 	expect(page.get_by_text(re.compile(r'^Saved; the service took it up \(generation \d+\)\.$'))).to_be_visible()
