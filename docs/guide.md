@@ -775,7 +775,7 @@ does, and more:
 | `monitor` | everything: also processes with their commands and users, monitors, links, media and the activity log, a UPS's driver and serial numbers | nothing |
 | `operate` | everything | links' units, media and the volume, the power profile, the actions from the settings, and a station's commands and settings when its source says `role = "operate"` |
 | `admin` | everything | all of that, plus shutting down, restarting, sleeping, locking, ending processes, actions with `role = "admin"`, and a station's commands and settings |
-| `owner` | everything | all of that, plus the settings themselves: the web page's admin panel and the dashboard editor, in the page and the app ([section 12](#12-the-admin-panel)). Writing a settings file needs `control = true`, as anything that may run a command does; the dashboard editor, which writes no command, doesn't; `elamond control off` stops both |
+| `owner` | everything | all of that, plus the settings themselves: the web page's admin panel and the dashboard editor, in the page and the app ([section 12](#12-the-admin-panel)) |
 
 The role filters on the computer. A widget, a table or a whole dashboard that a role may not see
 isn't sent to that phone at all, and neither are actions it may not run. A dashboard's or widget's
@@ -1605,10 +1605,6 @@ The page and everything behind it are on unless `[web]` in the settings says oth
 They apply as soon as the service rereads its settings. Every key of `[web]` is in
 [docs/config.md](config.md#the-web-page-and-the-admin-api).
 
-Before a browser pairs, the service gives it the page's own files, built into elamond and the same
-on every computer, says which service it is (name, id, version and certificate) and takes a pairing
-code: nothing it reads of the computer.
-
 ## 12. The admin panel
 
 With the `owner` role, the page has an **Admin** button in its top bar. The admin panel does from a
@@ -1640,24 +1636,11 @@ Read this before you give the role. The settings hold the commands your actions 
 press it. So the `owner` role can do on the computer whatever its user can, from anywhere the
 service's port is reached. Give it only to your own browser and your own phone.
 
-What guards it:
-
-- A browser's key is a cookie the page's scripts can't read, and that another site's page never
-  gets sent.
-- A browser's change is taken only from the page itself, at its own address. Anything else is
-  refused (`bad_origin`) and does nothing. The page runs only its own scripts, built into elamond.
-- Nothing is saved that `elamond check` wouldn't pass, and the file as it was is kept.
-- Every change is in the activity log, under the client that made it
-  ([section 6](#the-activity-log)).
-- A settings file (which may add a command) is written from the page only while the settings have
-  `control = true`, as actions run only then; the dashboard editor writes no command and needs no
-  `control`.
-- `elamond control off` at the computer stops every write at once, and only the computer lets go of
-  it.
-- `[web]` turns any part off ([section 11](#turning-it-off)).
-
-A copied key, or a copied cookie, works until it's revoked. Unpair a lost phone, or a browser you no
-longer use, with `elamond revoke ID`.
+So a settings file is written from the page only while the settings have `control = true`, as
+actions run only then; the dashboard editor writes no command and needs no `control`.
+`elamond control off` at the computer stops every write at once. Everything that guards the role,
+from the cookie to the backups and the activity log, is in
+[section 17](#the-web-page-and-the-owner-role).
 
 ### The sections
 
@@ -2424,7 +2407,7 @@ do about those marked `!`. To see what the service reads without the app, run `e
 | *The computer refused a change that didn't come from its own page* (`bad_origin`) | The request didn't come from the page at its own address. Open the page directly at the computer's address and port, and use it there: not through a proxy that changes the address, nor inside another page. Then reload it. |
 | *The file changed on disk since it was read here* (`changed_on_disk`) | Something else wrote the file after you opened it: your own editor, a pairing (`phones.toml`), the dashboard editor, another tab. Nothing was written, and your text is still there: *See the disk version*, then *Load from disk* or *Save mine over it*. The dashboard editor reads its file again by itself and keeps your changes ([section 13](#two-editors-at-once)). |
 | *The settings with this change don't parse* (`bad_settings`) | Nothing was written. Each mistake is listed with its file and line (in the dashboard editor, by its widget and key): fix them and save again. |
-| *Writing the settings from here is off*, or *Control is held off at the computer* (`writes_off`) | `[web] write = false` in the settings, or `elamond control off`. At the computer, set `write = true` again (`elamond edit`), or run `elamond control on`. |
+| *Writing the settings from here is off*, *Control is held off at the computer*, or *The settings say control = false* (`writes_off`) | `[web] write = false` in the settings, `elamond control off`, or, for a settings file, `control = false`: a file may add a command, so the page saves one only while clients may act ([section 12](#whoever-may-change-the-settings-can-run-anything)). At the computer, set `write = true` or `control = true` (`elamond edit`), or run `elamond control on`. |
 | *This file is read-only* | It comes from Nix, is a link to another file, or lies outside the settings' folder. Put the change in a drop-in, or make it where the file comes from ([section 12](#the-settings-files)). |
 | *… was forgotten here* after *Forget computer* | The computer couldn't be reached, or its service is older than 0.6.2, so the phone is still paired there. On the computer, `elamond clients` lists the phones, `elamond revoke ID` removes this one. |
 | *This phone's role on the computer doesn't allow that* | `elamond clients` shows the phone's role, `elamond clients role ID ROLE` changes it ([section 6](#6-roles-who-may-do-what)). An action may ask for `admin` (`role` in its settings). |
@@ -2457,7 +2440,7 @@ do about those marked `!`. To see what the service reads without the app, run `e
 
 ## 17. Security
 
-**Connection and keys**
+### Connection and keys
 
 - Everything goes over TLS. The service's certificate is self-signed. The app pins it when pairing
   and refuses any other afterwards ([a new certificate](#a-new-certificate) means pairing again).
@@ -2479,12 +2462,12 @@ do about those marked `!`. To see what the service reads without the app, run `e
   the one thing that stops a key, open streams included. For a lost or stolen phone:
   `elamond revoke ID --with-added`.
 
-**What phones may do**
+### What phones may do
 
 - Each phone sees and does only what its role allows. Give phones that aren't yours `glance` or
   `monitor` ([section 6](#6-roles-who-may-do-what)).
 - Unless `control = true`, and no `elamond control off`, the service doesn't act on the computer:
-  phones only read. (The `owner` role's admin panel and editor need no `control = true`; see
+  phones only read. (The dashboard editor, which writes no command, needs no `control = true`; see
   below.)
 - With control on, it acts as your user. Commands come only from the settings files, never from a
   request to act, and so do the units a phone may start and stop. Links open only web pages. Only
@@ -2510,7 +2493,7 @@ do about those marked `!`. To see what the service reads without the app, run `e
 - Every request to act is in the activity log, carried out or refused. What was carried out is also
   in the journal, with the name of the phone that asked: `journalctl --user -u elamond`.
 
-**The web page and the `owner` role**
+### The web page and the `owner` role
 
 - The page is built into elamond. It runs only its own scripts (its Content-Security-Policy allows
   no other, and no inline code), puts what the service sends on screen as text, and can't be shown
@@ -2523,14 +2506,16 @@ do about those marked `!`. To see what the service reads without the app, run `e
   ([section 12](#whoever-may-change-the-settings-can-run-anything)).
 - What it writes, it writes as `elamond edit` does: only settings that parse, in one step, with the
   file as it was kept in `~/.config/elamon/backups/`. Files from Nix it only reads. Every change is
-  in the activity log.
-- The dashboard editor writes no commands: its buttons and switches pick among the actions the
-  settings have.
+  in the activity log, under the client that made it.
+- A settings file is written from the page only while the settings have `control = true`, as
+  actions run only then. The dashboard editor writes no commands: its buttons and switches pick
+  among the actions the settings have, so it needs no `control = true`.
 - `elamond control off` at the computer stops every write from the page and the app, and only the
   computer lets go. `[web]` turns off the page, the admin panel, its writes or the editor
   ([section 11](#turning-it-off)).
+- A copied key or cookie works until it's revoked: `elamond revoke ID`.
 
-**Installing and updating**
+### Installing and updating
 
 - `install.sh` and `elamond update` take releases from GitHub over HTTPS, anonymously, and check
   each archive against the SHA-256 published with it. That catches a damaged or cut-off download,
@@ -2541,7 +2526,7 @@ do about those marked `!`. To see what the service reads without the app, run `e
   computer again. Only paired phones get them; whatever answers at one of them is accepted only
   with the paired id and certificate.
 
-**Backups and keys**
+### Backups and keys
 
 - A backup (`elamond backup`) is the computer's identity. It isn't encrypted: it is written for your
   eyes only (`0600`), and is only as safe as the folder you keep it in. Never put it in a shared or
