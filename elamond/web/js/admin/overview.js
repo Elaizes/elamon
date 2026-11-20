@@ -5,7 +5,7 @@ import { S, fill } from '../strings.js';
 import { loadInto, head, button, card, kv, chip, onOff, table } from './ui.js';
 import { duration, dateTime, nowS } from './time.js';
 import { sizeText } from './text.js';
-import { isFingerprint, colonFingerprint } from '../fingerprint.js';
+import { isFingerprint, colonFingerprint } from '../cert.js';
 import { roleName } from '../roles.js';
 import { fileHref } from './names.js';
 

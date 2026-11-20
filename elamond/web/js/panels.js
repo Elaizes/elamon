@@ -14,7 +14,7 @@ import { setLevel } from './widgets/common.js';
 import { Stream, keptAsked, offlineAfter } from './stream.js';
 import { actionRunner, confirmDialog } from './actions.js';
 import { errorText } from './errors.js';
-import { isFingerprint, colonFingerprint, printedFingerprint } from './fingerprint.js';
+import { isFingerprint, colonFingerprint, printedFingerprint } from './cert.js';
 import * as F from './format.js';
 import { intervalOf, historyMsOf, PAIR_WAIT_MS, ADOPT_MS } from './consts.js';
 import { roleName } from './roles.js';

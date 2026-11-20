@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { isFingerprint, colonFingerprint, printedFingerprint } from '../js/fingerprint.js';
+import { isFingerprint, colonFingerprint, printedFingerprint } from '../js/cert.js';
 import { asked, snap, asNumber, initial, valid, phraseWith, togglePhrase, typedChoice, valueWords } from '../js/actions.js';
 import { errorText } from '../js/errors.js';
 import { errorSentence } from '../js/admin/errors.js';

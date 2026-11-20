@@ -315,6 +315,21 @@ class Streams:
 		self.open.discard(r)
 
 
+def test_blocked(T):
+	"""A content blocker stopping one of the page's files by its name (EasyPrivacy stopped
+	`/fingerprint.js` in 0.11.0): the browser runs none of the modules, and the page says why
+	instead of staying blank."""
+	page = T.page(state=False)
+	page.route('**/web/js/cert.js', lambda route: route.abort('blockedbyclient'))
+	page.goto(BASE + '/')
+	alert = page.get_by_role('alert')
+	expect(alert).to_contain_text("Part of the page didn't load")
+	expect(alert).to_contain_text('content blocker')
+	shot(page, '00-blocked')
+	# The browser's own line about the stopped file is what this scenario wants.
+	page.watch.errors = [e for e in page.watch.errors if 'ERR_BLOCKED_BY_CLIENT' not in e[1]]
+
+
 def test_panels(T):
 	"""The overview live: its numbers change; one stream for every tab, closed while the page is
 	hidden; light, dark and a phone's width."""
@@ -771,7 +786,7 @@ def test_forget(T):
 	check('web/' not in listed, f'elamond clients still lists a browser: {listed}')
 
 
-SCENARIOS = [test_pair, test_panels, test_action, test_admin, test_files, test_control, test_editor, test_forget]
+SCENARIOS = [test_pair, test_blocked, test_panels, test_action, test_admin, test_files, test_control, test_editor, test_forget]
 
 
 def main():
