@@ -1896,6 +1896,25 @@ an action's arguments, belongs in a file only you can read: `chmod 600` it. Neve
 `services.elamond.settings`, which goes into the Nix store where every user can read it. Use a
 drop-in instead.
 
+### Where the state lives
+
+What the service keeps of its own is in `~/.local/share/elamon`: its id and certificate, the
+paired phones and browsers (only hashes of their keys, their roles and profiles, and the app each
+last reported), a pending pairing code, the activity log, `elamond control off`'s mark, the events
+and the graphs' long history (`history/`). Deleting that folder unpairs every phone and browser and
+gives the service a new certificate, unless a backup of it is restored
+([section 15](#backing-up-the-service)).
+
+**Environment variables.** The folders follow `XDG_CONFIG_HOME` and `XDG_DATA_HOME`.
+
+| Variable | Names |
+|---|---|
+| `ELAMON_CONFIG_DIR` | the settings folder |
+| `ELAMON_DATA_DIR` | the state folder |
+| `ELAMON_CONFIG` | the settings file alone |
+| `ELAMON_PCI_IDS` | the PCI database graphics card names come from |
+| `ELAMON_NVML_LIB` | NVIDIA's management library, when it isn't found by itself |
+
 ### Dashboards and widgets
 
 A dashboard is a page of widgets in a grid of four columns (two on a narrow screen), filled in the
@@ -2147,22 +2166,6 @@ listen = ["192.0.2.10", "fd7a:115c::1"]    # these addresses
 - Discovery (`mdns`) announces the service only on the wired and wireless interfaces among them,
   never over a VPN or on a bridge for containers. Over Tailscale alone, add the computer by
   address, name or QR code.
-
-**Where the service keeps its state:** `~/.local/share/elamon`. That's its id and certificate, the
-paired phones (only hashes of their keys, their roles and profiles, and the app each last
-reported), a pending pairing code, the activity log, `elamond control off`'s mark, and the graphs'
-long history (`history/`). Deleting that folder unpairs every phone and gives the service a new
-certificate, unless a backup of it is restored ([section 15](#backing-up-the-service)).
-
-**Environment variables.** The folders follow `XDG_CONFIG_HOME` and `XDG_DATA_HOME`.
-
-| Variable | Names |
-|---|---|
-| `ELAMON_CONFIG_DIR` | the settings folder |
-| `ELAMON_DATA_DIR` | the state folder |
-| `ELAMON_CONFIG` | the settings file alone |
-| `ELAMON_PCI_IDS` | the PCI database graphics card names come from |
-| `ELAMON_NVML_LIB` | NVIDIA's management library, when it isn't found by itself |
 
 ### Names in the pairing link
 
