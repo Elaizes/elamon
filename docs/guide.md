@@ -10,7 +10,8 @@ Elamon lets you watch and control a Linux computer from an Android phone. It has
 
 - **The app**, on an Android phone (Android 8 or newer).
 - **elamond**, the Elamon service, on the computer. It reads the computer's own counters and serves
-  them over HTTPS, only to phones you paired with it. It runs as your user and needs no root.
+  them over HTTPS, only to the phones and browsers you paired with it. It runs as your user and
+  needs no root.
 
 The service also serves a web page of its own, for a browser you pair the same way
 ([section 11](#11-in-a-browser)). The phone, or the browser, talks to the computer directly: on the
@@ -109,10 +110,10 @@ Manager's unit alone and prints what needs root.
    `elamond` in `~/.local/bin`, and runs `elamond setup` (step 2):
 
    ```
-   Downloading elamond 0.6.2 for x86_64
+   Downloading elamond 0.11.0 for x86_64
      OK  SHA-256 matches
-     OK  installed ~/.local/bin/elamond (elamond 0.6.2)
-         release notes: https://github.com/Elaizes/elamon/releases/tag/v0.6.2
+     OK  installed ~/.local/bin/elamond (elamond 0.11.0)
+         release notes: https://github.com/Elaizes/elamon/releases/tag/v0.11.0
    ```
 
    To read the script before it runs, download it and run it yourself:
@@ -286,9 +287,10 @@ is the `owner` role's, which nobody gets unless you give it ([section 12](#12-th
 someone else's phone, give less, for example `elamond pair --role glance`
 ([section 6](#6-roles-who-may-do-what)).
 
-**Its own profile.** Pairing adds a profile for the phone to `~/.config/elamon/elamond.d/phones.toml`,
-which starts from `default` (`elamond pair --profile NAME` names another): change that phone's tabs
-and looks there ([section 14](#each-phones-own-profile)). Pairing the same phone again keeps it.
+**Its own profile.** Pairing adds a profile for the phone to
+`~/.config/elamon/elamond.d/phones.toml`, which starts from `default` (`elamond pair --profile NAME`
+names another): change that phone's tabs and looks there ([section 14](#each-phones-own-profile)).
+Pairing the same phone again keeps it.
 
 **Managing phones.** `elamond clients` lists the paired phones with their IDs, roles and profiles.
 `elamond revoke ID` unpairs one. Up to 64 phones and browsers can be paired with one computer.
@@ -308,10 +310,10 @@ for a phone's browser ([section 11](#11-in-a-browser)).
   network first), then names that stay when addresses change (those in `names` and its Tailscale
   name, [section 14](#names-in-the-pairing-link)), and its certificate. The app keeps them all, and
   later tries the one that worked last first.
-- *Addresses after pairing.* The computer tells a paired phone where it is now, whenever it connects:
-  its addresses on the local network and on VPNs, and its names. So a phone paired by code over
-  Wi-Fi also finds it over Tailscale later. When the phone's network changes, the app tries all the
-  addresses at once.
+- *Addresses after pairing.* The computer tells a paired phone where it is now, whenever it
+  connects: its addresses on the local network and on VPNs, and its names. So a phone paired by code
+  over Wi-Fi also finds it over Tailscale later. When the phone's network changes, the app tries all
+  the addresses at once.
 
 ## 4. The app
 
@@ -361,7 +363,8 @@ battery. Tap a tile for its page:
 - Sort with the chips: CPU, Memory, GPU, Disk.
 - Search by name, command, user or PID.
 - Tap a process for its details: command, user, PID and parent, state, start time, disk and GPU
-  use. With control on and the `admin` role, the details also offer **Quit** and **Force kill**.
+  use. With control on and the role `admin` or above, the details also offer **Quit** and
+  **Force kill**.
 
 **Sensors** has a table for each kind of sensor: Processor, Graphics, Storage, Wireless, Battery,
 Board and Other. Each row's bar fills toward that sensor's critical limit. Tap a row for its chip
@@ -383,9 +386,10 @@ from 1 hour to all of it ([below](#graphs-that-reach-back-the-long-history)).
 it also has *Edit dashboard*, *New dashboard* and *Edit tabs*
 ([section 13](#13-editing-dashboards)). Back closes a page first, then the computer.
 
-**Forget computer** removes it from the phone and asks the computer to unpair the phone too. To
-see it again, pair again: `elamond pair` offers the phone its profile back. When the computer can't
-be told, the app says so: remove the phone there with `elamond revoke` ([section 16](#16-troubleshooting)).
+**Forget computer** removes it from the phone and asks the computer to unpair the phone too. To see
+it again, pair again: `elamond pair` offers the phone its profile back. When the computer can't be
+told, the app says so: remove the phone there with `elamond revoke`
+([section 16](#16-troubleshooting)).
 
 **Good to know:**
 
@@ -434,10 +438,10 @@ moment. A small graph never does, and `ranges = false` in a widget's settings le
 
 ### Settings
 
-How the app looks and behaves with a computer comes from that computer: from the phone's
-**profile** there ([section 14](#profiles)). The Settings screen names the profile each computer
-gives this phone and where it is changed: the file and line, for an admin phone, or "Set in Nix".
-To change something, change the profile on the computer. Two things are the phone's own, under
+How the app looks and behaves with a computer comes from that computer: from the phone's **profile**
+there ([section 14](#profiles)). The Settings screen names the profile each computer gives this
+phone and where it is changed: the file and line, for a phone of `admin` or `owner`, or "Set in
+Nix". To change something, change the profile on the computer. Two things are the phone's own, under
 **Display**, the same with every computer and on the home screen:
 
 - **Scale**, 80 to 140%: everything in the app, text, spacing, widgets and charts, dialogs and
@@ -459,7 +463,7 @@ on the computer, `[profiles.<id>.android]`, each a dashboard of the settings. No
 
 | key | what it shows |
 |---|---|
-| `widget` | the **home-screen widget**: the dashboard's values, gauges, statuses, lists and texts, groups opened out, with the levels the computer gives them: the gauges as small rings at the top, as their tiles have them, as many as the widget.s size holds, the rest as lines under them. Read in the background every `widget_minutes` (30; Android allows no less than 15) and when you tap it; it shows when it last read them, and that the computer can't be reached rather than old numbers as new. With more than one computer paired, the phone asks which when you add the widget. Without a `widget`, the widget says to set one |
+| `widget` | the **home-screen widget**: the dashboard's values, gauges, statuses, lists and texts, groups opened out, with the levels the computer gives them: the gauges as small rings at the top, as their tiles have them, as many as the widget's size holds, the rest as lines under them. Read in the background every `widget_minutes` (30; Android allows no less than 15) and when you tap it; it shows when it last read them, and that the computer can't be reached rather than old numbers as new. With more than one computer paired, the phone asks which when you add the widget. Without a `widget`, the widget says to set one |
 | `tiles` | the four **Quick Settings tiles** (add them from the panel's edit view): the dashboard's first four buttons and switches, in order, each named and drawn as the widget or its action. A switch shows its state. A tile asks, and unlocks the phone, as the app does; from the lock screen it unlocks the phone first. A tile without one says *No action*. With more than one computer, the app's Settings says which one the tiles act on |
 | `card` | the **computer's card** on the app's home screen: the dashboard's figures (a `value` with `spark` as a small graph) and its buttons and switches as quick actions. Without it, the card shows the first figures of the first tab, as before |
 
@@ -494,7 +498,7 @@ connection open and use no notifications.
 - **…see what slows the computer down?** Overview → tap the CPU or Memory tile. The bottom of the
   page lists the processes using the most. Or open Processes, sorted by CPU or memory.
 - **…close a program that hangs?** Processes → find it → tap → *Quit*. If it doesn't go, *Force
-  kill*. This needs control, and a phone paired as `admin`.
+  kill*. This needs control, and a phone paired as `admin` or above.
 - **…check how hot it runs?** Overview → tap the Temperature tile, or open Sensors for every sensor
   and the fans.
 - **…open a web page the computer hosts?** Control → Links → tap the link. Over a VPN, the link uses
@@ -772,8 +776,8 @@ does, and more:
 | Role | Sees | Does (with control on) |
 |---|---|---|
 | `glance` | the basics: system, uptime, CPU, memory, graphics cards, temperatures, fans, storage, network, battery, power and the power profile, UPSes and power stations, with their history | nothing |
-| `monitor` | everything: also processes with their commands and users, monitors, links, media and the activity log, a UPS's driver and serial numbers | nothing |
-| `operate` | everything | links' units, media and the volume, the power profile, the actions from the settings, and a station's commands and settings when its source says `role = "operate"` |
+| `monitor` | everything: also processes with their commands and users, monitors, links, media, the journal, the events and the activity log, a UPS's driver and serial numbers | nothing |
+| `operate` | everything | links' units, media and the volume, the power profile, the monitors under Hyprland, the actions from the settings, and a station's commands and settings when its source says `role = "operate"` |
 | `admin` | everything | all of that, plus shutting down, restarting, sleeping, locking, ending processes, actions with `role = "admin"`, and a station's commands and settings |
 | `owner` | everything | all of that, plus the settings themselves: the web page's admin panel and the dashboard editor, in the page and the app ([section 12](#12-the-admin-panel)) |
 
@@ -797,7 +801,7 @@ To make another role the default, set `default_role = "monitor"` (or any role) i
 Leave `owner` out of it: no phone or browser should get that role without you choosing it.
 
 `elamond clients` lists each phone with its role, its profile, the app it last reported
-(`android 0.6.2`) and the address it came from last. To change a role later:
+(`android 0.11.0`) and the address it came from last. To change a role later:
 
 ```sh
 elamond clients role ID glance                  # ID from elamond clients
@@ -1090,7 +1094,8 @@ a setting when:
    patterns where `*` stands for any run of characters (`"outlet.*.load.*"`), and the NUT user may
    do it: nutflow's `allow`, upsd's `instcmds` and `actions = SET`;
 4. the station offers it;
-5. the phone's role allows it: `admin`, or `operate` too when the source says `role = "operate"`.
+5. the phone's role allows it: `admin` or above, or `operate` too when the source says
+   `role = "operate"`.
 
 What the phone gets is what the station offers, as far as the lists allow (`elamond values eco`
 shows both): a switch for each outlet and the beeper; a slider for a setting with a range (the
@@ -1363,10 +1368,10 @@ every key).
    ```toml
    # ~/.config/elamon/elamond.d/notify.toml
    [notify.phone]
-   topic_file = "/home/you/.config/elamon/ntfy.topic"
+   topic_file = "/home/YOUR_USER/.config/elamon/ntfy.topic"
    ```
 
-   On NixOS: `services.elamond.settings.notify.phone.topic_file = "/home/you/.config/elamon/ntfy.topic";`
+   On NixOS: `services.elamond.settings.notify.phone.topic_file = "/home/YOUR_USER/.config/elamon/ntfy.topic";`
    (the file itself stays out of the Nix store).
 4. Try it: `elamond notify --level warning "Hello from the computer"`. `elamond check` says
    `Events: 7 rules on; sent on to phone.`, and `elamond events` lists what was told, each with
@@ -1487,8 +1492,8 @@ computer's:
 
 `elamond pair` prints the first 32 hex digits, in groups of four (`1F0E 8D2C …`). Browsers show all
 64, in pairs (`1F:0E:8D:2C:…`). Past the warning, the page's pairing screen shows both forms under
-*This computer's certificate*, to make comparing easier. What counts is the line at the computer: a page that isn't
-the computer's would show its own fingerprint. If they differ, don't pair.
+*This computer's certificate*, to make comparing easier. What counts is the line at the computer: a
+page that isn't the computer's would show its own fingerprint. If they differ, don't pair.
 
 A certificate for a name, from an authority browsers trust, ends the warning
 ([below](#a-real-certificate)).
@@ -1564,8 +1569,8 @@ able to read both files, as the service runs as you.
 ```toml
 [web]
 cert_name = "desk.example.net"
-cert_file = "/home/me/.config/elamon/certs/desk.example.net.crt"   # the certificate, its chain: PEM
-key_file = "/home/me/.config/elamon/certs/desk.example.net.key"    # its private key, PEM: chmod 600
+cert_file = "/home/YOUR_USER/.config/elamon/certs/desk.example.net.crt"   # the certificate, its chain: PEM
+key_file = "/home/YOUR_USER/.config/elamon/certs/desk.example.net.key"    # its private key, PEM: chmod 600
 ```
 
 Then open the page by that name, `https://desk.example.net:47823/`, and pair the browser there: to
@@ -1827,7 +1832,7 @@ This section is how the pieces fit together. **Every key, widget and value is in
 
 | File in `~/.config/elamon` | What is in it | Who writes it |
 |---|---|---|
-| `elamond.toml` | the top-level keys, each with a line on what it does; links, actions, the `default` profile and your shared ones | `elamond setup` or the service's first start, once; then you |
+| `elamond.toml` | the top-level keys, each with a line on what it does; links, actions, the `default` profile and your shared ones; `[displays]` and `[web]` | `elamond setup` or the service's first start, once; then you |
 | `elamond.d/dashboards.toml` | the standard dashboards and the templates they use | the same, once; then you |
 | `elamond.d/events.toml` | `[events]` and the standard rules ([section 10](#10-events-and-notifications)) | the same, once (from 0.9); then you |
 | `elamond.d/*.toml` | your own additions, one topic per file if you like | you |
@@ -2247,18 +2252,19 @@ elamond update --yes       # the same without asking
 ```
 
 ```
-elamond 0.6.2 is out; this is 0.6.1.
-  Release notes: https://github.com/Elaizes/elamon/releases/tag/v0.6.2
+elamond 0.11.0 is out; this is 0.10.1.
+  Release notes: https://github.com/Elaizes/elamon/releases/tag/v0.11.0
+  ! 0.11 is a new minor version: update the app with it, as an app and a service of different minor versions may not understand each other.
 Install it over ~/.local/bin/elamond? [y/N] y
-  OK  downloaded elamond-0.6.2-x86_64-linux.tar.gz (4.0 MB); its SHA-256 matches
-  OK  installed elamond 0.6.2 at ~/.local/bin/elamond
+  OK  downloaded elamond-0.11.0-x86_64-linux.tar.gz (5.3 MB); its SHA-256 matches
+  OK  installed elamond 0.11.0 at ~/.local/bin/elamond
   OK  started the service again on it
 ```
 
 - It asks GitHub for the list of releases, anonymously, and takes the newest one with a build for
   this computer. It checks the archive's SHA-256 and that the new binary says it's that version,
   then puts it in place of the old one in one step. Anything wrong leaves the old one as it was.
-- A new minor version (0.6 → 0.7) gets a warning: update the app with it.
+- A new minor version (0.10 → 0.11, above) gets a warning: update the app with it.
 - It restarts the service only when it runs and runs this binary; otherwise it says what to do.
 - It refuses a binary from the Nix store (update it through Nix, as in the table), one in a folder
   you can't write, and root.
@@ -2272,8 +2278,10 @@ match. Pairings stay: the phones keep their keys, roles and profiles and don't p
 **From 0.10 to 0.11,** the settings and pairings carry over as they are, and paired phones stay
 `admin`. The service now also serves its web page on its port ([section 11](#11-in-a-browser));
 `[web] page = false` turns it off. An app of 0.10.1 works with it as before. Going back to elamond
-0.10.1 after giving a client the role `owner`: give it `admin` first (`elamond clients role ID admin`),
-as 0.10.1 doesn't know `owner` and won't read the list of paired clients with it.
+0.10.1: give a client with the role `owner` the role `admin` first
+(`elamond clients role ID admin`), and take any `[web]` table out of the settings (a new start of
+0.11 writes one in `elamond.toml`): 0.10.1 knows neither, and won't read the paired clients or the
+settings with them.
 
 **From 0.6.1 to 0.6.2,** the settings and pairings carry over as they are. Elamon 0.6.2 updates only
 from 0.6.1: from an older version, update to 0.6.1 first, as its guide says, since 0.6.2 no longer
@@ -2433,7 +2441,7 @@ do about those marked `!`. To see what the service reads without the app, run `e
 | The journal shows *only this user's own journal* | Your user isn't in the `systemd-journal` group (`elamond setup --check` says so): add it and log in again ([section 9](#reading-the-system-journal)). A phone with `glance` has no journal. |
 | The station says *Unreachable* | The service can't reach the NUT server at the source's `host` and `port`. Is nutflow (or upsd) running: `systemctl status nutflow`? `upsc ups@localhost` reads the station as the service would. The journal says why, in lines that start `nut eco:`: `journalctl --user -u elamond -e`. |
 | The station says *No data* | The NUT server answers, but has nothing from the station: nutflow lost it (out of Bluetooth range, or the EcoFlow app on a phone holds the one connection the station takes), or upsd's driver stopped. `journalctl -u nutflow -e`. Meanwhile the tab keeps its shape, with `—` for each value. |
-| The station's switches or sliders aren't there | They need `control = true`, the source's `user` and `password_file`, the command or setting in its `commands` or `settings`, a station that offers it, and a phone paired as `admin` (or `operate`, with the source's `role = "operate"`). `elamond values eco` shows what the station offers and which the lists allow (`allowed`, `not in commands`) ([section 7](#switching-outlets-and-changing-settings)). |
+| The station's switches or sliders aren't there | They need `control = true`, the source's `user` and `password_file`, the command or setting in its `commands` or `settings`, a station that offers it, and a phone paired as `admin` or above (or `operate`, with the source's `role = "operate"`). `elamond values eco` shows what the station offers and which the lists allow (`allowed`, `not in commands`) ([section 7](#switching-outlets-and-changing-settings)). |
 | `elamond check` warns of a `password_file` | *can't be read*: the file isn't there, or isn't yours; *may be read by others*: `chmod 600` it; *read as settings*: it's a `.toml` in `elamond.d/`, move it. Until then the station's actions fail. |
 | A station's action fails with *access denied* | The NUT user may not do it: its `allow` in nutflow, or `instcmds` and `actions = SET` in upsd's users, has to cover what `commands` and `settings` list. Or the password in the service's file isn't the NUT server's. |
 | *The computer asks for this command to be typed in* (`confirm_required`) | The command cuts this computer's power, or the station's whole load, and has to be typed in ([section 7](#switching-outlets-and-changing-settings)). An app older than 0.7 can't ask for it: update the app. |
@@ -2476,9 +2484,9 @@ do about those marked `!`. To see what the service reads without the app, run `e
   offers, with values within the station's limits, checked by the service. One that cuts this
   computer's power is typed in on the phone, and the service checks the text. The NUT password
   stays in its file: it never reaches a phone, the journal or a backup.
-- A source runs only the command, asks only the URL and reads only the file its settings name, as your
-  user; a phone never writes one. A token for a web service stays in its file (`chmod 600`) and goes
-  only in the request to that service: to no phone, the journal or a backup. The journal on the
+- A source runs only the command, asks only the URL and reads only the file its settings name, as
+  your user; a phone never writes one. A token for a web service stays in its file (`chmod 600`) and
+  goes only in the request to that service: to no phone, the journal or a backup. The journal on the
   phone is for `monitor` and above, and a phone never names a unit in it: only a link's.
 - Events are made only by the rules of the settings and by `elamond notify` run as your user; a
   phone makes none, and names no rule and no target. A target sends events to the ntfy server its
