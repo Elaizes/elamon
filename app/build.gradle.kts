@@ -36,8 +36,8 @@ android {
 		applicationId = "io.github.elaizes.elamon"
 		minSdk = 26
 		targetSdk = 36
-		versionCode = 16
-		versionName = "0.11.1"
+		versionCode = 17
+		versionName = "0.11.2"
 	}
 
 	signingConfigs {

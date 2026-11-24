@@ -1,0 +1,1 @@
+Works with elamond 0.6 and later. A tidier look: every screen, card and dialog is even on both sides and on one grid, rows fill the screen's width, words are no longer broken, and a turned phone keeps clear of its camera.
