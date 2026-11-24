@@ -20,39 +20,29 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -142,7 +132,6 @@ fun MachineScreen(
 	val shownPages = pages.filter { ui?.dashboard(it) != null }
 	val current = shownPages.lastOrNull() ?: shownTab
 	LaunchedEffect(current) { current?.let(vm::show) }
-	var menu by remember { mutableStateOf(false) }
 	var confirmForget by rememberSaveable { mutableStateOf(false) }
 	// A row's sheet, an action's form and the forgetting, kept through a rotation as the confirmation is.
 	val kept: MachineDialogs = viewModel(viewModelStoreOwner = owner)
@@ -211,12 +200,14 @@ fun MachineScreen(
 		)
 	}
 
+	val tabBar = ui != null && shownPages.isEmpty() && !turnedAway && tabs.size > 1
+
 	CompositionLocalProvider(LocalHaze provides haze) {
 		// The tab bar is measured first: the lists, the glass and the snackbar keep clear of what it covers.
 		BottomBarLayout(
 			Modifier.fillMaxSize(),
 			bar = {
-				if (ui != null && shownPages.isEmpty() && !turnedAway && tabs.size > 1) {
+				if (ui != null && tabBar) {
 					FloatingNavBar(
 						items = tabs.map { id -> ui.dashboard(id).let { NavItem(it?.title ?: id, icon(it?.icon)) } },
 						selected = tabs.indexOf(shownTab),
@@ -225,6 +216,11 @@ fun MachineScreen(
 				}
 			},
 		) {
+			// What the tab bar covers, kept for the tabs' lists while a page is open and the bar is gone:
+			// without its room, one scrolled to its end would move down as it left, and come back moved.
+			val covered = bottomReserve()
+			var underTabs by remember { mutableStateOf(covered) }
+			SideEffect { if (tabBar) underTabs = covered }
 			Box(Modifier.fillMaxSize()) {
 				Box(Modifier.fillMaxSize().hazeSource(haze)) {
 					when {
@@ -270,19 +266,18 @@ fun MachineScreen(
 						}
 						ui == null || current == null || launcher == null -> Centered { CircularProgressIndicator() }
 						else -> AnimatedContent(
-							targetState = current,
+							// As a tab or as a page, kept with it as it leaves: closing, a page is still one.
+							targetState = OnScreen(current, page = page != null),
 							transitionSpec = {
-								val page = initialState in shownPages || targetState in shownPages
 								when {
 									!prefs.animations -> fadeIn(tween(0)) togetherWith fadeOut(tween(0))
-									page -> (fadeIn(tween(Motion.DETAIL_IN)) + scaleIn(tween(Motion.DETAIL_IN), initialScale = Motion.DETAIL_SCALE)) togetherWith fadeOut(tween(Motion.DETAIL_OUT))
+									initialState.page || targetState.page -> (fadeIn(tween(Motion.DETAIL_IN)) + scaleIn(tween(Motion.DETAIL_IN), initialScale = Motion.DETAIL_SCALE)) togetherWith fadeOut(tween(Motion.DETAIL_OUT))
 									else -> fadeIn(tween(Motion.TAB_IN)) togetherWith fadeOut(tween(Motion.TAB_OUT))
 								}
 							},
 							label = "dashboard",
-						) { d ->
+						) { (d, isPage) ->
 							val list = lists.getOrPut(d) { LazyListState() }
-							val isPage = d in shownPages
 							val scope = DashScope(
 								machine.id, ui, d, state.data[d]?.widgets.orEmpty(), vm, state, name,
 								open = { target -> if (target != d && ui.dashboard(target) != null) pages = shownPages + target },
@@ -292,18 +287,29 @@ fun MachineScreen(
 								sorts = want.sorts,
 								logs = want.logs,
 							)
-							DashboardList(scope, list) {
-								Column {
-									MachineHeader(
-										if (isPage) ui.dashboard(d)?.title ?: d else name,
-										state,
-										if (isPage) name else statusOf(d),
-										list,
-										headerPills(ui, state),
-										ui.role,
-										live = !isPage && liveOn(d),
-									)
-									if (state.compat != Compat.Ok) CompatBanner(state.compat, state.hello?.version.orEmpty())
+							CompositionLocalProvider(LocalBottomReserve provides if (isPage) covered else maxOf(covered, underTabs)) {
+								DashboardList(scope, list) {
+									Column(verticalArrangement = Arrangement.spacedBy(Space.gap)) {
+										MachineHeader(
+											if (isPage) ui.dashboard(d)?.title ?: d else name,
+											state,
+											if (isPage) name else statusOf(d),
+											list,
+											headerPills(ui, state),
+											ui.role,
+											live = !isPage && liveOn(d),
+										)
+										if (state.compat != Compat.Ok) CompatBanner(state.compat, state.hello?.version.orEmpty())
+										// What is on screen is old: where the computer was looked for, as the screen without any says.
+										if (state.conn == Conn.Offline) {
+											Banner(
+												ElIcons.Laptop,
+												Metric.colors.warn,
+												if (state.tried.isEmpty()) stringResource(R.string.machine_unreachable_body) else stringResource(R.string.machine_tried_at, state.tried.joinToString(", ")),
+												title = stringResource(R.string.machine_unreachable_title, name),
+											)
+										}
+									}
 								}
 							}
 						}
@@ -317,17 +323,16 @@ fun MachineScreen(
 					onBack = { if (page != null) pages = shownPages.dropLast(1) else onBack() },
 					subtitle = if (page != null) name else statusOf(current),
 					actions = {
-						IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.machine_more)) }
-						DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+						OverflowMenu { item ->
 							// The editor, where the computer offers it to this phone's role.
 							if (ui != null && !turnedAway && EDITOR_FEATURE in ui.service.features) {
-								current?.let { d -> DropdownMenuItem(text = { Text(stringResource(R.string.editor_menu_edit)) }, onClick = { menu = false; onEdit(d, false) }) }
-								DropdownMenuItem(text = { Text(stringResource(R.string.editor_menu_new)) }, onClick = { menu = false; onEdit(null, false) })
-								DropdownMenuItem(text = { Text(stringResource(R.string.editor_menu_tabs)) }, onClick = { menu = false; onEdit(null, true) })
+								current?.let { d -> item(stringResource(R.string.editor_menu_edit)) { onEdit(d, false) } }
+								item(stringResource(R.string.editor_menu_new)) { onEdit(null, false) }
+								item(stringResource(R.string.editor_menu_tabs)) { onEdit(null, true) }
 							}
-							DropdownMenuItem(text = { Text(stringResource(R.string.settings)) }, onClick = { menu = false; onSettings() })
-							DropdownMenuItem(text = { Text(stringResource(R.string.help)) }, onClick = { menu = false; onHelp() })
-							DropdownMenuItem(text = { Text(stringResource(R.string.machine_forget)) }, onClick = { menu = false; confirmForget = true })
+							item(stringResource(R.string.settings)) { onSettings() }
+							item(stringResource(R.string.help)) { onHelp() }
+							item(stringResource(R.string.machine_forget)) { confirmForget = true }
 						}
 					},
 				)
@@ -339,7 +344,7 @@ fun MachineScreen(
 					Modifier
 						.align(Alignment.TopCenter)
 						.statusBarsPadding()
-						.padding(horizontal = BarButtonsClearance)
+						.padding(horizontal = BarButtonsClearance + sideInset())
 						.then(if (collapsed) Modifier.padding(top = barHeight + Space.s) else Modifier.height(barHeight)),
 					contentAlignment = Alignment.Center,
 				) {
@@ -355,7 +360,7 @@ fun MachineScreen(
 
 				if (ui != null && !turnedAway) BottomGlass(Modifier.align(Alignment.BottomCenter))
 
-				SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = bottomReserve() + Space.l))
+				Messages(snackbar, Modifier.align(Alignment.BottomCenter))
 			}
 		}
 	}
@@ -377,27 +382,25 @@ fun MachineScreen(
 		GlassDialog(
 			onDismiss = { if (!forgetting) confirmForget = false },
 			title = stringResource(R.string.machine_forget_title, machine.name),
-			text = { Text(stringResource(R.string.machine_forget_body)) },
-			confirm = {
-				TextButton(enabled = !forgetting, onClick = {
-					// The computer asked to unpair this phone, a few seconds at most; forgotten here whatever it says.
-					if (kept.startForgetting()) pairingScope.launch {
-						val store = MachineStore.get(ctx)
-						val token = withContext(Dispatchers.Default) { store.token(machine) }
-						val told = token != null && unpair(machine, token)
-						store.remove(machine.id)
-						forgetKept(ctx, machine.id)
-						onForgotten(machine.name.takeUnless { told })
-					}
-				}) {
-					if (forgetting) CircularProgressIndicator(Modifier.size(Sizes.iconM), strokeWidth = Sizes.spinnerStroke)
-					else Text(stringResource(R.string.machine_forget_confirm))
+			text = stringResource(R.string.machine_forget_body),
+			confirm = DialogButton(stringResource(R.string.machine_forget_confirm), busy = forgetting) {
+				// The computer asked to unpair this phone, a few seconds at most; forgotten here whatever it says.
+				if (kept.startForgetting()) pairingScope.launch {
+					val store = MachineStore.get(ctx)
+					val token = withContext(Dispatchers.Default) { store.token(machine) }
+					val told = token != null && unpair(machine, token)
+					store.remove(machine.id)
+					forgetKept(ctx, machine.id)
+					onForgotten(machine.name.takeUnless { told })
 				}
 			},
-			dismiss = { TextButton(onClick = { confirmForget = false }, enabled = !forgetting) { Text(stringResource(R.string.cancel)) } },
+			dismiss = DialogButton(stringResource(R.string.cancel), enabled = !forgetting) { confirmForget = false },
 		)
 	}
 }
+
+/** The dashboard on screen: one of the computer's tabs, or a page open over them. */
+private data class OnScreen(val dashboard: String, val page: Boolean)
 
 /**
  * What is open over a computer's screen: a table's row sheet (with the tables' searches), the form
@@ -427,8 +430,8 @@ fun ForgottenUntold(name: String, onDismiss: () -> Unit) {
 	GlassDialog(
 		onDismiss = onDismiss,
 		title = stringResource(R.string.machine_forgotten_untold_title, name),
-		text = { Text(stringResource(R.string.machine_forgotten_untold_body)) },
-		confirm = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.ok)) } },
+		text = stringResource(R.string.machine_forgotten_untold_body),
+		confirm = DialogButton(stringResource(R.string.ok), onClick = onDismiss),
 	)
 }
 
@@ -514,9 +517,9 @@ private fun PhoneRole.about(): Int = when (this) {
  * is taller than that, in large type, scrolls.
  */
 @Composable
-private fun Centered(content: @Composable () -> Unit) {
+internal fun Centered(content: @Composable () -> Unit) {
 	Box(
-		Modifier.fillMaxSize().statusBarsPadding().padding(top = topBarHeight(), bottom = bottomReserve()),
+		Modifier.fillMaxSize().statusBarsPadding().padding(start = sideInset(), end = sideInset(), top = topBarHeight(), bottom = bottomReserve()),
 		contentAlignment = Alignment.Center,
 	) {
 		Box(Modifier.verticalScroll(rememberScrollState()), contentAlignment = Alignment.Center) { content() }
@@ -526,7 +529,7 @@ private fun Centered(content: @Composable () -> Unit) {
 /** The addresses and names a computer was looked for at, in vain: small, in monospace, wrapping between them. */
 @Composable
 private fun Tried(hosts: List<String>) {
-	Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.xxs)) {
+	Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.xs)) {
 		Text(stringResource(R.string.machine_unreachable_tried), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		Text(
 			hosts.joinToString(", "),
@@ -575,24 +578,12 @@ fun Message.text(res: Resources): String = when (this) {
 private fun CompatBanner(compat: Compat, version: String) {
 	var dismissed by rememberSaveable { mutableStateOf(false) }
 	if (dismissed) return
-	val warn = Metric.colors.warn
-	Surface(
-		shape = RoundedCornerShape(Radius.lPlus),
-		color = warn.copy(alpha = Alpha.BANNER),
-		modifier = Modifier.fillMaxWidth().padding(bottom = Space.m),
-	) {
-		Row(Modifier.padding(start = Space.mPlus, top = Space.xs, bottom = Space.xs), verticalAlignment = Alignment.CenterVertically) {
-			Icon(Icons.Default.Warning, null, tint = warn, modifier = Modifier.size(Sizes.iconM))
-			Spacer(Modifier.width(Space.sPlus))
-			Text(
-				if (compat == Compat.UpdateApp) stringResource(R.string.compat_update_app)
-				else stringResource(R.string.compat_update_elamond, version, MIN_ELAMOND),
-				style = MaterialTheme.typography.bodySmall,
-				modifier = Modifier.weight(1f),
-			)
-			IconButton(onClick = { dismissed = true }) { Icon(Icons.Default.Close, stringResource(R.string.compat_dismiss), Modifier.size(Sizes.iconM)) }
-		}
-	}
+	Banner(
+		Icons.Default.Warning,
+		Metric.colors.warn,
+		if (compat == Compat.UpdateApp) stringResource(R.string.compat_update_app) else stringResource(R.string.compat_update_elamond, version, MIN_ELAMOND),
+		trailing = { IconButton(onClick = { dismissed = true }) { Icon(Icons.Default.Close, stringResource(R.string.compat_dismiss)) } },
+	)
 }
 
 /** Pairing this computer again, in its entry's place. */

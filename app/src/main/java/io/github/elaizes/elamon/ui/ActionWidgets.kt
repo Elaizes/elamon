@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -23,26 +22,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,12 +46,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.sp
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -222,18 +216,13 @@ internal fun valueWords(p: Param, v: JsonElement?): String? {
 	}
 }
 
-/** Inside a group: buttons are drawn as its tiles and rows rather than as cards of their own. */
-val LocalInGroup = compositionLocalOf { false }
-
 /** Power off and restart are drawn in red: they end what runs. */
 private val DANGER = setOf("power.poweroff", "power.reboot")
 
-/** Tiles inside a card: choices, power, actions. */
-private val InnerTileShape = RoundedCornerShape(Radius.lPlus)
-
 /**
- * Runs an action, or opens a dashboard: in a group, a tile (span 1, as the power buttons) or a row
- * (as the settings' actions); alone, a row in a card of its own.
+ * Runs an action, or opens a dashboard: a row, its icon before its name; where the cell is too
+ * narrow for both (half a phone's width, or large text) and as a group's narrowest, a tile with its
+ * icon over its name. In a group, on the group's card rather than one of its own.
  */
 @Composable
 fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
@@ -250,54 +239,64 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val running = action?.id in a.running.running
 	val result = action?.let { a.running.results[it.id] }
 	val alpha = if (enabled) 1f else Alpha.DISABLED
-	if (!LocalInGroup.current) {
-		ListGroup(modifier) {
-			// As in a group's row: the spinner in the icon's place, how it ended under the name. The
-			// card may be half a row wide, and a pill beside the name left it a few letters a line.
-			ListRow(
-				label,
-				summary = captionOf(w, s),
-				icon = icon(w.icon ?: action?.icon),
-				accent = if (w.color != null) accent(w.color) else MaterialTheme.colorScheme.secondary,
-				enabled = takesTap(enabled, running),
-				onClick = run,
-				busy = running,
-				below = outcome(running, result, scope.vm, action),
-			)
-		}
-		return
-	}
-	if (w.span <= 1) {
-		val danger = action?.id in DANGER
-		Column(
-			modifier.heightIn(min = Sizes.powerTileMin).clip(InnerTileShape)
-				.background(if (danger) Metric.colors.hot.copy(alpha = Alpha.DANGER) else MaterialTheme.colorScheme.surfaceContainerHigh)
-				.clickable(enabled = takesTap(enabled, running), role = Role.Button, onClick = run)
-				.padding(vertical = Space.l, horizontal = Space.xs),
-			horizontalAlignment = Alignment.CenterHorizontally,
-			verticalArrangement = Arrangement.spacedBy(Space.xsPlus, Alignment.CenterVertically),
-		) {
-			if (running) CircularProgressIndicator(Modifier.size(Sizes.iconL), strokeWidth = Sizes.spinnerStroke)
-			else Icon(icon(w.icon ?: action?.icon), null, tint = (if (danger) Metric.colors.hot else MaterialTheme.colorScheme.onSurface).copy(alpha = alpha))
-			Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), maxLines = 2, overflow = TextOverflow.Ellipsis)
-		}
-		return
-	}
-	Surface(shape = InnerTileShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = modifier.fillMaxWidth()) {
-		Row(
-			Modifier.clickable(enabled = takesTap(enabled, running), role = Role.Button, onClick = run).padding(horizontal = Space.l, vertical = Space.mPlus),
-			verticalAlignment = Alignment.CenterVertically,
-		) {
-			// While it runs, the spinner in place of the play mark; how it ended, under the name: a tile
-			// is half a row wide, and a pill beside the name left the name a letter or two.
-			if (running) CircularProgressIndicator(Modifier.size(Sizes.iconM), strokeWidth = Sizes.spinnerStroke)
-			else Icon(if (w.open != null && action == null) icon(w.icon) else ElIcons.Play, null, tint = accent(w.color ?: "tertiary").copy(alpha = alpha), modifier = Modifier.size(Sizes.iconM))
-			Spacer(Modifier.width(Space.m))
-			Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-				Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), maxLines = 2, overflow = TextOverflow.Ellipsis)
-				outcome(running, result, scope.vm, action)?.invoke()
+	val mark = icon(w.icon ?: action?.icon)
+	// The spinner in the icon's place while it runs, how it ended under the name: a pill beside the
+	// name left it a few letters a line.
+	val ended = outcome(running, result, scope.vm, action)
+	val click = Modifier.clickable(enabled = takesTap(enabled, running), role = Role.Button, onClick = run)
+	if (LocalDepth.current == 0) {
+		val accent = if (w.color != null) accent(w.color) else MaterialTheme.colorScheme.secondary
+		CardSurface(modifier) {
+			if (narrowCell(TextSizes.rowLeast)) {
+				ControlTile(label, captionOf(w, s), click, alpha, icon = { BusyBadge(mark, accent.copy(alpha = alpha), running) }, below = ended)
+			} else {
+				Column(Modifier.padding(vertical = Space.xs), verticalArrangement = Arrangement.Center) {
+					ListRow(label, captionOf(w, s), mark, accent, enabled = takesTap(enabled, running), onClick = run, busy = running, below = ended)
+				}
 			}
 		}
+		return
+	}
+	val danger = action?.id in DANGER
+	CardSurface(modifier, color = if (danger) Metric.colors.hot.copy(alpha = Alpha.DANGER) else cardColor()) {
+		if (w.span <= 1 || narrowCell(TextSizes.innerRowLeast)) {
+			ControlTile(label, null, click.heightIn(min = Sizes.buttonTile), alpha, icon = {
+				if (running) Spinner(Sizes.icon)
+				else Icon(mark, null, tint = (if (danger) Metric.colors.hot else MaterialTheme.colorScheme.onSurface).copy(alpha = alpha))
+			}, below = ended)
+		} else {
+			Column(click.padding(Space.m), verticalArrangement = Arrangement.spacedBy(Space.s, Alignment.CenterVertically)) {
+				Row(verticalAlignment = Alignment.CenterVertically) {
+					if (running) Spinner()
+					else Icon(if (w.open != null && action == null) icon(w.icon) else ElIcons.Play, null, tint = accent(w.color ?: "tertiary").copy(alpha = alpha), modifier = Modifier.size(Sizes.iconM))
+					Spacer(Modifier.width(Space.s))
+					Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).wholeWords())
+				}
+				ended?.invoke()
+			}
+		}
+	}
+}
+
+/** A control as a tile, all in the middle: its icon, its name, a line about it, and what it sets or how it ended. */
+@Composable
+private fun ControlTile(
+	label: String,
+	caption: String?,
+	modifier: Modifier,
+	alpha: Float,
+	icon: (@Composable () -> Unit)? = null,
+	below: (@Composable () -> Unit)? = null,
+) {
+	Column(
+		modifier.fillMaxWidth().padding(vertical = Space.card, horizontal = Space.s),
+		horizontalAlignment = Alignment.CenterHorizontally,
+		verticalArrangement = Arrangement.spacedBy(Space.s, Alignment.CenterVertically),
+	) {
+		icon?.invoke()
+		Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.wholeWords())
+		if (caption != null) Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha), textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.wholeWords())
+		below?.invoke()
 	}
 }
 
@@ -324,27 +323,25 @@ fun ActionOutcome(r: ActionResult, modifier: Modifier = Modifier) {
 }
 
 /** What a command printed, opened when it is done. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ActionOutput(vm: MachineViewModel, ui: UiDoc?, state: ActionsState) {
 	val id = state.shown ?: return
 	val r = state.results[id] ?: return
 	val name = ui?.action(id)?.name ?: id
-	ModalBottomSheet(onDismissRequest = { vm.showActionResult(null) }, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-		Column(Modifier.padding(start = Space.xxl, end = Space.xxl, bottom = Space.xxxl), verticalArrangement = Arrangement.spacedBy(Space.m)) {
-			Row(verticalAlignment = Alignment.CenterVertically) {
-				Text(name, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-				ActionOutcome(r)
-			}
-			Surface(shape = RoundedCornerShape(Radius.mPlus), color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth().heightIn(max = Sizes.outputMax)) {
-				SelectionContainer {
-					Text(
-						r.output?.ifBlank { null } ?: stringResource(R.string.control_no_output),
-						fontFamily = FontFamily.Monospace,
-						style = MaterialTheme.typography.bodySmall,
-						modifier = Modifier.verticalScroll(rememberScrollState()).padding(Space.m),
-					)
-				}
+	GlassSheet(onDismiss = { vm.showActionResult(null) }) {
+		Row(verticalAlignment = Alignment.CenterVertically) {
+			Text(name, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f).wholeWords())
+			Spacer(Modifier.width(Space.s))
+			ActionOutcome(r)
+		}
+		Surface(shape = InnerShape, color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth().heightIn(max = Sizes.outputMax)) {
+			SelectionContainer {
+				Text(
+					r.output?.ifBlank { null } ?: stringResource(R.string.control_no_output),
+					fontFamily = FontFamily.Monospace,
+					style = MaterialTheme.typography.bodySmall,
+					modifier = Modifier.verticalScroll(rememberScrollState()).padding(Space.m),
+				)
 			}
 		}
 	}
@@ -360,12 +357,24 @@ fun ToggleWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val off = w.off ?: JsonPrimitive(false)
 	val checked = toggledOn(w, s)
 	val label = w.label ?: action?.name.orEmpty()
-	ListGroup(modifier) {
-		SwitchRow(label, captionOf(w, s), checked, enabled = a.enabled(action, s) && w.param != null) { v ->
-			val param = w.param ?: return@SwitchRow
-			action ?: return@SwitchRow
+	val enabled = a.enabled(action, s) && w.param != null
+	val set: (Boolean) -> Unit = { v ->
+		if (w.param != null && action != null) {
 			val value = if (v) on else off
-			a.launch(action, withParam(w.params, param, value), togglePhrase(label, action.params.find { it.id == param }, value))
+			a.launch(action, withParam(w.params, w.param, value), togglePhrase(label, action.params.find { it.id == w.param }, value))
+		}
+	}
+	val padding = if (LocalDepth.current > 0) Space.none else Space.xs
+	CardSurface(modifier) {
+		if (narrowCell(TextSizes.rowLeast)) {
+			ControlTile(
+				label, captionOf(w, s),
+				Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = set),
+				if (enabled) 1f else Alpha.DISABLED,
+				below = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
+			)
+		} else {
+			Column(Modifier.padding(vertical = padding), verticalArrangement = Arrangement.Center) { SwitchRow(label, captionOf(w, s), checked, enabled, onChange = set) }
 		}
 	}
 }
@@ -407,7 +416,6 @@ fun tapOf(w: Widget, action: Action, on: Boolean): Tap {
 }
 
 /** One of an action's choices, side by side, the one now marked: as 0.5's power profiles. */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SelectWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val s = scope.state(w)
@@ -420,51 +428,36 @@ fun SelectWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val label = w.label ?: action?.name.orEmpty()
 	// The highlight moves to the choice taken, or with animations off is there at once.
 	val move: AnimationSpec<Color> = if (LocalPrefs.current.animations) spring() else snap()
+	val least = with(LocalDensity.current) { TextSizes.choiceLeast.toDp() }
+	val most = ((LocalCellWidth.current - Space.card * 2 + Space.inner) / (least + Space.inner)).coerceIn(1f, CHOICES_IN_A_ROW.toFloat()).toInt()
 	Section(label, icon(w.icon), modifier, accent = accent(w.color)) {
 		captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-		FlowRow(
-			Modifier.fillMaxWidth().selectableGroup(),
-			horizontalArrangement = Arrangement.spacedBy(Space.s),
-			verticalArrangement = Arrangement.spacedBy(Space.s),
-			maxItemsInEachRow = CHOICES_IN_A_ROW,
-		) {
-			for (c in choices) {
-				val on = c.value == now
-				val bg by animateColorAsState(if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh, move, label = "choice")
-				val fg = (if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = if (enabled) 1f else Alpha.DISABLED)
-				val name = c.label ?: c.value
-				Column(
-					Modifier.weight(1f).fillMaxHeight().clip(InnerTileShape).background(bg)
-						.selectable(selected = on, enabled = enabled && !on, role = Role.Button) {
-							if (action != null && w.param != null) a.launch(action, withParam(w.params, w.param, JsonPrimitive(c.value)), label + PHRASE_SEPARATOR + name)
-						}
-						.padding(vertical = Space.mPlus, horizontal = Space.xsPlus),
-					horizontalAlignment = Alignment.CenterHorizontally,
-					verticalArrangement = Arrangement.spacedBy(Space.xsPlus),
-				) {
-					if (action?.id == PROFILE_SET) Icon(profileIcon(c.value), null, tint = fg)
-					// One line: a name too long for its tile ("Performance" at a large font) shrinks to
-					// fit, down to a floor, rather than breaking inside the word.
-					val style = MaterialTheme.typography.labelMedium
-					Text(
-						name,
-						style = style,
-						color = fg,
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis,
-						autoSize = TextAutoSize.StepBased(minFontSize = ChoiceLabelMin, maxFontSize = style.fontSize),
-					)
-				}
+		EvenRows(choices, most, Modifier.selectableGroup()) { c ->
+			val on = c.value == now
+			val bg by animateColorAsState(if (on) MaterialTheme.colorScheme.primaryContainer else cardColor(), move, label = "choice")
+			val fg = (if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = if (enabled) 1f else Alpha.DISABLED)
+			val name = c.label ?: c.value
+			Column(
+				Modifier.heightIn(min = Sizes.touchTarget).clip(InnerShape).background(bg)
+					.selectable(selected = on, enabled = enabled && !on, role = Role.Button) {
+						if (action != null && w.param != null) a.launch(action, withParam(w.params, w.param, JsonPrimitive(c.value)), label + PHRASE_SEPARATOR + name)
+					}
+					.padding(vertical = Space.m, horizontal = Space.s),
+				horizontalAlignment = Alignment.CenterHorizontally,
+				verticalArrangement = Arrangement.spacedBy(Space.s, Alignment.CenterVertically),
+			) {
+				if (action?.id == PROFILE_SET) Icon(profileIcon(c.value), null, tint = fg)
+				// One line: a name too long for its tile ("Performance" at a large font) gets smaller,
+				// rather than breaking inside the word.
+				Text(name, style = MaterialTheme.typography.labelMedium, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.shrinkToFit())
 			}
-			// The last row's choices as wide as the others.
-			if (choices.size > CHOICES_IN_A_ROW) repeat((CHOICES_IN_A_ROW - choices.size % CHOICES_IN_A_ROW) % CHOICES_IN_A_ROW) { Spacer(Modifier.weight(1f)) }
 		}
 	}
 }
 
+/** The most choices to a row. */
 private const val CHOICES_IN_A_ROW = 3
 private const val PROFILE_SET = "profile.set"
-private val ChoiceLabelMin = 9.sp
 
 /** The power profiles' pictures, as 0.5 drew them. */
 @Composable private fun profileIcon(p: String): ImageVector = when (p) {
@@ -549,12 +542,13 @@ fun ParamForm(req: FormRequest, onDismiss: () -> Unit, onDone: (JsonObject) -> U
 							if (!Params.namedByTitle(asked, p, title)) Text(name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
 							FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 								for (c in p.choices.orEmpty()) {
-									FilterChip(selected = values[p.id]?.text() == c.value, onClick = { values[p.id] = JsonPrimitive(c.value) }, label = { Text(c.label ?: c.value) })
+									FilterChip(selected = values[p.id]?.text() == c.value, onClick = { values[p.id] = JsonPrimitive(c.value) }, label = { Text(c.label ?: c.value) }, shape = PillShape)
 								}
 							}
 						}
 						"bool" -> Row(verticalAlignment = Alignment.CenterVertically) {
 							Text(name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+							Spacer(Modifier.width(Space.m))
 							Switch(checked = values[p.id].bool() == true, onCheckedChange = { values[p.id] = JsonPrimitive(it) })
 						}
 						"range" -> RangeField(p, name, values[p.id].number()) { values[p.id] = Params.number(it, p) }
@@ -578,8 +572,8 @@ fun ParamForm(req: FormRequest, onDismiss: () -> Unit, onDone: (JsonObject) -> U
 				}
 			}
 		},
-		confirm = { TextButton(onClick = { onDone(params) }, enabled = ok) { Text(stringResource(R.string.control_continue)) } },
-		dismiss = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+		confirm = DialogButton(stringResource(R.string.control_continue), enabled = ok) { onDone(params) },
+		dismiss = DialogButton(stringResource(R.string.cancel), onClick = onDismiss),
 	)
 }
 
@@ -600,21 +594,15 @@ private fun RangeField(p: Param, name: String, value: Double?, onChange: (Double
 /** Control is off on the computer: why, and how to turn it on there. Action widgets stay, disabled. */
 @Composable
 fun ControlOff(reason: String?) {
-	Section(stringResource(R.string.control_off), ElIcons.Lock, accent = MaterialTheme.colorScheme.secondary) {
-		when (reason) {
-			"held_off" -> {
-				Text(stringResource(R.string.control_held_off_body), style = MaterialTheme.typography.bodyMedium)
-				CodeBlock("elamond control on")
-			}
-			"settings_unreadable" -> {
-				Text(stringResource(R.string.control_unreadable_body), style = MaterialTheme.typography.bodyMedium)
-				CodeBlock("elamond check")
-			}
-			else -> {
-				Text(stringResource(R.string.control_off_body), style = MaterialTheme.typography.bodyMedium)
-				CodeBlock("control = true")
-				Text(stringResource(R.string.control_off_where), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			}
+	val (body, code) = when (reason) {
+		"held_off" -> R.string.control_held_off_body to "elamond control on"
+		"settings_unreadable" -> R.string.control_unreadable_body to "elamond check"
+		else -> R.string.control_off_body to "control = true"
+	}
+	Banner(ElIcons.Lock, MaterialTheme.colorScheme.secondary, stringResource(body), title = stringResource(R.string.control_off)) {
+		CodeBlock(code)
+		if (reason != "held_off" && reason != "settings_unreadable") {
+			Text(stringResource(R.string.control_off_where), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
 	}
 }

@@ -91,6 +91,7 @@
 	<string name="machine_unreachable_body">The computer may be off or asleep, the Elamon service not running, or the phone on another network. Elamon keeps trying.</string>
 	<!-- Over the addresses and names the computer was looked for at, in vain: "192.0.2.10, 100.64.0.7, desk.example.net". -->
 	<string name="machine_unreachable_tried">Tried at</string>
+	<string name="machine_tried_at">Tried at %1$s. Elamon keeps trying.</string>
 	<string name="machine_offline_retrying">Offline · retrying</string>
 	<!-- The computer answers, but shows this phone no dashboard at all. -->
 	<string name="machine_nothing_title">Nothing to show here</string>

@@ -8,77 +8,81 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /*
  * The app's measures in one place: spacing, corners, sizes, motion, see-through levels, blur and
  * the parts of charts. Colours live in Palette.kt; where readings turn amber and red, in
- * Thresholds.kt.
+ * Thresholds.kt. No other file has a length of its own.
+ *
+ * The rules of the layout, which every screen keeps:
+ *  1. Mirrored. What is left of a screen, card, tile, dialog, sheet, row or chip is as far from its
+ *     edge as what is right of it; a control on the right ends on the line the text on the left
+ *     starts on. A card's padding is the same on all its sides.
+ *  2. One grid. Columns are of one width, as far from each other across as down; the tiles of a row
+ *     are as tall as each other (GridLine, EvenRows).
+ *  3. A row that isn't full is shared evenly by what is in it, from edge to edge (Grid.place).
+ *  4. Centred is centred: an icon in its disc, a figure in its ring, a label in its button. Tiles of
+ *     a kind are built alike, so label, value and caption stand at the same heights side by side.
+ *  5. Figures that change keep their place: tabular digits, room for the longest, a unit on the
+ *     number's baseline.
+ *  6. A word is never broken: it gets smaller, then ends in an ellipsis (WholeWords). What stands
+ *     beside a name leaves it its room.
+ *  7. Spacing in steps of 4 dp and five corners; a corner inside another is the outer one less the
+ *     padding between them.
+ *  8. Bars keep the same distance from both sides, and the content clear of them, of the camera and
+ *     of the system's bars, upright and turned (sideInset).
+ *  9. Loading, empty, failed, unreachable and switched off look alike wherever they are, and leave
+ *     what is around them where it is.
+ * 10. Text reads on what is under it in every theme; amber and red are the same everywhere.
+ * 11. Nothing to touch is smaller than Sizes.touchTarget, and large text or a large scale cuts
+ *     nothing off.
  */
 
-/**
- * Spacing on a 4 dp grid. The "Plus" steps in between are kept where a full step would show:
- * an icon tight against its label, the inside of chips, the padding that sets a card's density.
- */
+/** Spacing, in steps of 4 dp. */
 object Space {
+	val none = 0.dp
+
+	/** Half a step: between the lines of a log, where a whole one would take every tenth line off the screen. */
 	val xxs = 2.dp
 	val xs = 4.dp
-	val xsPlus = 6.dp
 	val s = 8.dp
-	val sPlus = 10.dp
 	val m = 12.dp
-	val mPlus = 14.dp
 	val l = 16.dp
-	val lPlus = 18.dp
-	val xl = 20.dp
-	val xxl = 24.dp
-	val xxlPlus = 28.dp
-	val xxxl = 32.dp
+	val xl = 24.dp
+	val xxl = 32.dp
 
-	/** Between a big number and the unit set smaller beside it. */
-	val unitGap = 3.dp
+	/** From the screen's sides to its cards, and from a card's edge to what it holds: where all text starts. */
+	val screen = l
+	val card = l
 
-	/** How far a unit sits up from the bottom to meet a big number's baseline, and a smaller one's. */
-	val unitLift = 5.dp
-	val unitLiftSmall = 3.dp
+	/** Between cards, and between the tiles inside one: the same across and down. */
+	val gap = m
+	val inner = s
 }
 
-/** Corner radii, smallest to largest. */
+/** Corner radii. One inside another is the outer one less the padding between them. */
 object Radius {
-	/** A core's bar. */
+	/** A bar, a core, a timeline. */
 	val xs = 4.dp
 
 	/** A chart's tooltip. */
 	val s = 8.dp
 
-	/** A command in the setup steps. */
-	val sPlus = 10.dp
+	/** Cards, sheets, dialogs, the search field and the bar of tabs. */
+	val card = 28.dp
 
-	/** Code blocks, the fingerprint, monitors in the arrangement. */
-	val m = 12.dp
+	/** The tiles, code and covers a card holds. */
+	val inner = card - Space.card
 
-	/** Core cells, an action's output. */
-	val mPlus = 14.dp
-
-	/** Home's small figures, a cover. */
-	val l = 16.dp
-
-	/** Tiles inside a card (profiles, power, actions) and the note about versions. */
-	val lPlus = 18.dp
-
-	/** A process's row. */
-	val xl = 20.dp
-
-	/** Cards, and the selected tab in the tab bar. */
-	val card = 26.dp
-
-	/** The search field and the add button. */
-	val field = 28.dp
-
-	/** The floating tab bar and dialogs. */
-	val floating = 32.dp
+	/** The selected tab in the bar of tabs. */
+	val tab = card - Space.xs
 }
 
 val CardShape = RoundedCornerShape(Radius.card)
+
+/** What sits inside a card: choices, power, actions, code, a cover. */
+val InnerShape = RoundedCornerShape(Radius.inner)
 
 /** Fully round ends, for tags and chips. */
 val PillShape = CircleShape
@@ -90,28 +94,28 @@ object Sizes {
 
 	// ---- icons ------------------------------------------------------------------------------
 	val iconS = 16.dp
-	val iconM = 18.dp
-
-	/** Tab bar icons, and the moon of a sleeping GPU. */
-	val iconL = 22.dp
+	val iconM = 20.dp
+	val icon = 24.dp
 
 	/** The play button's icon, and the note standing in for a missing cover. */
-	val iconXl = 30.dp
-	val iconArt = 32.dp
+	val iconXl = 32.dp
 
-	/** An icon's share of the disc it sits on. */
-	const val BADGE_ICON = 0.56f
+	/** What an icon's box, or a round button's, leaves empty beside its picture: how far it moves out to end on a line ([optical]). */
+	val chevronEmpty = 8.dp
+	val foldEmpty = 6.dp
+	val buttonEmpty = (touchTarget - icon) / 2
+	val smallButtonEmpty = (touchTarget - iconM) / 2
 
 	// ---- discs and avatars --------------------------------------------------------------------
+	/** A letter's disc in a table's row, in a list's, and in a row's sheet. */
 	val avatarS = 32.dp
-	val badge = 34.dp
-	val badgeRow = 36.dp
 	val avatar = 40.dp
-	val badgeFound = 44.dp
-	val avatarSheet = 48.dp
-	val badgeComputer = 52.dp
-	val pairIcon = 56.dp
-	val badgeNotice = 64.dp
+
+	/** The disc with an icon by a card's title or a row's, a computer's, and a notice's; the icon is [BADGE_ICON] of it. */
+	val badge = 36.dp
+	val badgeL = 48.dp
+	val badgeNotice = 72.dp
+	const val BADGE_ICON = 5f / 9f
 
 	/** A setup step's number. */
 	val stepNumber = 28.dp
@@ -125,10 +129,9 @@ object Sizes {
 	val legendDot = 8.dp
 
 	// ---- bars ---------------------------------------------------------------------------------
-	val barHair = 4.dp
-	val barMini = 5.dp
-	val barThin = 6.dp
-	val bar = 8.dp
+	/** Under a figure, under a table's row, and in a tile. */
+	val barThin = 4.dp
+	val bar = 6.dp
 	val barTile = 10.dp
 
 	// ---- the rest -----------------------------------------------------------------------------
@@ -138,11 +141,26 @@ object Sizes {
 	/** A spinner's line, inside a button or a row. */
 	val spinnerStroke = 2.dp
 
-	/** A power button's least height, so the buttons of a row are as tall as each other whatever they say. */
-	val powerTileMin = 112.dp
+	/** The widest a table's column of words gets: past that they are cut, and the rows' names have the rest. */
+	val columnMax = 120.dp
 
-	/** The volume's percentage beside its slider. */
-	val volumeLabel = 44.dp
+	/** A button's least height as a tile inside a card, an icon over its name. */
+	val buttonTile = 112.dp
+
+	/** The bar of tabs' shadow, and that of a widget lifted in the editor. */
+	val shadow = 16.dp
+	val liftShadow = 8.dp
+
+	/** A hairline round a record of the editor's, and the mark of where a widget is dropped. */
+	val outline = 1.dp
+	val mark = 2.dp
+
+	/** How near the editor's top or bottom a dragged widget scrolls it, and how far a frame. */
+	val dragEdge = 72.dp
+	val dragStep = 12.dp
+
+	/** Over and under a line of the home-screen widget, as tall as its text but for it. */
+	val widgetLine = 1.dp
 
 	/** The tallest an action's output and the licence text get before they scroll. */
 	val outputMax = 360.dp
@@ -150,6 +168,20 @@ object Sizes {
 
 	/** The tallest a log's lines get in their card before they scroll on their own. */
 	val logMax = 420.dp
+}
+
+/** Measures that grow with the phone's text. */
+object TextSizes {
+	/** Where a tile's figure stands on its line, and how tall that line is: a word in its place stands as high. */
+	val figureBaseline = 32.sp
+	val figureLine = 42.sp
+
+	/** The least room a button's or a switch's name has beside its picture, alone and inside a card; with less, it goes under it. */
+	val rowLeast = 200.sp
+	val innerRowLeast = 120.sp
+
+	/** The least a choice takes: as many to a row as fit, three at most. */
+	val choiceLeast = 72.sp
 }
 
 /** How long things move, in milliseconds; with animations off, all of them are instant. */
@@ -265,7 +297,7 @@ object ChartStyle {
 	/** Core bars in the CPU tile's place and on the CPU page, and the gap between them. */
 	val cores = 44.dp
 	val coresDetail = 56.dp
-	val coreGap = 3.dp
+	val coreGap = 4.dp
 
 	val line = 2.2.dp
 	val grid = 1.dp
@@ -319,6 +351,12 @@ object Gauge {
 	/** Where the ring starts (degrees from 3 o'clock) and how far round it goes. */
 	const val START = 135f
 	const val SWEEP = 270f
+
+	/** How much of its square the ring takes from the top, its open end left out. */
+	const val SHOWN = 0.88f
+
+	/** How much of its width is between its sides, for what it holds. */
+	const val ROOM = 0.68f
 
 	/** Less filled than this shows as empty: a sliver only looks like a glitch. */
 	const val MIN_SHOWN = 0.004f

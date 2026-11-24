@@ -108,6 +108,23 @@ class WidgetTest {
 	}
 
 	@Test
+	fun ringsInRowsAsEvenAsTheyGo() {
+		fun sizes(n: Int, width: Float, height: Float) = widgetLayout((1..n).map { WidgetLine("G$it", "$it%", ring = 0.5f) }, width, height, 1f).rings.map { it.size }
+		assertEquals(listOf(3, 2), sizes(5, 200f, 200f))
+		assertEquals(listOf(3, 2, 2), sizes(7, 200f, 260f))
+		assertEquals(listOf(5), sizes(5, 340f, 110f))
+	}
+
+	@Test
+	fun aRingsTextStaysBetweenItsSides() {
+		// A short one has its share of the ring; a long one is smaller, but never too small to read.
+		assertEquals(84 * 0.24f, ringText("7%", 84f, 0.24f))
+		assertTrue(ringText("11.7 GiB", 48f, 0.24f) < 48 * 0.24f)
+		assertEquals(7f, ringText("A label too long for any ring", 48f, 0.16f))
+		for (text in listOf("100%", "Memory", "Temp", "Battery")) assertTrue(ringText(text, 84f, 0.24f) * 0.6f * text.length <= 84 * 0.7f + 0.01f, text)
+	}
+
+	@Test
 	fun groupsOpenOutListsGiveTheirItemsAndTheRestIsLeftOut() {
 		val doc = ui.copy(
 			dashboards = ui.dashboards + io.github.elaizes.elamon.data.Dashboard(

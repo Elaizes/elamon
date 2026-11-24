@@ -7,20 +7,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -31,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +38,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import io.github.elaizes.elamon.Hist
 import io.github.elaizes.elamon.MachineState
 import io.github.elaizes.elamon.MachineViewModel
@@ -97,12 +94,13 @@ class Folds(private val settings: Settings, private val machine: String) {
 	}
 }
 
-/** Padding for a list under a see-through bar: the big title takes the top, whatever covers the bottom the bottom. */
+/** Padding for a list under a see-through bar: the big title takes the top, whatever covers the bottom the bottom; both sides alike. */
 @Composable
 fun listPadding(): PaddingValues {
 	val d = LocalDensity.current
 	val status = with(d) { WindowInsets.statusBars.getTop(d).toDp() }
-	return PaddingValues(start = Space.l, end = Space.l, top = status, bottom = bottomReserve() + Space.xxl)
+	val side = Space.screen + sideInset()
+	return PaddingValues(start = side, end = side, top = status, bottom = bottomReserve() + Space.xl)
 }
 
 /** The grid's columns on this screen: 4, or 2 where it is narrow. */
@@ -124,22 +122,29 @@ fun DashboardList(scope: DashScope, list: LazyListState, header: @Composable () 
 	val widgets = dash?.widgets.orEmpty().filter { shown(it, scope.state(it)) }
 	val rows = Grid.place(widgets.map { it.span }, columns)
 	val controlOff = !scope.ui.control.enabled && widgets.any(::acts)
-	LazyColumn(
-		Modifier.fillMaxSize(),
-		state = list,
-		contentPadding = listPadding(),
-		verticalArrangement = Arrangement.spacedBy(Space.m),
-	) {
-		// Two widgets with one id, or two rows with one key, from the service are two items here too.
-		val keys = UniqueKeys()
-		item(key = keys.of("header")) { header() }
-		if (controlOff) item(key = keys.of("control-off")) { ControlOff(scope.ui.control.offReason) }
-		for (row in rows) {
-			val first = widgets[row[0].first]
-			if (row.size == 1 && first.type == "table" && first.search == true) {
-				tableItems(scope, first, keys)
-			} else {
-				item(key = keys.of("row/" + first.id)) { GridRow(scope, row.map { (i, s) -> widgets[i] to s }, columns) }
+	// A table with a search field, alone in its row, gives its rows to the list.
+	val tables = rows.map { row ->
+		widgets[row.cells[0].first].takeIf { row.cells.size == 1 && it.type == "table" && it.search == true }?.let { key(it.id) { listTable(scope, it) } }
+	}
+	CompositionLocalProvider(LocalCellWidth provides contentWidth()) {
+		LazyColumn(
+			Modifier.fillMaxSize(),
+			state = list,
+			contentPadding = listPadding(),
+			verticalArrangement = Arrangement.spacedBy(Space.gap),
+		) {
+			// Two widgets with one id, or two rows with one key, from the service are two items here too.
+			val keys = UniqueKeys()
+			item(key = keys.of("header")) { header() }
+			if (controlOff) item(key = keys.of("control-off")) { ControlOff(scope.ui.control.offReason) }
+			rows.forEachIndexed { i, row ->
+				val first = widgets[row.cells[0].first]
+				val table = tables[i]
+				if (table != null) {
+					tableItems(scope, table, keys)
+				} else {
+					item(key = keys.of("row/" + first.id)) { GridRow(scope, widgets, row, columns) }
+				}
 			}
 		}
 	}
@@ -153,24 +158,19 @@ fun DashboardList(scope: DashScope, list: LazyListState, header: @Composable () 
 private fun acts(w: Widget): Boolean =
 	w.action != null || w.type == "media" || w.widgets.orEmpty().any(::acts)
 
-/** A row of the grid: [cells] side by side, each as wide as its span of [columns], as tall as the tallest. */
+/** A row of the grid: those of [widgets] that [line] has, side by side, as tall as the tallest; [gap] apart. */
 @Composable
-fun GridRow(scope: DashScope, cells: List<Pair<Widget, Int>>, columns: Int) {
-	val used = cells.sumOf { it.second }
+fun GridRow(scope: DashScope, widgets: List<Widget>, line: Grid.Line, columns: Int, gap: Dp = Space.gap) {
+	val width = LocalCellWidth.current
 	// As tall as the tallest asks each how tall it would be, which a log's own list can't say.
-	val several = cells.size > 1 && cells.none { hasLog(it.first) }
-	Row(
-		Modifier.fillMaxWidth().then(if (several) Modifier.height(IntrinsicSize.Min) else Modifier),
-		horizontalArrangement = Arrangement.spacedBy(Space.m),
-	) {
-		for ((w, span) in cells) {
-			WidgetView(scope, w, Modifier.weight(span.toFloat()).then(if (several) Modifier.fillMaxHeight() else Modifier), columns)
+	GridLine(line, gap = gap, even = line.cells.none { (i, _) -> hasLog(widgets[i]) }) {
+		for ((i, span) in line.cells) {
+			CompositionLocalProvider(LocalCellWidth provides cellWidth(line, span, width, gap)) { WidgetView(scope, widgets[i], Modifier, columns) }
 		}
-		if (used < columns) Spacer(Modifier.weight((columns - used).toFloat()))
 	}
 }
 
-private fun hasLog(w: Widget): Boolean = w.type == "log" || w.widgets.orEmpty().any(::hasLog)
+internal fun hasLog(w: Widget): Boolean = w.type == "log" || w.widgets.orEmpty().any(::hasLog)
 
 /** One widget, by its type; one this app doesn't know says so. */
 @Composable
@@ -239,13 +239,14 @@ fun levelColor(level: String?, blend: Double?, good: Color): Color? {
 @Composable
 fun figureGood(format: String?): Color = if (format == "temp") Metric.colors.good else MaterialTheme.colorScheme.onSurface
 
-/** A tile's or a card's line under it: its own text, or the state's where it holds values. */
-fun captionOf(w: Widget, s: WidgetState?): String? = w.captionText ?: s?.caption?.ifEmpty { null }
+/**
+ * A tile's or a card's line under it: its own text, or the state's where it holds values; before the
+ * first state, one of those is an empty line, so what is under it stays where it is as it comes.
+ */
+fun captionOf(w: Widget, s: WidgetState?): String? = w.captionText ?: if (s == null && w.caption != null) NO_WORDS else s?.caption?.ifEmpty { null }
 
-@Composable
-fun TileFooter(text: String) {
-	Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-}
+/** A line with nothing on it yet. */
+private const val NO_WORDS = "\u00a0"
 
 /** No points: a graph before its first line. */
 private class NoPoints(override val windowMs: Long) : Points {
@@ -262,9 +263,9 @@ private class NoPoints(override val windowMs: Long) : Points {
 private fun ValueTile(scope: DashScope, w: Widget, modifier: Modifier) {
 	val s = scope.state(w)
 	val accent = accent(w.color)
-	WidgetTile(scope, w, accent, modifier) {
+	WidgetTile(scope, w, accent, modifier, captionOf(w, s)) {
 		val color = levelColor(s?.level, s?.blend, figureGood(w.format))
-		Figure(w, s, color ?: MaterialTheme.colorScheme.onSurface, large = true)
+		Figure(w, s, color ?: MaterialTheme.colorScheme.onSurface)
 		if (w.spark == true) {
 			val h = scope.hist(w.id)
 			Sparkline(
@@ -276,27 +277,32 @@ private fun ValueTile(scope: DashScope, w: Widget, modifier: Modifier) {
 				value = { Fmt.number(it.toDouble(), w.format, w.unit) },
 			)
 		}
-		captionOf(w, s)?.let { TileFooter(it) }
 	}
 }
 
 /**
  * A widget's value large: the figure with its unit set smaller, or the word the service gave
- * instead (a mapped value, or what shows while it is missing), or a dash.
+ * instead (a mapped value, or what shows while it is missing), or a dash; all on one line.
  */
 @Composable
-fun Figure(w: Widget, s: WidgetState?, color: Color, large: Boolean) {
+fun Figure(w: Widget, s: WidgetState?, color: Color) {
 	val text = s?.text
 	val n = s?.number
 	when {
-		text != null -> Text(text, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-		n != null -> {
+		n != null && text == null -> {
 			val (v, u) = Fmt.parts(n, w.format, w.unit)
-			BigValue(v, u, color = color, large = large)
+			BigValue(v, u, Modifier.figureLine(), color = color)
 		}
 		else -> {
-			val v = Fmt.format(s?.v, w.format, w.unit)
-			Text(v ?: DASH, style = if (large) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.headlineSmall, color = color, maxLines = 2, overflow = TextOverflow.Ellipsis)
+			val words = text ?: Fmt.format(s?.v, w.format, w.unit)
+			Text(
+				words ?: DASH,
+				style = if (text == null) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.headlineSmall,
+				color = if (text == null) color else MaterialTheme.colorScheme.secondary,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis,
+				modifier = Modifier.figureLine().shrinkToFit(),
+			)
 		}
 	}
 }
@@ -316,18 +322,22 @@ private fun GaugeTile(scope: DashScope, w: Widget, modifier: Modifier) {
 	val s = scope.state(w)
 	val accent = accent(w.color)
 	val text = s?.text ?: Fmt.format(s?.v, w.format, w.unit) ?: DASH
-	WidgetTile(scope, w, accent, modifier) {
+	// Its ring as large as its tile has room for; a small one thinner, and its figure smaller, as it is.
+	val size = minOf(Gauge.tile, LocalCellWidth.current - cardPadding() * 2)
+	val share = size / Gauge.tile
+	WidgetTile(scope, w, accent, modifier, captionOf(w, s)) {
 		Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
 			RingGauge(
 				fraction(w, s),
 				levelColor(s?.level, s?.blend, accent) ?: accent,
-				size = Gauge.tile,
+				size = size,
+				thickness = Gauge.thickness * share,
 				description = listOfNotNull(w.label, text).joinToString(" "),
 			) {
-				RollingText(text, MaterialTheme.typography.headlineMedium)
+				val style = MaterialTheme.typography.headlineMedium
+				RollingText(text, style.copy(fontSize = style.fontSize * share), Modifier.shrinkToFit())
 			}
 		}
-		captionOf(w, s)?.let { TileFooter(it) }
 	}
 }
 
@@ -337,17 +347,16 @@ private fun MeterTile(scope: DashScope, w: Widget, modifier: Modifier) {
 	val s = scope.state(w)
 	val accent = accent(w.color)
 	val color = levelColor(s?.level, s?.blend, accent) ?: accent
-	WidgetTile(scope, w, accent, modifier) {
-		Figure(w, s, levelColor(s?.level, s?.blend, figureGood(w.format)) ?: MaterialTheme.colorScheme.onSurface, large = true)
+	WidgetTile(scope, w, accent, modifier, captionOf(w, s)) {
+		Figure(w, s, levelColor(s?.level, s?.blend, figureGood(w.format)) ?: MaterialTheme.colorScheme.onSurface)
 		UsageBar(fraction(w, s), color, height = Sizes.barTile)
-		captionOf(w, s)?.let { TileFooter(it) }
 	}
 }
 
-/** A tile for [w]: its icon and label over [content], a button when [w] opens a page. */
+/** A tile for [w]: its icon and label over [content], [caption] its last line; a button when [w] opens a page. */
 @Composable
-fun WidgetTile(scope: DashScope, w: Widget, accent: Color, modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
-	Tile(modifier, accent = accent, onClick = w.open?.let { d -> { scope.open(d) } }) {
+fun WidgetTile(scope: DashScope, w: Widget, accent: Color, modifier: Modifier, caption: String?, content: @Composable ColumnScope.() -> Unit) {
+	Tile(modifier, accent = accent, onClick = w.open?.let { d -> { scope.open(d) } }, caption = caption) {
 		TileLabel(w.label.orEmpty(), icon(w.icon), accent)
 		content()
 	}
@@ -373,9 +382,8 @@ private fun StatusTile(scope: DashScope, w: Widget, modifier: Modifier) {
 	val s = scope.state(w)
 	val accent = accent(w.color)
 	val text = s?.text ?: Fmt.format(s?.v, w.format, w.unit) ?: DASH
-	WidgetTile(scope, w, accent, modifier) {
+	WidgetTile(scope, w, accent, modifier, captionOf(w, s)) {
 		Pill(text, levelColor(s?.level, s?.blend, Metric.colors.good) ?: MaterialTheme.colorScheme.secondary, dot = true)
-		captionOf(w, s)?.let { TileFooter(it) }
 	}
 }
 
@@ -409,12 +417,13 @@ private fun GraphWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val floor = w.floor?.toFloat() ?: 1f
 	val empty = s?.text
 	if (w.height == "small") {
-		WidgetTile(scope, w, accent, modifier) {
+		WidgetTile(scope, w, accent, modifier, captionOf(w, s)) {
 			if (empty != null) Text(empty, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.secondary)
-			Row(horizontalArrangement = Arrangement.spacedBy(Space.xxlPlus)) {
+			// Each in a share of its own, so a figure that grows a digit doesn't move the next one.
+			Row(horizontalArrangement = Arrangement.spacedBy(Space.gap)) {
 				series.forEachIndexed { i, ser ->
-					Column {
-						if (series.size > 1 || ser.label != null) Text(ser.label.orEmpty(), style = MaterialTheme.typography.labelMedium, color = colors[i], maxLines = 1)
+					Column(Modifier.weight(1f)) {
+						if (series.size > 1 || ser.label != null) Text(ser.label.orEmpty(), style = MaterialTheme.typography.labelMedium, color = colors[i], maxLines = 1, overflow = TextOverflow.Ellipsis)
 						val v = now.getOrNull(i)
 						if (v != null) {
 							val (n, u) = Fmt.parts(v, ser.format, ser.unit)
@@ -426,8 +435,7 @@ private fun GraphWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 				}
 			}
 			LineChart(chart, maxValue = maxValue, minScale = floor, binary = binary, height = ChartStyle.tile, grid = false, interactive = false)
-			captionOf(w, s)?.let { TileFooter(it) }
-		}
+			}
 		return
 	}
 	val single = series.size == 1
@@ -462,7 +470,7 @@ private fun GraphWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 			span = long?.let { v -> rangeLabel(chips.first { it.range == v.range }) },
 			moment = if (long != null) ::moment else null,
 		)
-		if (lh != null && lh.size > 0) TimeAxis(lh.lastTime - lh.windowMs, lh.lastTime)
+		if (lh != null && lh.size > 0) TimeAxis(lh.lastTime - lh.windowMs, lh.lastTime, inset = ChartStyle.halo)
 		if (!single) {
 			@OptIn(ExperimentalLayoutApi::class)
 			FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.l), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
@@ -477,7 +485,6 @@ private fun GraphWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 }
 
 /** One bar per item, with each item's figure under them, as the CPU page's cores. */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BarsWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val s = scope.state(w)
@@ -492,22 +499,16 @@ private fun BarsWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	)
 	WidgetSection(scope, w, accent, modifier) {
 		CoreBars(values.map { ((it ?: 0.0) / max).toFloat() }, colors, height = ChartStyle.coresDetail, description = description)
-		FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s), verticalArrangement = Arrangement.spacedBy(Space.s), maxItemsInEachRow = BAR_CELLS) {
-			values.forEachIndexed { i, v ->
-				Column(
-					Modifier.weight(1f).clip(RoundedCornerShape(Radius.mPlus)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(Space.sPlus),
-				) {
-					Text(s?.labels?.getOrNull(i) ?: i.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-					Text(v?.let { Fmt.number(it, w.format, w.unit) } ?: DASH, style = MaterialTheme.typography.titleSmall, color = colors[i])
-				}
+		EvenRows(values.indices.toList(), BAR_CELLS) { i ->
+			Column(Modifier.clip(InnerShape).background(cardColor()).padding(Space.s)) {
+				Text(s?.labels?.getOrNull(i) ?: i.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+				Text(values[i]?.let { Fmt.number(it, w.format, w.unit) } ?: DASH, style = MaterialTheme.typography.titleSmall, color = colors[i], maxLines = 1, modifier = Modifier.shrinkToFit())
 			}
-			// The last row's cells as wide as the others.
-			repeat((BAR_CELLS - values.size % BAR_CELLS) % BAR_CELLS) { Spacer(Modifier.weight(1f)) }
 		}
 	}
 }
 
-/** Bars' figures to a row. */
+/** The most figures of a bars widget to a row. */
 private const val BAR_CELLS = 4
 
 /** Rows of a label and a value, as the details cards had; a row with nothing to show is left out. */
@@ -518,7 +519,8 @@ private fun ListWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	WidgetSection(scope, w, accent, modifier) {
 		w.items.orEmpty().forEachIndexed { i, item ->
 			val st = s?.items?.getOrNull(i)
-			val text = st?.text ?: Fmt.format(st?.v, item.format, item.unit) ?: return@forEachIndexed
+			// Before the first state every row keeps its place.
+			val text = st?.text ?: Fmt.format(st?.v, item.format, item.unit) ?: if (s == null) DASH else return@forEachIndexed
 			StatRow(item.label.orEmpty(), text, valueColor = levelColor(st?.level, null, figureGood(item.format)) ?: MaterialTheme.colorScheme.onSurface)
 		}
 		captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -540,7 +542,7 @@ private fun TextWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 			text,
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			modifier = modifier.padding(horizontal = Space.xl, vertical = Space.xs),
+			modifier = modifier.fillMaxWidth().padding(horizontal = Space.card, vertical = Space.xs),
 		)
 	}
 }
@@ -575,9 +577,9 @@ private fun GroupWidget(scope: DashScope, w: Widget, modifier: Modifier, columns
 			val inner = Grid.span(w.span, columns).coerceAtLeast(1)
 			val children = w.widgets.orEmpty().filter { shown(it, scope.state(it)) }
 			val rows = Grid.place(children.map { it.span }, inner)
-			CompositionLocalProvider(LocalInGroup provides true) {
-				Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
-					for (row in rows) GridRow(scope, row.map { (i, span) -> children[i] to span }, inner)
+			CompositionLocalProvider(LocalCellWidth provides LocalCellWidth.current - Space.card * 2) {
+				Column(verticalArrangement = Arrangement.spacedBy(Space.inner)) {
+					for (row in rows) GridRow(scope, children, row, inner, gap = Space.inner)
 				}
 			}
 		}
@@ -591,6 +593,7 @@ fun FoldMark(folded: Boolean) {
 		if (folded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
 		stringResource(if (folded) R.string.widget_unfold else R.string.widget_fold),
 		tint = MaterialTheme.colorScheme.onSurfaceVariant,
+		modifier = Modifier.optical(Sizes.foldEmpty),
 	)
 }
 

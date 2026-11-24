@@ -11,52 +11,37 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -93,7 +78,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -140,18 +124,9 @@ private fun pathOf(s: String?): List<Int>? = s?.split('/')?.mapNotNull { it.toIn
 
 private fun keyOf(path: List<Int>): String = path.joinToString("/")
 
-/** How near the top or bottom of the list a dragged widget scrolls it, and how far a frame. */
-private val EDGE = 72.dp
-private val STEP = 12.dp
-
 /** A widget being dragged lifts this much over the others. */
 private const val LIFT = 1.03f
 private const val LIFTED_ALPHA = 0.92f
-private val LIFT_SHADOW = 8.dp
-private val MARK = 2.dp
-
-/** Room under the list for the Add widget button. */
-private val FAB_ROOM = 96.dp
 
 /**
  * The dashboard editor of a computer (elamond 0.11): the dashboard [dashboard] (a page's id as the
@@ -212,7 +187,6 @@ fun EditorScreen(
 
 	var leaving by rememberSaveable { mutableStateOf(false) }
 	var confirm by rememberSaveable { mutableStateOf<String?>(null) }
-	var menu by remember { mutableStateOf(false) }
 	var keysOpen by rememberSaveable { mutableStateOf(false) }
 	var adding by rememberSaveable { mutableStateOf(false) }
 	var sheetAt by rememberSaveable { mutableStateOf<String?>(null) }
@@ -242,74 +216,62 @@ fun EditorScreen(
 	val env = desc?.let { d -> FormEnv(d) { path -> sheetAt = keyOf(path) } }
 
 	CompositionLocalProvider(LocalHaze provides haze) {
-		Box(Modifier.fillMaxSize()) {
-			Box(Modifier.fillMaxSize().hazeSource(haze)) {
-				when {
-					state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-					state.failed != null && editing == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-						Notice(Icons.Default.Warning, stringResource(R.string.editor_failed), state.failed?.text(resources())) {
-							Button(onClick = { vm.load(opening) }) { Text(stringResource(R.string.retry)) }
+		// The add button is measured first, so the end of the dashboard can scroll clear of it.
+		BottomBarLayout(
+			Modifier.fillMaxSize(),
+			barAlignment = Alignment.End,
+			bar = { if (board != null && desc != null) AddButton(stringResource(R.string.editor_add)) { adding = true } },
+		) {
+			Box(Modifier.fillMaxSize()) {
+				Box(Modifier.fillMaxSize().hazeSource(haze)) {
+					when {
+						state.loading -> Centered { CircularProgressIndicator() }
+						state.failed != null && editing == null -> Centered {
+							Notice(Icons.Default.Warning, stringResource(R.string.editor_failed), state.failed?.text(resources())) {
+								Button(onClick = { vm.load(opening) }) { Text(stringResource(R.string.retry)) }
+							}
 						}
+						desc == null || env == null || editing == null -> Box(Modifier.fillMaxSize())
+						board != null -> BoardEditor(state, desc, board, env, machineVm, machineState, machine.id, name, vm::hist, onOpen = { sheetAt = keyOf(it) }, onMove = { from, to -> vm.change { Drafts.move(it, emptyList(), from, to) } }, onTakeTheirs = { vm.dropMine() }, onSaveMine = save)
+						else -> TabsEditor(state, desc, editing as Editing.Tabs, env, onKey = { k, v -> vm.change { d -> Drafts.withKey(d, k, v) } }, onAndroid = { k, v ->
+							vm.change { d -> Drafts.withKey(d, ANDROID, Drafts.withKey(d[ANDROID] as? JsonObject ?: JsonObject(emptyMap()), k, v)) }
+						}, onProfile = { vm.editTabs(it) }, onTakeTheirs = { vm.dropMine() }, onSaveMine = save)
 					}
-					desc == null || env == null || editing == null -> Box(Modifier.fillMaxSize())
-					board != null -> BoardEditor(state, desc, board, env, machineVm, machineState, machine.id, name, vm::hist, onOpen = { sheetAt = keyOf(it) }, onMove = { from, to -> vm.change { Drafts.move(it, emptyList(), from, to) } }, onTakeTheirs = { vm.dropMine() }, onSaveMine = save)
-					else -> TabsEditor(state, desc, editing as Editing.Tabs, env, onKey = { k, v -> vm.change { d -> Drafts.withKey(d, k, v) } }, onAndroid = { k, v ->
-						vm.change { d -> Drafts.withKey(d, ANDROID, Drafts.withKey(d[ANDROID] as? JsonObject ?: JsonObject(emptyMap()), k, v)) }
-					}, onProfile = { vm.editTabs(it) }, onTakeTheirs = { vm.dropMine() }, onSaveMine = save)
 				}
-			}
 
-			GlassTopBar(
-				title = title,
-				collapsed = true,
-				onBack = back,
-				subtitle = name,
-				actions = {
-					if (editing != null && desc != null) {
-						TextButton(onClick = save, enabled = state.dirty && !state.busy && desc.writable) {
-							if (state.busy) CircularProgressIndicator(Modifier.size(Sizes.iconM), strokeWidth = Sizes.spinnerStroke)
-							else Text(writeWord)
+				GlassTopBar(
+					title = title,
+					collapsed = true,
+					onBack = back,
+					subtitle = name,
+					actions = {
+						if (editing != null && desc != null) {
+							TextButton(onClick = save, enabled = state.dirty && !state.busy && desc.writable) {
+								if (state.busy) Spinner()
+								else Text(writeWord)
+							}
 						}
-					}
-					IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.machine_more)) }
-					DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-						if (board != null) {
-							DropdownMenuItem(text = { Text(stringResource(R.string.editor_dashboard_keys)) }, onClick = { menu = false; keysOpen = true })
-							DropdownMenuItem(text = { Text(stringResource(R.string.editor_menu_tabs)) }, onClick = { menu = false; onTabs() })
+						OverflowMenu { item ->
+							if (board != null) {
+								item(stringResource(R.string.editor_dashboard_keys)) { keysOpen = true }
+								item(stringResource(R.string.editor_menu_tabs)) { onTabs() }
+							}
+							val known = when (editing) {
+								is Editing.Board -> desc?.dashboard(editing.id)?.takeIf { !editing.isNew }
+								else -> null
+							}
+							if (known?.editor == true && !known.own) item(stringResource(R.string.editor_revert)) { confirm = REVERT }
+							if (profile?.editor == true) item(stringResource(R.string.editor_revert)) { confirm = REVERT }
+							if (known?.own == true) item(stringResource(R.string.editor_delete)) { confirm = DELETE }
+							// A new dashboard is the phone's alone until it is saved: nothing to read again.
+							if (editing != null && board?.isNew != true) item(stringResource(R.string.editor_reload)) { if (state.dirty) confirm = RELOAD else vm.load() }
+							item(stringResource(R.string.help)) { onHelp() }
 						}
-						val known = when (editing) {
-							is Editing.Board -> desc?.dashboard(editing.id)?.takeIf { !editing.isNew }
-							else -> null
-						}
-						if (known?.editor == true && !known.own) {
-							DropdownMenuItem(text = { Text(stringResource(R.string.editor_revert)) }, onClick = { menu = false; confirm = REVERT })
-						}
-						if (profile?.editor == true) {
-							DropdownMenuItem(text = { Text(stringResource(R.string.editor_revert)) }, onClick = { menu = false; confirm = REVERT })
-						}
-						if (known?.own == true) {
-							DropdownMenuItem(text = { Text(stringResource(R.string.editor_delete)) }, onClick = { menu = false; confirm = DELETE })
-						}
-						// A new dashboard is the phone's alone until it is saved: nothing to read again.
-						if (editing != null && board?.isNew != true) {
-							DropdownMenuItem(text = { Text(stringResource(R.string.editor_reload)) }, onClick = { menu = false; if (state.dirty) confirm = RELOAD else vm.load() })
-						}
-						DropdownMenuItem(text = { Text(stringResource(R.string.help)) }, onClick = { menu = false; onHelp() })
-					}
-				},
-			)
-
-			if (board != null && desc != null) {
-				val add = stringResource(R.string.editor_add)
-				ExtendedFloatingActionButton(
-					onClick = { adding = true },
-					icon = { Icon(Icons.Default.Add, null) },
-					text = { Text(add) },
-					// Material's extended button hides its text from screen readers: the button says it instead.
-					modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(Space.l).semantics { contentDescription = add },
+					},
 				)
+
+				Messages(snackbar, Modifier.align(Alignment.BottomCenter))
 			}
-			SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = FAB_ROOM))
 		}
 	}
 
@@ -359,9 +321,9 @@ fun EditorScreen(
 		GlassDialog(
 			onDismiss = { leaving = false },
 			title = stringResource(R.string.editor_leave_title),
-			text = { Text(stringResource(R.string.editor_leave_body)) },
-			confirm = { TextButton(onClick = { leaving = false; onBack() }) { Text(stringResource(R.string.editor_leave)) } },
-			dismiss = { TextButton(onClick = { leaving = false }) { Text(stringResource(R.string.editor_keep)) } },
+			text = stringResource(R.string.editor_leave_body),
+			confirm = DialogButton(stringResource(R.string.editor_leave)) { leaving = false; onBack() },
+			dismiss = DialogButton(stringResource(R.string.editor_keep)) { leaving = false },
 		)
 	}
 	when (confirm) {
@@ -370,9 +332,9 @@ fun EditorScreen(
 			GlassDialog(
 				onDismiss = { confirm = null },
 				title = stringResource(R.string.editor_revert_title),
-				text = { Text(stringResource(if (board != null) R.string.editor_revert_body else R.string.editor_revert_tabs_body, desc?.file.orEmpty())) },
-				confirm = { TextButton(onClick = { confirm = null; write(button) { vm.revert() } }) { Text(button) } },
-				dismiss = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.cancel)) } },
+				text = stringResource(if (board != null) R.string.editor_revert_body else R.string.editor_revert_tabs_body, desc?.file.orEmpty()),
+				confirm = DialogButton(button) { confirm = null; write(button) { vm.revert() } },
+				dismiss = DialogButton(stringResource(R.string.cancel)) { confirm = null },
 			)
 		}
 		DELETE -> {
@@ -380,17 +342,17 @@ fun EditorScreen(
 			GlassDialog(
 				onDismiss = { confirm = null },
 				title = stringResource(R.string.editor_delete_title, title),
-				text = { Text(stringResource(R.string.editor_delete_body, desc?.file.orEmpty())) },
-				confirm = { TextButton(onClick = { confirm = null; write(button) { vm.delete() } }) { Text(button) } },
-				dismiss = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.cancel)) } },
+				text = stringResource(R.string.editor_delete_body, desc?.file.orEmpty()),
+				confirm = DialogButton(button) { confirm = null; write(button) { vm.delete() } },
+				dismiss = DialogButton(stringResource(R.string.cancel)) { confirm = null },
 			)
 		}
 		RELOAD -> GlassDialog(
 			onDismiss = { confirm = null },
 			title = stringResource(R.string.editor_reload_title),
-			text = { Text(stringResource(R.string.editor_reload_body)) },
-			confirm = { TextButton(onClick = { confirm = null; vm.load() }) { Text(stringResource(R.string.editor_reload)) } },
-			dismiss = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.cancel)) } },
+			text = stringResource(R.string.editor_reload_body),
+			confirm = DialogButton(stringResource(R.string.editor_reload)) { confirm = null; vm.load() },
+			dismiss = DialogButton(stringResource(R.string.cancel)) { confirm = null },
 		)
 	}
 }
@@ -441,12 +403,10 @@ private fun mistakeLine(m: Mistake): String = when {
 /** What is said over what is edited: the file can't be written, another editor wrote meanwhile, mistakes elsewhere. */
 @Composable
 private fun EditorNotes(state: EditorState, desc: EditorDescription, elsewhere: List<Mistake>, onTakeTheirs: () -> Unit, onSaveMine: () -> Unit) {
-	if (!desc.writable) {
-		Banner(stringResource(R.string.editor_not_writable, desc.why ?: desc.file))
-	}
+	if (!desc.writable) EditorNote(stringResource(R.string.editor_not_writable, desc.why ?: desc.file))
 	state.conflict?.let { c ->
-		Banner(stringResource(if (c.mine) R.string.editor_conflict_mine else R.string.editor_conflict_other)) {
-			Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+		EditorNote(stringResource(if (c.mine) R.string.editor_conflict_mine else R.string.editor_conflict_other)) {
+			EvenButtons {
 				// Only where this itself changed is there something of the computer's to take.
 				if (c.mine) OutlinedButton(onClick = onTakeTheirs) { Text(stringResource(R.string.editor_conflict_take)) }
 				Button(onClick = onSaveMine, enabled = !state.busy && desc.writable) { Text(stringResource(R.string.editor_conflict_keep)) }
@@ -454,7 +414,7 @@ private fun EditorNotes(state: EditorState, desc: EditorDescription, elsewhere: 
 		}
 	}
 	if (elsewhere.isNotEmpty()) {
-		Banner(stringResource(R.string.editor_mistakes)) {
+		EditorNote(stringResource(R.string.editor_mistakes)) {
 			for (m in elsewhere) Text(mistakeLine(m), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		}
 	}
@@ -462,26 +422,15 @@ private fun EditorNotes(state: EditorState, desc: EditorDescription, elsewhere: 
 
 /** A note in a card the warning's colour, with what may be done about it. */
 @Composable
-private fun Banner(text: String, more: (@Composable () -> Unit)? = null) {
-	val warn = Metric.colors.warn
-	Surface(shape = RoundedCornerShape(Radius.lPlus), color = warn.copy(alpha = Alpha.BANNER), modifier = Modifier.fillMaxWidth()) {
-		Column(Modifier.padding(Space.l), verticalArrangement = Arrangement.spacedBy(Space.s)) {
-			Row(verticalAlignment = Alignment.Top) {
-				Icon(Icons.Default.Warning, null, tint = warn, modifier = Modifier.size(Sizes.iconM))
-				Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = Space.s))
-			}
-			more?.invoke()
-		}
-	}
-}
+private fun EditorNote(text: String, more: (@Composable ColumnScope.() -> Unit)? = null) = Banner(Icons.Default.Warning, Metric.colors.warn, text, more = more)
 
-/** Padding for the editor's content under the glass bar, with room for the button at the bottom. */
+/** Padding for the editor's content: under the glass bar, over the add button, both sides alike. */
 @Composable
 private fun editorPadding(): PaddingValues {
 	val d = LocalDensity.current
 	val top = with(d) { WindowInsets.statusBars.getTop(d).toDp() } + topBarHeight() + Space.s
-	val bottom = with(d) { WindowInsets.navigationBars.getBottom(d).toDp() } + FAB_ROOM
-	return PaddingValues(start = Space.l, end = Space.l, top = top, bottom = bottom)
+	val side = Space.screen + sideInset()
+	return PaddingValues(start = side, end = side, top = top, bottom = bottomReserve() + Space.xl)
 }
 
 /** A widget being dragged over the editor's grid: which, how far, and the place it would take. */
@@ -580,10 +529,10 @@ private fun BoardEditor(
 	val haptics = LocalHapticFeedback.current
 	val prefs = LocalPrefs.current
 	val density = LocalDensity.current
-	val edgePx = with(density) { EDGE.toPx() }
+	val edgePx = with(density) { Sizes.dragEdge.toPx() }
 	// What the bar covers at the top: the list scrolls up from under it.
 	val coveredPx = with(density) { WindowInsets.statusBars.getTop(density) + topBarHeight().toPx() }
-	val stepPx = with(LocalDensity.current) { STEP.toPx() }
+	val stepPx = with(density) { Sizes.dragStep.toPx() }
 
 	// Near the top or bottom while dragging, the list scrolls under the finger, the widget with it.
 	LaunchedEffect(drag.from) {
@@ -629,21 +578,22 @@ private fun BoardEditor(
 		val columns = gridColumns()
 		// One spread over a collection's items takes the whole width, its items in a grid of their own.
 		val spans = objects.mapIndexed { i, w -> if (shown[i].size > 1) Grid.COLUMNS else desc.spanOf(w) }
+		val width = contentWidth()
 		for (row in Grid.place(spans, columns)) {
-			val lifted = row.any { it.first == drag.from }
-			Row(Modifier.fillMaxWidth().zIndex(if (lifted) 1f else 0f), horizontalArrangement = Arrangement.spacedBy(Space.m)) {
-				for ((i, span) in row) {
-					EditCell(
-						i, objects[i], shown[i], scope, desc, columns, span, drag, mistakes.ofCell(i),
-						Modifier.weight(span.toFloat()),
-						onOpen = { onOpen(listOf(i)) },
-						onMoveBy = { by -> if (i + by in widgets.indices) onMove(i, i + by) },
-						onLift = { if (prefs.haptics) haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
-						onDrop = { drag.end()?.let { (f, t) -> onMove(f, t) } },
-					)
+			val lifted = row.cells.any { it.first == drag.from }
+			val even = row.cells.size > 1 && row.cells.none { (i, _) -> shown[i].any(::hasLog) }
+			GridLine(row, Modifier.zIndex(if (lifted) 1f else 0f), even = even) {
+				for ((i, span) in row.cells) {
+					CompositionLocalProvider(LocalCellWidth provides cellWidth(row, span, width)) {
+						EditCell(
+							i, objects[i], shown[i], scope, desc, columns, spans[i], drag, mistakes.ofCell(i), even,
+							onOpen = { onOpen(listOf(i)) },
+							onMoveBy = { by -> if (i + by in widgets.indices) onMove(i, i + by) },
+							onLift = { if (prefs.haptics) haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+							onDrop = { drag.end()?.let { (f, t) -> onMove(f, t) } },
+						)
+					}
 				}
-				val used = row.sumOf { it.second }
-				if (used < columns) Spacer(Modifier.weight((columns - used).toFloat()))
 			}
 		}
 	}
@@ -665,7 +615,8 @@ private fun EditCell(
 	span: Int,
 	drag: Drag,
 	mistakes: List<String>,
-	modifier: Modifier,
+	/** Whether its row's widgets are as tall as each other: more than one, none that can't say how tall it is. */
+	even: Boolean,
 	onOpen: () -> Unit,
 	onMoveBy: (Int) -> Unit,
 	onLift: () -> Unit,
@@ -678,9 +629,9 @@ private fun EditCell(
 		else -> null
 	}
 	val label = desc.titleOf(w)
-	val shadow = with(LocalDensity.current) { LIFT_SHADOW.toPx() }
+	val shadow = with(LocalDensity.current) { Sizes.liftShadow.toPx() }
 	Box(
-		modifier
+		Modifier
 			.onGloballyPositioned { if (drag.from != i) drag.bounds[i] = it.boundsInRoot() }
 			.graphicsLayer {
 				if (lifted) {
@@ -693,16 +644,18 @@ private fun EditCell(
 					shape = CardShape
 				}
 			}
-			.then(if (mark != null) Modifier.border(MARK, mark, CardShape) else Modifier),
+			.then(if (mark != null) Modifier.border(Sizes.mark, mark, CardShape) else Modifier),
 	) {
-		Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+		Column(Modifier.fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+			// As tall as the widget beside it, as on the dashboard.
+			val whole = Modifier.fillMaxWidth().then(if (even) Modifier.weight(1f) else Modifier)
 			when {
-				scope == null || shown.isEmpty() -> Hidden(w, desc)
-				shown.size == 1 -> WidgetView(scope, shown[0], Modifier.fillMaxWidth(), columns)
+				scope == null || shown.isEmpty() -> Hidden(w, desc, whole)
+				shown.size == 1 -> WidgetView(scope, shown[0], whole, columns)
 				else -> {
 					val inner = Grid.span(span, columns)
-					Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
-						for (r in Grid.place(shown.map { it.span }, inner)) GridRow(scope, r.map { (j, s) -> shown[j] to s }, inner)
+					Column(verticalArrangement = Arrangement.spacedBy(Space.gap)) {
+						for (r in Grid.place(shown.map { it.span }, inner)) GridRow(scope, shown, r, inner)
 					}
 				}
 			}
@@ -761,7 +714,7 @@ private fun DragHandle(i: Int, drag: Drag, modifier: Modifier, onMoveBy: (Int) -
 			},
 		contentAlignment = Alignment.Center,
 	) {
-		Icon(Icons.Default.Menu, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(Sizes.iconL))
+		Icon(Icons.Default.Menu, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(Sizes.icon))
 	}
 }
 
@@ -769,18 +722,15 @@ private const val HANDLE_ALPHA = 0.85f
 
 /** A widget the preview doesn't show now (its `when`, the role, a value not there yet): a card that says so. */
 @Composable
-private fun Hidden(w: JsonObject, desc: EditorDescription) {
+private fun Hidden(w: JsonObject, desc: EditorDescription, modifier: Modifier) {
 	val typeLabel = desc.typeLabel(w)
 	// Its own label and icon, else its template's.
-	Section(desc.valueOf(w, EditorDescription.LABEL).text()?.ifBlank { null } ?: typeLabel, icon(desc.valueOf(w, ICON).text()), accent = MaterialTheme.colorScheme.secondary) {
+	Section(desc.valueOf(w, EditorDescription.LABEL).text()?.ifBlank { null } ?: typeLabel, icon(desc.valueOf(w, ICON).text()), modifier, accent = MaterialTheme.colorScheme.secondary) {
 		Text(stringResource(R.string.editor_not_shown, typeLabel), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-		// Room for the handle beside the title.
-		Spacer(Modifier.height(Space.xs))
 	}
 }
 
 /** The widget at [path]: moved within its list, its keys, its width among them, taken out; a group's children opened in its place. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WidgetSheet(
 	path: List<Int>,
@@ -801,43 +751,36 @@ private fun WidgetSheet(
 	val siblings = Drafts.widget(state.draft, path.dropLast(1))?.let(Drafts::widgets)?.size ?: 0
 	val i = path.last()
 	val mistakes = BoardMistakes(state.allMistakes, board).ofWidget(path)
-	val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-	ModalBottomSheet(onDismissRequest = { onOpen(null) }, sheetState = sheet, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-		Column(
-			Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(start = Space.xl, end = Space.xl, bottom = Space.xxl),
-			verticalArrangement = Arrangement.spacedBy(Space.l),
-		) {
-			if (path.size > 1) {
-				val parent = Drafts.widget(state.draft, path.dropLast(1))
-				TextButton(onClick = { onOpen(path.dropLast(1)) }) {
-					Icon(Icons.AutoMirrored.Filled.ArrowBack, null, Modifier.size(Sizes.iconM))
-					Text(stringResource(R.string.editor_back_to, parent?.let(desc::titleOf).orEmpty()), Modifier.padding(start = Space.xs))
-				}
+	GlassSheet(onDismiss = { onOpen(null) }, whole = true) {
+		if (path.size > 1) {
+			val parent = Drafts.widget(state.draft, path.dropLast(1))
+			TextButton(onClick = { onOpen(path.dropLast(1)) }) {
+				Icon(Icons.AutoMirrored.Filled.ArrowBack, null, Modifier.size(Sizes.iconM))
+				Text(stringResource(R.string.editor_back_to, parent?.let(desc::titleOf).orEmpty()), Modifier.padding(start = Space.s))
 			}
-			Text(desc.titleOf(w), style = MaterialTheme.typography.titleLarge)
-			Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-				OutlinedButton(onClick = { onMove(-1) }, enabled = i > 0) {
-					Icon(Icons.Default.KeyboardArrowUp, null, Modifier.size(Sizes.iconM))
-					Text(stringResource(R.string.editor_move_earlier), Modifier.padding(start = Space.xs))
-				}
-				OutlinedButton(onClick = { onMove(1) }, enabled = i < siblings - 1) {
-					Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(Sizes.iconM))
-					Text(stringResource(R.string.editor_move_later), Modifier.padding(start = Space.xs))
-				}
+		}
+		Text(desc.titleOf(w), style = MaterialTheme.typography.titleLarge)
+		EvenButtons {
+			OutlinedButton(onClick = { onMove(-1) }, enabled = i > 0, contentPadding = PaddingValues(horizontal = Space.m)) {
+				Icon(Icons.Default.KeyboardArrowUp, null, Modifier.size(Sizes.iconM))
+				Text(stringResource(R.string.editor_move_earlier), Modifier.padding(start = Space.s))
 			}
-			Mistakes(mistakes[""].orEmpty())
-			// Its type is its title; changed only where the description offers it.
-			ObjectFields(desc.keysOf(w), w, onKey, env, path, mistakes, skip = if (desc.common.none { it.key == TYPE }) setOf(TYPE) else emptySet())
-			TextButton(onClick = onRemove) {
-				Icon(Icons.Default.Delete, null, Modifier.size(Sizes.iconM), tint = MaterialTheme.colorScheme.error)
-				Text(stringResource(R.string.editor_remove_widget), Modifier.padding(start = Space.xs), color = MaterialTheme.colorScheme.error)
+			OutlinedButton(onClick = { onMove(1) }, enabled = i < siblings - 1, contentPadding = PaddingValues(horizontal = Space.m)) {
+				Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(Sizes.iconM))
+				Text(stringResource(R.string.editor_move_later), Modifier.padding(start = Space.s))
 			}
+		}
+		Mistakes(mistakes[""].orEmpty())
+		// Its type is its title; changed only where the description offers it.
+		ObjectFields(desc.keysOf(w), w, onKey, env, path, mistakes, skip = if (desc.common.none { it.key == TYPE }) setOf(TYPE) else emptySet())
+		TextButton(onClick = onRemove, modifier = Modifier.fillMaxWidth()) {
+			Icon(Icons.Default.Delete, null, Modifier.size(Sizes.iconM), tint = MaterialTheme.colorScheme.error)
+			Text(stringResource(R.string.editor_remove_widget), Modifier.padding(start = Space.s), color = MaterialTheme.colorScheme.error)
 		}
 	}
 }
 
 /** The dashboard's own keys (its title, icon, role…) as the description has them, and where it comes from. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DashboardKeysSheet(
 	state: EditorState,
@@ -847,29 +790,23 @@ private fun DashboardKeysSheet(
 	onKey: (String, JsonElement?) -> Unit,
 	onDismiss: () -> Unit,
 ) {
-	val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 	val mistakes = BoardMistakes(state.allMistakes, board).ofKeys
 	val known = desc.dashboard(board)
 	val res = resources()
 	// What a file below the editor's sets, as the computer says key by key: changed here, not taken out.
 	val fixed = { key: String -> known?.fixed(key)?.let { whereOf(res, it) } }
-	ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-		Column(
-			Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(start = Space.xl, end = Space.xl, bottom = Space.xxl),
-			verticalArrangement = Arrangement.spacedBy(Space.l),
-		) {
-			Text(stringResource(R.string.editor_dashboard_keys), style = MaterialTheme.typography.titleLarge)
-			Text(stringResource(R.string.editor_dashboard_id, board), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			known?.from?.takeIf { it.isNotEmpty() }?.let { from ->
-				Text(
-					stringResource(R.string.editor_set_in, from.joinToString(", ") { whereOf(res, it) }),
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-			}
-			// The widgets are the grid's to edit.
-			ObjectFields(desc.dashboard.keys, state.draft, onKey, env, emptyList(), mistakes, fixed, skip = setOf(WIDGETS))
+	GlassSheet(onDismiss = onDismiss, whole = true) {
+		Text(stringResource(R.string.editor_dashboard_keys), style = MaterialTheme.typography.titleLarge)
+		Text(stringResource(R.string.editor_dashboard_id, board), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		known?.from?.takeIf { it.isNotEmpty() }?.let { from ->
+			Text(
+				stringResource(R.string.editor_set_in, from.joinToString(", ") { whereOf(res, it) }),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
 		}
+		// The widgets are the grid's to edit.
+		ObjectFields(desc.dashboard.keys, state.draft, onKey, env, emptyList(), mistakes, fixed, skip = setOf(WIDGETS))
 	}
 }
 
@@ -979,8 +916,8 @@ private fun NewDashboardDialog(desc: EditorDescription, onDismiss: () -> Unit, o
 				}
 			}
 		},
-		confirm = { TextButton(onClick = { onCreate(id, title.trim(), copy, toTabs) }, enabled = valid) { Text(stringResource(R.string.editor_new_create)) } },
-		dismiss = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+		confirm = DialogButton(stringResource(R.string.editor_new_create), enabled = valid) { onCreate(id, title.trim(), copy, toTabs) },
+		dismiss = DialogButton(stringResource(R.string.cancel), onClick = onDismiss),
 	)
 	if (picking) {
 		val empty = stringResource(R.string.editor_new_empty)

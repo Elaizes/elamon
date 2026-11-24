@@ -13,40 +13,56 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,15 +72,19 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import dev.chrisbanes.haze.HazeProgressive
@@ -73,6 +93,7 @@ import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 import io.github.elaizes.elamon.R
+import io.github.elaizes.elamon.data.Grid
 
 /** The content a screen's bars blur, provided by the screen. */
 val LocalHaze = staticCompositionLocalOf<HazeState?> { null }
@@ -192,15 +213,16 @@ fun GlassTopBar(
 	val a by animateFloatAsState(if (collapsed) 1f else 0f, tween(if (animate) Motion.BAR_FADE else 0), label = "bar")
 	Box(Modifier.fillMaxWidth().glass(alpha = a, fadeDown = true)) {
 		Row(
-			Modifier.statusBarsPadding().fillMaxWidth().height(topBarHeight()).padding(horizontal = Space.xs),
+			Modifier.statusBarsPadding().fillMaxWidth().height(topBarHeight()).padding(horizontal = BarInset + sideInset()),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
 			if (onBack != null) {
 				IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) }
 			} else {
-				Spacer(Modifier.width(Space.m))
+				// Without a button the small title starts where the big one does.
+				Spacer(Modifier.width(Space.screen + Space.card - BarInset - Space.xs))
 			}
-			Column(Modifier.weight(1f).padding(start = Space.xs)) {
+			Column(Modifier.weight(1f).padding(horizontal = Space.xs)) {
 				AnimatedVisibility(
 					collapsed,
 					enter = fadeIn(tween(if (animate) Motion.TITLE_IN else 0)),
@@ -209,7 +231,7 @@ fun GlassTopBar(
 					Column {
 						Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
 						if (subtitle != null) {
-							Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+							Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
 						}
 					}
 				}
@@ -219,8 +241,11 @@ fun GlassTopBar(
 	}
 }
 
+/** From the screen's sides to the top bar's buttons: their icons' edges are the cards'. */
+private val BarInset: Dp = Space.screen - Sizes.buttonEmpty
+
 /** How far in from the screen's sides something in the top bar keeps clear of its buttons. */
-val BarButtonsClearance: Dp = Space.xs + Sizes.touchTarget + Space.xs
+val BarButtonsClearance: Dp = BarInset + Sizes.touchTarget + Space.xs
 
 /**
  * A screen's big title, right under the bar and as tall as what it holds; it fades as it scrolls
@@ -248,7 +273,7 @@ fun BigTitle(
 			.fillMaxWidth()
 			.padding(top = topBarHeight())
 			.graphicsLayer { this.alpha = alpha }
-			.padding(start = Space.xxl, end = Space.xxl, top = Space.xs, bottom = Space.m),
+			.padding(start = Space.card, end = Space.card, top = Space.xs, bottom = Space.m),
 	) {
 		Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = TITLE_LINES, overflow = TextOverflow.Ellipsis)
 		if (subtitle != null) {
@@ -267,27 +292,23 @@ private const val TITLE_LINES = 2
 
 class NavItem(val label: String, val icon: ImageVector)
 
-private val NavBarShape = RoundedCornerShape(Radius.floating)
-private val NavItemShape = RoundedCornerShape(Radius.card)
-
-/** The least a tab's label shrinks to before it is cut short. */
-private val NavLabelMin = 9.sp
+private val NavItemShape = RoundedCornerShape(Radius.tab)
 
 /** The tab bar as a floating pill of glass; to a screen reader, a row of tabs with one selected. */
 @Composable
 fun FloatingNavBar(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
-	Box(modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = Space.xl, vertical = Space.m), contentAlignment = Alignment.Center) {
+	Box(modifier.fillMaxWidth().overSystemBar().padding(horizontal = Space.screen + sideInset(), vertical = Space.m), contentAlignment = Alignment.Center) {
 		val shadow = Color.Black.copy(alpha = Alpha.SHADOW)
 		val moveMs = if (LocalPrefs.current.animations) Motion.NAV else 0
 		Row(
 			Modifier
 				.fillMaxWidth()
-				.shadow(Space.lPlus, NavBarShape, ambientColor = shadow, spotColor = shadow)
-				.clip(NavBarShape)
+				.shadow(Sizes.shadow, CardShape, ambientColor = shadow, spotColor = shadow)
+				.clip(CardShape)
 				.glass()
-				.padding(Space.xsPlus)
+				.padding(Space.xs)
 				.selectableGroup(),
-			horizontalArrangement = Arrangement.spacedBy(Space.xxs),
+			horizontalArrangement = Arrangement.spacedBy(Space.xs),
 		) {
 			items.forEachIndexed { i, item ->
 				val on = i == selected
@@ -313,21 +334,21 @@ fun FloatingNavBar(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit,
 							role = Role.Tab,
 							onClick = { onSelect(i) },
 						)
-						.padding(horizontal = Space.xxs, vertical = Space.s),
+						.padding(horizontal = Space.xs, vertical = Space.s),
 					horizontalAlignment = Alignment.CenterHorizontally,
 				) {
 					// The label below says it; the icon would only say it twice.
-					Icon(item.icon, null, tint = fg, modifier = Modifier.size(Sizes.iconL))
-					// At a large font a long label shrinks to fit its tab, down to a floor, then ends in "…".
-					val label = MaterialTheme.typography.labelSmall
+					Icon(item.icon, null, tint = fg, modifier = Modifier.size(Sizes.icon))
+					Spacer(Modifier.height(Space.xxs))
+					// As heavy whichever tab is on: the labels stay where they are. A long one gets smaller, then ends in "…".
 					Text(
 						item.label,
-						style = label,
+						style = MaterialTheme.typography.labelSmall,
 						color = fg,
-						fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
+						fontWeight = FontWeight.SemiBold,
 						maxLines = 1,
 						overflow = TextOverflow.Ellipsis,
-						autoSize = TextAutoSize.StepBased(minFontSize = NavLabelMin, maxFontSize = label.fontSize),
+						modifier = Modifier.shrinkToFit(),
 					)
 				}
 			}
@@ -364,32 +385,136 @@ fun BlurBehind(radius: Int = Blur.BEHIND_PX) {
 	}
 }
 
-private val DialogShape = RoundedCornerShape(Radius.floating)
+/** The button at the top bar's end for the rest of what a screen offers, and the menu it opens under itself; [item]s close it. */
+@Composable
+fun OverflowMenu(content: @Composable (item: @Composable (String, () -> Unit) -> Unit) -> Unit) {
+	var open by remember { mutableStateOf(false) }
+	// Anchored to the button: the bar's row would have it open at the other side of the screen.
+	Box {
+		IconButton(onClick = { open = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.machine_more)) }
+		DropdownMenu(expanded = open, onDismissRequest = { open = false }, shape = InnerShape) {
+			content { label, onClick ->
+				DropdownMenuItem(text = { Text(label) }, onClick = { open = false; onClick() })
+			}
+		}
+	}
+}
 
-/** An AlertDialog over a blurred screen. */
+/** Clear of the system's navigation bar at the bottom of the screen; its sides are [sideInset]'s. */
+@Composable
+fun Modifier.overSystemBar(): Modifier = windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
+
+/** The button that adds something, floating at the end of the screen's bottom, on the cards' edge. */
+@Composable
+fun AddButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+	ExtendedFloatingActionButton(
+		onClick = onClick,
+		icon = { Icon(Icons.Default.Add, null) },
+		text = { Text(label) },
+		shape = CardShape,
+		containerColor = MaterialTheme.colorScheme.primaryContainer,
+		contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+		// Material's extended button hides its text from screen readers: the button says it instead.
+		modifier = modifier.overSystemBar().padding(horizontal = Space.screen + sideInset(), vertical = Space.l).semantics { contentDescription = label },
+	)
+}
+
+/** What a screen says for a moment, over its bottom and clear of what floats there. */
+@Composable
+fun Messages(host: SnackbarHostState, modifier: Modifier = Modifier) {
+	SnackbarHost(host, modifier.padding(horizontal = sideInset()).padding(bottom = bottomReserve() + Space.xs)) { Snackbar(it, shape = InnerShape) }
+}
+
+/** A sheet over the bottom of the screen, as far in from both sides; with [whole], open to the top at once. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GlassSheet(onDismiss: () -> Unit, whole: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+	ModalBottomSheet(
+		onDismissRequest = onDismiss,
+		sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = whole),
+		shape = RoundedCornerShape(topStart = Radius.card, topEnd = Radius.card),
+		containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+	) {
+		Column(
+			Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(start = Space.xl, end = Space.xl, bottom = Space.xl),
+			verticalArrangement = Arrangement.spacedBy(Space.m),
+			content = content,
+		)
+	}
+}
+
+/** A dialog's button: what it says and does; [busy], a spinner in the words' place. */
+class DialogButton(val label: String, val enabled: Boolean = true, val busy: Boolean = false, val onClick: () -> Unit)
+
+/** An AlertDialog over a blurred screen: its title in the middle, its buttons sharing its width. */
 @Composable
 fun GlassDialog(
 	onDismiss: () -> Unit,
 	title: String,
-	text: (@Composable () -> Unit)? = null,
+	confirm: DialogButton,
+	dismiss: DialogButton? = null,
 	icon: ImageVector? = null,
-	confirm: @Composable () -> Unit,
-	dismiss: (@Composable () -> Unit)? = null,
+	text: (@Composable () -> Unit)? = null,
 ) {
 	AlertDialog(
 		onDismissRequest = onDismiss,
 		icon = icon?.let { { Icon(it, null) } },
 		title = {
 			BlurBehind()
-			Text(title)
+			Text(title, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().wholeWords())
 		},
 		// Long text at a large font scrolls between the title and the buttons, which stay in sight.
-		text = text?.let { t -> { Column(Modifier.verticalScroll(rememberScrollState())) { t() } } },
-		confirmButton = confirm,
-		dismissButton = dismiss,
-		shape = DialogShape,
+		text = text?.let { t -> { Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) { t() } } },
+		confirmButton = {
+			// One under the other where a half is too narrow for what one says, the one that does it on top.
+			EvenButtons {
+				if (dismiss != null) DialogAction(dismiss)
+				DialogAction(confirm)
+			}
+		},
+		shape = CardShape,
 		// Laid out within the window's insets, so the keyboard shrinks the dialog instead of covering its buttons.
 		modifier = Modifier.imePadding(),
 		properties = DialogProperties(decorFitsSystemWindows = false),
 	)
+}
+
+/** A dialog that says [text] and no more, in the middle as its title is. */
+@Composable
+fun GlassDialog(onDismiss: () -> Unit, title: String, text: String, confirm: DialogButton, dismiss: DialogButton? = null) =
+	GlassDialog(onDismiss, title, confirm, dismiss) { Text(text, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
+
+@Composable
+private fun DialogAction(b: DialogButton) {
+	TextButton(onClick = b.onClick, enabled = b.enabled && !b.busy) {
+		if (b.busy) Spinner() else Text(b.label, textAlign = TextAlign.Center)
+	}
+}
+
+/**
+ * Buttons side by side, sharing the width evenly; where one's words don't fit its share, one under
+ * the other, the last on top, each the whole width.
+ */
+@Composable
+fun EvenButtons(content: @Composable () -> Unit) {
+	Layout(content, Modifier.fillMaxWidth()) { buttons, constraints ->
+		val gap = Space.s.roundToPx()
+		val n = buttons.size
+		val width = constraints.maxWidth
+		val line = Grid.Line(List(n) { it to 1 }, n)
+		val share = line.cells.map { (i, span) -> Grid.extent(i, span, n, width, gap) }
+		if (buttons.indices.all { buttons[it].maxIntrinsicWidth(Constraints.Infinity) <= share[it].width }) {
+			val placed = buttons.mapIndexed { i, b -> b.measure(Constraints.fixedWidth(share[i].width)) }
+			layout(width, placed.maxOfOrNull { it.height } ?: 0) { placed.forEachIndexed { i, p -> p.placeRelative(share[i].start, 0) } }
+		} else {
+			val placed = buttons.reversed().map { it.measure(Constraints.fixedWidth(width)) }
+			layout(width, placed.sumOf { it.height }) {
+				var y = 0
+				for (p in placed) {
+					p.placeRelative(0, y)
+					y += p.height
+				}
+			}
+		}
+	}
 }

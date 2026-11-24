@@ -3,6 +3,7 @@ package io.github.elaizes.elamon.widget
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.text.format.DateUtils
 import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.Composable
@@ -56,10 +57,14 @@ import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.Scale
 import io.github.elaizes.elamon.Settings
 import io.github.elaizes.elamon.ThemeMode
+import io.github.elaizes.elamon.data.Grid
 import io.github.elaizes.elamon.data.Machine
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.UiCache
 import io.github.elaizes.elamon.ui.MetricColors
+import io.github.elaizes.elamon.ui.Radius
+import io.github.elaizes.elamon.ui.Sizes
+import io.github.elaizes.elamon.ui.Space
 import io.github.elaizes.elamon.ui.accentOf
 import io.github.elaizes.elamon.ui.appColorScheme
 import io.github.elaizes.elamon.ui.color
@@ -184,14 +189,16 @@ private class WidgetColors(
 	}
 }
 
-/** The widget's padding, and a line's height at 100%, for how many fit. */
-private val Pad = 12.dp
+/** A line's height and the name's at 100%, for how many fit; the sizes of their text. */
 private const val LINE_DP = 20f
 private const val HEADER_DP = 30f
 private const val TEXT_SP = 14f
 private const val SMALL_SP = 12f
 private const val TITLE_SP = 15f
-private val Corner = 16.dp
+
+/** The widget's corner: the home screen's own where it has one (Android 12), or a card's. */
+private fun GlanceModifier.widgetCorner(): GlanceModifier =
+	if (Build.VERSION.SDK_INT >= 31) cornerRadius(android.R.dimen.system_app_widget_background_radius) else cornerRadius(Radius.card)
 
 @Composable
 private fun Content(machine: Machine?, shown: WidgetShown, reading: Boolean, c: WidgetColors, scale: Float) {
@@ -201,7 +208,7 @@ private fun Content(machine: Machine?, shown: WidgetShown, reading: Boolean, c: 
 	val body = TextStyle(color = c.text, fontSize = (TEXT_SP * scale).sp)
 	val small = TextStyle(color = c.quiet, fontSize = (SMALL_SP * scale).sp)
 	Column(
-		GlanceModifier.fillMaxSize().appWidgetBackground().cornerRadius(Corner).background(c.background).padding(Pad).clickable(tap),
+		GlanceModifier.fillMaxSize().appWidgetBackground().widgetCorner().background(c.background).padding(Space.m).clickable(tap),
 	) {
 		// Its name and when it was read; the name opens it in the app.
 		Row(GlanceModifier.fillMaxWidth().clickable(open), verticalAlignment = Alignment.CenterVertically) {
@@ -212,11 +219,11 @@ private fun Content(machine: Machine?, shown: WidgetShown, reading: Boolean, c: 
 				maxLines = 1,
 			)
 			note(ctx, shown, reading)?.let {
-				Spacer(GlanceModifier.width(8.dp))
+				Spacer(GlanceModifier.width(Space.s))
 				Text(it, style = small, maxLines = 1)
 			}
 		}
-		Spacer(GlanceModifier.height(6.dp))
+		Spacer(GlanceModifier.height(Space.s))
 		val words = message(ctx, machine, shown, reading)
 		if (words != null) {
 			Text(words, style = body.copy(color = c.quiet))
@@ -234,10 +241,10 @@ private fun Content(machine: Machine?, shown: WidgetShown, reading: Boolean, c: 
 		) {
 			layout.rings.forEachIndexed { i, row ->
 				if (i > 0) Spacer(GlanceModifier.height(gap))
-				Row(GlanceModifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-					row.forEachIndexed { j, line ->
-						if (j > 0) Spacer(GlanceModifier.width(gap))
-						Ring(line, layout.ringDp, old, c)
+				// Each in the middle of an even share of the width: as much room between them as at the sides.
+				Row(GlanceModifier.fillMaxWidth()) {
+					for (line in row) {
+						Box(GlanceModifier.defaultWeight(), contentAlignment = Alignment.Center) { Ring(line, layout.ringDp, old, c) }
 					}
 				}
 			}
@@ -257,8 +264,8 @@ private fun Ring(line: WidgetLine, dp: Float, old: Boolean, c: WidgetColors) {
 		Image(ImageProvider(R.drawable.widget_ring_track), null, GlanceModifier.fillMaxSize(), colorFilter = ColorFilter.tint(c.track))
 		Image(ImageProvider(fill), null, GlanceModifier.fillMaxSize(), colorFilter = ColorFilter.tint(if (old) c.old else c.ring(line)))
 		Column(horizontalAlignment = Alignment.CenterHorizontally) {
-			Text(line.text, style = TextStyle(color = if (old) c.old else c.text, fontSize = (dp * RING_VALUE).sp, fontWeight = FontWeight.Bold), maxLines = 1)
-			Text(line.label, style = TextStyle(color = if (old) c.old else c.quiet, fontSize = (dp * RING_LABEL).coerceAtLeast(RING_LABEL_MIN_SP).sp), maxLines = 1)
+			Text(line.text, style = TextStyle(color = if (old) c.old else c.text, fontSize = ringText(line.text, dp, RING_VALUE).sp, fontWeight = FontWeight.Bold), maxLines = 1)
+			Text(line.label, style = TextStyle(color = if (old) c.old else c.quiet, fontSize = ringText(line.label, dp, RING_LABEL).sp), maxLines = 1)
 		}
 	}
 }
@@ -267,19 +274,19 @@ private fun Ring(line: WidgetLine, dp: Float, old: Boolean, c: WidgetColors) {
 private fun Line(line: WidgetLine, old: Boolean, c: WidgetColors, scale: Float) {
 	val size = (TEXT_SP * scale).sp
 	if (line.words) {
-		Text(line.text, GlanceModifier.fillMaxWidth().padding(vertical = 1.dp), TextStyle(color = if (old) c.old else c.level(line), fontSize = size), maxLines = 2)
+		Text(line.text, GlanceModifier.fillMaxWidth().padding(vertical = Sizes.widgetLine), TextStyle(color = if (old) c.old else c.level(line), fontSize = size), maxLines = 2)
 		return
 	}
-	Row(GlanceModifier.fillMaxWidth().padding(vertical = 1.dp), verticalAlignment = Alignment.CenterVertically) {
+	Row(GlanceModifier.fillMaxWidth().padding(vertical = Sizes.widgetLine), verticalAlignment = Alignment.CenterVertically) {
 		Text(line.label, GlanceModifier.defaultWeight(), TextStyle(color = if (old) c.old else c.quiet, fontSize = size), maxLines = 1)
-		Spacer(GlanceModifier.width(8.dp))
+		Spacer(GlanceModifier.width(Space.s))
 		Text(line.text, style = TextStyle(color = if (old) c.old else c.level(line), fontSize = size, fontWeight = FontWeight.Medium), maxLines = 1)
 	}
 }
 
 /** How many lines fit in a widget [heightDp] tall at the app's [scale]: one at least. */
 internal fun linesThatFit(heightDp: Float, scale: Float): Int =
-	((heightDp - 2 * Pad.value - HEADER_DP * scale) / (LINE_DP * scale)).toInt().coerceAtLeast(1)
+	((heightDp - 2 * Space.m.value - HEADER_DP * scale) / (LINE_DP * scale)).toInt().coerceAtLeast(1)
 
 /** A ring's least and most size at 100%, and the room between rings, in dp. */
 internal const val RING_MIN_DP = 48f
@@ -289,10 +296,18 @@ internal const val RING_GAP_DP = 8f
 /** A ring's picture is drawn no larger than this: what a widget sends the home screen is kept small. */
 private const val RING_MAX_PX = 256
 
-/** A ring's value and label, in sp for each dp of it; a label no smaller than [RING_LABEL_MIN_SP]. */
+/** A ring's value and label, in sp for each dp of it. */
 private const val RING_VALUE = 0.24f
-private const val RING_LABEL = 0.15f
-private const val RING_LABEL_MIN_SP = 9f
+private const val RING_LABEL = 0.16f
+
+/** How much of a ring's width its text has, how wide a letter is in its size, and the least size it gets. */
+private const val RING_ROOM = 0.7f
+private const val LETTER = 0.6f
+private const val RING_TEXT_MIN_SP = 7f
+
+/** The size, in sp, of [text] in a ring [dp] across: its [share] of the ring, smaller where that would run into its sides. */
+internal fun ringText(text: String, dp: Float, share: Float): Float =
+	minOf(dp * share, dp * RING_ROOM / (LETTER * text.length.coerceAtLeast(1))).coerceAtLeast(RING_TEXT_MIN_SP)
 
 /** What a widget shows of its lines: its gauges as [rings], rows of them [ringDp] across, then the [lines] of the rest. */
 internal data class WidgetLayout(val rings: List<List<WidgetLine>>, val ringDp: Float, val lines: List<WidgetLine>)
@@ -305,8 +320,8 @@ internal data class WidgetLayout(val rings: List<List<WidgetLine>>, val ringDp: 
  */
 internal fun widgetLayout(lines: List<WidgetLine>, widthDp: Float, heightDp: Float, scale: Float): WidgetLayout {
 	val gauges = lines.filter { it.ring != null }
-	val width = widthDp - 2 * Pad.value
-	val height = heightDp - 2 * Pad.value - HEADER_DP * scale
+	val width = widthDp - 2 * Space.m.value
+	val height = heightDp - 2 * Space.m.value - HEADER_DP * scale
 	val least = RING_MIN_DP * scale
 	val gap = RING_GAP_DP * scale
 	if (gauges.isEmpty() || width < least || height < least) return WidgetLayout(emptyList(), 0f, lines.take(linesThatFit(heightDp, scale)))
@@ -317,7 +332,7 @@ internal fun widgetLayout(lines: List<WidgetLine>, widthDp: Float, heightDp: Flo
 	val ring = minOf(RING_MAX_DP * scale, (width - (perRow - 1) * gap) / perRow, (height - (rows - 1) * gap) / rows)
 	val left = height - rows * ring - rows * gap
 	val rest = lines.filter { it.ring == null }
-	return WidgetLayout(gauges.take(shown).chunked(perRow), ring, rest.take((left / (LINE_DP * scale)).toInt().coerceAtLeast(0)))
+	return WidgetLayout(Grid.even(shown, perRow).map { row -> row.cells.map { (i, _) -> gauges[i] } }, ring, rest.take((left / (LINE_DP * scale)).toInt().coerceAtLeast(0)))
 }
 
 /** What the widget says beside the computer's name: when it was read, or what keeps it from it. */

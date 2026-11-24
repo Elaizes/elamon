@@ -8,19 +8,21 @@ import androidx.annotation.StringRes
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
@@ -215,26 +217,28 @@ fun GuardDialog(guard: Guard) {
 		text = if (ask.body == null && !p.noLockScreen && ask.typed == null) null else {
 			{
 				Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
-					if (ask.typed != null) Text(ask.question)
-					ask.body?.let { Text(it) }
+					val wide = Modifier.fillMaxWidth()
+					if (ask.typed != null) Text(ask.question, textAlign = TextAlign.Center, modifier = wide)
+					ask.body?.let { Text(it, textAlign = TextAlign.Center, modifier = wide) }
 					if (ask.typed != null) {
-						Text(stringResource(words.body, ask.typed))
+						Text(stringResource(words.body, ask.typed), textAlign = TextAlign.Center, modifier = wide)
 						OutlinedTextField(
 							value = guard.state.typed,
 							onValueChange = { guard.state.typed = it },
 							label = { Text(stringResource(words.field)) },
 							singleLine = true,
+							modifier = wide,
 							// A command as the station names it, a monitor as Hyprland does: no word the keyboard would rather have.
 							keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii),
 						)
 					}
 					if (p.noLockScreen) {
-						Text(stringResource(R.string.unlock_no_lock_screen), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+						Text(stringResource(R.string.unlock_no_lock_screen), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = wide)
 					}
 				}
 			}
 		},
-		confirm = { TextButton(onClick = guard::confirmed, enabled = ask.typed == null || Params.typedMatches(guard.state.typed, ask.typed)) { Text(ask.button) } },
-		dismiss = { TextButton(onClick = guard::dismissed) { Text(stringResource(R.string.cancel)) } },
+		confirm = DialogButton(ask.button, enabled = ask.typed == null || Params.typedMatches(guard.state.typed, ask.typed), onClick = guard::confirmed),
+		dismiss = DialogButton(stringResource(R.string.cancel), onClick = guard::dismissed),
 	)
 }

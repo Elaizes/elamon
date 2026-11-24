@@ -8,14 +8,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,25 +19,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -58,11 +47,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -336,25 +324,14 @@ fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: 
 		BottomBarLayout(
 			Modifier.fillMaxSize(),
 			barAlignment = Alignment.End,
-			bar = {
-				val add = stringResource(R.string.home_add_computer)
-				ExtendedFloatingActionButton(
-					onClick = { addDialog = true },
-					icon = { Icon(Icons.Default.Add, null) },
-					text = { Text(add) },
-					shape = RoundedCornerShape(Radius.field),
-					containerColor = MaterialTheme.colorScheme.primaryContainer,
-					// Material's extended button hides its text from screen readers: the button says it instead.
-					modifier = Modifier.navigationBarsPadding().padding(Space.xl).semantics { contentDescription = add },
-				)
-			},
+			bar = { AddButton(stringResource(R.string.home_add_computer)) { addDialog = true } },
 		) {
 			Box(Modifier.fillMaxSize()) {
 				LazyColumn(
 					Modifier.fillMaxSize().hazeSource(haze),
 					state = list,
 					contentPadding = listPadding(),
-					verticalArrangement = Arrangement.spacedBy(Space.m),
+					verticalArrangement = Arrangement.spacedBy(Space.gap),
 				) {
 					item(key = "title") {
 						BigTitle(
@@ -395,7 +372,7 @@ fun HomeScreen(onOpen: (Machine) -> Unit, onPair: (PairTarget) -> Unit, onHelp: 
 						IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, stringResource(R.string.settings)) }
 					},
 				)
-				SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = bottomReserve() + Space.l))
+				Messages(snackbar, Modifier.align(Alignment.BottomCenter))
 			}
 		}
 	}
@@ -448,7 +425,7 @@ private suspend fun reading(s: Machine, store: MachineStore, cache: UiCache): Li
 
 private fun Found.toTarget() = PairTarget(hosts = listOf(host), port = port, name = name, id = id, fingerprint = null, fingerprintPrefix = fingerprintPrefix)
 
-/** Figures to a row on a card. */
+/** The most figures to a row on a card. */
 private const val STATS_IN_A_ROW = 3
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -456,23 +433,24 @@ private const val STATS_IN_A_ROW = 3
 private fun ComputerCard(s: Machine, live: Live, running: Set<String>, onClick: () -> Unit, onQuick: (QuickActions, QuickAction) -> Unit) {
 	val c = Metric.colors
 	val online = live is Live.Online
-	Surface(modifier = Modifier.fillMaxWidth(), shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+	CardSurface {
 		Column(
 			Modifier
-				.background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary.copy(alpha = if (online) Alpha.CARD_ONLINE else Alpha.CARD_OFFLINE), Color.Transparent)))
+				.background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.primary.copy(alpha = if (online) Alpha.CARD_ONLINE else Alpha.CARD_OFFLINE), Color.Transparent)))
 				.clickable(onClick = onClick)
-				.padding(Space.lPlus),
-			verticalArrangement = Arrangement.spacedBy(Space.mPlus),
+				.padding(Space.card),
+			verticalArrangement = Arrangement.spacedBy(Space.m),
 		) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
-				Box(Modifier.size(Sizes.badgeComputer).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
+				Box(Modifier.size(Sizes.badgeL).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
 					Icon(ElIcons.Laptop, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
 				}
-				Spacer(Modifier.width(Space.mPlus))
+				Spacer(Modifier.width(Space.m))
 				Column(Modifier.weight(1f)) {
 					Text(s.name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
 					Text(s.hostsToTry().firstOrNull().orEmpty(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
 				}
+				Spacer(Modifier.width(Space.s))
 				when (live) {
 					is Live.Online -> Pill(stringResource(R.string.home_online), c.good, dot = true)
 					Live.Offline -> Pill(stringResource(R.string.offline), MaterialTheme.colorScheme.outline, dot = true)
@@ -483,18 +461,14 @@ private fun ComputerCard(s: Machine, live: Live, running: Set<String>, onClick: 
 			}
 			if (live !is Live.Online) return@Column
 			// The first tab's three figures in a row, as before 0.10; a card's, three to a row.
-			for (row in live.stats.chunked(STATS_IN_A_ROW)) {
-				Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(Space.sPlus)) {
-					for (stat in row) {
-						val accent = accent(stat.color)
-						MiniStat(stat, levelColor(stat.level, stat.blend, accent) ?: accent, Modifier.weight(1f).fillMaxHeight())
-					}
-					// The last row's figures as wide as the others.
-					if (live.stats.size > STATS_IN_A_ROW) repeat(STATS_IN_A_ROW - row.size) { Spacer(Modifier.weight(1f)) }
+			if (live.stats.isNotEmpty()) {
+				EvenRows(live.stats, STATS_IN_A_ROW) { stat ->
+					val accent = accent(stat.color)
+					MiniStat(stat, levelColor(stat.level, stat.blend, accent) ?: accent)
 				}
 			}
 			val quick = live.quick ?: return@Column
-			FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+			FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 				for (q in quick.items) {
 					val busy = quickKey(s.id, q.widget.id) in running
 					val label = q.widget.label ?: q.action.name
@@ -504,7 +478,7 @@ private fun ComputerCard(s: Machine, live: Live, running: Set<String>, onClick: 
 						enabled = q.enabled && !busy,
 						label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
 						leadingIcon = {
-							if (busy) CircularProgressIndicator(Modifier.size(Sizes.iconS), strokeWidth = Sizes.spinnerStroke)
+							if (busy) Spinner(Sizes.iconS)
 							else Icon(icon(q.widget.icon ?: q.action.icon), null, Modifier.size(Sizes.iconS))
 						},
 						shape = PillShape,
@@ -516,12 +490,12 @@ private fun ComputerCard(s: Machine, live: Live, running: Set<String>, onClick: 
 }
 
 @Composable
-private fun MiniStat(stat: HomeStat, color: Color, modifier: Modifier) {
-	Column(modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(Radius.l)).padding(Space.m), verticalArrangement = Arrangement.spacedBy(Space.xsPlus)) {
-		Text(stat.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-		RollingText(stat.text, MaterialTheme.typography.titleMedium, color = if (stat.fraction == null) color else Color.Unspecified)
+private fun MiniStat(stat: HomeStat, color: Color) {
+	Column(Modifier.background(cardColor(), InnerShape).padding(Space.s), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+		Text(stat.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.shrinkToFit())
+		RollingText(stat.text, MaterialTheme.typography.titleMedium, Modifier.shrinkToFit(), color = if (stat.fraction == null) color else Color.Unspecified)
 		// A spark's points, as its tile draws them, small, in its bar's place.
-		if (stat.fraction != null && stat.spark == null) UsageBar(stat.fraction, color, height = Sizes.barMini)
+		if (stat.fraction != null && stat.spark == null) UsageBar(stat.fraction, color, height = Sizes.barThin)
 		stat.spark?.let { entry ->
 			val hist = remember(entry) { Hist(1, sparkWindowMs(entry)).apply { replace(entry) } }
 			Sparkline(hist.points(0), color, height = ChartStyle.sparkMini, maxValue = if (stat.fraction != null) Thresholds.PERCENT else null, name = stat.label)
@@ -534,10 +508,10 @@ private fun sparkWindowMs(entry: HistoryEntry): Long = (entry.t.lastOrNull() ?: 
 
 @Composable
 private fun FoundCard(f: Found, onClick: () -> Unit) {
-	Surface(modifier = Modifier.fillMaxWidth(), shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-		Row(Modifier.clickable(onClick = onClick).padding(Space.lPlus), verticalAlignment = Alignment.CenterVertically) {
-			IconBadge(ElIcons.Monitor, MaterialTheme.colorScheme.tertiary, Sizes.badgeFound)
-			Spacer(Modifier.width(Space.mPlus))
+	CardSurface {
+		Row(Modifier.clickable(onClick = onClick).padding(Space.card), verticalAlignment = Alignment.CenterVertically) {
+			IconBadge(ElIcons.Monitor, MaterialTheme.colorScheme.tertiary, Sizes.badgeL)
+			Spacer(Modifier.width(Space.m))
 			Column(Modifier.weight(1f)) {
 				Text(f.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
 				Text(stringResource(R.string.home_found_tap, f.host), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -549,8 +523,8 @@ private fun FoundCard(f: Found, onClick: () -> Unit) {
 /** How to get from nothing to a paired computer. */
 @Composable
 private fun SetupGuide(onHelp: () -> Unit) {
-	Surface(shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-		Column(Modifier.padding(Space.xl), verticalArrangement = Arrangement.spacedBy(Space.mPlus)) {
+	CardSurface {
+		Column(Modifier.padding(Space.card), verticalArrangement = Arrangement.spacedBy(Space.l)) {
 			Text(stringResource(R.string.home_setup_title), style = MaterialTheme.typography.titleLarge)
 			Text(
 				stringResource(R.string.home_setup_intro),
@@ -573,14 +547,17 @@ private fun Step(n: Int, text: String, command: String?) {
 			Text(n.toString(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
 		}
 		Spacer(Modifier.width(Space.m))
-		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.xsPlus)) {
-			Text(text, style = MaterialTheme.typography.bodyMedium)
+		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.s)) {
+			// Its first line in the middle of the number's disc.
+			val style = MaterialTheme.typography.bodyMedium
+			val line = with(LocalDensity.current) { style.lineHeight.toDp() }
+			Text(text, style = style, modifier = Modifier.padding(top = ((Sizes.stepNumber - line) / 2).coerceAtLeast(Space.none)))
 			if (command != null) {
 				Text(
 					command,
 					fontFamily = FontFamily.Monospace,
 					style = MaterialTheme.typography.bodySmall,
-					modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(Radius.sPlus)).padding(horizontal = Space.sPlus, vertical = Space.s),
+					modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHighest, InnerShape).padding(Space.m),
 				)
 			}
 		}
@@ -608,10 +585,11 @@ private fun AddDialog(onDismiss: () -> Unit, onAddress: (String, Int) -> Unit) {
 					// The keyboard's own key goes on as Next does, once the address reads.
 					keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
 					keyboardActions = KeyboardActions(onGo = { parsed?.let { onAddress(it.first, it.second) } }),
+					modifier = Modifier.fillMaxWidth(),
 				)
 			}
 		},
-		confirm = { TextButton(enabled = parsed != null, onClick = { parsed?.let { onAddress(it.first, it.second) } }) { Text(stringResource(R.string.home_add_next)) } },
-		dismiss = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+		confirm = DialogButton(stringResource(R.string.home_add_next), enabled = parsed != null) { parsed?.let { onAddress(it.first, it.second) } },
+		dismiss = DialogButton(stringResource(R.string.cancel), onClick = onDismiss),
 	)
 }

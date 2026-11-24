@@ -90,6 +90,27 @@ object Fmt {
 		return number(n, format, unit, field)
 	}
 
+	/**
+	 * A figure of [format] as long as it gets, for the room a column of them keeps whatever they read
+	 * now; null for what is as long as it is (words, a moment, a number of no set form).
+	 */
+	fun longest(format: String?, unit: String?): String? = when (format) {
+		"percent" -> number(LONGEST, format, unit)
+		"temp" -> number(LONGEST, format, unit)
+		// Four digits before the next unit by 1024, three and a point by 1000.
+		"bytes" -> bytes(KILO * KIBI * KIBI)
+		"rate" -> number(if (unit == BITS_PER_SECOND) LONGEST / 10 * KILO * KILO else KILO * KIBI * KIBI, format, unit)
+		"mhz" -> number(LONGEST * 10, format, unit)
+		"watts", "wh" -> number(LONGEST + 0.8, format, unit)
+		"rpm" -> number(LONGEST * 10, format, unit)
+		"load" -> number(LONGEST / 10, format, unit)
+		"duration" -> duration(23 * SECONDS_PER_HOUR + 59 * SECONDS_PER_MINUTE)
+		else -> null
+	}
+
+	/** A figure of three digits, all as wide as each other. */
+	private const val LONGEST = 888.0
+
 	fun bool(b: Boolean): String = if (b) YES else NO
 
 	fun number(v: Double, format: String?, unit: String?, field: String? = null): String {

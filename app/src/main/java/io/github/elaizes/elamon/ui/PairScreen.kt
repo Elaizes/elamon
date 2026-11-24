@@ -3,38 +3,30 @@ package io.github.elaizes.elamon.ui
 import android.app.Application
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -62,7 +54,6 @@ import io.github.elaizes.elamon.data.Limits
 import io.github.elaizes.elamon.data.PairTarget
 import io.github.elaizes.elamon.data.Machine
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PairScreen(target: PairTarget, owner: ViewModelStoreOwner, onBack: () -> Unit, onPaired: (Machine) -> Unit, onHelp: () -> Unit) {
 	val ctx = LocalContext.current
@@ -76,39 +67,32 @@ fun PairScreen(target: PairTarget, owner: ViewModelStoreOwner, onBack: () -> Uni
 	val paired by rememberUpdatedState(onPaired)
 	state.paired?.let { machine -> LaunchedEffect(machine) { paired(machine) } }
 
-	Scaffold(
-		topBar = {
-			TopAppBar(
-				title = { Text(stringResource(R.string.pair_title)) },
-				navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } },
-			)
-		},
-	) { padding ->
+	Box(Modifier.fillMaxSize()) {
+		// What there is to wait for or read, in the middle; what there is to do, from the top, above the
+		// keyboard too, so the code and the button can be scrolled into sight while typing.
+		val step = state.step
 		Column(
-			// Above the keyboard too, so the code and the button can be scrolled into sight while typing.
-			Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().verticalScroll(rememberScrollState()).padding(Space.xxl),
+			Modifier.fillMaxSize().statusBarsPadding().padding(top = topBarHeight()).imePadding().verticalScroll(rememberScrollState()).overSystemBar()
+				.padding(horizontal = Space.screen + sideInset(), vertical = Space.l),
 			horizontalAlignment = Alignment.CenterHorizontally,
-			verticalArrangement = Arrangement.spacedBy(Space.l),
+			verticalArrangement = Arrangement.spacedBy(Space.l, if (step is PairStep.Ready) Alignment.Top else Alignment.CenterVertically),
 		) {
-			when (val s = state.step) {
+			when (step) {
 				PairStep.Connecting -> {
-					Icon(ElIcons.Laptop, null, Modifier.size(Sizes.pairIcon), tint = MaterialTheme.colorScheme.primary)
 					Text(stringResource(R.string.pair_connecting, target.name ?: target.hosts.first()), textAlign = TextAlign.Center)
 					CircularProgressIndicator()
 				}
-				is PairStep.Failed -> {
-					Icon(ElIcons.Laptop, null, Modifier.size(Sizes.pairIcon), tint = MaterialTheme.colorScheme.primary)
-					Notice(Icons.Default.Warning, stringResource(R.string.pair_failed), stringResource(s.message)) {
-						Button(onClick = { vm.connect() }) { Text(stringResource(R.string.retry)) }
-						TextButton(onClick = onHelp) { Text(stringResource(R.string.help)) }
-					}
+				is PairStep.Failed -> Notice(Icons.Default.Warning, stringResource(R.string.pair_failed), stringResource(step.message)) {
+					Button(onClick = { vm.connect() }) { Text(stringResource(R.string.retry)) }
+					TextButton(onClick = onHelp) { Text(stringResource(R.string.help)) }
 				}
 				is PairStep.Ready -> {
-					Icon(ElIcons.Laptop, null, Modifier.size(Sizes.pairIcon), tint = MaterialTheme.colorScheme.primary)
-					Ready(target, s, state, code, onCode = { code = it }) { vm.pair(code) }
+					IconBadge(ElIcons.Laptop, MaterialTheme.colorScheme.primary, Sizes.badgeNotice)
+					Ready(target, step, state, code, onCode = { code = it }) { vm.pair(code) }
 				}
 			}
 		}
+		GlassTopBar(stringResource(R.string.pair_title), collapsed = true, onBack = onBack)
 	}
 }
 
@@ -160,7 +144,7 @@ private fun Ready(target: PairTarget, s: PairStep.Ready, state: PairState, code:
 	}
 	if (state.confirmOnComputer) {
 		Column(
-			Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(Radius.m)).padding(Space.m).semantics { liveRegion = LiveRegionMode.Polite },
+			Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh, InnerShape).padding(Space.l).semantics { liveRegion = LiveRegionMode.Polite },
 			horizontalAlignment = Alignment.CenterHorizontally,
 			verticalArrangement = Arrangement.spacedBy(Space.xs),
 		) {
@@ -170,8 +154,7 @@ private fun Ready(target: PairTarget, s: PairStep.Ready, state: PairState, code:
 	}
 	val busy = state.busy || state.paired != null
 	Button(onClick = onPair, enabled = !busy && codeOpen && code.length == Limits.PAIRING_DIGITS, modifier = Modifier.fillMaxWidth()) {
-		if (busy) CircularProgressIndicator(Modifier.size(Sizes.iconM), strokeWidth = Sizes.spinnerStroke)
-		else Text(stringResource(R.string.pair))
+		if (busy) Spinner() else Text(stringResource(R.string.pair))
 	}
 }
 
@@ -185,7 +168,7 @@ private fun Fingerprint(fp: String) {
 		textAlign = TextAlign.Center,
 		modifier = Modifier
 			.fillMaxWidth()
-			.background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(Radius.m))
-			.padding(Space.m),
+			.background(MaterialTheme.colorScheme.surfaceContainerHigh, InnerShape)
+			.padding(Space.l),
 	)
 }

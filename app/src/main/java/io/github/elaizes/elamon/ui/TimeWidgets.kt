@@ -5,14 +5,11 @@ import android.text.format.DateFormat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +35,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Dp
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.ZoneId
@@ -56,7 +54,7 @@ import io.github.elaizes.elamon.spanParts
 /** The chips over a graph or timeline: its own range, live, and the long ones; tapping one shows it. */
 @Composable
 fun RangeChips(chips: List<RangeChip>, selected: HistoryRange?, onSelect: (HistoryRange?) -> Unit) {
-	Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+	ChipRow {
 		for (c in chips) {
 			FilterChip(
 				selected = c.range == selected,
@@ -105,11 +103,12 @@ private class TickFormats(context: Context, locale: Locale) {
 }
 
 /**
- * The moments from [start] to [end] (Unix ms) under a chart or a timeline as wide: labels at round
- * times of the phone's clock, as many as fit without touching.
+ * The moments from [start] to [end] (Unix ms) under a chart or a timeline as wide, [end] that far in
+ * from the right edge ([inset], a chart's): labels at round times of the phone's clock, as many as fit
+ * without touching.
  */
 @Composable
-fun TimeAxis(start: Long, end: Long, modifier: Modifier = Modifier) {
+fun TimeAxis(start: Long, end: Long, modifier: Modifier = Modifier, inset: Dp = Space.none) {
 	val style = ChartStyle.axisText.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
 	val measurer = rememberTextMeasurer()
 	val context = LocalContext.current
@@ -117,7 +116,7 @@ fun TimeAxis(start: Long, end: Long, modifier: Modifier = Modifier) {
 	val formats = remember(context, locale) { TickFormats(context, locale) }
 	val height = with(LocalDensity.current) { remember(measurer, style) { measurer.measure("0", style).size.height }.toDp() }
 	Canvas(modifier.fillMaxWidth().height(height)) {
-		val w = size.width
+		val w = size.width - inset.toPx()
 		val ticks = timeTicks(start, end, (w / ChartStyle.axisSpacing.toPx()).toInt(), ZoneId.systemDefault())
 		val n = ticks.times.size
 		if (n == 0) return@Canvas

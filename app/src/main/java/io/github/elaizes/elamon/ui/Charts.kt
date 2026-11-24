@@ -14,9 +14,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -49,6 +50,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -59,6 +61,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import kotlin.math.roundToInt
 import io.github.elaizes.elamon.Points
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.lastTime
@@ -134,7 +137,8 @@ fun LineChart(
 	val summary = Modifier.semantics { chartDescription(res, series, span)?.let { contentDescription = it } }
 
 	Canvas(modifier.fillMaxWidth().height(height).then(touch).then(summary)) {
-		val w = size.width
+		// The newest point's halo ends at the right edge, as the line starts at the left one.
+		val w = size.width - ChartStyle.halo.toPx()
 		val h = size.height
 		var tLast = Long.MIN_VALUE
 		for (k in series.indices) tLast = maxOf(tLast, series[k].points.lastTime())
@@ -155,13 +159,13 @@ fun LineChart(
 			val rows = Thresholds.CHART_GRID_ROWS
 			for (i in 1 until rows) {
 				val y = h * i / rows
-				drawLine(gridColor, Offset(0f, y), Offset(w, y), strokeWidth = ChartStyle.grid.toPx(), pathEffect = cache.dash)
+				drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = ChartStyle.grid.toPx(), pathEffect = cache.dash)
 			}
 		}
 		if (tLast != Long.MIN_VALUE) {
-			// The line entering from the left stops at the edge; the newest dot's halo may stick out.
+			// The line entering from the left stops at the edge; the newest dot's halo may stick out above and below.
 			val room = ChartStyle.haloRoom.toPx()
-			clipRect(top = -room, right = w + room, bottom = h + room) {
+			clipRect(top = -room, right = size.width + room, bottom = h + room) {
 				for (k in series.indices) drawSeries(series[k], cache.tracer(k), cache.line, scale, tLast, window, w, h)
 			}
 		}
@@ -195,10 +199,10 @@ fun LineChart(
 		val text = measurer.measure(
 			tip.toString(),
 			tipStyle,
-			constraints = Constraints(maxWidth = (w - pad * 2).toInt().coerceAtLeast(1)),
+			constraints = Constraints(maxWidth = (size.width - pad * 2).toInt().coerceAtLeast(1)),
 		)
 		val bw = text.size.width + pad * 2
-		val bx = tooltipLeft(x, bw, w)
+		val bx = tooltipLeft(x, bw, size.width)
 		drawRoundRect(tipBg, Offset(bx, 0f), Size(bw, text.size.height + pad * TIP_HEIGHT_PADS), CornerRadius(Radius.s.toPx()))
 		drawText(text, topLeft = Offset(bx + pad, pad * TIP_TEXT_TOP))
 	}
@@ -394,8 +398,8 @@ fun RingGauge(
 		} else null
 	}
 	val said = if (description != null) Modifier.clearAndSetSemantics { contentDescription = description } else Modifier
-	Box(modifier.size(size).then(said), contentAlignment = Alignment.Center) {
-		Canvas(Modifier.size(size)) {
+	Box(modifier.widthIn(max = size).ringBox().then(said), contentAlignment = Alignment.Center) {
+		Canvas(Modifier.fillMaxSize()) {
 			val inset = strokePx / 2 + Gauge.inset.toPx()
 			val arcSize = Size(this.size.width - inset * 2, this.size.height - inset * 2)
 			val tl = Offset(inset, inset)
@@ -422,8 +426,19 @@ fun RingGauge(
 				}
 			}
 		}
-		content()
+		// Across the middle of the ring, where what is inside has the room between its sides.
+		Box(Modifier.fillMaxWidth(Gauge.ROOM), contentAlignment = Alignment.Center) { content() }
 	}
+}
+
+/**
+ * As wide as it may be and as tall, a ring being round, but for the open end at its bottom: what is
+ * under the ring starts as far from where it ends as what is over it from where it begins.
+ */
+private fun Modifier.ringBox(): Modifier = layout { measurable, constraints ->
+	val side = constraints.maxWidth
+	val p = measurable.measure(Constraints.fixed(side, side))
+	layout(side, (side * Gauge.SHOWN).roundToInt()) { p.place(0, 0) }
 }
 
 private const val FULL_TURN = 360f

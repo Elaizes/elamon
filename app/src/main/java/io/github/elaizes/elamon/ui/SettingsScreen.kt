@@ -5,11 +5,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -90,7 +93,7 @@ fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
 							stringResource(R.string.settings_from_defaults),
 							style = MaterialTheme.typography.bodyMedium,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
-							modifier = Modifier.padding(horizontal = Space.xl, vertical = Space.xs),
+							modifier = Modifier.padding(horizontal = Space.card, vertical = Space.xs),
 						)
 					}
 				} else {
@@ -116,7 +119,7 @@ fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
 							stringResource(R.string.settings_theme_from_phone),
 							style = MaterialTheme.typography.bodySmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
-							modifier = Modifier.padding(horizontal = Space.xl),
+							modifier = Modifier.padding(horizontal = Space.card),
 						)
 					}
 				}
@@ -146,7 +149,7 @@ fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
 							stringResource(R.string.settings_tiles_body),
 							style = MaterialTheme.typography.bodySmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
-							modifier = Modifier.padding(horizontal = Space.xl),
+							modifier = Modifier.padding(horizontal = Space.card),
 						)
 					}
 				}
@@ -212,14 +215,14 @@ fun SettingsScreen(machine: String?, onBack: () -> Unit, onHelp: () -> Unit) {
 			onDismiss = { license = false },
 			title = stringResource(R.string.settings_licences),
 			text = {
-				Column(Modifier.heightIn(max = Sizes.licenceMax).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
+				Column(Modifier.heightIn(max = Sizes.licenceMax).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(Space.m)) {
 					Text(stringResource(R.string.settings_licence_elamon))
 					Text(stringResource(R.string.settings_licence_icons))
 					Text(stringResource(R.string.settings_licence_inter), style = MaterialTheme.typography.titleSmall)
 					Text(text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
 				}
 			},
-			confirm = { TextButton(onClick = { license = false }) { Text(stringResource(R.string.settings_close)) } },
+			confirm = DialogButton(stringResource(R.string.settings_close)) { license = false },
 		)
 	}
 }
@@ -233,7 +236,7 @@ private fun ScaleRow(scale: Int, onChange: (Int) -> Unit) {
 	var dragged by remember { mutableStateOf<Float?>(null) }
 	val shown = dragged?.let { Scale.of(it.roundToInt()) } ?: scale
 	val describe = stringResource(R.string.settings_scale_slider)
-	Column(Modifier.fillMaxWidth().padding(start = Space.xl, end = Space.s, top = Space.mPlus)) {
+	Column(Modifier.fillMaxWidth().padding(horizontal = Space.card, vertical = Space.m)) {
 		Row(verticalAlignment = Alignment.CenterVertically) {
 			Column(Modifier.weight(1f)) {
 				Text(stringResource(R.string.settings_scale), style = MaterialTheme.typography.bodyLarge)
@@ -243,7 +246,9 @@ private fun ScaleRow(scale: Int, onChange: (Int) -> Unit) {
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 			}
-			TextButton(onClick = { onChange(Scale.DEFAULT) }, enabled = scale != Scale.DEFAULT) {
+			Spacer(Modifier.width(Space.s))
+			// Its words, not its own padding, end where the row's other text does.
+			TextButton(onClick = { onChange(Scale.DEFAULT) }, enabled = scale != Scale.DEFAULT, contentPadding = PaddingValues(Space.none)) {
 				Text(stringResource(R.string.settings_scale_reset, Fmt.percent(Scale.DEFAULT.toDouble())))
 			}
 		}
@@ -256,7 +261,7 @@ private fun ScaleRow(scale: Int, onChange: (Int) -> Unit) {
 			},
 			valueRange = Scale.MIN.toFloat()..Scale.MAX.toFloat(),
 			steps = Scale.STOPS,
-			modifier = Modifier.padding(end = Space.m).semantics { contentDescription = describe },
+			modifier = Modifier.semantics { contentDescription = describe },
 		)
 	}
 }
@@ -266,7 +271,7 @@ private fun ScaleRow(scale: Int, onChange: (Int) -> Unit) {
 @Composable
 private fun ThemeModeRow(mode: ThemeMode, enabled: Boolean, onChange: (ThemeMode) -> Unit) {
 	val alpha = if (enabled) 1f else Alpha.DISABLED
-	Column(Modifier.fillMaxWidth().padding(horizontal = Space.xl, vertical = Space.s)) {
+	Column(Modifier.fillMaxWidth().padding(horizontal = Space.card, vertical = Space.m), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
 		Text(stringResource(R.string.settings_theme), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
 		FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
 			for (m in ThemeMode.entries) {

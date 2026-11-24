@@ -6,8 +6,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.res.stringResource
 import androidx.glance.appwidget.GlanceAppWidgetManager
@@ -19,6 +17,7 @@ import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.Settings
 import io.github.elaizes.elamon.data.MachineStore
 import io.github.elaizes.elamon.data.UiCache
+import io.github.elaizes.elamon.ui.DialogButton
 import io.github.elaizes.elamon.ui.ElIcons
 import io.github.elaizes.elamon.ui.ElamonTheme
 import io.github.elaizes.elamon.ui.GlassDialog
@@ -66,7 +65,7 @@ class WidgetSetupActivity : ComponentActivity() {
 							}
 						}
 					},
-					confirm = { TextButton(onClick = ::finish) { Text(stringResource(R.string.cancel)) } },
+					confirm = DialogButton(stringResource(R.string.cancel), onClick = ::finish),
 				)
 			}
 		}

@@ -121,4 +121,28 @@ class FormatTest {
 		assertEquals(avatarHue("Firefox"), avatarHue("firefox"))
 		for (name in listOf("", "a", "systemd", "kworker/0:1")) assertTrue(avatarHue(name) in 0f..359f, name)
 	}
+
+	@Test
+	fun theLongestFigureOfAColumn() {
+		// As long as any figure of its format, whatever it reads now.
+		for ((format, unit, figures) in listOf(
+			Triple("percent", "%", listOf(0.0, 7.4, 100.0)),
+			Triple("temp", "°C", listOf(0.0, 54.0, 105.0)),
+			Triple("temp", "°F", listOf(32.0, 212.0)),
+			Triple("bytes", "B", listOf(0.0, 1023.0, 2048.0, 3.9e9, 1.0e12)),
+			Triple("rate", "B/s", listOf(0.0, 900.0, 5.0e6)),
+			Triple("rate", "bit/s", listOf(0.0, 900.0, 5.0e6, 9.9e8)),
+			Triple("mhz", null, listOf(400.0, 4880.0)),
+			Triple("rpm", null, listOf(0.0, 4400.0)),
+			Triple("load", null, listOf(0.05, 11.9)),
+			Triple("duration", "s", listOf(59.0, 86_399.0)),
+		)) {
+			val longest = Fmt.longest(format, unit)!!
+			for (v in figures) assertTrue(Fmt.number(v, format, unit).length <= longest.length, "$v as $format: ${Fmt.number(v, format, unit)} in $longest")
+		}
+		// Words and moments are as long as they are.
+		assertNull(Fmt.longest(null, null))
+		assertNull(Fmt.longest("text", null))
+		assertNull(Fmt.longest("time", null))
+	}
 }

@@ -4,7 +4,6 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,22 +19,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -95,7 +86,7 @@ fun LogWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val mark = if (w.icon != null) icon(w.icon) else if (ofEvents(w)) Icons.Default.Notifications else ElIcons.Terminal
 	Section(w.label.orEmpty(), mark, modifier, accent = accent(w.color), onClick = w.open?.let { d -> { scope.open(d) } }) {
 		log?.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Metric.colors.warn) }
-		Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+		ChipRow {
 			for (l in logLevels(own)) {
 				FilterChip(
 					selected = l == level,
@@ -123,21 +114,7 @@ private fun LogSearch(scope: DashScope, w: Widget, sent: String) {
 		delay(Limits.LOG_SEARCH_SETTLE_MS)
 		scope.vm.filterLog(w, search = query)
 	}
-	OutlinedTextField(
-		value = query,
-		onValueChange = { query = it.takeCodePoints(Limits.LOG_SEARCH_MAX) },
-		modifier = Modifier.fillMaxWidth(),
-		singleLine = true,
-		shape = RoundedCornerShape(Radius.field),
-		placeholder = { Text(stringResource(searchHint(w))) },
-		leadingIcon = { Icon(Icons.Default.Search, null) },
-		trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Clear, stringResource(R.string.processes_clear)) } },
-		colors = OutlinedTextFieldDefaults.colors(
-			unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-			focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-			unfocusedBorderColor = MaterialTheme.colorScheme.surfaceContainerLow,
-		),
-	)
+	SearchField(query, stringResource(searchHint(w))) { query = it.takeCodePoints(Limits.LOG_SEARCH_MAX) }
 }
 
 /**
@@ -201,7 +178,7 @@ private fun LogList(scope: DashScope, w: Widget, log: LogLines) {
 						pluralStringResource(R.plurals.log_more, item.count, item.count),
 						style = MaterialTheme.typography.labelSmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
-						modifier = Modifier.padding(start = Space.l, top = Space.xxs, bottom = Space.xxs),
+						modifier = Modifier.padding(start = Sizes.pillDot + Space.s, top = Space.xxs, bottom = Space.xxs),
 					)
 					is LogItem.Line -> LogLineRow(
 						item.line,
@@ -234,7 +211,7 @@ private fun LogList(scope: DashScope, w: Widget, log: LogLines) {
 private fun OlderRow(log: LogLines, onLoad: () -> Unit) {
 	Row(Modifier.fillMaxWidth().heightIn(min = Sizes.touchTarget), horizontalArrangement = Arrangement.spacedBy(Space.s, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
 		if (log.loadingOlder) {
-			CircularProgressIndicator(Modifier.size(Sizes.iconM), strokeWidth = Sizes.spinnerStroke)
+			Spinner()
 			return@Row
 		}
 		if (log.olderFailed) Text(stringResource(R.string.log_older_failed), style = MaterialTheme.typography.bodySmall, color = Metric.colors.warn)
@@ -269,7 +246,7 @@ private fun LogLineRow(line: LogLine, expanded: Boolean, onTap: () -> Unit, onLo
 		Box(Modifier.height(rowHeight), contentAlignment = Alignment.Center) {
 			Box(Modifier.size(Sizes.pillDot).clip(CircleShape).background(toneColor(tone)).semantics { contentDescription = level })
 		}
-		Spacer(Modifier.width(Space.xsPlus))
+		Spacer(Modifier.width(Space.s))
 		Text(logClock(line.t), style = style, fontFamily = FontFamily.Monospace, color = variant)
 		Spacer(Modifier.width(Space.s))
 		Text(

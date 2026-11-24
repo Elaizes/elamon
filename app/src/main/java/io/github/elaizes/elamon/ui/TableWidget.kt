@@ -2,55 +2,54 @@ package io.github.elaizes.elamon.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.findWidget
 import io.github.elaizes.elamon.data.Column as TableColumn
@@ -108,18 +107,34 @@ private fun cell(row: TableRow, c: TableColumn): String = Fmt.format(row.f[c.fie
 /** Rows of processes and links get a letter avatar, as their lists had in 0.5. */
 private fun avatars(w: Widget) = w.source == "processes" || w.source == "links"
 
-/** How wide a column that doesn't grow is, by what it holds, so the rows line up. */
-private fun cellWidth(c: TableColumn): Dp = when (c.format) {
-	"percent", "temp" -> CELL_NARROW
-	"integer", "number", "load", "bool" -> CELL_NUMBER
-	"time" -> CELL_TIME
-	else -> CELL_WIDE
+/**
+ * How wide each column of [w] but the growing one is, its [rows]' figures (and [labels], what stands
+ * beside them) lined up: a figure's column as its longest figure would be, whatever it reads now, so
+ * it doesn't move as they change; a column of words as its longest now, so a short one leaves the
+ * rows' names their room. Heads fit too.
+ */
+@Composable
+private fun columnWidths(w: Widget, rows: List<TableRow>): Map<TableColumn, Dp> {
+	val grow = growColumn(w)
+	val bar = barColumn(w)
+	val columns = w.columns.orEmpty().filter { it != grow }
+	val measurer = rememberTextMeasurer()
+	val density = LocalDensity.current
+	val figure = MaterialTheme.typography.bodySmall
+	val barFigure = MaterialTheme.typography.titleSmall
+	val head = MaterialTheme.typography.labelSmall
+	val words = columns.associateWith { c -> Fmt.longest(c.format, c.unit)?.let(::listOf) ?: rows.take(CARD_ROWS).map { cell(it, c) }.distinct() }
+	return remember(words, density, figure, barFigure, head) {
+		fun width(text: String, style: TextStyle) = measurer.measure(text, style, maxLines = 1, softWrap = false).size.width
+		columns.associateWith { c ->
+			val style = if (c == bar) barFigure else figure
+			val texts = words.getValue(c).maxOfOrNull { width(it, style) } ?: 0
+			val px = maxOf(texts, c.label?.let { width(it, head) } ?: 0)
+			// A pixel more than its text: rounded down on the way, it would be cut.
+			with(density) { minOf((px + 1).toDp(), Sizes.columnMax) }
+		}
+	}
 }
-
-private val CELL_NARROW = 56.dp
-private val CELL_NUMBER = 64.dp
-private val CELL_WIDE = 88.dp
-private val CELL_TIME = 120.dp
 
 /** An expanded field longer than this is set as a block of its own, like a command line. */
 private const val LONG_FIELD = 40
@@ -141,28 +156,25 @@ fun TableWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val accent = accent(w.color)
 	val open = w.open?.let { d -> { scope.open(d) } }
 	val tile = open != null && scope.dashboard in scope.ui.tabs
+	val widths = columnWidths(w, rows)
 	val rowsShown: @Composable () -> Unit = {
 		if (w.search == true) TableControls(scope, w, s?.total, rows.size)
 		// A tile names its figures beside them ("120 GiB free"), a card over them.
-		if (!tile) TableHead(w)
+		if (!tile) TableHead(w, widths)
 		if (rows.isEmpty()) {
 			Text(stringResource(if (s == null) R.string.loading else R.string.table_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
 		// A card is drawn whole, every line: so many rows and no more (a table with a search field has the list's own).
 		val drawn = rows.take(CARD_ROWS)
 		val fractions = barColumn(w)?.let { Tables.barFractions(rows, it) }
-		drawn.forEachIndexed { i, r -> TableRowView(scope, w, r, fractions?.get(i), card = false, labelled = tile) }
+		drawn.forEachIndexed { i, r -> TableRowView(scope, w, r, fractions?.get(i), widths, card = false, labelled = tile) }
 		val more = rows.size - drawn.size
 		if (more > 0) {
 			Text(pluralStringResource(R.plurals.table_more, more, more), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
 	}
 	if (tile) {
-		WidgetTile(scope, w, accent, modifier) {
-			if (!folded) rowsShown()
-			// The caption under a tile, as its footer.
-			captionOf(w, s)?.let { TileFooter(it) }
-		}
+		WidgetTile(scope, w, accent, modifier, captionOf(w, s)) { if (!folded) rowsShown() }
 	} else {
 		WidgetSection(
 			scope,
@@ -179,52 +191,48 @@ fun TableWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	}
 }
 
+/** A table whose rows are the screen's list's own: they, and how wide its columns are. */
+class ListTable(val w: Widget, val rows: List<TableRow>, val widths: Map<TableColumn, Dp>)
+
+@Composable
+fun listTable(scope: DashScope, w: Widget): ListTable {
+	val rows = tableRows(scope, w)
+	return ListTable(w, rows, columnWidths(w, rows))
+}
+
 /**
  * A table with a search field (the processes, the activity log): its search and orders, then its
  * rows as the list's own, each a card, as 0.5's Processes tab.
  */
-fun LazyListScope.tableItems(scope: DashScope, w: Widget, keys: UniqueKeys) {
+fun LazyListScope.tableItems(scope: DashScope, table: ListTable, keys: UniqueKeys) {
+	val w = table.w
+	val rows = table.rows
 	val s = scope.state(w)
-	val rows = tableRows(scope, w)
 	item(key = keys.of("table/${w.id}")) {
-		Column(verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
-			w.label?.let { Text(it, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = Space.xs)) }
-			captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-			TableControls(scope, w, s?.total, rows.size)
-			if (s != null && rows.isEmpty()) {
-				Text(stringResource(R.string.table_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = Space.xs))
+		Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
+			w.label?.let { Text(it, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = Space.card)) }
+			captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Space.card)) }
+			TableControls(scope, w, s?.total, rows.size, Modifier.padding(horizontal = Space.card))
+			if (s == null || rows.isEmpty()) {
+				Text(stringResource(if (s == null) R.string.loading else R.string.table_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Space.card))
 			}
 		}
 	}
 	val rowKeys = rows.map { keys.of("table/${w.id}/${it.key}") }
 	val fractions = barColumn(w)?.let { Tables.barFractions(rows, it) }
-	items(rows.size, key = { rowKeys[it] }) { i -> TableRowView(scope, w, rows[i], fractions?.get(i), card = true) }
+	items(rows.size, key = { rowKeys[it] }) { i -> TableRowView(scope, w, rows[i], fractions?.get(i), table.widths, card = true) }
 }
 
-/** The search field, the orders the service offers, and how many rows there are. */
+/** The search field, the orders the service offers, and how many rows there are; [text], what the words under the field keep to. */
 @Composable
-private fun TableControls(scope: DashScope, w: Widget, total: Int?, shown: Int) {
+private fun TableControls(scope: DashScope, w: Widget, total: Int?, shown: Int, text: Modifier = Modifier) {
 	val query = scope.tables.query(w.id)
-	Column(verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
-		OutlinedTextField(
-			value = query,
-			onValueChange = { scope.tables.setQuery(w.id, it) },
-			modifier = Modifier.fillMaxWidth(),
-			singleLine = true,
-			shape = RoundedCornerShape(Radius.field),
-			placeholder = { Text(stringResource(R.string.table_search)) },
-			leadingIcon = { Icon(Icons.Default.Search, null) },
-			trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { scope.tables.setQuery(w.id, "") }) { Icon(Icons.Default.Clear, stringResource(R.string.processes_clear)) } },
-			colors = OutlinedTextFieldDefaults.colors(
-				unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-				focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-				unfocusedBorderColor = MaterialTheme.colorScheme.surfaceContainerLow,
-			),
-		)
+	Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
+		SearchField(query, stringResource(R.string.table_search)) { scope.tables.setQuery(w.id, it) }
 		val sorts = (listOfNotNull(w.sort?.field) + w.sorts.orEmpty()).distinct()
 		if (sorts.size > 1) {
 			val current = scope.sorts[w.id] ?: w.sort?.field
-			Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+			ChipRow {
 				for (f in sorts) {
 					FilterChip(
 						selected = f == current,
@@ -241,10 +249,27 @@ private fun TableControls(scope: DashScope, w: Widget, total: Int?, shown: Int) 
 				else pluralStringResource(R.plurals.table_found, shown, shown, total),
 				style = MaterialTheme.typography.labelMedium,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				modifier = Modifier.padding(start = Space.xs),
+				modifier = text,
 			)
 		}
 	}
+}
+
+/** A search field, as rounded as a card; its clearing button once something is typed. */
+@Composable
+fun SearchField(query: String, hint: String, onChange: (String) -> Unit) {
+	val fill = cardColor()
+	OutlinedTextField(
+		value = query,
+		onValueChange = onChange,
+		modifier = Modifier.fillMaxWidth(),
+		singleLine = true,
+		shape = CardShape,
+		placeholder = { Text(hint, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+		leadingIcon = { Icon(Icons.Default.Search, null) },
+		trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { onChange("") }) { Icon(Icons.Default.Clear, stringResource(R.string.processes_clear)) } },
+		colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = fill, focusedContainerColor = fill, unfocusedBorderColor = fill),
+	)
 }
 
 /** What a field is called: its column's label, else its expanded field's, else its name. */
@@ -253,19 +278,21 @@ private fun fieldLabel(w: Widget, field: String): String =
 
 /** The columns' labels over the rows, where any has one. */
 @Composable
-private fun TableHead(w: Widget) {
+private fun TableHead(w: Widget, widths: Map<TableColumn, Dp>) {
 	val cols = w.columns.orEmpty()
 	if (cols.none { it.label != null }) return
 	val grow = growColumn(w)
 	val bar = barColumn(w)
 	Row {
 		if (avatars(w)) Spacer(Modifier.width(Sizes.avatarS + Space.m))
-		Text(grow?.label.orEmpty(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), maxLines = 1)
-		for (c in cols.filter { it != grow && it != bar }) {
-			Text(c.label.orEmpty(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(cellWidth(c)), textAlign = TextAlign.End, maxLines = 1)
-		}
-		if (bar != null) Text(bar.label.orEmpty(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(cellWidth(bar)), textAlign = TextAlign.End, maxLines = 1)
+		HeadCell(grow?.label, TextAlign.Start, Modifier.weight(1f))
+		for (c in cols.filter { it != grow && it != bar } + listOfNotNull(bar)) HeadCell(c.label, TextAlign.End, Modifier.padding(start = Space.m).width(widths.getValue(c)))
 	}
+}
+
+@Composable
+private fun HeadCell(label: String?, align: TextAlign, modifier: Modifier) {
+	Text(label.orEmpty(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = align, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = modifier)
 }
 
 /**
@@ -275,7 +302,7 @@ private fun TableHead(w: Widget) {
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TableRowView(scope: DashScope, w: Widget, row: TableRow, fraction: Float?, card: Boolean, labelled: Boolean = false) {
+private fun TableRowView(scope: DashScope, w: Widget, row: TableRow, fraction: Float?, widths: Map<TableColumn, Dp>, card: Boolean, labelled: Boolean = false) {
 	val ctx = LocalContext.current
 	val haptics = LocalHapticFeedback.current
 	val prefs = LocalPrefs.current
@@ -307,7 +334,7 @@ private fun TableRowView(scope: DashScope, w: Widget, row: TableRow, fraction: F
 	)
 	val name = grow?.let { cell(row, it) }.orEmpty()
 	val content: @Composable () -> Unit = {
-		Column(verticalArrangement = Arrangement.spacedBy(Space.xsPlus)) {
+		Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
 				if (avatars(w)) {
 					LetterAvatar(name, if (card) Sizes.avatar else Sizes.avatarS)
@@ -315,28 +342,28 @@ private fun TableRowView(scope: DashScope, w: Widget, row: TableRow, fraction: F
 				}
 				Text(name, style = if (card) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
 				for (c in others) {
-					val text = cell(row, c).let { v -> if (labelled && c.label != null) "$v ${c.label}" else v }
-					Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = if (labelled) Modifier.padding(start = Space.s) else Modifier.width(cellWidth(c)), textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
+					// In a tile the figure's name follows it: as wide as it takes.
+					val named = labelled && c.label != null
+					val text = cell(row, c).let { v -> if (named) "$v ${c.label}" else v }
+					Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = Space.m).then(if (named) Modifier else Modifier.width(widths.getValue(c))), textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
 				}
 				if (bar != null && barColor != null) {
-					Column(Modifier.width(cellWidth(bar)), horizontalAlignment = Alignment.End) {
+					Column(Modifier.padding(start = Space.m).width(widths.getValue(bar)), horizontalAlignment = Alignment.End) {
 						Text(cell(row, bar), style = MaterialTheme.typography.titleSmall, color = barColor, maxLines = 1)
 						if (card) {
-							Spacer(Modifier.size(Space.xs))
-							UsageBar(fraction ?: 0f, barColor, height = Sizes.barHair)
+							Spacer(Modifier.height(Space.xs))
+							UsageBar(fraction ?: 0f, barColor, height = Sizes.barThin)
 						}
 					}
 				}
 			}
-			if (!card && bar != null && barColor != null) UsageBar(fraction ?: 0f, barColor, height = Sizes.barThin)
+			if (!card && bar != null && barColor != null) UsageBar(fraction ?: 0f, barColor, height = Sizes.bar)
 		}
 	}
 	if (card) {
-		Surface(Modifier.fillMaxWidth().padding(vertical = Space.xsPlus / 2), shape = RoundedCornerShape(Radius.xl), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-			Column(click.padding(horizontal = Space.mPlus, vertical = Space.m)) { content() }
-		}
+		CardSurface { Column(click.padding(Space.m)) { content() } }
 	} else {
-		Column(Modifier.fillMaxWidth().then(click).padding(vertical = Space.xxs)) { content() }
+		Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(Radius.s)).then(click)) { content() }
 	}
 }
 
@@ -351,7 +378,6 @@ private fun openRowLink(ctx: android.content.Context, scope: DashScope, url: Str
  * its actions as buttons, their parameters filled from the row. A row that leaves the list keeps
  * its last readings, marked as such.
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TableSheet(scope: DashScope) {
 	val (table, last) = scope.tables.sheet ?: return
@@ -365,69 +391,59 @@ fun TableSheet(scope: DashScope) {
 	val grow = growColumn(w)
 	val name = grow?.let { cell(row, it) }.orEmpty()
 	val accent = accent(w.color)
-	ModalBottomSheet(onDismissRequest = { scope.tables.close() }, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-		Column(Modifier.padding(start = Space.xxl, end = Space.xxl, bottom = Space.xxxl), verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
-			Row(verticalAlignment = Alignment.CenterVertically) {
-				if (avatars(w)) {
-					LetterAvatar(name, Sizes.avatarSheet)
-					Spacer(Modifier.width(Space.mPlus))
-				}
-				Text(name, style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+	GlassSheet(onDismiss = { scope.tables.close() }) {
+		Row(verticalAlignment = Alignment.CenterVertically) {
+			if (avatars(w)) {
+				LetterAvatar(name, Sizes.badgeL)
+				Spacer(Modifier.width(Space.m))
 			}
-			if (gone) Text(stringResource(R.string.table_row_gone), style = MaterialTheme.typography.bodySmall, color = Metric.colors.warn)
-			val figures = cols.filter { it != grow }
-			if (figures.isNotEmpty()) {
-				FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.xxl), verticalArrangement = Arrangement.spacedBy(Space.s), modifier = Modifier.padding(vertical = Space.xsPlus)) {
-					for (c in figures) {
-						val color = if (c.bar != null) levelColor(row.level, row.blend, if (c.format == "temp") Metric.colors.good else accent) ?: accent else MaterialTheme.colorScheme.onSurface
-						BigStat(c.label ?: fieldLabel(w, c.field), cell(row, c), color = color)
-					}
-				}
+			Text(name, style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).wholeWords())
+		}
+		if (gone) Text(stringResource(R.string.table_row_gone), style = MaterialTheme.typography.bodySmall, color = Metric.colors.warn)
+		val figures = cols.filter { it != grow }
+		if (figures.isNotEmpty()) {
+			EvenRows(figures, FIGURES_IN_A_ROW, gap = Space.m) { c ->
+				val color = if (c.bar != null) levelColor(row.level, row.blend, if (c.format == "temp") Metric.colors.good else accent) ?: accent else MaterialTheme.colorScheme.onSurface
+				BigStat(c.label ?: fieldLabel(w, c.field), cell(row, c), color = color)
 			}
-			for (e in w.expand.orEmpty()) {
-				// The link as the button opens it, not its template ("http://{host}:8096").
-				val v = Fmt.format(row.f[e.field], e.format, e.unit, e.field)?.ifBlank { null }?.let { Tables.shownField(w, e.field, it, scope.machine.host) } ?: continue
-				val label = e.label ?: e.field
-				if (v.length > LONG_FIELD) {
+		}
+		for (e in w.expand.orEmpty()) {
+			// The link as the button opens it, not its template ("http://{host}:8096").
+			val v = Fmt.format(row.f[e.field], e.format, e.unit, e.field)?.ifBlank { null }?.let { Tables.shownField(w, e.field, it, scope.machine.host) } ?: continue
+			val label = e.label ?: e.field
+			if (v.length > LONG_FIELD) {
+				Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
 					Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 					SelectionContainer { Text(v, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
-				} else {
-					StatRow(label, v)
 				}
+			} else {
+				StatRow(label, v)
 			}
-			val url = w.rowOpen?.let { row.f[it].text() }
-			if (url != null) {
-				Button(onClick = { scope.tables.close(); openRowLink(ctx, scope, url) }, modifier = Modifier.fillMaxWidth()) {
-					Icon(ElIcons.Globe, null, Modifier.size(Sizes.iconM))
-					Spacer(Modifier.width(Space.s))
-					Text(stringResource(R.string.control_open))
-				}
+		}
+		val url = w.rowOpen?.let { row.f[it].text() }
+		if (url != null) {
+			Button(onClick = { scope.tables.close(); openRowLink(ctx, scope, url) }, modifier = Modifier.fillMaxWidth().padding(top = Space.s)) {
+				Icon(ElIcons.Globe, null, Modifier.size(Sizes.iconM))
+				Spacer(Modifier.width(Space.s))
+				Text(stringResource(R.string.control_open))
 			}
-			// The actions this phone may run on the row, and the row's pages it has (a link's journal).
-			val shown = Tables.rowButtons(scope.ui, w, row)
-			if (shown.isNotEmpty()) {
-				// While an action of this computer's runs, the others wait: a second tap would be turned away.
-				val busy = scope.actions.running.running.isNotEmpty()
-				FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sPlus), verticalArrangement = Arrangement.spacedBy(Space.s), modifier = Modifier.padding(top = Space.s), maxItemsInEachRow = ROW_ACTIONS_IN_A_ROW) {
-					for ((ra, target, action) in shown) {
-						if (target != null) {
-							FilledTonalButton(onClick = { scope.tables.close(); scope.open(target) }, modifier = Modifier.weight(1f)) {
-								Text(ra.label ?: scope.ui.dashboard(target)?.title ?: target, maxLines = 1, overflow = TextOverflow.Ellipsis)
-							}
-							continue
-						}
-						if (action == null) continue
-						val params = Params.fill(ra.params, row.f)
-						val label = ra.label ?: action.name
-						val kill = params["signal"].text() == "kill"
-						FilledTonalButton(
-							// The tables' state alone goes with the request: it outlives this screen's scope.
-							onClick = { val tables = scope.tables; scope.actions.launch(action, params, "$label $name", key = action.id + "/" + row.key, button = label, afterAsking = { tables.close() }) },
-							enabled = scope.actions.enabled(action, null) && !gone && !busy,
-							modifier = Modifier.weight(1f),
-						) {
-							Text(label, color = if (kill) Metric.colors.hot else Color.Unspecified, maxLines = 1, overflow = TextOverflow.Ellipsis)
-						}
+		}
+		// The actions this phone may run on the row, and the row's pages it has (a link's journal).
+		val shown = Tables.rowButtons(scope.ui, w, row)
+		if (shown.isNotEmpty()) {
+			// While an action of this computer's runs, the others wait: a second tap would be turned away.
+			val busy = scope.actions.running.running.isNotEmpty()
+			EvenRows(shown, ROW_ACTIONS_IN_A_ROW) { (ra, target, action) ->
+				if (target != null) {
+					SheetButton(ra.label ?: scope.ui.dashboard(target)?.title ?: target) { scope.tables.close(); scope.open(target) }
+				} else if (action != null) {
+					val params = Params.fill(ra.params, row.f)
+					val label = ra.label ?: action.name
+					val kill = params["signal"].text() == "kill"
+					// The tables' state alone goes with the request: it outlives this screen's scope.
+					SheetButton(label, if (kill) Metric.colors.hot else Color.Unspecified, enabled = scope.actions.enabled(action, null) && !gone && !busy) {
+						val tables = scope.tables
+						scope.actions.launch(action, params, "$label $name", key = action.id + "/" + row.key, button = label, afterAsking = { tables.close() })
 					}
 				}
 			}
@@ -435,4 +451,14 @@ fun TableSheet(scope: DashScope) {
 	}
 }
 
+/** One of a row's buttons, its words in the middle and whole. */
+@Composable
+private fun SheetButton(label: String, color: Color = Color.Unspecified, enabled: Boolean = true, onClick: () -> Unit) {
+	FilledTonalButton(onClick = onClick, enabled = enabled, contentPadding = PaddingValues(horizontal = Space.m)) {
+		Text(label, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.shrinkToFit())
+	}
+}
+
+/** The most figures, and the most buttons, of a row's sheet side by side. */
+private const val FIGURES_IN_A_ROW = 3
 private const val ROW_ACTIONS_IN_A_ROW = 3

@@ -2,17 +2,22 @@ package io.github.elaizes.elamon.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.paddingFromBaseline
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -25,6 +30,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,12 +40,39 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+
+/** How many cards this is in: none on the screen, one in a group, where what would be a card is a tile of it. */
+val LocalDepth = compositionLocalOf { 0 }
+
+/** The colour of a card here, or of what sits inside one: a step further from the page with each. */
+@Composable
+fun cardColor(): Color = when (LocalDepth.current) {
+	0 -> MaterialTheme.colorScheme.surfaceContainerLow
+	1 -> MaterialTheme.colorScheme.surfaceContainerHigh
+	else -> MaterialTheme.colorScheme.surfaceContainerHighest
+}
+
+/** What a card here keeps between its edge and what it holds. */
+@Composable
+fun cardPadding(): Dp = if (LocalDepth.current == 0) Space.card else Space.m
+
+/** A card: what every screen is built of. In another, one of its tiles, its corner inside that one's. */
+@Composable
+fun CardSurface(modifier: Modifier = Modifier, color: Color = cardColor(), content: @Composable () -> Unit) {
+	val depth = LocalDepth.current
+	Surface(modifier = modifier.fillMaxWidth(), shape = if (depth == 0) CardShape else InnerShape, color = color) {
+		CompositionLocalProvider(LocalDepth provides depth + 1, content = content)
+	}
+}
 
 /** A titled card: the building block of every detail page. */
 @Composable
@@ -53,27 +87,33 @@ fun Section(
 	onTitleClick: (() -> Unit)? = null,
 	content: @Composable ColumnScope.() -> Unit,
 ) {
-	Surface(modifier = modifier.fillMaxWidth(), shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+	val padding = cardPadding()
+	// In another card, and where a disc would leave the title a few letters, its icon alone.
+	val inner = LocalDepth.current > 0 || narrowCell(TextSizes.rowLeast)
+	CardSurface(modifier) {
 		Column(
 			Modifier
 				.then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-				.padding(horizontal = Space.xl, vertical = Space.lPlus),
-			verticalArrangement = Arrangement.spacedBy(Space.mPlus),
+				.padding(padding),
+			verticalArrangement = Arrangement.spacedBy(Space.m),
 		) {
 			Row(
-				Modifier.then(if (onTitleClick != null) Modifier.clickable(onClick = onTitleClick) else Modifier),
+				Modifier.then(if (onTitleClick != null) Modifier.clip(InnerShape).clickable(onClick = onTitleClick) else Modifier),
 				verticalAlignment = Alignment.CenterVertically,
 			) {
-				IconBadge(icon, accent)
-				Spacer(Modifier.width(Space.m))
+				if (inner) Icon(icon, null, tint = accent, modifier = Modifier.size(Sizes.iconM)) else IconBadge(icon, accent)
+				Spacer(Modifier.width(if (inner) Space.s else Space.m))
 				Text(
 					title,
-					style = MaterialTheme.typography.titleMedium,
+					style = if (inner) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
 					modifier = Modifier.weight(1f),
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis,
 				)
-				trailing?.invoke()
+				if (trailing != null) {
+					Spacer(Modifier.width(Space.s))
+					trailing()
+				}
 			}
 			content()
 		}
@@ -83,32 +123,59 @@ fun Section(
 @Composable
 fun IconBadge(icon: ImageVector, accent: Color, size: Dp = Sizes.badge) {
 	Box(
-		Modifier.size(size).clip(CircleShape).background(accent.copy(alpha = Alpha.BADGE)),
+		Modifier.size(size).clip(CircleShape).background(accent.copy(alpha = accent.alpha * Alpha.BADGE)),
 		contentAlignment = Alignment.Center,
 	) {
 		Icon(icon, null, tint = accent, modifier = Modifier.size(size * Sizes.BADGE_ICON))
 	}
 }
 
-/** A dashboard tile: tinted by its accent, the whole of it a button. */
+/** The mark at the end of a row that opens something, its point on the line the row ends on. */
+@Composable
+fun Chevron(tint: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+	Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = tint, modifier = Modifier.optical(Sizes.chevronEmpty))
+}
+
+/**
+ * A dashboard tile: tinted by its accent, the whole of it a button. Its [caption] is its last line, at
+ * its bottom whatever the tile beside it holds: the captions of a row stand on one line.
+ */
 @Composable
 fun Tile(
 	modifier: Modifier = Modifier,
 	accent: Color = MaterialTheme.colorScheme.primary,
 	onClick: (() -> Unit)? = null,
+	caption: String? = null,
 	content: @Composable ColumnScope.() -> Unit,
 ) {
-	val base = MaterialTheme.colorScheme.surfaceContainerLow
-	Surface(modifier = modifier, shape = CardShape, color = base) {
-		Column(
+	val padding = cardPadding()
+	CardSurface(modifier) {
+		Layout(
+			listOf(
+				{ Column(verticalArrangement = Arrangement.spacedBy(Space.s), content = content) },
+				{ if (caption != null) TileCaption(caption) },
+			),
 			Modifier
-				.background(Brush.linearGradient(listOf(accent.copy(alpha = Alpha.TILE_FROM), accent.copy(alpha = Alpha.TILE_TO))))
+				.background(Brush.verticalGradient(listOf(accent.copy(alpha = Alpha.TILE_FROM), accent.copy(alpha = Alpha.TILE_TO))))
 				.then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-				.padding(Space.l),
-			verticalArrangement = Arrangement.spacedBy(Space.s),
-			content = content,
-		)
+				.padding(padding),
+		) { (main, last), constraints ->
+			val wide = constraints.copy(minHeight = 0)
+			val footer = last.firstOrNull()?.measure(wide)
+			val under = footer?.let { it.height + Space.s.roundToPx() } ?: 0
+			val body = main.first().measure(wide.copy(maxHeight = if (wide.hasBoundedHeight) (wide.maxHeight - under).coerceAtLeast(0) else wide.maxHeight))
+			val height = maxOf(constraints.minHeight, body.height + under)
+			layout(maxOf(body.width, footer?.width ?: 0), height) {
+				body.placeRelative(0, 0)
+				footer?.placeRelative(0, height - footer.height)
+			}
+		}
 	}
+}
+
+@Composable
+private fun TileCaption(text: String) {
+	Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 /** The small caption over a tile's big number. */
@@ -116,34 +183,36 @@ fun Tile(
 fun TileLabel(text: String, icon: ImageVector, accent: Color) {
 	Row(verticalAlignment = Alignment.CenterVertically) {
 		Icon(icon, null, tint = accent, modifier = Modifier.size(Sizes.iconS))
-		Spacer(Modifier.width(Space.xsPlus))
-		Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+		Spacer(Modifier.width(Space.s))
+		Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
 	}
 }
 
-/** A big number with its unit set smaller beside it. */
+/** A big number with its unit set smaller beside it, on its baseline; smaller both where they don't fit. */
 @Composable
-fun BigValue(value: String, unit: String? = null, color: Color = MaterialTheme.colorScheme.onSurface, large: Boolean = true) {
-	Row(verticalAlignment = Alignment.Bottom) {
-		RollingText(value, if (large) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.headlineSmall, color = color)
+fun BigValue(value: String, unit: String? = null, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurface, large: Boolean = true) {
+	Row(modifier.shrinkToFit()) {
+		RollingText(value, if (large) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.headlineSmall, Modifier.alignByBaseline(), color = color)
 		if (unit != null) {
-			Spacer(Modifier.width(Space.unitGap))
-			Text(
-				unit,
-				style = MaterialTheme.typography.titleSmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				modifier = Modifier.padding(bottom = if (large) Space.unitLift else Space.unitLiftSmall),
-			)
+			Spacer(Modifier.width(Space.xs))
+			Text(unit, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, modifier = Modifier.alignByBaseline())
 		}
 	}
+}
+
+/** The line of a tile's figure, whatever stands on it (a number, a word, a dash): on one baseline, as tall. */
+@Composable
+fun Modifier.figureLine(): Modifier {
+	val least = with(LocalDensity.current) { TextSizes.figureLine.toDp() }
+	return heightIn(min = least).paddingFromBaseline(top = TextSizes.figureBaseline)
 }
 
 /** A label above a number, the way dashboards show their main figures. */
 @Composable
 fun BigStat(label: String, value: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurface) {
 	Column(modifier) {
-		Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-		RollingText(value, MaterialTheme.typography.titleLarge, color = color)
+		Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+		RollingText(value, MaterialTheme.typography.titleLarge, Modifier.shrinkToFit(), color = color)
 	}
 }
 
@@ -195,14 +264,14 @@ fun Pill(text: String, color: Color = MaterialTheme.colorScheme.primary, modifie
 	val dark = LocalDark.current
 	val ink = remember(color, scheme, dark) { pillTextColor(color, pillSurfaces(scheme), dark) }
 	Row(
-		modifier.clip(PillShape).background(color.copy(alpha = Alpha.PILL)).padding(horizontal = Space.sPlus, vertical = Space.xs),
+		modifier.clip(PillShape).background(color.copy(alpha = Alpha.PILL)).padding(horizontal = Space.m, vertical = Space.xs),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		if (dot) {
 			Box(Modifier.size(Sizes.pillDot).clip(CircleShape).background(color))
-			Spacer(Modifier.width(Space.xsPlus))
+			Spacer(Modifier.width(Space.s))
 		}
-		Text(text, style = MaterialTheme.typography.labelMedium, color = ink, maxLines = 1)
+		Text(text, style = MaterialTheme.typography.labelMedium, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
 	}
 }
 
@@ -210,16 +279,57 @@ fun Pill(text: String, color: Color = MaterialTheme.colorScheme.primary, modifie
 fun Legend(color: Color, text: String, modifier: Modifier = Modifier) {
 	Row(modifier, verticalAlignment = Alignment.CenterVertically) {
 		Box(Modifier.size(Sizes.legendDot).clip(CircleShape).background(color))
-		Spacer(Modifier.width(Space.xsPlus))
-		Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+		Spacer(Modifier.width(Space.s))
+		Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
 	}
+}
+
+/**
+ * A note in its colour over what a screen shows: what is the matter, what may be done about it at its
+ * end ([trailing], a round button) or under it ([more]). A computer that can't be reached, control
+ * that is off and a version too old are all told this way, at the top of the screen.
+ */
+@Composable
+fun Banner(
+	icon: ImageVector,
+	color: Color,
+	text: String,
+	modifier: Modifier = Modifier,
+	title: String? = null,
+	trailing: (@Composable () -> Unit)? = null,
+	more: (@Composable ColumnScope.() -> Unit)? = null,
+) {
+	CardSurface(modifier) {
+		Column(
+			Modifier.background(color.copy(alpha = Alpha.BANNER)).padding(horizontal = Space.card, vertical = if (trailing == null) Space.card else Space.xs),
+			verticalArrangement = Arrangement.spacedBy(Space.m),
+		) {
+			Row(verticalAlignment = if (trailing == null) Alignment.Top else Alignment.CenterVertically) {
+				FirstLine(MaterialTheme.typography.bodyMedium) { Icon(icon, null, tint = color, modifier = Modifier.size(Sizes.iconM)) }
+				Spacer(Modifier.width(Space.m))
+				Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+					if (title != null) Text(title, style = MaterialTheme.typography.titleSmall)
+					Text(text, style = MaterialTheme.typography.bodyMedium)
+				}
+				if (trailing != null) Box(Modifier.optical(Sizes.buttonEmpty)) { trailing() }
+			}
+			more?.invoke(this)
+		}
+	}
+}
+
+/** Centred on the first line of the text beside it, set in [style], however many lines that takes. */
+@Composable
+fun FirstLine(style: TextStyle, content: @Composable () -> Unit) {
+	val line = with(LocalDensity.current) { style.lineHeight.toDp() }
+	Box(Modifier.heightIn(min = line), contentAlignment = Alignment.Center) { content() }
 }
 
 /** A message in the middle of an empty or failed screen. */
 @Composable
 fun Notice(icon: ImageVector, title: String, body: String?, modifier: Modifier = Modifier, action: (@Composable () -> Unit)? = null) {
 	Column(
-		modifier.fillMaxWidth().padding(Space.xxxl),
+		modifier.fillMaxWidth().padding(Space.xxl),
 		horizontalAlignment = Alignment.CenterHorizontally,
 		verticalArrangement = Arrangement.spacedBy(Space.m),
 	) {
@@ -239,21 +349,47 @@ fun GroupLabel(text: String, modifier: Modifier = Modifier) {
 		text,
 		style = MaterialTheme.typography.labelLarge,
 		color = MaterialTheme.colorScheme.primary,
-		modifier = modifier.padding(start = Space.xl, top = Space.m, bottom = Space.xxs),
+		modifier = modifier.padding(start = Space.card, end = Space.card, top = Space.m, bottom = Space.xs),
 	)
 }
 
 /** Rows on one rounded card, divided by hairlines. */
 @Composable
 fun ListGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-	Surface(modifier = modifier.fillMaxWidth(), shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-		Column(Modifier.padding(vertical = Space.xs), content = content)
-	}
+	CardSurface(modifier) { Column(Modifier.padding(vertical = Space.card - RowPadding), content = content) }
+}
+
+/** Over and under a row's text: with the group's own, a card's padding. */
+private val RowPadding = Space.m
+
+/**
+ * Chips side by side, scrolling where they don't all fit: from edge to edge of the card they are in
+ * ([padding], what it keeps on its sides), so one half seen is cut by the card and not short of it.
+ */
+@Composable
+fun ChipRow(padding: Dp = Space.card, content: @Composable RowScope.() -> Unit) {
+	Row(
+		Modifier
+			.layout { measurable, constraints ->
+				if (!constraints.hasBoundedWidth) {
+					val p = measurable.measure(constraints)
+					return@layout layout(p.width, p.height) { p.place(0, 0) }
+				}
+				val side = padding.roundToPx()
+				val wide = measurable.measure(constraints.copy(minWidth = 0, maxWidth = constraints.maxWidth + side * 2))
+				layout(constraints.maxWidth, wide.height) { wide.place(-side, 0) }
+			}
+			.fillMaxWidth()
+			.horizontalScroll(rememberScrollState())
+			.padding(horizontal = padding),
+		horizontalArrangement = Arrangement.spacedBy(Space.s),
+		content = content,
+	)
 }
 
 @Composable
 fun GroupDivider() {
-	HorizontalDivider(Modifier.padding(horizontal = Space.xl), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = Alpha.DIVIDER))
+	HorizontalDivider(Modifier.padding(horizontal = Space.card), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = Alpha.DIVIDER))
 }
 
 /** A row in a list group: title, optional summary, and a trailing control or a chevron. */
@@ -315,22 +451,16 @@ private fun RowLayout(
 	Row(
 		modifier
 			.fillMaxWidth()
-			.padding(horizontal = Space.xl, vertical = Space.mPlus),
+			.heightIn(min = Sizes.touchTarget)
+			.padding(horizontal = Space.card, vertical = RowPadding),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		if (icon != null) {
-			if (busy) {
-				// As wide as the badge, so the title stays where it is.
-				Box(Modifier.size(Sizes.badgeRow), contentAlignment = Alignment.Center) {
-					CircularProgressIndicator(Modifier.size(Sizes.iconM), strokeWidth = Sizes.spinnerStroke)
-				}
-			} else {
-				IconBadge(icon, accent.copy(alpha = alpha), Sizes.badgeRow)
-			}
-			Spacer(Modifier.width(Space.mPlus))
+			BusyBadge(icon, accent.copy(alpha = alpha), busy)
+			Spacer(Modifier.width(Space.m))
 		}
 		Column(Modifier.weight(1f)) {
-			Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
+			Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), modifier = Modifier.wholeWords())
 			if (summary != null) {
 				Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha))
 			}
@@ -343,10 +473,25 @@ private fun RowLayout(
 			Spacer(Modifier.width(Space.m))
 			trailing()
 		} else if (chevron) {
-			Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha))
+			Spacer(Modifier.width(Space.xs))
+			Chevron(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha))
 		}
 	}
 }
+
+/** A row's icon in its disc, or while what the row started runs, a spinner as large. */
+@Composable
+fun BusyBadge(icon: ImageVector, accent: Color, busy: Boolean) {
+	if (busy) {
+		Box(Modifier.size(Sizes.badge), contentAlignment = Alignment.Center) { Spinner() }
+	} else {
+		IconBadge(icon, accent)
+	}
+}
+
+/** What runs or is on its way, inside a button, a row or a tile. */
+@Composable
+fun Spinner(size: Dp = Sizes.iconM) = CircularProgressIndicator(Modifier.size(size), strokeWidth = Sizes.spinnerStroke)
 
 /** A name's own hue, from 0 to 359, the same every time; never negative, whatever the hash. */
 fun avatarHue(name: String): Float = Math.floorMod(name.lowercase().hashCode(), HUES).toFloat()

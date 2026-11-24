@@ -38,12 +38,18 @@ object Grid {
 	}
 
 	/**
-	 * The widgets of [spans], in order, row by row: each as wide as its span in [columns], one that
-	 * doesn't fit beside the one before starting a row, and the last of a row taking the columns
-	 * left free, so no row ends in a hole (a lone temperature tile under two GPUs is as wide as the
-	 * screen, as in 0.5). Each cell is (index into [spans], span).
+	 * A row of widgets: each [cells]' place in the list it was made from and how many of the row's
+	 * [columns] it is wide. The columns are the grid's where the widgets fill them; a row that they
+	 * leave incomplete has one for each, so they share its width evenly and it still runs from edge
+	 * to edge, the same on both sides.
 	 */
-	fun place(spans: List<Int>, columns: Int): List<List<Pair<Int, Int>>> {
+	data class Line(val cells: List<Pair<Int, Int>>, val columns: Int)
+
+	/**
+	 * The widgets of [spans], in order, row by row: each as wide as its span in [columns], one that
+	 * doesn't fit beside the one before starting a row ([Line]).
+	 */
+	fun place(spans: List<Int>, columns: Int): List<Line> {
 		val rows = mutableListOf<MutableList<Pair<Int, Int>>>()
 		var used = columns
 		spans.forEachIndexed { i, raw ->
@@ -55,11 +61,36 @@ object Grid {
 			rows.last() += i to s
 			used += s
 		}
-		for (row in rows) {
-			val free = columns - row.sumOf { it.second }
-			if (free > 0) row[row.lastIndex] = row.last().let { (i, s) -> i to s + free }
+		return rows.map { row -> if (row.sumOf { it.second } == columns) Line(row, columns) else shared(row.map { it.first }) }
+	}
+
+	/** [count] things of one kind, as many as [most] to a row, in rows as even as they go: four by three are two and two. */
+	fun even(count: Int, most: Int): List<Line> {
+		if (count <= 0) return emptyList()
+		val rows = (count + most - 1) / most
+		var next = 0
+		return List(rows) { i ->
+			val n = count / rows + if (i < count % rows) 1 else 0
+			shared(List(n) { next++ })
 		}
-		return rows
+	}
+
+	/** A row [of] those places, each as wide as the others. */
+	private fun shared(of: List<Int>) = Line(of.map { it to 1 }, of.size)
+
+	/**
+	 * From where to where a widget reaches that takes [span] of a row's [columns] from [column] on, in
+	 * whole pixels of a row [width] wide with [gap] between columns: its mirror image, as many columns
+	 * from the other end, is as wide and as far from the edge; a pixel left over widens a gap.
+	 */
+	fun extent(column: Int, span: Int, columns: Int, width: Int, gap: Int): Extent {
+		fun start(c: Int) = (c * (width + gap) + columns - 1) / columns
+		return Extent(start(column), width - start(columns - column - span))
+	}
+
+	/** Where a widget starts in its row and where it ends, in pixels. */
+	data class Extent(val start: Int, val end: Int) {
+		val width get() = end - start
 	}
 }
 

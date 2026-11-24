@@ -3,7 +3,6 @@ package io.github.elaizes.elamon.ui
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,15 +13,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,6 +36,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonPrimitive
@@ -61,16 +60,17 @@ fun MediaWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val players = s?.players.orEmpty()
 	var chosen by remember { mutableStateOf<String?>(null) }
 	val player = players.find { it.id == chosen } ?: players.firstOrNull()
-	Surface(shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = modifier.fillMaxWidth()) {
-		Column(Modifier.padding(Space.lPlus), verticalArrangement = Arrangement.spacedBy(Space.mPlus)) {
+	val padding = cardPadding()
+	CardSurface(modifier) {
+		Column(Modifier.padding(padding), verticalArrangement = Arrangement.spacedBy(Space.m)) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
 				IconBadge(icon(w.icon ?: "music"), if (w.color != null) accent(w.color) else MaterialTheme.colorScheme.tertiary)
 				Spacer(Modifier.width(Space.m))
 				Text(player?.name ?: w.label ?: stringResource(R.string.control_media), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
 			}
 			if (players.size > 1) {
-				Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-					for (p in players) FilterChip(selected = p.id == player?.id, onClick = { chosen = p.id }, label = { Text(p.name) })
+				ChipRow(padding) {
+					for (p in players) FilterChip(selected = p.id == player?.id, onClick = { chosen = p.id }, label = { Text(p.name) }, shape = PillShape)
 				}
 			}
 			when {
@@ -105,16 +105,16 @@ private fun NowPlaying(scope: DashScope, p: Player) {
 	val player = buildJsonObject { put("player", p.id) }
 	Row(verticalAlignment = Alignment.CenterVertically) {
 		Box(
-			Modifier.size(Sizes.art).clip(RoundedCornerShape(Radius.l)).background(
-				Brush.linearGradient(listOf(MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.primaryContainer))
+			Modifier.size(Sizes.art).clip(InnerShape).background(
+				Brush.verticalGradient(listOf(MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.primaryContainer))
 			),
 			contentAlignment = Alignment.Center,
 		) {
 			val bitmap = art
 			if (bitmap != null) Image(bitmap.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-			else Icon(ElIcons.Music, null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(Sizes.iconArt))
+			else Icon(ElIcons.Music, null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(Sizes.iconXl))
 		}
-		Spacer(Modifier.width(Space.mPlus))
+		Spacer(Modifier.width(Space.m))
 		Column(Modifier.weight(1f)) {
 			Text(p.title ?: stringResource(if (p.status == "Stopped") R.string.control_nothing_playing else R.string.control_unknown_track), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
 			listOfNotNull(p.artist, p.album).joinToString(" · ").takeIf { it.isNotEmpty() }?.let {
@@ -180,13 +180,15 @@ private fun VolumeRow(scope: DashScope, v: Volume) {
 	var dragging by remember { mutableStateOf<Float?>(null) }
 	val level = (v.level / Thresholds.PERCENT).toFloat().coerceIn(0f, 1f)
 	Row(verticalAlignment = Alignment.CenterVertically) {
-		IconButton(onClick = { set?.let { a.launch(it, buildJsonObject { put("muted", !v.muted) }, it.name) } }, enabled = canSet) {
+		// The icon, not its button, where the rest of the card starts, as far from the slider as its figure.
+		IconButton(onClick = { set?.let { a.launch(it, buildJsonObject { put("muted", !v.muted) }, it.name) } }, enabled = canSet, modifier = Modifier.flush(Sizes.buttonEmpty)) {
 			Icon(
 				if (v.muted) ElIcons.Mute else ElIcons.Volume,
 				stringResource(if (v.muted) R.string.control_unmute else R.string.control_mute),
 				tint = if (v.muted) Metric.colors.hot else MaterialTheme.colorScheme.onSurface,
 			)
 		}
+		Spacer(Modifier.width(Space.m))
 		Slider(
 			value = dragging ?: level,
 			onValueChange = { dragging = it },
@@ -198,7 +200,11 @@ private fun VolumeRow(scope: DashScope, v: Volume) {
 			enabled = canSet,
 			modifier = Modifier.weight(1f),
 		)
-		Text(Fmt.percent(((dragging ?: level) * Thresholds.PERCENT).toDouble()), style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(Sizes.volumeLabel).padding(start = Space.xsPlus))
+		// As wide as its longest, so the slider doesn't change with it.
+		val style = MaterialTheme.typography.labelLarge
+		val measurer = rememberTextMeasurer()
+		val widest = with(LocalDensity.current) { remember(measurer, style) { measurer.measure(Fmt.percent(Thresholds.PERCENT.toDouble()), style).size.width }.toDp() }
+		Text(Fmt.percent(((dragging ?: level) * Thresholds.PERCENT).toDouble()), style = style, textAlign = TextAlign.End, maxLines = 1, modifier = Modifier.padding(start = Space.m).widthIn(min = widest))
 	}
 }
 

@@ -8,43 +8,43 @@ import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import io.github.elaizes.elamon.BuildConfig
 import io.github.elaizes.elamon.R
 import io.github.elaizes.elamon.data.DEFAULT_PORT
 import io.github.elaizes.elamon.data.Limits.MDNS_PORT
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 
 /** Where the project lives; the one place to change if it moves. */
 object Project {
@@ -151,62 +151,64 @@ private val PAIR = listOf(
 	t(R.string.help_pair_allow),
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HelpScreen(onBack: () -> Unit) {
 	val ctx = LocalContext.current
+	val list = rememberLazyListState()
+	val haze = remember { HazeState() }
 
-	Scaffold(
-		topBar = {
-			TopAppBar(
-				title = { Text(stringResource(R.string.help_screen_title)) },
-				navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } },
-			)
-		},
-	) { padding ->
-		LazyColumn(
-			Modifier.fillMaxSize(),
-			contentPadding = PaddingValues(Space.l, padding.calculateTopPadding() + Space.s, Space.l, padding.calculateBottomPadding() + Space.xxl),
-			verticalArrangement = Arrangement.spacedBy(Space.m),
-		) {
-			for (part in HelpItem.entries) item(key = part.name) {
-				when (part) {
-					HelpItem.Intro -> {
-						Text(
-							stringResource(R.string.help_intro),
-							style = MaterialTheme.typography.bodyLarge,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-							modifier = Modifier.padding(horizontal = Space.xs),
-						)
-					}
-					HelpItem.Install -> Section(stringResource(R.string.help_install), ElIcons.Laptop) { Blocks(INSTALL) }
-					HelpItem.Firewall -> Section(stringResource(R.string.help_firewall), Icons.Default.Lock) { Blocks(FIREWALL) }
-					HelpItem.Pair -> Section(stringResource(R.string.help_pair), ElIcons.Qr) { Blocks(PAIR) }
-					HelpItem.Phone -> Section(stringResource(R.string.help_phone), Icons.Default.Settings) { Blocks(PHONE) }
-					HelpItem.Outside -> Section(stringResource(R.string.help_outside), ElIcons.Control) { Blocks(OUTSIDE) }
-					HelpItem.Events -> Section(stringResource(R.string.help_events), Icons.Default.Notifications) { Blocks(EVENTS) }
-					HelpItem.Editing -> Section(stringResource(R.string.help_editor), Icons.Default.Edit) { Blocks(EDITING) }
-					HelpItem.Guide -> {
-						Section(stringResource(R.string.help_guide), Icons.Default.Info) {
-							Text(stringResource(R.string.help_guide_body), style = MaterialTheme.typography.bodyMedium)
-							Button(onClick = { openWebLink(ctx, Project.GUIDE) }) { Text(stringResource(R.string.help_guide_button)) }
+	CompositionLocalProvider(LocalHaze provides haze) {
+		Box(Modifier.fillMaxSize()) {
+			LazyColumn(
+				Modifier.fillMaxSize().hazeSource(haze),
+				state = list,
+				contentPadding = listPadding(),
+				verticalArrangement = Arrangement.spacedBy(Space.gap),
+			) {
+				item(key = "title") { BigTitle(stringResource(R.string.help_screen_title), list = list) }
+				for (part in HelpItem.entries) item(key = part.name) {
+					when (part) {
+						HelpItem.Intro -> {
 							Text(
-								stringResource(R.string.help_version, BuildConfig.VERSION_NAME),
-								style = MaterialTheme.typography.bodySmall,
+								stringResource(R.string.help_intro),
+								style = MaterialTheme.typography.bodyLarge,
 								color = MaterialTheme.colorScheme.onSurfaceVariant,
+								modifier = Modifier.padding(horizontal = Space.card),
 							)
-							OutlinedButton(onClick = { openWebLink(ctx, Project.URL) }) { Text(stringResource(R.string.help_source)) }
+						}
+						HelpItem.Install -> Section(stringResource(R.string.help_install), ElIcons.Laptop) { Blocks(INSTALL) }
+						HelpItem.Firewall -> Section(stringResource(R.string.help_firewall), Icons.Default.Lock) { Blocks(FIREWALL) }
+						HelpItem.Pair -> Section(stringResource(R.string.help_pair), ElIcons.Qr) { Blocks(PAIR) }
+						HelpItem.Phone -> Section(stringResource(R.string.help_phone), Icons.Default.Settings) { Blocks(PHONE) }
+						HelpItem.Outside -> Section(stringResource(R.string.help_outside), ElIcons.Control) { Blocks(OUTSIDE) }
+						HelpItem.Events -> Section(stringResource(R.string.help_events), Icons.Default.Notifications) { Blocks(EVENTS) }
+						HelpItem.Editing -> Section(stringResource(R.string.help_editor), Icons.Default.Edit) { Blocks(EDITING) }
+						HelpItem.Guide -> {
+							Section(stringResource(R.string.help_guide), Icons.Default.Info) {
+								Text(stringResource(R.string.help_guide_body), style = MaterialTheme.typography.bodyMedium)
+								EvenButtons {
+									OutlinedButton(onClick = { openWebLink(ctx, Project.URL) }) { Text(stringResource(R.string.help_source)) }
+									Button(onClick = { openWebLink(ctx, Project.GUIDE) }) { Text(stringResource(R.string.help_guide_button)) }
+								}
+								Text(
+									stringResource(R.string.help_version, BuildConfig.VERSION_NAME),
+									style = MaterialTheme.typography.bodySmall,
+									color = MaterialTheme.colorScheme.onSurfaceVariant,
+								)
+							}
 						}
 					}
 				}
 			}
+			BottomGlass(Modifier.align(Alignment.BottomCenter))
+			GlassTopBar(title = stringResource(R.string.help_screen_title), collapsed = rememberCollapsed(list), onBack = onBack)
 		}
 	}
 }
 
 @Composable
 private fun Blocks(blocks: List<Block>) {
-	Column(verticalArrangement = Arrangement.spacedBy(Space.sPlus)) {
+	Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
 		for (b in blocks) {
 			when (b) {
 				// Without arguments the text isn't formatted at all, so a "%" in it stays as written.
@@ -221,17 +223,21 @@ private fun Blocks(blocks: List<Block>) {
 @Composable
 fun CodeBlock(code: String) {
 	val ctx = LocalContext.current
-	Surface(shape = RoundedCornerShape(Radius.m), color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth()) {
+	Surface(shape = InnerShape, color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth()) {
 		Row(verticalAlignment = Alignment.Top) {
+			val style = MaterialTheme.typography.bodySmall
+			val line = with(LocalDensity.current) { style.lineHeight.toDp() }
+			// The first line in the middle of the button beside it.
+			val top = ((Sizes.touchTarget - line) / 2).coerceAtLeast(Space.m)
 			Text(
 				code,
 				fontFamily = FontFamily.Monospace,
-				style = MaterialTheme.typography.bodySmall,
+				style = style,
 				softWrap = false,
-				modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(start = Space.m, top = Space.m, bottom = Space.m, end = Space.xs),
+				modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(start = Space.m, top = top, bottom = top),
 			)
 			IconButton(onClick = { copy(ctx, code) }) {
-				Icon(ElIcons.Copy, stringResource(R.string.copy), modifier = Modifier.size(Sizes.iconM), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+				Icon(ElIcons.Copy, stringResource(R.string.copy), tint = MaterialTheme.colorScheme.onSurfaceVariant)
 			}
 		}
 	}

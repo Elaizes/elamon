@@ -7,12 +7,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -48,7 +48,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -95,9 +94,6 @@ private const val SEARCH_FROM = 12
 
 /** The most of a long list a picker shows at once: a search finds the rest. */
 private const val PICK_SHOWN = 200
-
-/** A record's border. */
-private val OUTLINE = 1.dp
 
 private val NUMBER = Regex("""-?\d+(\.\d+)?([eE][-+]?\d+)?""")
 
@@ -230,7 +226,7 @@ fun KeyField(
 				Switch(checked = (value ?: key.default).bool() == true, onCheckedChange = { onChange(JsonPrimitive(it)) })
 			}
 			if (value != null && fixedIn == null) {
-				IconButton(onClick = { onChange(null) }) {
+				IconButton(onClick = { onChange(null) }, modifier = Modifier.optical(Sizes.smallButtonEmpty)) {
 					Icon(Icons.Default.Clear, stringResource(R.string.editor_clear, key.name), Modifier.size(Sizes.iconM))
 				}
 			}
@@ -325,7 +321,7 @@ private fun IntControl(key: EditorKey, value: JsonElement?, onChange: (JsonEleme
 	if (min != null && max != null && max >= min && max - min < INT_CHIPS_MAX) {
 		val now = (value as? JsonPrimitive)?.content?.toLongOrNull() ?: (key.default as? JsonPrimitive)?.content?.toLongOrNull()
 		FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-			for (n in min..max) FilterChip(selected = now == n, onClick = { onChange(JsonPrimitive(n)) }, label = { Text(n.toString()) })
+			for (n in min..max) FilterChip(selected = now == n, onClick = { onChange(JsonPrimitive(n)) }, label = { Text(n.toString()) }, shape = PillShape)
 		}
 		return
 	}
@@ -377,9 +373,9 @@ private fun EnumControl(key: EditorKey, value: JsonElement?, onChange: (JsonElem
 	val now = value.text() ?: key.default.text()
 	if (choices.size <= CHIPS_MAX) {
 		FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-			for (c in choices) FilterChip(selected = now == c, onClick = { onChange(JsonPrimitive(c)) }, label = { Text(c) })
+			for (c in choices) FilterChip(selected = now == c, onClick = { onChange(JsonPrimitive(c)) }, label = { Text(c) }, shape = PillShape)
 			// One the description doesn't list (from a newer service's settings) stays, shown as it is.
-			if (value != null && value.text() !in choices) FilterChip(selected = true, onClick = {}, label = { Text(asText(value)) })
+			if (value != null && value.text() !in choices) FilterChip(selected = true, onClick = {}, label = { Text(asText(value)) }, shape = PillShape)
 		}
 		return
 	}
@@ -421,10 +417,7 @@ private fun ListControl(key: EditorKey, value: JsonElement?, onChange: (JsonElem
 				KeyControl(itemKey, item, { v -> onChange(JsonArray(list.toMutableList().apply { set(i, v ?: emptyOf(of)) })) }, env, path)
 			}
 		}
-		TextButton(onClick = { onChange(JsonArray(list + emptyOf(of))) }) {
-			Icon(Icons.Default.Add, null, Modifier.size(Sizes.iconM))
-			Text(stringResource(R.string.editor_add_item), Modifier.padding(start = Space.xs))
-		}
+		AddItem(stringResource(R.string.editor_add_item)) { onChange(JsonArray(list + emptyOf(of))) }
 	}
 }
 
@@ -450,10 +443,7 @@ private fun MapControl(key: EditorKey, value: JsonElement?, onChange: (JsonEleme
 		}
 		val pending = adding
 		if (pending == null) {
-			TextButton(onClick = { adding = "" }) {
-				Icon(Icons.Default.Add, null, Modifier.size(Sizes.iconM))
-				Text(stringResource(R.string.editor_add_item), Modifier.padding(start = Space.xs))
-			}
+			AddItem(stringResource(R.string.editor_add_item)) { adding = "" }
 		} else {
 			Row(verticalAlignment = Alignment.CenterVertically) {
 				OutlinedTextField(
@@ -488,7 +478,7 @@ private fun RecordControl(key: EditorKey, value: JsonElement?, onChange: (JsonEl
 		return
 	}
 	val o = obj.orEmpty().let(::JsonObject)
-	Surface(shape = RoundedCornerShape(Radius.m), border = BorderStroke(OUTLINE, MaterialTheme.colorScheme.outlineVariant), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+	Surface(shape = InnerShape, border = BorderStroke(Sizes.outline, MaterialTheme.colorScheme.outlineVariant), color = MaterialTheme.colorScheme.surfaceContainerLow) {
 		Column(Modifier.padding(Space.m), verticalArrangement = Arrangement.spacedBy(Space.m)) {
 			ObjectFields(keys, o, { k, v -> onChange(Drafts.withKey(o, k, v).takeIf { m -> m.isNotEmpty() }) }, env, path)
 		}
@@ -546,10 +536,7 @@ private fun WidgetsControl(value: JsonElement?, onChange: (JsonElement?) -> Unit
 				)
 			}
 		}
-		TextButton(onClick = { adding = true }) {
-			Icon(Icons.Default.Add, null, Modifier.size(Sizes.iconM))
-			Text(stringResource(R.string.editor_add), Modifier.padding(start = Space.xs))
-		}
+		AddItem(stringResource(R.string.editor_add)) { adding = true }
 	}
 	if (adding) {
 		AddWidgetDialog(env.desc, onDismiss = { adding = false }) { onChange(JsonArray(list + it)) }
@@ -573,7 +560,7 @@ private fun AnyControl(key: EditorKey, value: JsonElement?, onChange: (JsonEleme
 	Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
 		if (alts.size > 1) {
 			FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-				alts.forEachIndexed { i, alt -> FilterChip(selected = chosen == i, onClick = { chosen = i }, label = { Text(kindWord(alt)) }) }
+				alts.forEachIndexed { i, alt -> FilterChip(selected = chosen == i, onClick = { chosen = i }, label = { Text(kindWord(alt)) }, shape = PillShape) }
 			}
 		}
 		val alt = alts[chosen.coerceIn(alts.indices)]
@@ -606,6 +593,15 @@ fun JsonControl(value: JsonElement?, onChange: (JsonElement?) -> Unit, isError: 
 	if (!json) Mistakes(listOf(stringResource(R.string.editor_not_json)))
 }
 
+/** The button that adds one more under the others, its icon on the line they start on. */
+@Composable
+private fun AddItem(label: String, onClick: () -> Unit) {
+	TextButton(onClick = onClick, contentPadding = PaddingValues(end = Space.m)) {
+		Icon(Icons.Default.Add, null, Modifier.size(Sizes.iconM))
+		Text(label, Modifier.padding(start = Space.s))
+	}
+}
+
 /** An item of a list or a map, with its buttons: up, down, out. */
 @Composable
 private fun ItemRow(onUp: (() -> Unit)? = null, onDown: (() -> Unit)? = null, onRemove: () -> Unit, content: @Composable () -> Unit) {
@@ -617,7 +613,7 @@ private fun ItemRow(onUp: (() -> Unit)? = null, onDown: (() -> Unit)? = null, on
 				IconButton(onClick = { onDown?.invoke() }, enabled = onDown != null) { Icon(Icons.Default.KeyboardArrowDown, stringResource(R.string.editor_move_later)) }
 			}
 		}
-		IconButton(onClick = onRemove) { Icon(Icons.Default.Delete, stringResource(R.string.editor_remove_item), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+		IconButton(onClick = onRemove, modifier = Modifier.optical(Sizes.buttonEmpty)) { Icon(Icons.Default.Delete, stringResource(R.string.editor_remove_item), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
 	}
 }
 
@@ -681,7 +677,7 @@ fun PickDialog(title: String, items: List<PickItem>, onPick: (String) -> Unit, o
 				if (found.size > PICK_SHOWN) Hint(pluralStringResource(R.plurals.editor_search_more, found.size - PICK_SHOWN, found.size - PICK_SHOWN))
 			}
 		},
-		confirm = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+		confirm = DialogButton(stringResource(R.string.cancel), onClick = onDismiss),
 	)
 }
 

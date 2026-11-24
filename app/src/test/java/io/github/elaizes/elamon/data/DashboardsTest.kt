@@ -43,17 +43,89 @@ class DashboardsTest {
 		assertEquals(2, Grid.span(9, 2))
 	}
 
+	/** A row's cells, and its columns where they aren't the grid's. */
+	private fun line(columns: Int, vararg cells: Pair<Int, Int>) = Grid.Line(cells.toList(), columns)
+
 	@Test
 	fun aWidgetThatDoesntFitStartsARow() {
 		// 2 + 2 | 4 | 1 + 1 + 2 | 3 + 1 | 4
 		assertEquals(
-			listOf(listOf(0 to 2, 1 to 2), listOf(2 to 4), listOf(3 to 1, 4 to 1, 5 to 2), listOf(6 to 3, 7 to 1), listOf(8 to 4)),
+			listOf(line(4, 0 to 2, 1 to 2), line(4, 2 to 4), line(4, 3 to 1, 4 to 1, 5 to 2), line(4, 6 to 3, 7 to 1), line(4, 8 to 4)),
 			Grid.place(listOf(2, 2, 4, 1, 1, 2, 3, 1, 4), 4),
 		)
-		// 3 then 2 doesn't fit: a row of its own, and each takes its row's free columns.
-		assertEquals(listOf(listOf(0 to 4), listOf(1 to 4)), Grid.place(listOf(3, 2), 4))
-		assertEquals(listOf(listOf(0 to 1, 1 to 3)), Grid.place(listOf(1, 1), 4))
 		assertEquals(emptyList(), Grid.place(emptyList(), 4))
+	}
+
+	@Test
+	fun anIncompleteRowIsSharedEvenly() {
+		// 3 then 2 doesn't fit: each alone in its row, as wide as the screen.
+		assertEquals(listOf(line(1, 0 to 1), line(1, 1 to 1)), Grid.place(listOf(3, 2), 4))
+		// Two of one column, or of one and two, halve the row; three are thirds of it.
+		assertEquals(listOf(line(2, 0 to 1, 1 to 1)), Grid.place(listOf(1, 1), 4))
+		assertEquals(listOf(line(2, 0 to 1, 1 to 1)), Grid.place(listOf(1, 2), 4))
+		assertEquals(listOf(line(2, 0 to 1, 1 to 1)), Grid.place(listOf(2, 1), 4))
+		assertEquals(listOf(line(3, 0 to 1, 1 to 1, 2 to 1)), Grid.place(listOf(1, 1, 1), 4))
+		// Not only the last one: the row a wide widget leaves before it too.
+		assertEquals(listOf(line(1, 0 to 1), line(4, 1 to 4)), Grid.place(listOf(2, 4), 4))
+		assertEquals(listOf(line(1, 0 to 1), line(2, 1 to 2)), Grid.place(listOf(1, 4), 2))
+	}
+
+	@Test
+	fun everyCombinationOfSpansFillsItsRows() {
+		fun lists(n: Int): List<List<Int>> = if (n == 0) listOf(emptyList()) else lists(n - 1).flatMap { l -> (1..4).map { l + it } }
+		for (columns in listOf(1, 2, 4)) for (n in 0..5) for (spans in lists(n)) {
+			val rows = Grid.place(spans, columns)
+			// Each widget once, in order.
+			assertEquals(spans.indices.toList(), rows.flatMap { r -> r.cells.map { it.first } }, "$spans in $columns")
+			rows.forEachIndexed { i, row ->
+				// From edge to edge.
+				assertEquals(row.columns, row.cells.sumOf { it.second }, "$spans in $columns")
+				val asked = row.cells.map { Grid.span(spans[it.first], columns) }
+				if (asked.sum() == columns) {
+					assertEquals(columns, row.columns)
+					assertEquals(asked, row.cells.map { it.second })
+				} else {
+					// Incomplete: the widgets alike, and the next one didn't fit beside them.
+					assertEquals(List(row.cells.size) { 1 }, row.cells.map { it.second })
+					rows.getOrNull(i + 1)?.let { next -> assertTrue(asked.sum() + Grid.span(spans[next.cells[0].first], columns) > columns, "$spans in $columns") }
+				}
+			}
+		}
+	}
+
+	@Test
+	fun rowsAsEvenAsTheyGo() {
+		fun sizes(count: Int, most: Int) = Grid.even(count, most).map { it.cells.size }
+		assertEquals(emptyList(), sizes(0, 3))
+		assertEquals(listOf(1), sizes(1, 3))
+		assertEquals(listOf(3), sizes(3, 3))
+		assertEquals(listOf(2, 2), sizes(4, 3))
+		assertEquals(listOf(3, 2), sizes(5, 3))
+		assertEquals(listOf(3, 2, 2), sizes(7, 3))
+		assertEquals(listOf(3, 3), sizes(6, 4))
+		assertEquals(listOf(4, 4, 4, 4), sizes(16, 4))
+		for (most in 1..4) for (count in 1..20) {
+			val rows = Grid.even(count, most)
+			assertEquals((0 until count).toList(), rows.flatMap { r -> r.cells.map { it.first } })
+			assertTrue(rows.all { it.columns == it.cells.size && it.columns in 1..most })
+			assertTrue(rows.maxOf { it.columns } - rows.minOf { it.columns } <= 1)
+		}
+	}
+
+	@Test
+	fun theColumnsAreOfOneWidthAndMirrored() {
+		for (columns in 1..4) for (gap in listOf(0, 21, 24, 36)) for (width in listOf(720, 743, 984, 1081, 2244)) {
+			val cells = (0 until columns).map { Grid.extent(it, 1, columns, width, gap) }
+			assertEquals(0, cells.first().start)
+			assertEquals(width, cells.last().end)
+			assertEquals(cells, cells.reversed().map { Grid.Extent(width - it.end, width - it.start) }, "$columns of $width, $gap between")
+			val widths = cells.map { it.width }
+			assertTrue(widths.max() - widths.min() <= 1, "$widths")
+			assertTrue(cells.zipWithNext { a, b -> b.start - a.end }.all { it in gap..gap + 1 }, "$cells, $gap between")
+		}
+		// A wide widget ends where the column under it does: 2 + 1 + 1 over 1 + 1 + 1 + 1, and over 2 + 2.
+		assertEquals(Grid.extent(1, 1, 4, 984, 36).end, Grid.extent(0, 2, 4, 984, 36).end)
+		assertEquals(Grid.extent(2, 1, 4, 984, 36).start, Grid.extent(1, 1, 2, 984, 36).start)
 	}
 
 	@Test
@@ -61,17 +133,17 @@ class DashboardsTest {
 		// CPU and memory side by side, a GPU beside the temperature, the rest each a row; power buttons two to a row.
 		val overview = listOf(2, 2, 2, 2, 4, 4, 4)
 		assertEquals(
-			listOf(listOf(0 to 1, 1 to 1), listOf(2 to 1, 3 to 1), listOf(4 to 2), listOf(5 to 2), listOf(6 to 2)),
+			listOf(line(2, 0 to 1, 1 to 1), line(2, 2 to 1, 3 to 1), line(2, 4 to 2), line(2, 5 to 2), line(2, 6 to 2)),
 			Grid.place(overview, 2),
 		)
-		assertEquals(listOf(listOf(0 to 1, 1 to 1), listOf(2 to 1, 3 to 1)), Grid.place(listOf(1, 1, 1, 1), 2))
+		assertEquals(listOf(line(2, 0 to 1, 1 to 1), line(2, 2 to 1, 3 to 1)), Grid.place(listOf(1, 1, 1, 1), 2))
 		// Two GPUs: the temperature below them alone, as wide as the screen.
 		assertEquals(
-			listOf(listOf(0 to 1, 1 to 1), listOf(2 to 1, 3 to 1), listOf(4 to 2), listOf(5 to 2)),
+			listOf(line(2, 0 to 1, 1 to 1), line(2, 2 to 1, 3 to 1), line(1, 4 to 1), line(2, 5 to 2)),
 			Grid.place(listOf(2, 2, 2, 2, 2, 4), 2),
 		)
 		// On a wide screen the four power buttons share a row.
-		assertEquals(listOf(listOf(0 to 1, 1 to 1, 2 to 1, 3 to 1)), Grid.place(listOf(1, 1, 1, 1), 4))
+		assertEquals(listOf(line(4, 0 to 1, 1 to 1, 2 to 1, 3 to 1)), Grid.place(listOf(1, 1, 1, 1), 4))
 	}
 
 	@Test
@@ -79,8 +151,8 @@ class DashboardsTest {
 		val home = ui.dashboard("home")!!.widgets
 		val rows = Grid.place(home.map { it.span }, 2)
 		// Every widget placed once, in order.
-		assertEquals(home.indices.toList(), rows.flatten().map { it.first })
-		assertTrue(rows.all { r -> r.sumOf { it.second } == 2 })
+		assertEquals(home.indices.toList(), rows.flatMap { r -> r.cells.map { it.first } })
+		assertTrue(rows.all { r -> r.cells.sumOf { it.second } == r.columns })
 	}
 
 	@Test
