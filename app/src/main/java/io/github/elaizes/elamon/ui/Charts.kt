@@ -503,7 +503,7 @@ private class Rolled(var text: String) {
  */
 @Composable
 fun RollingText(text: String, style: TextStyle, modifier: Modifier = Modifier, color: Color = Color.Unspecified) {
-	val whole = modifier.clearAndSetSemantics { contentDescription = text }
+	val whole = modifier.clearAndSetSemantics { contentDescription = text }.baselineOf(style)
 	if (!LocalPrefs.current.animations) {
 		Text(text, style = style, color = color, modifier = whole, maxLines = 1)
 		return

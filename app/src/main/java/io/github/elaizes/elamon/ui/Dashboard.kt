@@ -165,7 +165,10 @@ fun GridRow(scope: DashScope, widgets: List<Widget>, line: Grid.Line, columns: I
 	// As tall as the tallest asks each how tall it would be, which a log's own list can't say.
 	GridLine(line, gap = gap, even = line.cells.none { (i, _) -> hasLog(widgets[i]) }) {
 		for ((i, span) in line.cells) {
-			CompositionLocalProvider(LocalCellWidth provides cellWidth(line, span, width, gap)) { WidgetView(scope, widgets[i], Modifier, columns) }
+			// One cell each, whatever it draws: a text with nothing to say yet draws nothing.
+			CompositionLocalProvider(LocalCellWidth provides cellWidth(line, span, width, gap)) {
+				Box(propagateMinConstraints = true) { WidgetView(scope, widgets[i], Modifier, columns) }
+			}
 		}
 	}
 }

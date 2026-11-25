@@ -447,7 +447,7 @@ private fun ComputerCard(s: Machine, live: Live, running: Set<String>, onClick: 
 				}
 				Spacer(Modifier.width(Space.m))
 				Column(Modifier.weight(1f)) {
-					Text(s.name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+					Text(s.name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.shrinkToFit(Shrink.LABEL))
 					Text(s.hostsToTry().firstOrNull().orEmpty(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
 				}
 				Spacer(Modifier.width(Space.s))

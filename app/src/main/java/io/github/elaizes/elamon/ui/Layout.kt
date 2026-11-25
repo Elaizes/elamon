@@ -9,17 +9,19 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.AlignmentLine
 import androidx.compose.ui.layout.FirstBaseline
 import androidx.compose.ui.layout.IntrinsicMeasurable
-import androidx.compose.ui.layout.LastBaseline
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -91,20 +93,32 @@ fun sideInset(): Dp {
 	return with(density) { maxOf(insets.getLeft(density, direction), insets.getRight(density, direction)).toDp() }
 }
 
-/** One line that gets smaller where it doesn't fit its room, rather than lose its end: a figure, a short label. */
-fun Modifier.shrinkToFit(): Modifier = shrink { it.maxIntrinsicWidth(Constraints.Infinity) }
+/**
+ * One line that gets smaller where it doesn't fit its room, rather than lose its end: a figure, a
+ * short label. Down to [min] of its size; what still doesn't fit is cut short there.
+ */
+fun Modifier.shrinkToFit(min: Float = Shrink.FIGURE): Modifier = shrink(min, line = true) { it.maxIntrinsicWidth(Constraints.Infinity) }
 
 /** Text that gets smaller where its longest word doesn't fit its room, rather than break inside it. */
-fun Modifier.wholeWords(): Modifier = shrink { it.minIntrinsicWidth(Constraints.Infinity) }
+fun Modifier.wholeWords(): Modifier = shrink(Shrink.FIGURE, line = false) { it.minIntrinsicWidth(Constraints.Infinity) }
 
-/** The least text gets smaller to, of its size: smaller still couldn't be read, so it is cut short there. */
-private const val SHRINK_MIN = 0.6f
+/** The least text gets smaller to, of its size. */
+object Shrink {
+	const val FIGURE = 0.6f
 
-/** How much smaller what is [need] wide is drawn in [room]. */
-internal fun shrinkTo(room: Int, need: Int): Float = if (need <= room || need <= 0) 1f else (room.toFloat() / need).coerceAtLeast(SHRINK_MIN)
+	/** Labels side by side, which read as one kind: hardly smaller than each other. */
+	const val LABEL = 0.8f
 
-private fun Modifier.shrink(needs: (IntrinsicMeasurable) -> Int): Modifier = layout { measurable, constraints ->
-	val f = if (constraints.hasBoundedWidth) shrinkTo(constraints.maxWidth, needs(measurable)) else 1f
+	/** A tab's, at the phone's usual text; at a larger one as small as there. */
+	const val TAB = 0.8f
+}
+
+/** How much smaller what is [need] wide is drawn in [room], down to [min]. */
+internal fun shrinkTo(room: Int, need: Int, min: Float): Float = if (need <= room || need <= 0) 1f else (room.toFloat() / need).coerceAtLeast(min)
+
+/** With [line], one line keeps its height and its baseline, smaller on it: what stands beside or under it stays in place. */
+private fun Modifier.shrink(min: Float, line: Boolean, needs: (IntrinsicMeasurable) -> Int): Modifier = layout { measurable, constraints ->
+	val f = if (constraints.hasBoundedWidth) shrinkTo(constraints.maxWidth, needs(measurable), min) else 1f
 	if (f == 1f) {
 		val p = measurable.measure(constraints)
 		return@layout layout(p.width, p.height) { p.place(0, 0) }
@@ -112,12 +126,52 @@ private fun Modifier.shrink(needs: (IntrinsicMeasurable) -> Int): Modifier = lay
 	fun larger(px: Int) = if (px == Constraints.Infinity) px else ceil(px / f).toInt()
 	val p = measurable.measure(Constraints(larger(constraints.minWidth), larger(constraints.maxWidth), larger(constraints.minHeight), larger(constraints.maxHeight)))
 	fun smaller(px: Int) = (px * f).roundToInt()
-	val lines: Map<AlignmentLine, Int> = listOf<AlignmentLine>(FirstBaseline, LastBaseline).mapNotNull { l -> p[l].takeIf { it != AlignmentLine.Unspecified }?.let { l to smaller(it) } }.toMap()
-	layout(smaller(p.width).coerceAtMost(constraints.maxWidth), smaller(p.height), lines) {
-		p.placeWithLayer(0, 0) {
+	val base = p[FirstBaseline]
+	val y = if (!line) 0 else if (base == AlignmentLine.Unspecified) (p.height - smaller(p.height)) / 2 else base - smaller(base)
+	val lines: Map<AlignmentLine, Int> = if (base == AlignmentLine.Unspecified) emptyMap() else mapOf(FirstBaseline to if (line) base else smaller(base))
+	layout(smaller(p.width).coerceAtMost(constraints.maxWidth), if (line) p.height else smaller(p.height), lines) {
+		p.placeWithLayer(0, y) {
 			scaleX = f
 			scaleY = f
 			transformOrigin = TransformOrigin(0f, 0f)
+		}
+	}
+}
+
+/** On a line [height] tall with its baseline [baseline] down from its top, whatever its own size: a figure, or a word in its place. */
+@Composable
+fun Modifier.onLine(height: TextUnit, baseline: TextUnit): Modifier = layout { measurable, constraints ->
+	val p = measurable.measure(constraints.copy(minHeight = 0))
+	val tall = height.roundToPx()
+	val down = baseline.roundToPx()
+	val base = p[FirstBaseline]
+	val y = if (base == AlignmentLine.Unspecified) (tall - p.height) / 2 else down - base
+	layout(p.width, maxOf(tall, y + p.height), mapOf(FirstBaseline to down)) { p.place(0, y) }
+}
+
+/** Its baseline where text in [style] has it, whatever moves in it: a rolling digit carries its own along. */
+@Composable
+fun Modifier.baselineOf(style: TextStyle): Modifier {
+	val measurer = rememberTextMeasurer()
+	val base = remember(measurer, style) { measurer.measure("0", style).firstBaseline.roundToInt() }
+	return layout { measurable, constraints ->
+		val p = measurable.measure(constraints)
+		layout(p.width, p.height, mapOf(FirstBaseline to base)) { p.place(0, 0) }
+	}
+}
+
+/** What is over the other, at its top, and what is at its bottom, however much taller it is made: [last] as its [main] ends where they have no more room. */
+@Composable
+fun Footed(modifier: Modifier, gap: Dp, main: @Composable () -> Unit, last: @Composable () -> Unit) {
+	Layout(listOf(main, last), modifier) { (first, under), constraints ->
+		val wide = constraints.copy(minHeight = 0)
+		val footer = under.firstOrNull()?.measure(wide)
+		val below = footer?.let { it.height + gap.roundToPx() } ?: 0
+		val body = first.first().measure(wide.copy(maxHeight = if (wide.hasBoundedHeight) (wide.maxHeight - below).coerceAtLeast(0) else wide.maxHeight))
+		val height = maxOf(constraints.minHeight, body.height + below)
+		layout(maxOf(body.width, footer?.width ?: 0), height) {
+			body.placeRelative(0, 0)
+			footer?.placeRelative(0, height - footer.height)
 		}
 	}
 }

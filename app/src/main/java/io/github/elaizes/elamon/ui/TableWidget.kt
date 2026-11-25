@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
@@ -35,7 +34,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -363,7 +361,7 @@ private fun TableRowView(scope: DashScope, w: Widget, row: TableRow, fraction: F
 	if (card) {
 		CardSurface { Column(click.padding(Space.m)) { content() } }
 	} else {
-		Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(Radius.s)).then(click)) { content() }
+		Column(Modifier.fillMaxWidth().then(click)) { content() }
 	}
 }
 

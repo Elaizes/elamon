@@ -144,9 +144,6 @@ object Sizes {
 	/** The widest a table's column of words gets: past that they are cut, and the rows' names have the rest. */
 	val columnMax = 120.dp
 
-	/** A button's least height as a tile inside a card, an icon over its name. */
-	val buttonTile = 112.dp
-
 	/** The bar of tabs' shadow, and that of a widget lifted in the editor. */
 	val shadow = 16.dp
 	val liftShadow = 8.dp

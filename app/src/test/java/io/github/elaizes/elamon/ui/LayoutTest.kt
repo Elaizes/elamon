@@ -10,16 +10,17 @@ import kotlin.test.assertTrue
 class LayoutTest {
 	@Test
 	fun whatFitsKeepsItsSize() {
-		assertEquals(1f, shrinkTo(100, 100))
-		assertEquals(1f, shrinkTo(100, 40))
+		assertEquals(1f, shrinkTo(100, 100, 0.6f))
+		assertEquals(1f, shrinkTo(100, 40, 0.6f))
 		// Nothing to fit, nothing to shrink.
-		assertEquals(1f, shrinkTo(0, 0))
+		assertEquals(1f, shrinkTo(0, 0, 0.6f))
 	}
 
 	@Test
 	fun whatDoesntFitGetsSmallerButStaysReadable() {
-		assertEquals(0.8f, shrinkTo(80, 100))
-		assertEquals(0.6f, shrinkTo(10, 100))
+		assertEquals(0.8f, shrinkTo(80, 100, 0.6f))
+		assertEquals(0.6f, shrinkTo(10, 100, 0.6f))
+		assertEquals(0.8f, shrinkTo(10, 100, 0.8f))
 	}
 
 	@Test

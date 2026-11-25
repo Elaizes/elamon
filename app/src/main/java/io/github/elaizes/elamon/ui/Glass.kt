@@ -80,11 +80,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import dev.chrisbanes.haze.HazeProgressive
@@ -300,6 +303,8 @@ fun FloatingNavBar(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit,
 	Box(modifier.fillMaxWidth().overSystemBar().padding(horizontal = Space.screen + sideInset(), vertical = Space.m), contentAlignment = Alignment.Center) {
 		val shadow = Color.Black.copy(alpha = Alpha.SHADOW)
 		val moveMs = if (LocalPrefs.current.animations) Motion.NAV else 0
+		val label = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
+		val size = tabLabelSize(items, label)
 		Row(
 			Modifier
 				.fillMaxWidth()
@@ -341,18 +346,26 @@ fun FloatingNavBar(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit,
 					Icon(item.icon, null, tint = fg, modifier = Modifier.size(Sizes.icon))
 					Spacer(Modifier.height(Space.xxs))
 					// As heavy whichever tab is on: the labels stay where they are. A long one gets smaller, then ends in "…".
-					Text(
-						item.label,
-						style = MaterialTheme.typography.labelSmall,
-						color = fg,
-						fontWeight = FontWeight.SemiBold,
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis,
-						modifier = Modifier.shrinkToFit(),
-					)
+					Text(item.label, style = label.copy(fontSize = size), color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
 				}
 			}
 		}
+	}
+}
+
+/**
+ * The size of the tabs' labels: one for all, the largest at which those that can be whole are, down to
+ * [Shrink.TAB] of the phone's usual text; a longer one ends in "…".
+ */
+@Composable
+private fun tabLabelSize(items: List<NavItem>, style: TextStyle): TextUnit {
+	val measurer = rememberTextMeasurer()
+	val density = LocalDensity.current
+	val room = with(density) { ((contentWidth() - Space.xs * (items.size + 1)) / items.size.coerceAtLeast(1) - Space.xs * 2).roundToPx() }
+	val least = Shrink.TAB / density.fontScale.coerceAtLeast(1f)
+	return remember(items.map { it.label }, style, room, least) {
+		val shares = items.map { shrinkTo(room, measurer.measure(it.label, style, maxLines = 1, softWrap = false).size.width, 0f) }
+		style.fontSize * (shares.filter { it >= least }.minOrNull() ?: least)
 	}
 }
 

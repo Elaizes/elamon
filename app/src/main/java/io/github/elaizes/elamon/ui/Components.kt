@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.paddingFromBaseline
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -150,33 +149,35 @@ fun Tile(
 ) {
 	val padding = cardPadding()
 	CardSurface(modifier) {
-		Layout(
-			listOf(
-				{ Column(verticalArrangement = Arrangement.spacedBy(Space.s), content = content) },
-				{ if (caption != null) TileCaption(caption) },
-			),
+		Footed(
 			Modifier
+				.fillMaxWidth()
 				.background(Brush.verticalGradient(listOf(accent.copy(alpha = Alpha.TILE_FROM), accent.copy(alpha = Alpha.TILE_TO))))
 				.then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
 				.padding(padding),
-		) { (main, last), constraints ->
-			val wide = constraints.copy(minHeight = 0)
-			val footer = last.firstOrNull()?.measure(wide)
-			val under = footer?.let { it.height + Space.s.roundToPx() } ?: 0
-			val body = main.first().measure(wide.copy(maxHeight = if (wide.hasBoundedHeight) (wide.maxHeight - under).coerceAtLeast(0) else wide.maxHeight))
-			val height = maxOf(constraints.minHeight, body.height + under)
-			layout(maxOf(body.width, footer?.width ?: 0), height) {
-				body.placeRelative(0, 0)
-				footer?.placeRelative(0, height - footer.height)
-			}
-		}
+			gap = Space.s,
+			main = { Column(verticalArrangement = Arrangement.spacedBy(Space.s), content = content) },
+			last = { if (caption != null) TileCaption(caption) },
+		)
 	}
 }
 
 @Composable
 private fun TileCaption(text: String) {
-	Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+	// One line, so a figure in it that grows doesn't make the tile taller; large text has two.
+	val large = LocalDensity.current.fontScale > LARGE_TEXT
+	Text(
+		text,
+		style = MaterialTheme.typography.bodySmall,
+		color = MaterialTheme.colorScheme.onSurfaceVariant,
+		maxLines = if (large) 2 else 1,
+		overflow = TextOverflow.Ellipsis,
+		modifier = if (large) Modifier.wholeWords() else Modifier.shrinkToFit(Shrink.LABEL),
+	)
 }
+
+/** From this scale of the phone's text on, captions have a second line. */
+private const val LARGE_TEXT = 1.3f
 
 /** The small caption over a tile's big number. */
 @Composable
@@ -184,7 +185,7 @@ fun TileLabel(text: String, icon: ImageVector, accent: Color) {
 	Row(verticalAlignment = Alignment.CenterVertically) {
 		Icon(icon, null, tint = accent, modifier = Modifier.size(Sizes.iconS))
 		Spacer(Modifier.width(Space.s))
-		Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+		Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.shrinkToFit(Shrink.LABEL))
 	}
 }
 
@@ -202,10 +203,7 @@ fun BigValue(value: String, unit: String? = null, modifier: Modifier = Modifier,
 
 /** The line of a tile's figure, whatever stands on it (a number, a word, a dash): on one baseline, as tall. */
 @Composable
-fun Modifier.figureLine(): Modifier {
-	val least = with(LocalDensity.current) { TextSizes.figureLine.toDp() }
-	return heightIn(min = least).paddingFromBaseline(top = TextSizes.figureBaseline)
-}
+fun Modifier.figureLine(): Modifier = onLine(TextSizes.figureLine, TextSizes.figureBaseline)
 
 /** A label above a number, the way dashboards show their main figures. */
 @Composable

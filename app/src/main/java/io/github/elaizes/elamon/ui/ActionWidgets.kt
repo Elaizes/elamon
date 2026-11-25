@@ -9,6 +9,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -53,6 +54,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -260,7 +262,7 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val danger = action?.id in DANGER
 	CardSurface(modifier, color = if (danger) Metric.colors.hot.copy(alpha = Alpha.DANGER) else cardColor()) {
 		if (w.span <= 1 || narrowCell(TextSizes.innerRowLeast)) {
-			ControlTile(label, null, click.heightIn(min = Sizes.buttonTile), alpha, icon = {
+			ControlTile(label, null, click, alpha, padding = Space.xl, icon = {
 				if (running) Spinner(Sizes.icon)
 				else Icon(mark, null, tint = (if (danger) Metric.colors.hot else MaterialTheme.colorScheme.onSurface).copy(alpha = alpha))
 			}, below = ended)
@@ -278,26 +280,32 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	}
 }
 
-/** A control as a tile, all in the middle: its icon, its name, a line about it, and what it sets or how it ended. */
+/**
+ * A control as a tile, all in the middle: its icon, its name and a line about it from the top, and at
+ * the bottom what it sets or how it ended, so a row of them has each on one line.
+ */
 @Composable
 private fun ControlTile(
 	label: String,
 	caption: String?,
 	modifier: Modifier,
 	alpha: Float,
+	padding: Dp = Space.card,
 	icon: (@Composable () -> Unit)? = null,
 	below: (@Composable () -> Unit)? = null,
 ) {
-	Column(
-		modifier.fillMaxWidth().padding(vertical = Space.card, horizontal = Space.s),
-		horizontalAlignment = Alignment.CenterHorizontally,
-		verticalArrangement = Arrangement.spacedBy(Space.s, Alignment.CenterVertically),
-	) {
-		icon?.invoke()
-		Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.wholeWords())
-		if (caption != null) Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha), textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.wholeWords())
-		below?.invoke()
-	}
+	Footed(
+		modifier.fillMaxWidth().padding(vertical = padding, horizontal = Space.s),
+		gap = Space.s,
+		main = {
+			Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.s)) {
+				icon?.invoke()
+				Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.wholeWords())
+				if (caption != null) Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha), textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.wholeWords())
+			}
+		},
+		last = { if (below != null) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { below() } },
+	)
 }
 
 /** Whether a button takes a tap: its action may run and isn't running already, or a second tap would ask again for nothing. */
