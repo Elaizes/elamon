@@ -209,8 +209,13 @@ private fun Content(machine: Machine?, shown: WidgetShown, reading: Boolean, c: 
 	val ctx = LocalContext.current
 	val open = actionStartActivity(Intent(ctx, MainActivity::class.java).apply { machine?.let { putExtra(MainActivity.EXTRA_MACHINE, it.id) } })
 	val tap = machine?.let { actionRunCallback<RefreshWidget>(actionParametersOf(MACHINE to it.id)) } ?: open
-	val body = TextStyle(color = c.text, fontSize = (TEXT_SP * scale).sp)
-	val small = TextStyle(color = c.quiet, fontSize = (SMALL_SP * scale).sp)
+	val size = LocalSize.current
+	val phone = ctx.resources.configuration.fontScale
+	val font = widgetFont(shown.lines, size.height.value, scale, phone)
+	// A size in sp is as many times larger as the phone's text: as many as there is room for.
+	val sp = scale * font / phone
+	val body = TextStyle(color = c.text, fontSize = (TEXT_SP * sp).sp)
+	val small = TextStyle(color = c.quiet, fontSize = (SMALL_SP * sp).sp)
 	Column(
 		GlanceModifier.fillMaxSize().appWidgetBackground().widgetCorner().background(c.background).padding(Space.m).clickable(tap),
 	) {
@@ -219,10 +224,10 @@ private fun Content(machine: Machine?, shown: WidgetShown, reading: Boolean, c: 
 			Text(
 				machine?.name ?: ctx.getString(R.string.app_name),
 				GlanceModifier.defaultWeight(),
-				TextStyle(color = c.text, fontSize = (TITLE_SP * scale).sp, fontWeight = FontWeight.Bold),
+				TextStyle(color = c.text, fontSize = (TITLE_SP * sp).sp, fontWeight = FontWeight.Bold),
 				maxLines = 1,
 			)
-			note(ctx, shown, reading, narrow = LocalSize.current.width < NARROW * scale)?.let {
+			note(ctx, shown, reading, narrow = size.width < NARROW * scale * font)?.let {
 				Spacer(GlanceModifier.width(Space.s))
 				Text(it, style = small, maxLines = 1)
 			}
@@ -234,8 +239,7 @@ private fun Content(machine: Machine?, shown: WidgetShown, reading: Boolean, c: 
 			return@Column
 		}
 		val old = shown.fetch != Fetch.Ok
-		val size = LocalSize.current
-		val layout = widgetLayout(shown.lines, size.width.value, size.height.value, scale)
+		val layout = widgetLayout(shown.lines, size.width.value, size.height.value, scale, font)
 		val gap = (RING_GAP_DP * scale).dp
 		// Rings, with the lines under them, sit in the middle of the room they have; lines alone start
 		// under the name, as before rings.
@@ -253,7 +257,7 @@ private fun Content(machine: Machine?, shown: WidgetShown, reading: Boolean, c: 
 				}
 			}
 			if (layout.rings.isNotEmpty() && layout.lines.isNotEmpty()) Spacer(GlanceModifier.height(gap))
-			for (line in layout.lines) Line(line, old, c, scale)
+			for (line in layout.lines) Line(line, old, c, sp)
 		}
 	}
 }
@@ -286,8 +290,8 @@ private fun RingText(text: String, dp: Float, share: Float, room: Float, min: Fl
 }
 
 @Composable
-private fun Line(line: WidgetLine, old: Boolean, c: WidgetColors, scale: Float) {
-	val size = (TEXT_SP * scale).sp
+private fun Line(line: WidgetLine, old: Boolean, c: WidgetColors, sp: Float) {
+	val size = (TEXT_SP * sp).sp
 	if (line.words) {
 		Text(line.text, GlanceModifier.fillMaxWidth().padding(vertical = Sizes.widgetLine), TextStyle(color = if (old) c.old else c.level(line), fontSize = size), maxLines = 2)
 		return
@@ -299,9 +303,20 @@ private fun Line(line: WidgetLine, old: Boolean, c: WidgetColors, scale: Float) 
 	}
 }
 
-/** How many lines fit in a widget [heightDp] tall at the app's [scale]: one at least. */
-internal fun linesThatFit(heightDp: Float, scale: Float): Int =
-	((heightDp - 2 * Space.m.value - HEADER_DP * scale) / (LINE_DP * scale)).toInt().coerceAtLeast(1)
+/**
+ * How many times its usual size a widget's text is, on a phone whose own is [phone] times it: as many,
+ * but no more than leaves the rings, or a line where it has none, their room under the name.
+ */
+internal fun widgetFont(lines: List<WidgetLine>, heightDp: Float, scale: Float, phone: Float): Float {
+	val height = heightDp - 2 * Space.m.value
+	val rings = lines.any { it.ring != null } && height >= (HEADER_DP + RING_MIN_DP) * scale
+	val most = if (rings) (height - RING_MIN_DP * scale) / (HEADER_DP * scale) else height / ((HEADER_DP + LINE_DP) * scale)
+	return phone.coerceAtMost(most.coerceAtLeast(1f))
+}
+
+/** How many lines fit in a widget [heightDp] tall at the app's [scale], its text [font] times its usual size: one at least. */
+internal fun linesThatFit(heightDp: Float, scale: Float, font: Float = 1f): Int =
+	((heightDp - 2 * Space.m.value - HEADER_DP * scale * font) / (LINE_DP * scale * font)).toInt().coerceAtLeast(1)
 
 /** A ring's least and most size at 100%, and the room between rings, in dp. */
 internal const val RING_MIN_DP = 48f
@@ -333,18 +348,18 @@ internal fun ringText(text: String, dp: Float, share: Float, room: Float, min: F
 internal data class WidgetLayout(val rings: List<List<WidgetLine>>, val ringDp: Float, val lines: List<WidgetLine>)
 
 /**
- * What fits of [lines] in a widget [widthDp] by [heightDp] at the app's [scale]: its gauges as rings
+ * What fits of [lines] in a widget [widthDp] by [heightDp] at the app's [scale], its text [font] times its usual size: its gauges as rings
  * at the top, in rows as even as they go (four in two rows of two rather than three and one), each
  * as large as the room allows up to [RING_MAX_DP]; then the other lines, in order, as many as fit
  * below. Where not even one ring fits, the gauges are lines like the rest.
  */
-internal fun widgetLayout(lines: List<WidgetLine>, widthDp: Float, heightDp: Float, scale: Float): WidgetLayout {
+internal fun widgetLayout(lines: List<WidgetLine>, widthDp: Float, heightDp: Float, scale: Float, font: Float = 1f): WidgetLayout {
 	val gauges = lines.filter { it.ring != null }
 	val width = widthDp - 2 * Space.m.value
-	val height = heightDp - 2 * Space.m.value - HEADER_DP * scale
+	val height = heightDp - 2 * Space.m.value - HEADER_DP * scale * font
 	val least = RING_MIN_DP * scale
 	val gap = RING_GAP_DP * scale
-	if (gauges.isEmpty() || width < least || height < least) return WidgetLayout(emptyList(), 0f, lines.take(linesThatFit(heightDp, scale)))
+	if (gauges.isEmpty() || width < least || height < least) return WidgetLayout(emptyList(), 0f, lines.take(linesThatFit(heightDp, scale, font)))
 	val across = ((width + gap) / (least + gap)).toInt().coerceIn(1, gauges.size)
 	val rows = minOf((gauges.size + across - 1) / across, ((height + gap) / (least + gap)).toInt())
 	val shown = minOf(gauges.size, rows * across)
@@ -352,7 +367,7 @@ internal fun widgetLayout(lines: List<WidgetLine>, widthDp: Float, heightDp: Flo
 	val ring = minOf(RING_MAX_DP * scale, (width - (perRow - 1) * gap) / perRow, (height - (rows - 1) * gap) / rows)
 	val left = height - rows * ring - rows * gap
 	val rest = lines.filter { it.ring == null }
-	return WidgetLayout(Grid.even(shown, perRow).map { row -> row.cells.map { (i, _) -> gauges[i] } }, ring, rest.take((left / (LINE_DP * scale)).toInt().coerceAtLeast(0)))
+	return WidgetLayout(Grid.even(shown, perRow).map { row -> row.cells.map { (i, _) -> gauges[i] } }, ring, rest.take((left / (LINE_DP * scale * font)).toInt().coerceAtLeast(0)))
 }
 
 /** What the widget says beside the computer's name: when it was read, or what keeps it from it. */

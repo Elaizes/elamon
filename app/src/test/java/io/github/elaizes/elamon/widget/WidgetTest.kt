@@ -127,6 +127,24 @@ class WidgetTest {
 	}
 
 	@Test
+	fun largeTextLeavesTheRingsTheirRoom() {
+		val gauges = (1..4).map { WidgetLine("G$it", "$it%", ring = 0.5f) }
+		val lines = (1..4).map { WidgetLine("L$it", "$it") }
+		// Tall: the phone's own size. Lower: as large as a ring, or a line, under the name allows; never smaller than usual.
+		assertEquals(1.5f, widgetFont(gauges, 260f, 1f, 1.5f))
+		assertTrue(widgetFont(gauges, 110f, 1f, 2f) in 1f..1.5f)
+		assertEquals(1f, widgetFont(lines, 70f, 1f, 2f))
+		for (height in listOf(70f, 90f, 110f, 180f, 260f)) for (phone in listOf(0.85f, 1f, 1.3f, 2f)) {
+			val font = widgetFont(gauges, height, 1f, phone)
+			// What has rings at the usual size has them at any, and whole.
+			val usual = widgetLayout(gauges, 264f, height, 1f)
+			val large = widgetLayout(gauges, 264f, height, 1f, font)
+			assertEquals(usual.rings.isEmpty(), large.rings.isEmpty(), "$height at $phone")
+			if (large.rings.isNotEmpty()) assertTrue(large.ringDp >= RING_MIN_DP - 0.01f, "$height at $phone")
+		}
+	}
+
+	@Test
 	fun groupsOpenOutListsGiveTheirItemsAndTheRestIsLeftOut() {
 		val doc = ui.copy(
 			dashboards = ui.dashboards + io.github.elaizes.elamon.data.Dashboard(
