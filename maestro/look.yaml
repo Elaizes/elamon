@@ -19,10 +19,12 @@ appId: io.github.elaizes.elamon.debug
     timeout: 20000
 # "On battery · 100% · 14 min": a share and a duration, whichever state the simulated UPS is in;
 # "No data · 23 h 45 min", which has no share, by its duration alone.
+- scrollUntilVisible:
+    element: "No data · [0-9][^%]*"
+    timeout: 30000
 - extendedWaitUntil:
     visible: "(On line|On battery) · ([0-9]+|<1)% · .*"
     timeout: 30000
-- assertVisible: "No data · [0-9][^%]*"
 - assertNotVisible: "No data · .*%.*"
 - takeScreenshot: 41-legend-both
 # A long range: the shares are of it, as the legend is.
