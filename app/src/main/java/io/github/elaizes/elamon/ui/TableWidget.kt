@@ -253,7 +253,7 @@ fun LazyListScope.tableItems(scope: DashScope, table: ListTable, keys: UniqueKey
 		Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
 			w.label?.let { Text(it, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = Space.card)) }
 			captionOf(scope, w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Space.card)) }
-			TableControls(scope, w, s?.total, rows.size, Modifier.padding(horizontal = Space.card))
+			TableControls(scope, w, s?.total, rows.size, inset = Space.card)
 			if (s == null || rows.isEmpty()) {
 				Text(stringResource(if (s == null) R.string.loading else R.string.table_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Space.card))
 			}
@@ -264,9 +264,9 @@ fun LazyListScope.tableItems(scope: DashScope, table: ListTable, keys: UniqueKey
 	items(rows.size, key = { rowKeys[it] }) { i -> TableRowView(scope, w, rows[i], fractions?.get(i), table.fit, card = true) }
 }
 
-/** The search field, the orders the service offers, and how many rows there are; [text], what the words under the field keep to. */
+/** The search field, the orders the service offers, and how many rows there are, that [inset] from the sides. */
 @Composable
-private fun TableControls(scope: DashScope, w: Widget, total: Int?, shown: Int, text: Modifier = Modifier) {
+private fun TableControls(scope: DashScope, w: Widget, total: Int?, shown: Int, inset: Dp = Space.none) {
 	val query = scope.tables.query(w.id)
 	Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
 		SearchField(query, stringResource(R.string.table_search)) { scope.tables.setQuery(w.id, it) }
@@ -290,7 +290,7 @@ private fun TableControls(scope: DashScope, w: Widget, total: Int?, shown: Int, 
 				else pluralStringResource(R.plurals.table_found, shown, shown, total),
 				style = MaterialTheme.typography.labelMedium,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				modifier = text,
+				modifier = Modifier.padding(horizontal = inset),
 			)
 		}
 	}

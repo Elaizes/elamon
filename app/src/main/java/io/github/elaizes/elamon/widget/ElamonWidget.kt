@@ -47,6 +47,7 @@ import androidx.glance.layout.size
 import androidx.glance.layout.width
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
+import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import java.text.DateFormat
@@ -264,10 +265,16 @@ private fun Ring(line: WidgetLine, dp: Float, old: Boolean, c: WidgetColors) {
 		Image(ImageProvider(R.drawable.widget_ring_track), null, GlanceModifier.fillMaxSize(), colorFilter = ColorFilter.tint(c.track))
 		Image(ImageProvider(fill), null, GlanceModifier.fillMaxSize(), colorFilter = ColorFilter.tint(if (old) c.old else c.ring(line)))
 		Column(horizontalAlignment = Alignment.CenterHorizontally) {
-			Text(line.text, style = TextStyle(color = if (old) c.old else c.text, fontSize = ringText(line.text, dp, RING_VALUE).sp, fontWeight = FontWeight.Bold), maxLines = 1)
-			Text(line.label, style = TextStyle(color = if (old) c.old else c.quiet, fontSize = ringText(line.label, dp, RING_LABEL).sp), maxLines = 1)
+			// Each no wider than the ring is there: what is longer still ends in "…", not over the ring.
+			RingText(line.text, dp, RING_VALUE, RING_VALUE_ROOM, TextStyle(color = if (old) c.old else c.text, fontWeight = FontWeight.Bold))
+			RingText(line.label, dp, RING_LABEL, RING_LABEL_ROOM, TextStyle(color = if (old) c.old else c.quiet))
 		}
 	}
+}
+
+@Composable
+private fun RingText(text: String, dp: Float, share: Float, room: Float, style: TextStyle) {
+	Text(text, GlanceModifier.width((dp * room).dp), style.copy(fontSize = ringText(text, dp, share, room).sp, textAlign = TextAlign.Center), maxLines = 1)
 }
 
 @Composable
@@ -300,14 +307,17 @@ private const val RING_MAX_PX = 256
 private const val RING_VALUE = 0.24f
 private const val RING_LABEL = 0.16f
 
-/** How much of a ring's width its text has, how wide a letter is in its size, and the least size it gets. */
-private const val RING_ROOM = 0.7f
-private const val LETTER = 0.6f
+/** How much of a ring's width is between its sides where its value is, and where its label is, nearer its open end. */
+internal const val RING_VALUE_ROOM = 0.68f
+internal const val RING_LABEL_ROOM = 0.6f
+
+/** How wide a letter is in its size, and the least size a ring's text gets. */
+private const val LETTER = 0.58f
 private const val RING_TEXT_MIN_SP = 8f
 
-/** The size, in sp, of [text] in a ring [dp] across: its [share] of the ring, smaller where that would run into its sides. */
-internal fun ringText(text: String, dp: Float, share: Float): Float =
-	minOf(dp * share, dp * RING_ROOM / (LETTER * text.length.coerceAtLeast(1))).coerceAtLeast(RING_TEXT_MIN_SP)
+/** The size, in sp, of [text] in a ring [dp] across: its [share] of the ring, smaller where that would be wider than its [room]. */
+internal fun ringText(text: String, dp: Float, share: Float, room: Float): Float =
+	minOf(dp * share, dp * room / (LETTER * text.length.coerceAtLeast(1))).coerceAtLeast(RING_TEXT_MIN_SP)
 
 /** What a widget shows of its lines: its gauges as [rings], rows of them [ringDp] across, then the [lines] of the rest. */
 internal data class WidgetLayout(val rings: List<List<WidgetLine>>, val ringDp: Float, val lines: List<WidgetLine>)

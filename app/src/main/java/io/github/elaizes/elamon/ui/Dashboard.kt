@@ -77,8 +77,19 @@ class DashScope(
 	val logs: Map<String, LogFilter>,
 	/** The points of a graph or spark, by its id: the stream's, or (the editor's preview) the preview's own. */
 	val hist: (String) -> Hist? = vm::hist,
+	/** The widgets that have had a caption on this screen, by id: kept over its dashboards, for [captionOf]. */
+	private val captioned: MutableSet<String> = HashSet(),
 ) {
 	fun state(w: Widget): WidgetState? = states[w.id]
+
+	/** [w]'s caption as its state has it now; null for none. One it has had keeps its line. */
+	fun caption(w: Widget, s: WidgetState?): String? {
+		val now = s?.caption?.ifEmpty { null }
+		if (now != null) captioned += "$dashboard/${w.id}"
+		return now
+	}
+
+	fun hadCaption(w: Widget): Boolean = "$dashboard/${w.id}" in captioned
 }
 
 /** Which foldable groups and tables of a computer are folded: as each started, until folded or opened, then kept. */
@@ -243,12 +254,12 @@ fun levelColor(level: String?, blend: Double?, good: Color): Color? {
 fun figureGood(format: String?): Color = if (format == "temp") Metric.colors.good else MaterialTheme.colorScheme.onSurface
 
 /**
- * A tile's or a card's line under it: its own text, or the state's where it holds values; before the
- * dashboard's first states, one of those is an empty line, so what is under it stays where it is as
- * it comes.
+ * A tile's or a card's line under it: its own text, or the state's where it holds values. Before the
+ * dashboard's first states, and while the values of one that has had them are missing (the first
+ * reading after coming back to it), that is an empty line: what is under it stays where it is.
  */
 fun captionOf(scope: DashScope, w: Widget, s: WidgetState?): String? =
-	w.captionText ?: if (scope.states.isEmpty() && w.caption != null) NO_WORDS else s?.caption?.ifEmpty { null }
+	w.captionText ?: scope.caption(w, s) ?: NO_WORDS.takeIf { w.caption != null && (scope.states.isEmpty() || scope.hadCaption(w)) }
 
 /** A line with nothing on it yet. */
 private const val NO_WORDS = "\u00a0"

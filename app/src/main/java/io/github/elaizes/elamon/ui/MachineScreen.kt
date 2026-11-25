@@ -138,6 +138,7 @@ fun MachineScreen(
 	val haze = remember { HazeState() }
 	val snackbar = remember { SnackbarHostState() }
 	val lists = remember { mutableMapOf<OnScreen, LazyListState>() }
+	val captioned = remember { HashSet<String>() }
 	val folds = remember(machine.id) { Folds(Settings.get(ctx), machine.id) }
 	val tables = kept.tables
 	val form = kept.form
@@ -292,6 +293,7 @@ fun MachineScreen(
 								tables = tables,
 								sorts = want.sorts,
 								logs = want.logs,
+								captioned = captioned,
 							)
 							CompositionLocalProvider(LocalBottomReserve provides if (isPage) covered else maxOf(covered, underTabs)) {
 								DashboardList(scope, list) {
