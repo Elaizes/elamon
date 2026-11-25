@@ -59,7 +59,7 @@ fun RangeChips(chips: List<RangeChip>, selected: HistoryRange?, onSelect: (Histo
 			FilterChip(
 				selected = c.range == selected,
 				onClick = { if (c.range != selected) onSelect(c.range) },
-				label = { Text(rangeLabel(c)) },
+				label = { ShortLabel(rangeLabel(c)) },
 				shape = PillShape,
 			)
 		}

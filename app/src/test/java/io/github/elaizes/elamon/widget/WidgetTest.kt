@@ -117,11 +117,13 @@ class WidgetTest {
 
 	@Test
 	fun aRingsTextStaysBetweenItsSides() {
-		// A short one has its share of the ring; a long one is smaller, but never too small to read.
-		assertEquals(84 * 0.24f, ringText("7%", 84f, 0.24f, RING_VALUE_ROOM))
-		assertTrue(ringText("11.7 GiB", 48f, 0.24f, RING_VALUE_ROOM) < 48 * 0.24f)
-		assertEquals(8f, ringText("A label too long for any ring", 48f, 0.16f, RING_LABEL_ROOM))
-		for (text in listOf("100%", "Memory", "Temp", "Battery")) assertTrue(ringText(text, 84f, 0.24f, RING_VALUE_ROOM) * 0.58f * text.length <= 84 * RING_VALUE_ROOM + 0.01f, text)
+		// A short one has its share of the ring; a long one is smaller: a value whole, a label never too small to read.
+		assertEquals(84 * 0.24f, ringText("7%", 84f, 0.24f, RING_VALUE_ROOM, RING_VALUE_MIN))
+		assertTrue(ringText("11.7 GiB", 48f, 0.24f, RING_VALUE_ROOM, RING_VALUE_MIN) < 48 * 0.24f)
+		assertEquals(RING_LABEL_MIN, ringText("A label too long for any ring", 48f, 0.16f, RING_LABEL_ROOM, RING_LABEL_MIN))
+		for (text in listOf("100%", "9999 RPM", "1000 MiB", "100.0 W")) for (dp in listOf(48f, 84f)) {
+			assertTrue(ringText(text, dp, 0.24f, RING_VALUE_ROOM, RING_VALUE_MIN) * LETTER * text.length <= dp * RING_VALUE_ROOM + 0.01f, text)
+		}
 	}
 
 	@Test

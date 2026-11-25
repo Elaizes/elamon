@@ -498,9 +498,9 @@ private class Rolled(var text: String) {
 }
 
 /**
- * Text whose characters roll to their new values, like a mechanical counter. Only the characters
- * that changed move, all on one animation read while drawing; a screen reader hears it whole. They
- * are told from the end: from 6% to 67%, the % stays as it is.
+ * Text whose digits roll to their new values, like a mechanical counter. Only the digits that
+ * changed move, all on one animation read while drawing; a screen reader hears it whole. They are
+ * told from the end: from 6% to 67%, the % stays as it is, and so does all that isn't a digit.
  */
 @Composable
 fun RollingText(text: String, style: TextStyle, modifier: Modifier = Modifier, color: Color = Color.Unspecified) {
@@ -510,12 +510,12 @@ fun RollingText(text: String, style: TextStyle, modifier: Modifier = Modifier, c
 		return
 	}
 	val rolled = remember { Rolled(text) }
-	// A new text starts a roll from 0, but one that was missing is just there; the same one keeps the roll it has.
+	// A new text starts a roll from 0; the same one keeps the roll it has.
 	val progress = remember(text) {
 		if (rolled.text != text) {
 			rolled.from = rolled.text
 			rolled.text = text
-			Animatable(if (rolled.from == DASH) 1f else 0f)
+			Animatable(0f)
 		} else {
 			Animatable(1f)
 		}
@@ -526,7 +526,7 @@ fun RollingText(text: String, style: TextStyle, modifier: Modifier = Modifier, c
 	Row(whole) {
 		text.forEachIndexed { i, ch ->
 			val old = from.getOrNull(i - text.length + from.length)
-			if (rolling && old != null && old != ch) RollingChar(old, ch, progress, style, color)
+			if (rolling && old != null && old != ch && old.isDigit() && ch.isDigit()) RollingChar(old, ch, progress, style, color)
 			else Text(ch.toString(), style = style, color = color, maxLines = 1)
 		}
 	}

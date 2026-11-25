@@ -6,8 +6,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -50,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -172,6 +171,7 @@ data class HomeStat(
 	/** How full its bar is; null for one without. */
 	val fraction: Float?,
 	val color: String?,
+	val format: String?,
 	val level: String?,
 	val blend: Double?,
 	/** A `value` with `spark` on the profile's card: its points so far, drawn small under it. */
@@ -212,7 +212,7 @@ private fun stat(w: Widget, s: WidgetState): HomeStat? {
 	val max = s.max ?: w.max ?: if (w.format == "percent") Thresholds.PERCENT.toDouble() else null
 	val min = w.min ?: 0.0
 	val fraction = if (v == null) null else max?.takeIf { it > min && (w.type != "value" || w.format == "percent") }?.let { ((v - min) / (it - min)).toFloat().coerceIn(0f, 1f) }
-	return HomeStat(w.label.orEmpty(), text, fraction, w.color, s.level, s.blend)
+	return HomeStat(w.label.orEmpty(), text, fraction, w.color, w.format, s.level, s.blend)
 }
 
 /**
@@ -426,8 +426,8 @@ private fun Found.toTarget() = PairTarget(hosts = listOf(host), port = port, nam
 
 /** The most figures to a row on a card. */
 private const val STATS_IN_A_ROW = 3
+private const val LARGE_STATS_IN_A_ROW = 2
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ComputerCard(s: Machine, live: Live, running: Set<String>, onClick: () -> Unit, onQuick: (QuickActions, QuickAction) -> Unit) {
 	val c = Metric.colors
@@ -469,13 +469,17 @@ private fun ComputerCard(s: Machine, live: Live, running: Set<String>, onClick: 
 			if (live !is Live.Online) return@Column
 			// The first tab's three figures in a row, as before 0.10; a card's, three to a row.
 			if (live.stats.isNotEmpty()) {
-				EvenRows(live.stats, STATS_IN_A_ROW) { stat ->
+				val most = if (large) LARGE_STATS_IN_A_ROW else STATS_IN_A_ROW
+				val room = (contentWidth() - Space.card * 2 - Space.inner * (most - 1)) / most - Space.s * 2
+				val label = oneSize(live.stats.map { it.label }, MaterialTheme.typography.labelMedium, room, Shrink.LABEL)
+				EvenRows(live.stats, most) { stat ->
 					val accent = accent(stat.color)
-					MiniStat(stat, levelColor(stat.level, stat.blend, accent) ?: accent)
+					// Its level as its tile shows it.
+					MiniStat(stat, label, levelColor(stat.level, stat.blend, if (stat.format == "temp") c.good else accent) ?: accent)
 				}
 			}
 			val quick = live.quick ?: return@Column
-			FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+			ChipFlow {
 				for (q in quick.items) {
 					val busy = quickKey(s.id, q.widget.id) in running
 					val label = q.widget.label ?: q.action.name
@@ -497,10 +501,10 @@ private fun ComputerCard(s: Machine, live: Live, running: Set<String>, onClick: 
 }
 
 @Composable
-private fun MiniStat(stat: HomeStat, color: Color) {
+private fun MiniStat(stat: HomeStat, label: TextStyle, color: Color) {
 	Column(Modifier.background(cardColor(), InnerShape).padding(Space.s), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-		Text(stat.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.shrinkToFit())
-		RollingText(stat.text, MaterialTheme.typography.titleMedium, Modifier.shrinkToFit(), color = if (stat.fraction == null) color else Color.Unspecified)
+		Text(stat.label, style = label, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+		RollingText(stat.text, MaterialTheme.typography.titleMedium, Modifier.shrinkToFit(), color = if (stat.fraction == null) ink(color) else Color.Unspecified)
 		// A spark's points, as its tile draws them, small, in its bar's place.
 		if (stat.fraction != null && stat.spark == null) UsageBar(stat.fraction, color, height = Sizes.barThin)
 		stat.spark?.let { entry ->

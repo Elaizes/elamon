@@ -94,17 +94,18 @@ object Fmt {
 	 * A figure of [format] as long as it gets, for the room a column of them keeps whatever they read
 	 * now; null for what is as long as it is (words, a moment, a number of no set form).
 	 */
-	fun longest(format: String?, unit: String?): String? = when (format) {
-		"percent" -> number(LONGEST, format, unit)
-		"temp" -> number(LONGEST, format, unit)
+	fun longest(format: String?, unit: String?): String? = longestParts(format, unit)?.let { (n, u) -> withUnit(n, u) }
+
+	/** [longest], its number and its unit. */
+	fun longestParts(format: String?, unit: String?): Pair<String, String?>? = when (format) {
+		"percent", "temp" -> parts(LONGEST, format, unit)
 		// Four digits before the next unit by 1024, three and a point by 1000.
-		"bytes" -> bytes(KILO * KIBI * KIBI)
-		"rate" -> number(if (unit == BITS_PER_SECOND) LONGEST / 10 * KILO * KILO else KILO * KIBI * KIBI, format, unit)
-		"mhz" -> number(LONGEST * 10, format, unit)
-		"watts", "wh" -> number(LONGEST + 0.8, format, unit)
-		"rpm" -> number(LONGEST * 10, format, unit)
-		"load" -> number(LONGEST / 10, format, unit)
-		"duration" -> duration(23 * SECONDS_PER_HOUR + 59 * SECONDS_PER_MINUTE)
+		"bytes" -> parts(KILO * KIBI * KIBI, format, unit)
+		"rate" -> parts(if (unit == BITS_PER_SECOND) LONGEST / 10 * KILO * KILO else KILO * KIBI * KIBI, format, unit)
+		"mhz", "rpm" -> parts(LONGEST * 10, format, unit)
+		"watts", "wh" -> parts(LONGEST + 0.8, format, unit)
+		"load" -> parts(LONGEST / 10, format, unit)
+		"duration" -> duration(23 * SECONDS_PER_HOUR + 59 * SECONDS_PER_MINUTE) to null
 		else -> null
 	}
 

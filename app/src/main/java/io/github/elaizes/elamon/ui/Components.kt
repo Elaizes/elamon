@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
@@ -37,6 +38,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.isUnspecified
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
@@ -48,6 +51,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 
 /** How many cards this is in: none on the screen, one in a group, where what would be a card is a tile of it. */
 val LocalDepth = compositionLocalOf { 0 }
@@ -136,6 +140,10 @@ fun IconBadge(icon: ImageVector, accent: Color, size: Dp = Sizes.badge) {
 	}
 }
 
+/** The shape of a cell in a card: its corner the card's less its padding, the least there is where that leaves none. */
+@Composable
+fun cellShape(): Shape = if (LocalDepth.current > 1) LeastShape else InnerShape
+
 /** The mark at the end of a row that opens something, its point on the line the row ends on. */
 @Composable
 fun Chevron(tint: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
@@ -207,12 +215,23 @@ fun TileLabel(text: String, icon: ImageVector, accent: Color) {
 
 /** A big number with its unit set smaller beside it, on its baseline; smaller both where they don't fit. */
 @Composable
-fun BigValue(value: String, unit: String? = null, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurface, large: Boolean = true) {
-	Row(modifier.shrinkToFit()) {
-		RollingText(value, if (large) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.headlineSmall, Modifier.alignByBaseline(), color = color)
+fun BigValue(
+	value: String,
+	unit: String? = null,
+	modifier: Modifier = Modifier,
+	color: Color = MaterialTheme.colorScheme.onSurface,
+	large: Boolean = true,
+	/** The longest it gets, number and unit: it is as small as that needs whatever it reads now. */
+	longest: Pair<String, String?>? = null,
+) {
+	val figure = if (large) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.headlineSmall
+	val small = MaterialTheme.typography.titleSmall
+	val most = charsWidth(longest?.first, figure) + (longest?.second?.let { u -> charsWidth(u, small) + with(LocalDensity.current) { Space.xs.roundToPx() } } ?: 0)
+	Row(modifier.shrinkToFit(atLeast = most)) {
+		RollingText(value, figure, Modifier.alignByBaseline(), color = ink(color))
 		if (unit != null) {
 			Spacer(Modifier.width(Space.xs))
-			Text(unit, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, modifier = Modifier.alignByBaseline())
+			Text(unit, style = small, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, modifier = Modifier.alignByBaseline())
 		}
 	}
 }
@@ -226,8 +245,17 @@ fun Modifier.figureLine(): Modifier = onLine(TextSizes.figureLine, TextSizes.fig
 fun BigStat(label: String, value: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurface) {
 	Column(modifier) {
 		Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-		RollingText(value, MaterialTheme.typography.titleLarge, Modifier.shrinkToFit(), color = color)
+		RollingText(value, MaterialTheme.typography.titleLarge, Modifier.shrinkToFit(), color = ink(color))
 	}
+}
+
+/** [color] as text on the page, on cards and on tiles tinted with it: darker on light themes, lighter on dark ones, the least it takes to read there. */
+@Composable
+fun ink(color: Color): Color {
+	val scheme = MaterialTheme.colorScheme
+	val dark = LocalDark.current
+	if (color.isUnspecified || color == scheme.onSurface) return color
+	return remember(color, scheme, dark) { pillSurfaces(scheme).let { readableOn(color, it + pillBackgrounds(color, it), dark) } }
 }
 
 /**
@@ -239,7 +267,7 @@ fun StatRow(label: String, value: String, modifier: Modifier = Modifier, valueCo
 	Layout(
 		content = {
 			Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			Text(value, style = MaterialTheme.typography.bodyMedium, color = valueColor, fontWeight = FontWeight.Medium, textAlign = TextAlign.End)
+			Text(value, style = MaterialTheme.typography.bodyMedium, color = ink(valueColor), fontWeight = FontWeight.Medium, textAlign = TextAlign.End)
 		},
 		modifier = modifier.fillMaxWidth(),
 	) { measurables, constraints ->
@@ -285,7 +313,7 @@ fun Pill(text: String, color: Color = MaterialTheme.colorScheme.primary, modifie
 			Box(Modifier.size(Sizes.pillDot).clip(CircleShape).background(color))
 			Spacer(Modifier.width(Space.s))
 		}
-		Text(text, style = MaterialTheme.typography.labelMedium, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.shrinkToFit(Shrink.WORDS))
+		Text(text, style = MaterialTheme.typography.labelMedium, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.shrinkInMiddle(Shrink.WORDS))
 	}
 }
 
@@ -392,6 +420,7 @@ fun ChipRow(content: @Composable RowScope.() -> Unit) {
 	val padding = if (LocalDepth.current > 1) Space.m else Space.card
 	Row(
 		Modifier
+			.overhang(Sizes.chipEmpty)
 			.layout { measurable, constraints ->
 				if (!constraints.hasBoundedWidth) {
 					val p = measurable.measure(constraints)
@@ -408,6 +437,10 @@ fun ChipRow(content: @Composable RowScope.() -> Unit) {
 		content = content,
 	)
 }
+
+/** A chip's short words, in its middle: it is no narrower than a finger needs. */
+@Composable
+fun ShortLabel(text: String) = Text(text, textAlign = TextAlign.Center, modifier = Modifier.widthIn(min = Sizes.chipLabel))
 
 @Composable
 fun GroupDivider() {
@@ -431,6 +464,8 @@ fun ListRow(
 	 * narrow screen wide, it left the title a few letters a line.
 	 */
 	below: (@Composable () -> Unit)? = null,
+	/** More room over and under it: a row that is a card of its own. */
+	inset: Dp = Space.none,
 ) {
 	RowLayout(
 		title, summary, icon, accent, enabled,
@@ -439,12 +474,13 @@ fun ListRow(
 		chevron = onClick != null,
 		busy = busy,
 		below = below,
+		inset = inset,
 	)
 }
 
 /** A setting turned on and off: the whole row is the switch, one control to a screen reader. */
 @Composable
-fun SwitchRow(title: String, summary: String? = null, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+fun SwitchRow(title: String, summary: String? = null, checked: Boolean, enabled: Boolean = true, inset: Dp = Space.none, onChange: (Boolean) -> Unit) {
 	RowLayout(
 		title, summary, null, MaterialTheme.colorScheme.primary, enabled,
 		modifier = Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
@@ -452,6 +488,7 @@ fun SwitchRow(title: String, summary: String? = null, checked: Boolean, enabled:
 		chevron = false,
 		busy = false,
 		below = null,
+		inset = inset,
 	)
 }
 
@@ -466,6 +503,7 @@ private fun RowLayout(
 	chevron: Boolean,
 	busy: Boolean,
 	below: (@Composable () -> Unit)?,
+	inset: Dp,
 	/** What the row does when touched: a click, a toggle, or nothing. */
 	modifier: Modifier = Modifier,
 ) {
@@ -474,7 +512,7 @@ private fun RowLayout(
 		modifier
 			.fillMaxWidth()
 			.heightIn(min = Sizes.touchTarget)
-			.padding(horizontal = Space.card, vertical = RowPadding),
+			.padding(horizontal = Space.card, vertical = RowPadding + inset),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		if (icon != null) {
@@ -538,7 +576,8 @@ fun LetterAvatar(name: String, size: Dp = Sizes.avatar) {
 	Box(Modifier.size(size).clip(CircleShape).background(bg), contentAlignment = Alignment.Center) {
 		Text(
 			name.trim().firstOrNull()?.uppercase() ?: "?",
-			style = if (size >= Sizes.avatar) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge,
+			// As large as its disc, not as the phone's text.
+			style = MaterialTheme.typography.labelLarge.copy(fontSize = with(LocalDensity.current) { (size * Sizes.AVATAR_LETTER).toSp() }, lineHeight = TextUnit.Unspecified),
 			color = fg,
 		)
 	}

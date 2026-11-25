@@ -136,7 +136,9 @@ private fun columnFit(w: Widget, rows: List<TableRow>, card: Boolean, labelled: 
 	// The longest few as written, the widest of which is the widest of all but for a hair.
 	val words = remember(w, rows, labelled) {
 		w.columns.orEmpty().filter { it != grow || it == bar }.associateWith { c ->
-			val texts = Fmt.longest(c.format, c.unit)?.let(::listOf) ?: rows.mapTo(HashSet()) { cell(it, c) }.sortedByDescending { it.length }.take(LONGEST_MEASURED)
+			val longest = Fmt.longest(c.format, c.unit)
+			// A figure past what its form gets to is whole too.
+			val texts = listOfNotNull(longest) + rows.mapTo(HashSet()) { cell(it, c) }.filter { it.length > (longest?.length ?: 0) }.sortedByDescending { it.length }.take(LONGEST_MEASURED)
 			if (labelled && c != bar) texts.map { named(it, c) } else texts
 		}
 	}
@@ -198,7 +200,7 @@ fun TableWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val rowsShown: @Composable () -> Unit = {
 		if (w.search == true) TableControls(scope, w, s?.total, rows.size)
 		// A tile names its figures beside them ("120 GiB free"), a card over them.
-		if (!tile) TableHead(w, fit.widths)
+		if (!tile && s != null) TableHead(w, fit.widths)
 		if (rows.isEmpty()) {
 			Text(stringResource(if (s == null) R.string.loading else R.string.table_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
@@ -206,8 +208,10 @@ fun TableWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 		val drawn = rows.take(CARD_ROWS)
 		val fractions = barColumn(w)?.let { Tables.barFractions(rows, it) }
 		// Rows to touch are as tall as a finger, and so as far apart; others as far apart as a card's lines.
+		// What the first and the last take for that reaches past them: the card is as far from what they show as from anything.
 		val touch = opensRow(w)
-		Column(verticalArrangement = Arrangement.spacedBy(if (touch) Space.none else Space.m)) {
+		val edge = if (touch) rowEdge(w, fit) else Space.none
+		Column(Modifier.overhang(top = edge, bottom = if (rows.size > CARD_ROWS) Space.none else edge), verticalArrangement = Arrangement.spacedBy(if (touch) Space.none else Space.m)) {
 			drawn.forEachIndexed { i, r -> TableRowView(scope, w, r, fractions?.get(i), fit, card = false, labelled = tile) }
 		}
 		val more = rows.size - drawn.size
@@ -215,14 +219,15 @@ fun TableWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 			Text(pluralStringResource(R.plurals.table_more, more, more), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
 	}
+	val kept = scope.keepHeight(modifier, w, reading = s == null && !folded)
 	if (tile) {
-		WidgetTile(scope, w, accent, modifier, captionOf(scope, w, s)) { if (!folded) rowsShown() }
+		WidgetTile(scope, w, accent, kept, captionOf(scope, w, s)) { if (!folded) rowsShown() }
 	} else {
 		WidgetSection(
 			scope,
 			w,
 			accent,
-			modifier,
+			kept,
 			trailing = if (foldable) ({ FoldMark(folded) }) else null,
 			onTitleClick = if (foldable) ({ scope.folds.toggle(w) }) else null,
 		) {
@@ -306,7 +311,7 @@ fun SearchField(query: String, hint: String, onChange: (String) -> Unit) {
 		modifier = Modifier.fillMaxWidth(),
 		singleLine = true,
 		shape = CardShape,
-		placeholder = { Text(hint, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.shrinkToFit(Shrink.WORDS)) },
+		placeholder = { Text(hint, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.shrinkInMiddle(Shrink.WORDS)) },
 		leadingIcon = { Icon(Icons.Default.Search, null) },
 		trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { onChange("") }) { Icon(Icons.Default.Clear, stringResource(R.string.processes_clear)) } },
 		colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = fill, focusedContainerColor = fill, unfocusedBorderColor = fill),
@@ -384,7 +389,7 @@ private fun TableRowView(scope: DashScope, w: Widget, row: TableRow, fraction: F
 			}
 			if (bar != null && barColor != null) {
 				Column(Modifier.padding(start = Space.m).width(fit.widths.getValue(bar)), horizontalAlignment = Alignment.End) {
-					Text(cell(row, bar), style = MaterialTheme.typography.titleSmall, color = barColor, maxLines = 1)
+					Text(cell(row, bar), style = MaterialTheme.typography.titleSmall, color = ink(barColor), maxLines = 1, overflow = TextOverflow.Ellipsis)
 					if (card) {
 						Spacer(Modifier.height(Space.xs))
 						UsageBar(fraction ?: 0f, barColor, height = Sizes.barThin)
@@ -413,6 +418,17 @@ private fun TableRowView(scope: DashScope, w: Widget, row: TableRow, fraction: F
 		val edge = if (tap != null && fit.under) Space.xs else Space.none
 		Column(Modifier.fillMaxWidth().then(click).heightIn(min = if (tap == null) Space.none else Sizes.touchTarget).padding(vertical = edge), verticalArrangement = Arrangement.Center) { content() }
 	}
+}
+
+/** How much of a row to touch is empty over and under what it shows. */
+@Composable
+private fun rowEdge(w: Widget, fit: ColumnFit): Dp {
+	val t = MaterialTheme.typography
+	val (name, figures) = with(LocalDensity.current) { t.bodyMedium.lineHeight.toDp() to t.bodySmall.lineHeight.toDp() }
+	val shown = (if (avatars(w)) maxOf(name, Sizes.avatarS) else name) +
+		(if (fit.under) Space.xs + figures else Space.none) +
+		(if (barColumn(w) != null) Space.xs + Sizes.bar else Space.none)
+	return maxOf((Sizes.touchTarget - shown) / 2, if (fit.under) Space.xs else Space.none)
 }
 
 /** Whether a row of [w] may be touched: it opens a link, or a sheet. */
@@ -450,14 +466,15 @@ fun TableSheet(scope: DashScope) {
 			}
 			Text(breakable(name), style = MaterialTheme.typography.headlineSmall, maxLines = if (largeText()) 4 else 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).wholeWords())
 		}
-		if (gone) Text(stringResource(R.string.table_row_gone), style = MaterialTheme.typography.bodySmall, color = Metric.colors.warn)
+		if (gone) Text(stringResource(R.string.table_row_gone), style = MaterialTheme.typography.bodySmall, color = ink(Metric.colors.warn))
 		val figures = cols.filter { it != grow }
 		if (figures.isNotEmpty()) {
 			val measurer = rememberTextMeasurer()
 			val style = MaterialTheme.typography.titleLarge
-			// As many side by side as are whole there.
+			// As many side by side as are whole there, whatever they read.
 			BoxWithConstraints {
-				val widest = with(LocalDensity.current) { figures.maxOf { measurer.measure(cell(row, it), style, maxLines = 1, softWrap = false).size.width }.toDp() }
+				fun width(text: String) = measurer.measure(text, style, maxLines = 1, softWrap = false).size.width
+				val widest = with(LocalDensity.current) { figures.maxOf { maxOf(width(cell(row, it)), Fmt.longest(it.format, it.unit)?.let(::width) ?: 0) }.toDp() }
 				val most = ((maxWidth + Space.m) / (widest + Space.m)).toInt().coerceIn(1, FIGURES_IN_A_ROW)
 				EvenRows(figures, most, gap = Space.m) { c ->
 					val color = if (c.bar != null) levelColor(row.level, row.blend, if (c.format == "temp") Metric.colors.good else accent) ?: accent else MaterialTheme.colorScheme.onSurface
@@ -479,16 +496,17 @@ fun TableSheet(scope: DashScope) {
 			}
 		}
 		val url = w.rowOpen?.let { row.f[it].text() }
-		if (url != null) {
-			Button(onClick = { scope.tables.close(); openRowLink(ctx, scope, url) }, modifier = Modifier.fillMaxWidth().padding(top = Space.s)) {
-				Icon(ElIcons.Globe, null, Modifier.size(Sizes.iconM))
-				Spacer(Modifier.width(Space.s))
-				Text(stringResource(R.string.control_open))
-			}
-		}
 		// The actions this phone may run on the row, and the row's pages it has (a link's journal).
 		val shown = Tables.rowButtons(scope.ui, w, row)
-		if (shown.isNotEmpty()) {
+		if (url != null || shown.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(Space.inner)) {
+			if (url != null) {
+				// As tall as the buttons under it, which are as tall as a finger needs.
+				Button(onClick = { scope.tables.close(); openRowLink(ctx, scope, url) }, modifier = Modifier.fillMaxWidth().height(Sizes.touchTarget)) {
+					Icon(ElIcons.Globe, null, Modifier.size(Sizes.iconM))
+					Spacer(Modifier.width(Space.s))
+					Text(stringResource(R.string.control_open))
+				}
+			}
 			// While an action of this computer's runs, the others wait: a second tap would be turned away.
 			val busy = scope.actions.running.running.isNotEmpty()
 			EvenRows(shown, ROW_ACTIONS_IN_A_ROW) { (ra, target, action) ->
@@ -499,7 +517,7 @@ fun TableSheet(scope: DashScope) {
 					val label = ra.label ?: action.name
 					val kill = params["signal"].text() == "kill"
 					// The tables' state alone goes with the request: it outlives this screen's scope.
-					SheetButton(label, if (kill) Metric.colors.hot else Color.Unspecified, enabled = scope.actions.enabled(action, null) && !gone && !busy) {
+					SheetButton(label, if (kill) ink(Metric.colors.hot) else Color.Unspecified, enabled = scope.actions.enabled(action, null) && !gone && !busy) {
 						val tables = scope.tables
 						scope.actions.launch(action, params, "$label $name", key = action.id + "/" + row.key, button = label, afterAsking = { tables.close() })
 					}

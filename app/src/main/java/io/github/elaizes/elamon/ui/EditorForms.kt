@@ -2,11 +2,10 @@ package io.github.elaizes.elamon.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -41,12 +41,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -313,15 +315,14 @@ private fun TextControl(
 }
 
 /** A whole number: chips from its `min` to its `max` while they are few (a widget's width), else typed in. */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun IntControl(key: EditorKey, value: JsonElement?, onChange: (JsonElement?) -> Unit, isError: Boolean) {
 	val min = key.min?.toLong()
 	val max = key.max?.toLong()
 	if (min != null && max != null && max >= min && max - min < INT_CHIPS_MAX) {
 		val now = (value as? JsonPrimitive)?.content?.toLongOrNull() ?: (key.default as? JsonPrimitive)?.content?.toLongOrNull()
-		FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-			for (n in min..max) FilterChip(selected = now == n, onClick = { onChange(JsonPrimitive(n)) }, label = { Text(n.toString()) }, shape = PillShape)
+		ChipFlow {
+			for (n in min..max) FilterChip(selected = now == n, onClick = { onChange(JsonPrimitive(n)) }, label = { ShortLabel(n.toString()) }, shape = PillShape)
 		}
 		return
 	}
@@ -366,13 +367,12 @@ private fun RefControl(key: EditorKey, value: JsonElement?, onChange: (JsonEleme
 }
 
 /** One of its `choices`: chips while they are few, else picked from a list. */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun EnumControl(key: EditorKey, value: JsonElement?, onChange: (JsonElement?) -> Unit, isError: Boolean) {
 	val choices = key.choiceValues
 	val now = value.text() ?: key.default.text()
 	if (choices.size <= CHIPS_MAX) {
-		FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+		ChipFlow {
 			for (c in choices) FilterChip(selected = now == c, onClick = { onChange(JsonPrimitive(c)) }, label = { Text(c) }, shape = PillShape)
 			// One the description doesn't list (from a newer service's settings) stays, shown as it is.
 			if (value != null && value.text() !in choices) FilterChip(selected = true, onClick = {}, label = { Text(asText(value)) }, shape = PillShape)
@@ -544,7 +544,6 @@ private fun WidgetsControl(value: JsonElement?, onChange: (JsonElement?) -> Unit
 }
 
 /** One of the kinds its `of` names: chips to choose which, then that kind's field. */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AnyControl(key: EditorKey, value: JsonElement?, onChange: (JsonElement?) -> Unit, env: FormEnv, path: List<Int>, isError: Boolean) {
 	val alts = key.alternatives
@@ -559,7 +558,7 @@ private fun AnyControl(key: EditorKey, value: JsonElement?, onChange: (JsonEleme
 	LaunchedEffect(held) { if (held != null) chosen = held }
 	Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
 		if (alts.size > 1) {
-			FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+			ChipFlow {
 				alts.forEachIndexed { i, alt -> FilterChip(selected = chosen == i, onClick = { chosen = i }, label = { Text(kindWord(alt)) }, shape = PillShape) }
 			}
 		}
@@ -620,19 +619,25 @@ private fun ItemRow(onUp: (() -> Unit)? = null, onDown: (() -> Unit)? = null, on
 /** A field that is picked rather than typed: what is chosen, and a tap to choose. */
 @Composable
 fun PickerField(text: String, isError: Boolean = false, placeholder: String? = null, onClick: () -> Unit) {
-	Box {
-		OutlinedTextField(
+	// Drawn as a text field, but it takes no typing: the whole of it opens the list, and what is too long for it ends in "…".
+	val touches = remember { MutableInteractionSource() }
+	Box(
+		Modifier.fillMaxWidth().heightIn(min = OutlinedTextFieldDefaults.MinHeight).clip(OutlinedTextFieldDefaults.shape)
+			.clickable(role = Role.Button, onClickLabel = stringResource(R.string.editor_pick), onClick = onClick),
+		propagateMinConstraints = true,
+	) {
+		OutlinedTextFieldDefaults.DecorationBox(
 			value = text,
-			onValueChange = {},
-			readOnly = true,
-			isError = isError,
+			innerTextField = { Text(text, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+			enabled = true,
 			singleLine = true,
+			visualTransformation = VisualTransformation.None,
+			interactionSource = touches,
+			isError = isError,
 			placeholder = placeholder?.let { p -> { Text(p) } },
 			trailingIcon = { Icon(Icons.Default.ArrowDropDown, null) },
-			modifier = Modifier.fillMaxWidth(),
+			container = { OutlinedTextFieldDefaults.Container(enabled = true, isError = isError, interactionSource = touches) },
 		)
-		// The whole field opens the list; the text field itself takes no typing.
-		Box(Modifier.matchParentSize().clickable(role = Role.Button, onClickLabel = stringResource(R.string.editor_pick), onClick = onClick))
 	}
 }
 

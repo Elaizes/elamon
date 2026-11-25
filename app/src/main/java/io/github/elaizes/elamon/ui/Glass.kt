@@ -68,6 +68,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -85,12 +86,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import dev.chrisbanes.haze.HazeProgressive
@@ -251,9 +251,6 @@ fun GlassTopBar(
 /** From the screen's sides to the top bar's buttons: their icons' edges are the cards'. */
 private val BarInset: Dp = Space.screen - Sizes.buttonEmpty
 
-/** How far in from the screen's sides something in the top bar keeps clear of its buttons. */
-val BarButtonsClearance: Dp = BarInset + Sizes.touchTarget + Space.xs
-
 /**
  * A screen's big title, right under the bar and as tall as what it holds; it fades as it scrolls
  * under the bar, where the small title takes over.
@@ -271,7 +268,8 @@ fun BigTitle(
 			when {
 				list == null -> 1f
 				list.firstVisibleItemIndex > 0 -> 0f
-				else -> (1f - list.firstVisibleItemScrollOffset / fadePx).coerceIn(0f, 1f)
+				// Gone as the bar takes over: the name isn't there twice.
+				else -> (1f - list.firstVisibleItemScrollOffset / (fadePx * COLLAPSE_AT)).coerceIn(0f, 1f)
 			}
 		}
 	}
@@ -363,25 +361,12 @@ fun FloatingNavBar(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit,
  */
 @Composable
 private fun tabLabel(items: List<NavItem>, style: TextStyle): TextStyle {
-	val measurer = rememberTextMeasurer()
-	val density = LocalDensity.current
-	val room = with(density) { ((contentWidth() - Space.xs * (items.size + 1)) / items.size.coerceAtLeast(1) - Space.xs * 2).roundToPx() }
+	val room = (contentWidth() - Space.xs * (items.size + 1)) / items.size.coerceAtLeast(1) - Space.xs * 2
 	// Of the phone's usual text: a larger text and the app's own scale don't make the least any larger.
 	val scale = LocalConfiguration.current.densityDpi / Resources.getSystem().configuration.densityDpi.toFloat()
-	val least = Shrink.TAB / (density.fontScale * scale).coerceAtLeast(1f)
-	return remember(items.map { it.label }, style, room, least) {
-		// Measured at each size: at a large text the smaller ones grow more than in step.
-		fun at(share: Float) = if (share < 1f) style.copy(fontSize = style.fontSize * share, letterSpacing = TextUnit.Unspecified) else style
-		fun fits(label: String, share: Float) = measurer.measure(label, at(share), maxLines = 1, softWrap = false).size.width <= room
-		val whole = items.map { it.label }.filter { fits(it, least) }
-		var share = 1f
-		while (share > least && !whole.all { fits(it, share) }) share -= TAB_STEP
-		at(share.coerceAtLeast(least))
-	}
+	val least = Shrink.TAB / (LocalDensity.current.fontScale * scale).coerceAtLeast(1f)
+	return oneSize(items.map { it.label }, style, room, least)
 }
-
-/** How much smaller the tabs' labels are tried at a time. */
-private const val TAB_STEP = 0.05f
 
 /** The bottom of the screen, where content fades into glass under what floats there: [bottomReserve] tall. */
 @Composable
@@ -419,7 +404,8 @@ fun OverflowMenu(content: @Composable (item: @Composable (String, () -> Unit) ->
 	// Anchored to the button: the bar's row would have it open at the other side of the screen.
 	Box {
 		IconButton(onClick = { open = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.machine_more)) }
-		DropdownMenu(expanded = open, onDismissRequest = { open = false }, shape = InnerShape) {
+		// Its end on the line the cards end on, rather than the button.
+		DropdownMenu(expanded = open, onDismissRequest = { open = false }, shape = InnerShape, offset = DpOffset(BarInset - Space.screen, Space.none)) {
 			content { label, onClick ->
 				DropdownMenuItem(text = { Text(label) }, onClick = { open = false; onClick() })
 			}
@@ -515,7 +501,11 @@ fun GlassDialog(onDismiss: () -> Unit, title: String, text: String, confirm: Dia
 @Composable
 private fun DialogAction(b: DialogButton) {
 	TextButton(onClick = b.onClick, enabled = b.enabled && !b.busy) {
-		if (b.busy) Spinner() else Text(b.label, textAlign = TextAlign.Center)
+		// As wide and as tall while busy: the buttons stay where they are.
+		Box(contentAlignment = Alignment.Center) {
+			Text(b.label, textAlign = TextAlign.Center, modifier = Modifier.alpha(if (b.busy) 0f else 1f))
+			if (b.busy) Spinner()
+		}
 	}
 }
 

@@ -3,8 +3,6 @@ package io.github.elaizes.elamon.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -274,13 +272,12 @@ private fun ScaleRow(scale: Int, onChange: (Int) -> Unit) {
 }
 
 /** The phone's own theme's mode: the phone's day and night, light, or dark; a chip each. */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ThemeModeRow(mode: ThemeMode, enabled: Boolean, onChange: (ThemeMode) -> Unit) {
 	val alpha = if (enabled) 1f else Alpha.DISABLED
 	Column(Modifier.fillMaxWidth().padding(horizontal = Space.card, vertical = Space.m), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
 		Text(stringResource(R.string.settings_theme), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
-		FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+		ChipFlow {
 			for (m in ThemeMode.entries) {
 				FilterChip(
 					selected = m == mode,

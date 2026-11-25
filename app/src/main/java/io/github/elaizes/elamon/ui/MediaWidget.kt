@@ -63,7 +63,7 @@ fun MediaWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	Section(
 		player?.name ?: w.label ?: stringResource(R.string.control_media),
 		icon(w.icon ?: "music"),
-		modifier,
+		scope.keepHeight(modifier, w, reading = s == null),
 		accent = if (w.color != null) accent(w.color) else MaterialTheme.colorScheme.tertiary,
 	) {
 		if (players.size > 1) {

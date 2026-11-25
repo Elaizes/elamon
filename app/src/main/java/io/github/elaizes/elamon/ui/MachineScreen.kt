@@ -5,15 +5,10 @@ import android.content.res.Resources
 import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandIn
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
-import androidx.compose.animation.shrinkOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,7 +16,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyListState
@@ -138,7 +132,7 @@ fun MachineScreen(
 	val haze = remember { HazeState() }
 	val snackbar = remember { SnackbarHostState() }
 	val lists = remember { mutableMapOf<OnScreen, LazyListState>() }
-	val captioned = remember { HashSet<String>() }
+	val shapes = remember { Kept() }
 	val folds = remember(machine.id) { Folds(Settings.get(ctx), machine.id) }
 	val tables = kept.tables
 	val form = kept.form
@@ -226,6 +220,9 @@ fun MachineScreen(
 			// without its room, one scrolled to its end would move down as it left, and come back moved.
 			val covered = bottomReserve()
 			var underTabs by remember { mutableStateOf(covered) }
+			// Old numbers stay while the connection comes back, marked as such under the title, big or small.
+			val away = ui != null && state.conn != Conn.Live && !turnedAway
+			val awayText = stringResource(if (state.conn == Conn.Offline) R.string.machine_offline_retrying else R.string.conn_reconnecting)
 			SideEffect { if (shownPages.isEmpty()) underTabs = covered }
 			Box(Modifier.fillMaxSize()) {
 				Box(Modifier.fillMaxSize().hazeSource(haze)) {
@@ -293,7 +290,7 @@ fun MachineScreen(
 								tables = tables,
 								sorts = want.sorts,
 								logs = want.logs,
-								captioned = captioned,
+								kept = shapes,
 							)
 							CompositionLocalProvider(LocalBottomReserve provides if (isPage) covered else maxOf(covered, underTabs)) {
 								DashboardList(scope, list) {
@@ -301,11 +298,12 @@ fun MachineScreen(
 										MachineHeader(
 											if (isPage) ui.dashboard(d)?.title ?: d else name,
 											state,
-											if (isPage) name else statusOf(d),
+											if (away) awayText else if (isPage) name else statusOf(d),
 											list,
 											headerPills(ui, state),
 											ui.role,
 											live = !isPage && liveOn(d),
+											away = away,
 										)
 										if (state.compat != Compat.Ok) CompatBanner(state.compat, state.hello?.version.orEmpty())
 										// What is on screen is old: where the computer was looked for, as the screen without any says.
@@ -324,18 +322,13 @@ fun MachineScreen(
 					}
 				}
 
-				// Old numbers stay visible while the connection comes back, marked as such: in the bar's empty
-				// middle while the big title shows (what is under it says so itself once it can't be reached),
-				// in the small title's line once that is in the bar.
-				val away = ui != null && state.conn != Conn.Live && !turnedAway
-				val awayText = stringResource(if (state.conn == Conn.Offline) R.string.machine_offline_retrying else R.string.conn_reconnecting)
 				GlassTopBar(
 					title = page?.let { ui?.dashboard(it)?.title } ?: name,
 					// No big title on a notice: the bar says whose it is.
 					collapsed = collapsed || ui == null || turnedAway || current == null,
 					onBack = { if (page != null) pages = shownPages.dropLast(1) else onBack() },
 					subtitle = if (away) awayText else if (page != null) name else statusOf(current),
-					subtitleColor = if (away) Metric.colors.warn else MaterialTheme.colorScheme.onSurfaceVariant,
+					subtitleColor = if (away) ink(Metric.colors.warn) else MaterialTheme.colorScheme.onSurfaceVariant,
 					actions = {
 						OverflowMenu { item ->
 							// The editor, where the computer offers it to this phone's role.
@@ -350,20 +343,6 @@ fun MachineScreen(
 						}
 					},
 				)
-
-				Box(
-					Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = BarButtonsClearance + sideInset()).height(topBarHeight()),
-					contentAlignment = Alignment.Center,
-				) {
-					AnimatedVisibility(
-						visible = away && !collapsed && !lost,
-						// Fading and growing in, as by default; with animations off, there and gone at once.
-						enter = if (prefs.animations) fadeIn() + expandIn() else EnterTransition.None,
-						exit = if (prefs.animations) shrinkOut() + fadeOut() else ExitTransition.None,
-					) {
-						Pill(awayText, Metric.colors.warn, dot = true)
-					}
-				}
 
 				if (ui != null && !turnedAway) BottomGlass(Modifier.align(Alignment.BottomCenter))
 
@@ -461,6 +440,7 @@ private fun MachineHeader(
 	pills: List<Pair<Widget, WidgetState?>>,
 	role: String?,
 	live: Boolean,
+	away: Boolean,
 ) {
 	BigTitle(
 		title,
@@ -469,7 +449,11 @@ private fun MachineHeader(
 			Text(
 				status,
 				style = MaterialTheme.typography.titleSmall,
-				color = if (live && state.conn == Conn.Live) Metric.colors.good else MaterialTheme.colorScheme.onSurfaceVariant,
+				color = when {
+					away -> ink(Metric.colors.warn)
+					live && state.conn == Conn.Live -> ink(Metric.colors.good)
+					else -> MaterialTheme.colorScheme.onSurfaceVariant
+				},
 			)
 		},
 		extra = if (pills.isEmpty() && role == null) null else ({

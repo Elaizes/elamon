@@ -11,8 +11,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,6 +35,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -49,11 +48,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import io.github.elaizes.elamon.data.Grid
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -251,9 +252,7 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 			if (narrowCell(TextSizes.rowLeast)) {
 				ControlTile(label, captionOf(scope, w, s), click, alpha, icon = { BusyBadge(mark, accent.copy(alpha = alpha), running) }, below = ended)
 			} else {
-				Column(Modifier.padding(vertical = Space.xs), verticalArrangement = Arrangement.Center) {
-					ListRow(label, captionOf(scope, w, s), mark, accent, enabled = takesTap(enabled, running), onClick = run, busy = running, below = ended)
-				}
+				ListRow(label, captionOf(scope, w, s), mark, accent, enabled = takesTap(enabled, running), onClick = run, busy = running, below = ended, inset = Space.xs)
 			}
 		}
 		return
@@ -271,7 +270,7 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 					if (running) Spinner()
 					else Icon(if (w.open != null && action == null) icon(w.icon) else ElIcons.Play, null, tint = accent(w.color ?: "tertiary").copy(alpha = alpha), modifier = Modifier.size(Sizes.iconM))
 					Spacer(Modifier.width(Space.s))
-					Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).wholeWords())
+					Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), maxLines = LABEL_LINES, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).wholeWords())
 				}
 				ended?.invoke()
 			}
@@ -300,12 +299,26 @@ private fun ControlTile(
 		main = {
 			Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.s)) {
 				icon?.invoke()
-				Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), textAlign = TextAlign.Center, modifier = Modifier.wholeWords())
+				Text(label, style = LocalControlLabel.current ?: MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), textAlign = TextAlign.Center, maxLines = LABEL_LINES, overflow = TextOverflow.Ellipsis, modifier = Modifier.wholeWords())
 				if (caption != null) Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha), textAlign = TextAlign.Center, modifier = Modifier.wholeWords())
 			}
 		},
 		last = { if (below != null) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { below() } },
 	)
+}
+
+/** The most lines a control's name takes. */
+private const val LABEL_LINES = 3
+
+/** The style of the names of a group's controls: of one size, at which every word of theirs is whole. */
+val LocalControlLabel = compositionLocalOf<TextStyle?> { null }
+
+/** [LocalControlLabel] for the controls among [children], in the [rows] of a group with [room] for them. */
+@Composable
+fun controlLabel(scope: DashScope, children: List<Widget>, rows: List<Grid.Line>, room: Dp): TextStyle {
+	val words = children.filter { it.type == "button" || it.type == "toggle" }.flatMap { (it.label ?: scope.actions.action(it.action)?.name.orEmpty()).split(' ') }
+	val narrowest = rows.flatMap { line -> line.cells.map { (_, span) -> cellWidth(line, span, room, Space.inner) } }.minOrNull() ?: room
+	return oneSize(words, MaterialTheme.typography.labelLarge, narrowest - Space.m * 2, Shrink.WORDS)
 }
 
 /** Whether a button takes a tap: its action may run and isn't running already, or a second tap would ask again for nothing. */
@@ -345,7 +358,7 @@ fun ActionOutput(vm: MachineViewModel, ui: UiDoc?, state: ActionsState) {
 		Surface(shape = InnerShape, color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth().heightIn(max = Sizes.outputMax)) {
 			SelectionContainer {
 				Text(
-					r.output?.ifBlank { null } ?: stringResource(R.string.control_no_output),
+					r.output?.trimEnd()?.ifEmpty { null } ?: stringResource(R.string.control_no_output),
 					fontFamily = FontFamily.Monospace,
 					style = MaterialTheme.typography.bodySmall,
 					modifier = Modifier.verticalScroll(rememberScrollState()).padding(Space.m),
@@ -382,7 +395,7 @@ fun ToggleWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 				below = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
 			)
 		} else {
-			Column(Modifier.padding(vertical = padding), verticalArrangement = Arrangement.Center) { SwitchRow(label, captionOf(scope, w, s), checked, enabled, onChange = set) }
+			SwitchRow(label, captionOf(scope, w, s), checked, enabled, inset = padding, onChange = set)
 		}
 	}
 }
@@ -437,7 +450,7 @@ fun SelectWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	// The highlight moves to the choice taken, or with animations off is there at once.
 	val move: AnimationSpec<Color> = if (LocalPrefs.current.animations) spring() else snap()
 	val least = TextSizes.choiceLeast.forText()
-	val most = ((LocalCellWidth.current - Space.card * 2 + Space.inner) / (least + Space.inner)).coerceIn(1f, CHOICES_IN_A_ROW.toFloat()).toInt()
+	val most = ((LocalCellWidth.current - cardPadding() * 2 + Space.inner) / (least + Space.inner)).coerceIn(1f, CHOICES_IN_A_ROW.toFloat()).toInt()
 	Section(label, icon(w.icon), modifier, accent = accent(w.color)) {
 		captionOf(scope, w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 		EvenRows(choices, most, Modifier.selectableGroup()) { c ->
@@ -446,7 +459,7 @@ fun SelectWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 			val fg = (if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = if (enabled) 1f else Alpha.DISABLED)
 			val name = c.label ?: c.value
 			Column(
-				Modifier.heightIn(min = Sizes.touchTarget).clip(InnerShape).background(bg)
+				Modifier.heightIn(min = Sizes.touchTarget).clip(cellShape()).background(bg)
 					.selectable(selected = on, enabled = enabled && !on, role = Role.Button) {
 						if (action != null && w.param != null) a.launch(action, withParam(w.params, w.param, JsonPrimitive(c.value)), label + PHRASE_SEPARATOR + name)
 					}
@@ -527,7 +540,6 @@ internal fun sliderSteps(min: Double, max: Double, step: Double?): Int =
  * The values an action needs that the widget leaves open: a choice among its choices, a number on
  * its range's steps, a switch, or typed; run once each takes its value.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ParamForm(req: FormRequest, onDismiss: () -> Unit, onDone: (JsonObject) -> Unit) {
 	val asked = req.asked
@@ -548,7 +560,7 @@ fun ParamForm(req: FormRequest, onDismiss: () -> Unit, onDone: (JsonObject) -> U
 						"choice" -> {
 							// The one choice asked, named as the action is ("Mode" under "Mode"): the title says it.
 							if (!Params.namedByTitle(asked, p, title)) Text(name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-							FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+							ChipFlow {
 								for (c in p.choices.orEmpty()) {
 									FilterChip(selected = values[p.id]?.text() == c.value, onClick = { values[p.id] = JsonPrimitive(c.value) }, label = { Text(c.label ?: c.value) }, shape = PillShape)
 								}
@@ -592,8 +604,8 @@ private fun RangeField(p: Param, name: String, value: Double?, onChange: (Double
 	val v = value ?: min
 	Column {
 		Row {
-			Text(name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-			Text(Fmt.withUnit(Fmt.round(v, if (v % 1.0 == 0.0) 0 else 1), p.unit), style = MaterialTheme.typography.titleSmall)
+			Text(name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f).alignByBaseline())
+			Text(Fmt.withUnit(Fmt.round(v, if (v % 1.0 == 0.0) 0 else 1), p.unit), style = MaterialTheme.typography.titleSmall, modifier = Modifier.alignByBaseline())
 		}
 		Slider(value = v.toFloat(), onValueChange = { onChange(Params.snap(it.toDouble(), p)) }, valueRange = min.toFloat()..max.toFloat(), steps = sliderSteps(min, max, p.step))
 	}

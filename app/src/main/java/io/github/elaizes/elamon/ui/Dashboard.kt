@@ -33,12 +33,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.constrainHeight
 import io.github.elaizes.elamon.Hist
 import io.github.elaizes.elamon.MachineState
 import io.github.elaizes.elamon.MachineViewModel
@@ -77,19 +79,34 @@ class DashScope(
 	val logs: Map<String, LogFilter>,
 	/** The points of a graph or spark, by its id: the stream's, or (the editor's preview) the preview's own. */
 	val hist: (String) -> Hist? = vm::hist,
-	/** The widgets that have had a caption on this screen, by id: kept over its dashboards, for [captionOf]. */
-	private val captioned: MutableSet<String> = HashSet(),
+	private val kept: Kept = Kept(),
 ) {
 	fun state(w: Widget): WidgetState? = states[w.id]
 
 	/** [w]'s caption as its state has it now; null for none. One it has had keeps its line. */
 	fun caption(w: Widget, s: WidgetState?): String? {
 		val now = s?.caption?.ifEmpty { null }
-		if (now != null) captioned += "$dashboard/${w.id}"
+		if (now != null) kept.captioned += key(w)
 		return now
 	}
 
-	fun hadCaption(w: Widget): Boolean = "$dashboard/${w.id}" in captioned
+	fun hadCaption(w: Widget): Boolean = key(w) in kept.captioned
+
+	/** [modifier] as tall while [w] is [reading] as it was when last read: what is under it stays where it is as it fills in again. */
+	fun keepHeight(modifier: Modifier, w: Widget, reading: Boolean): Modifier = modifier.layout { measurable, constraints ->
+		val least = if (reading) kept.heights[key(w)]?.let(constraints::constrainHeight) ?: 0 else 0
+		val p = measurable.measure(constraints.copy(minHeight = maxOf(constraints.minHeight, least)))
+		if (!reading) kept.heights[key(w)] = p.height
+		layout(p.width, p.height) { p.place(0, 0) }
+	}
+
+	private fun key(w: Widget) = "$dashboard/${w.id}"
+}
+
+/** What a computer's screen keeps of its dashboards' widgets while it lives, for while they are read again: which have had a caption, and how tall what fills in was. */
+class Kept {
+	val captioned = HashSet<String>()
+	val heights = HashMap<String, Int>()
 }
 
 /** Which foldable groups and tables of a computer are folded: as each started, until folded or opened, then kept. */
@@ -307,14 +324,14 @@ fun Figure(w: Widget, s: WidgetState?, color: Color) {
 	when {
 		n != null && text == null -> {
 			val (v, u) = Fmt.parts(n, w.format, w.unit)
-			BigValue(v, u, Modifier.figureLine(), color = color)
+			BigValue(v, u, Modifier.figureLine(), color = color, longest = Fmt.longestParts(w.format, w.unit))
 		}
 		else -> {
 			val words = text ?: Fmt.format(s?.v, w.format, w.unit)
 			Text(
 				words ?: DASH,
 				style = if (text == null) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.headlineSmall,
-				color = if (text == null) color else MaterialTheme.colorScheme.secondary,
+				color = if (text == null) ink(color) else MaterialTheme.colorScheme.secondary,
 				maxLines = 1,
 				overflow = TextOverflow.Ellipsis,
 				modifier = Modifier.figureLine().shrinkToFit(),
@@ -339,7 +356,7 @@ private fun GaugeTile(scope: DashScope, w: Widget, modifier: Modifier) {
 	val accent = accent(w.color)
 	val text = s?.text ?: Fmt.format(s?.v, w.format, w.unit) ?: DASH
 	// Its ring as large as its tile has room for; a small one thinner, and its figure smaller, as it is.
-	val size = minOf(Gauge.tile, LocalCellWidth.current - cardPadding() * 2)
+	val size = minOf(Gauge.tile, LocalCellWidth.current - cardPadding() * 2).coerceAtLeast(Space.none)
 	val share = size / Gauge.tile
 	WidgetTile(scope, w, accent, modifier, captionOf(scope, w, s)) {
 		Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -350,8 +367,8 @@ private fun GaugeTile(scope: DashScope, w: Widget, modifier: Modifier) {
 				thickness = Gauge.thickness * share,
 				description = listOfNotNull(w.label, text).joinToString(" "),
 			) {
-				val style = MaterialTheme.typography.headlineMedium
-				RollingText(text, style.copy(fontSize = style.fontSize * share), Modifier.shrinkToFit())
+				val style = MaterialTheme.typography.headlineMedium.let { it.copy(fontSize = it.fontSize * share) }
+				RollingText(text, style, Modifier.shrinkToFit(atLeast = charsWidth(Fmt.longest(w.format, w.unit).takeIf { s?.text == null }, style)))
 			}
 		}
 	}
@@ -439,11 +456,11 @@ private fun GraphWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 			Row(horizontalArrangement = Arrangement.spacedBy(Space.gap)) {
 				series.forEachIndexed { i, ser ->
 					Column(Modifier.weight(1f)) {
-						if (series.size > 1 || ser.label != null) Text(ser.label.orEmpty(), style = MaterialTheme.typography.labelMedium, color = colors[i], maxLines = 1, overflow = TextOverflow.Ellipsis)
+						if (series.size > 1 || ser.label != null) Text(ser.label.orEmpty(), style = MaterialTheme.typography.labelMedium, color = ink(colors[i]), maxLines = 1, overflow = TextOverflow.Ellipsis)
 						val v = now.getOrNull(i)
 						if (v != null) {
 							val (n, u) = Fmt.parts(v, ser.format, ser.unit)
-							BigValue(n, u, large = false)
+							BigValue(n, u, large = false, longest = Fmt.longestParts(ser.format, ser.unit))
 						} else {
 							Text(DASH, style = MaterialTheme.typography.headlineSmall)
 						}
@@ -470,7 +487,7 @@ private fun GraphWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 		accent,
 		modifier,
 		trailing = if (single) {
-			{ now.firstOrNull()?.let { RollingText(Fmt.number(it, first.format, first.unit), MaterialTheme.typography.titleLarge, color = colors[0]) } }
+			{ now.firstOrNull()?.let { RollingText(Fmt.number(it, first.format, first.unit), MaterialTheme.typography.titleLarge, color = ink(colors[0])) } }
 		} else null,
 	) {
 		if (chips.isNotEmpty()) RangeChips(chips, long?.range) { scope.vm.showRange(w, it) }
@@ -516,9 +533,9 @@ private fun BarsWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	WidgetSection(scope, w, accent, modifier) {
 		CoreBars(values.map { ((it ?: 0.0) / max).toFloat() }, colors, height = ChartStyle.coresDetail, description = description)
 		EvenRows(values.indices.toList(), BAR_CELLS) { i ->
-			Column(Modifier.clip(InnerShape).background(cardColor()).padding(Space.s)) {
+			Column(Modifier.clip(cellShape()).background(cardColor()).padding(Space.s)) {
 				Text(s?.labels?.getOrNull(i) ?: i.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-				Text(values[i]?.let { Fmt.number(it, w.format, w.unit) } ?: DASH, style = MaterialTheme.typography.titleSmall, color = colors[i], maxLines = 1, modifier = Modifier.shrinkToFit())
+				Text(values[i]?.let { Fmt.number(it, w.format, w.unit) } ?: DASH, style = MaterialTheme.typography.titleSmall, color = ink(colors[i]), maxLines = 1, modifier = Modifier.shrinkToFit())
 			}
 		}
 	}
@@ -593,7 +610,8 @@ private fun GroupWidget(scope: DashScope, w: Widget, modifier: Modifier, columns
 			val inner = Grid.span(w.span, columns).coerceAtLeast(1)
 			val children = w.widgets.orEmpty().filter { shown(it, scope.state(it)) }
 			val rows = Grid.place(children.map { it.span }, inner)
-			CompositionLocalProvider(LocalCellWidth provides LocalCellWidth.current - Space.card * 2) {
+			val room = LocalCellWidth.current - cardPadding() * 2
+			CompositionLocalProvider(LocalCellWidth provides room, LocalControlLabel provides controlLabel(scope, children, rows, room)) {
 				Column(verticalArrangement = Arrangement.spacedBy(Space.inner)) {
 					for (row in rows) GridRow(scope, children, row, inner, gap = Space.inner)
 				}

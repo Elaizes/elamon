@@ -84,6 +84,9 @@ val CardShape = RoundedCornerShape(Radius.card)
 /** What sits inside a card: choices, power, actions, code, a cover. */
 val InnerShape = RoundedCornerShape(Radius.inner)
 
+/** What sits in a card inside a card: its padding leaves no more. */
+val LeastShape = RoundedCornerShape(Radius.xs)
+
 /** Fully round ends, for tags and chips. */
 val PillShape = CircleShape
 
@@ -106,10 +109,20 @@ object Sizes {
 	val buttonEmpty = (touchTarget - icon) / 2
 	val smallButtonEmpty = (touchTarget - iconM) / 2
 
+	/** A chip as drawn, and what it takes over and under itself for a finger. */
+	private val chip = 32.dp
+	val chipEmpty = (touchTarget - chip) / 2
+
+	/** The least a chip's label is wide, for one as wide as a finger needs. */
+	val chipLabel = touchTarget - Space.l * 2
+
 	// ---- discs and avatars --------------------------------------------------------------------
 	/** A letter's disc in a table's row, in a list's, and in a row's sheet. */
 	val avatarS = 32.dp
 	val avatar = 40.dp
+
+	/** A letter's size in its disc, of the disc's. */
+	const val AVATAR_LETTER = 0.42f
 
 	/** The disc with an icon by a card's title or a row's, a computer's, and a notice's; the icon is [BADGE_ICON] of it. */
 	val badge = 36.dp
@@ -224,7 +237,7 @@ object Motion {
 
 object Alpha {
 	/** Bars where blur is off: almost opaque. */
-	const val GLASS_SOLID = 0.94f
+	const val GLASS_SOLID = 0.98f
 
 	/** The tint over blurred glass, dark and light. */
 	const val GLASS_TINT_DARK = 0.62f
@@ -240,7 +253,7 @@ object Alpha {
 	const val BANNER = 0.14f
 	const val DANGER = 0.12f
 
-	/** A tile's tint, fading from its top-left corner to its bottom-right one. */
+	/** A tile's tint, fading from its top to its bottom. */
 	const val TILE_FROM = 0.13f
 	const val TILE_TO = 0.02f
 

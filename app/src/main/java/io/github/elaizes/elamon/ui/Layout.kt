@@ -2,6 +2,8 @@ package io.github.elaizes.elamon.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -103,12 +105,45 @@ fun sideInset(): Dp {
 
 /**
  * One line that gets smaller where it doesn't fit its room, rather than lose its end: a figure, a
- * short label. Down to [min] of its size; what still doesn't fit is cut short there.
+ * short label. Down to [min] of its size; what still doesn't fit is cut short there. A figure that
+ * moves gets as small as one [atLeast] px wide needs: it keeps its size as it gets longer.
  */
-fun Modifier.shrinkToFit(min: Float = Shrink.FIGURE): Modifier = shrink(min, line = true) { it.maxIntrinsicWidth(Constraints.Infinity) }
+fun Modifier.shrinkToFit(min: Float = Shrink.FIGURE, atLeast: Int = 0): Modifier = shrink(min, Keep.Baseline) { maxOf(it.maxIntrinsicWidth(Constraints.Infinity), atLeast) }
+
+/** As [shrinkToFit], in the middle of its line rather than on its baseline: words beside a picture. */
+fun Modifier.shrinkInMiddle(min: Float): Modifier = shrink(min, Keep.Middle) { it.maxIntrinsicWidth(Constraints.Infinity) }
 
 /** Text that gets smaller where its longest word doesn't fit its room, rather than break inside it. */
-fun Modifier.wholeWords(): Modifier = shrink(Shrink.WORDS, line = false) { it.minIntrinsicWidth(Constraints.Infinity) }
+fun Modifier.wholeWords(): Modifier = shrink(Shrink.WORDS, Keep.Nothing) { it.minIntrinsicWidth(Constraints.Infinity) }
+
+/** How wide the characters of [text] are side by side, in px, as [RollingText] sets them. */
+@Composable
+fun charsWidth(text: String?, style: TextStyle): Int {
+	val measurer = rememberTextMeasurer()
+	return remember(measurer, text, style) { text.orEmpty().sumOf { measurer.measure(it.toString(), style).size.width } }
+}
+
+/**
+ * [style] at the largest size, down to [least] of its own, at which those of [texts] that can be whole
+ * in [room] are: labels side by side read as one kind. Smaller ones are set closer, on lower lines.
+ */
+@Composable
+fun oneSize(texts: List<String>, style: TextStyle, room: Dp, least: Float): TextStyle {
+	val measurer = rememberTextMeasurer()
+	val px = with(LocalDensity.current) { room.roundToPx() }
+	return remember(measurer, texts, style, px, least) {
+		// Measured at each size: at a large text the smaller ones grow more than in step.
+		fun at(share: Float) = if (share < 1f) style.copy(fontSize = style.fontSize * share, lineHeight = style.lineHeight * share, letterSpacing = TextUnit.Unspecified) else style
+		fun fits(text: String, share: Float) = measurer.measure(text, at(share), maxLines = 1, softWrap = false).size.width <= px
+		val whole = texts.filter { fits(it, least) }
+		var share = 1f
+		while (share > least && !whole.all { fits(it, share) }) share -= SIZE_STEP
+		at(share.coerceAtLeast(least))
+	}
+}
+
+/** How much smaller [oneSize] tries at a time. */
+private const val SIZE_STEP = 0.05f
 
 /** A name of parts ("qemu-system-x86_64"), which may go on to the next line after one but not inside it. */
 internal fun breakable(name: String): String = name.replace(PART_END, "$1\u200b")
@@ -132,8 +167,10 @@ object Shrink {
 /** How much smaller what is [need] wide is drawn in [room], down to [min]. */
 internal fun shrinkTo(room: Int, need: Int, min: Float): Float = if (need <= room || need <= 0) 1f else (room.toFloat() / need).coerceAtLeast(min)
 
-/** With [line], one line keeps its height and its baseline, smaller on it: what stands beside or under it stays in place. */
-private fun Modifier.shrink(min: Float, line: Boolean, needs: (IntrinsicMeasurable) -> Int): Modifier = layout { measurable, constraints ->
+/** What a line that got smaller keeps of its place: its height and where its baseline or its middle is, so that what stands beside or under it stays; or nothing. */
+private enum class Keep { Baseline, Middle, Nothing }
+
+private fun Modifier.shrink(min: Float, keep: Keep, needs: (IntrinsicMeasurable) -> Int): Modifier = layout { measurable, constraints ->
 	val f = if (constraints.hasBoundedWidth) shrinkTo(constraints.maxWidth, needs(measurable), min) else 1f
 	if (f == 1f) {
 		val p = measurable.measure(constraints)
@@ -143,9 +180,13 @@ private fun Modifier.shrink(min: Float, line: Boolean, needs: (IntrinsicMeasurab
 	val p = measurable.measure(Constraints(larger(constraints.minWidth), larger(constraints.maxWidth), larger(constraints.minHeight), larger(constraints.maxHeight)))
 	fun smaller(px: Int) = (px * f).roundToInt()
 	val base = p[FirstBaseline]
-	val y = if (!line) 0 else if (base == AlignmentLine.Unspecified) (p.height - smaller(p.height)) / 2 else base - smaller(base)
-	val lines: Map<AlignmentLine, Int> = if (base == AlignmentLine.Unspecified) emptyMap() else mapOf(FirstBaseline to if (line) base else smaller(base))
-	layout(smaller(p.width).coerceAtMost(constraints.maxWidth), if (line) p.height else smaller(p.height), lines) {
+	val y = when {
+		keep == Keep.Nothing -> 0
+		keep == Keep.Middle || base == AlignmentLine.Unspecified -> (p.height - smaller(p.height)) / 2
+		else -> base - smaller(base)
+	}
+	val lines: Map<AlignmentLine, Int> = if (base == AlignmentLine.Unspecified) emptyMap() else mapOf(FirstBaseline to y + smaller(base))
+	layout(smaller(p.width).coerceAtMost(constraints.maxWidth), if (keep == Keep.Nothing) smaller(p.height) else p.height, lines) {
 		p.placeWithLayer(0, y) {
 			scaleX = f
 			scaleY = f
@@ -196,6 +237,25 @@ fun Modifier.flush(empty: Dp): Modifier = layout { measurable, constraints ->
 	val side = empty.roundToPx()
 	val p = measurable.measure(constraints)
 	layout((p.width - side * 2).coerceAtLeast(0), p.height) { p.place(-side, 0) }
+}
+
+/** Takes [top] and [bottom] less room than it is tall: what is empty there, to be touched, reaches past it. */
+fun Modifier.overhang(top: Dp, bottom: Dp = top): Modifier = layout { measurable, constraints ->
+	val above = top.roundToPx()
+	val both = above + bottom.roundToPx()
+	val p = measurable.measure(constraints.copy(minHeight = 0, maxHeight = if (constraints.hasBoundedHeight) constraints.maxHeight + both else constraints.maxHeight))
+	layout(p.width, (p.height - both).coerceAtLeast(0)) { p.place(0, -above) }
+}
+
+/** Chips, as far apart down as across: what they take for a finger around them reaches past them, and into each other's between two rows. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ChipFlow(content: @Composable () -> Unit) {
+	FlowRow(
+		Modifier.overhang(Sizes.chipEmpty),
+		horizontalArrangement = Arrangement.spacedBy(Space.s),
+		verticalArrangement = Arrangement.spacedBy(Space.s - Sizes.chipEmpty * 2),
+	) { content() }
 }
 
 /** Moves what ends in an icon's own empty margin out to the line its picture should end on. */
