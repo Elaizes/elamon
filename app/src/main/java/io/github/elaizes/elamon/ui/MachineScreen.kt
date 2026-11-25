@@ -322,12 +322,18 @@ fun MachineScreen(
 					}
 				}
 
+				// Old numbers stay visible while the connection comes back, marked as such: in the bar's empty
+				// middle while the big title shows (what is under it says so itself once it can't be reached),
+				// in the small title's line once that is in the bar.
+				val away = ui != null && state.conn != Conn.Live && !turnedAway
+				val awayText = stringResource(if (state.conn == Conn.Offline) R.string.machine_offline_retrying else R.string.conn_reconnecting)
 				GlassTopBar(
 					title = page?.let { ui?.dashboard(it)?.title } ?: name,
 					// No big title on a notice: the bar says whose it is.
 					collapsed = collapsed || ui == null || turnedAway || current == null,
 					onBack = { if (page != null) pages = shownPages.dropLast(1) else onBack() },
-					subtitle = if (page != null) name else statusOf(current),
+					subtitle = if (away) awayText else if (page != null) name else statusOf(current),
+					subtitleColor = if (away) Metric.colors.warn else MaterialTheme.colorScheme.onSurfaceVariant,
 					actions = {
 						OverflowMenu { item ->
 							// The editor, where the computer offers it to this phone's role.
@@ -343,24 +349,17 @@ fun MachineScreen(
 					},
 				)
 
-				// Old numbers stay visible while the connection comes back, marked as such: in the bar's
-				// empty middle while the big title shows, under the bar once it has the small one.
-				val barHeight = topBarHeight()
 				Box(
-					Modifier
-						.align(Alignment.TopCenter)
-						.statusBarsPadding()
-						.padding(horizontal = BarButtonsClearance + sideInset())
-						.then(if (collapsed) Modifier.padding(top = barHeight + Space.s) else Modifier.height(barHeight)),
+					Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = BarButtonsClearance + sideInset()).height(topBarHeight()),
 					contentAlignment = Alignment.Center,
 				) {
 					AnimatedVisibility(
-						visible = ui != null && state.conn != Conn.Live && !turnedAway,
+						visible = away && !collapsed && !lost,
 						// Fading and growing in, as by default; with animations off, there and gone at once.
 						enter = if (prefs.animations) fadeIn() + expandIn() else EnterTransition.None,
 						exit = if (prefs.animations) shrinkOut() + fadeOut() else ExitTransition.None,
 					) {
-						Pill(stringResource(if (state.conn == Conn.Offline) R.string.machine_offline_retrying else R.string.conn_reconnecting), Metric.colors.warn, dot = true)
+						Pill(awayText, Metric.colors.warn, dot = true)
 					}
 				}
 

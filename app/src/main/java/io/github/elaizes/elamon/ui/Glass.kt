@@ -212,6 +212,7 @@ fun GlassTopBar(
 	collapsed: Boolean,
 	onBack: (() -> Unit)? = null,
 	subtitle: String? = null,
+	subtitleColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 	actions: @Composable RowScope.() -> Unit = {},
 ) {
 	val animate = LocalPrefs.current.animations
@@ -236,7 +237,7 @@ fun GlassTopBar(
 					Column {
 						Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
 						if (subtitle != null) {
-							Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+							Text(subtitle, style = MaterialTheme.typography.labelMedium, color = subtitleColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
 						}
 					}
 				}
