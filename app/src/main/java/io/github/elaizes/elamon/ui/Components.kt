@@ -97,7 +97,8 @@ fun Section(
 			verticalArrangement = Arrangement.spacedBy(Space.m),
 		) {
 			Row(
-				Modifier.then(if (onTitleClick != null) Modifier.clip(InnerShape).clickable(onClick = onTitleClick) else Modifier),
+				// As tall with a figure at its end as without: the titles of a row stand on one line.
+				Modifier.heightIn(min = Sizes.icon).then(if (onTitleClick != null) Modifier.clip(InnerShape).clickable(onClick = onTitleClick) else Modifier),
 				verticalAlignment = Alignment.CenterVertically,
 			) {
 				if (inner) Icon(icon, null, tint = accent, modifier = Modifier.size(Sizes.iconM)) else IconBadge(icon, accent)

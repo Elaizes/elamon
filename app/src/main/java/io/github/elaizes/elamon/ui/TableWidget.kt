@@ -395,7 +395,7 @@ fun TableSheet(scope: DashScope) {
 				LetterAvatar(name, Sizes.badgeL)
 				Spacer(Modifier.width(Space.m))
 			}
-			Text(name, style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).wholeWords())
+			Text(breakable(name), style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).wholeWords())
 		}
 		if (gone) Text(stringResource(R.string.table_row_gone), style = MaterialTheme.typography.bodySmall, color = Metric.colors.warn)
 		val figures = cols.filter { it != grow }

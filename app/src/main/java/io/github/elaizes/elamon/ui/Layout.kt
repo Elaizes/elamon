@@ -102,6 +102,11 @@ fun Modifier.shrinkToFit(min: Float = Shrink.FIGURE): Modifier = shrink(min, lin
 /** Text that gets smaller where its longest word doesn't fit its room, rather than break inside it. */
 fun Modifier.wholeWords(): Modifier = shrink(Shrink.FIGURE, line = false) { it.minIntrinsicWidth(Constraints.Infinity) }
 
+/** A name of parts ("qemu-system-x86_64"), which may go on to the next line after one but not inside it. */
+internal fun breakable(name: String): String = name.replace(PART_END, "$1\u200b")
+
+private val PART_END = Regex("([-_./])(?=[^-_./])")
+
 /** The least text gets smaller to, of its size. */
 object Shrink {
 	const val FIGURE = 0.6f

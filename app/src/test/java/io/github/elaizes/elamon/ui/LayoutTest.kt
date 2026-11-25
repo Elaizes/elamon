@@ -24,6 +24,13 @@ class LayoutTest {
 	}
 
 	@Test
+	fun aNameOfPartsBreaksBetweenThem() {
+		assertEquals("qemu-\u200bsystem-\u200bx86_\u200b64", breakable("qemu-system-x86_64"))
+		assertEquals("Local web", breakable("Local web"))
+		assertEquals("a--\u200bb-", breakable("a--b-"))
+	}
+
+	@Test
 	fun aCellsWidthIsItsShareOfTheRow() {
 		val row = Grid.place(listOf(2, 1, 1), 4).single()
 		val widths = row.cells.map { (_, span) -> cellWidth(row, span, 328.dp) }
