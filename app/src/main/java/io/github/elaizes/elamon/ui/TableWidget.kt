@@ -255,7 +255,7 @@ fun LazyListScope.tableItems(scope: DashScope, table: ListTable, keys: UniqueKey
 	val rows = table.rows
 	val s = scope.state(w)
 	item(key = keys.of("table/${w.id}")) {
-		Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
+		Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
 			w.label?.let { Text(it, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = Space.card)) }
 			captionOf(scope, w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Space.card)) }
 			TableControls(scope, w, s?.total, rows.size, inset = Space.card)
@@ -273,7 +273,7 @@ fun LazyListScope.tableItems(scope: DashScope, table: ListTable, keys: UniqueKey
 @Composable
 private fun TableControls(scope: DashScope, w: Widget, total: Int?, shown: Int, inset: Dp = Space.none) {
 	val query = scope.tables.query(w.id)
-	Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
+	Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
 		SearchField(query, stringResource(R.string.table_search)) { scope.tables.setQuery(w.id, it) }
 		val sorts = (listOfNotNull(w.sort?.field) + w.sorts.orEmpty()).distinct()
 		if (sorts.size > 1) {

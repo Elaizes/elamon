@@ -420,7 +420,7 @@ fun ChipRow(content: @Composable RowScope.() -> Unit) {
 	val padding = if (LocalDepth.current > 1) Space.m else Space.card
 	Row(
 		Modifier
-			.overhang(Sizes.chipEmpty)
+			.overhang(chipEmpty())
 			.layout { measurable, constraints ->
 				if (!constraints.hasBoundedWidth) {
 					val p = measurable.measure(constraints)

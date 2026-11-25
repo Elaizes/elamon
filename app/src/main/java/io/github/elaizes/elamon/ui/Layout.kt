@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.union
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
@@ -252,10 +253,17 @@ fun Modifier.overhang(top: Dp, bottom: Dp = top): Modifier = layout { measurable
 @Composable
 fun ChipFlow(content: @Composable () -> Unit) {
 	FlowRow(
-		Modifier.overhang(Sizes.chipEmpty),
+		Modifier.overhang(chipEmpty()),
 		horizontalArrangement = Arrangement.spacedBy(Space.s),
-		verticalArrangement = Arrangement.spacedBy(Space.s - Sizes.chipEmpty * 2),
+		verticalArrangement = Arrangement.spacedBy(Space.s - chipEmpty() * 2),
 	) { content() }
+}
+
+/** What a chip takes over and under what it draws, for a finger. */
+@Composable
+fun chipEmpty(): Dp {
+	val line = with(LocalDensity.current) { MaterialTheme.typography.labelLarge.lineHeight.toDp() }
+	return ((Sizes.touchTarget - maxOf(Sizes.chip, line)) / 2).coerceAtLeast(Space.none)
 }
 
 /** Moves what ends in an icon's own empty margin out to the line its picture should end on. */

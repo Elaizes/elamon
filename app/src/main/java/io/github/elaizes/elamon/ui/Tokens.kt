@@ -109,9 +109,8 @@ object Sizes {
 	val buttonEmpty = (touchTarget - icon) / 2
 	val smallButtonEmpty = (touchTarget - iconM) / 2
 
-	/** A chip as drawn, and what it takes over and under itself for a finger. */
-	private val chip = 32.dp
-	val chipEmpty = (touchTarget - chip) / 2
+	/** A chip as drawn, in text of the usual size. */
+	val chip = 32.dp
 
 	/** The least a chip's label is wide, for one as wide as a finger needs. */
 	val chipLabel = touchTarget - Space.l * 2
