@@ -15,8 +15,10 @@ appId: io.github.elaizes.elamon.debug
     maxRetries: 3
     commands:
       - waitForAnimationToEnd
+      # Up: the tab is as tall before its first reading as it was, and its links are at its top.
       - scrollUntilVisible:
           element: "Local web"
+          direction: UP
           timeout: 30000
       - longPressOn: "Local web"
       - extendedWaitUntil:
