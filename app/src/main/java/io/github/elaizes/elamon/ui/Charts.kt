@@ -499,7 +499,8 @@ private class Rolled(var text: String) {
 
 /**
  * Text whose characters roll to their new values, like a mechanical counter. Only the characters
- * that changed move, all on one animation read while drawing; a screen reader hears it whole.
+ * that changed move, all on one animation read while drawing; a screen reader hears it whole. They
+ * are told from the end: from 6% to 67%, the % stays as it is.
  */
 @Composable
 fun RollingText(text: String, style: TextStyle, modifier: Modifier = Modifier, color: Color = Color.Unspecified) {
@@ -524,7 +525,7 @@ fun RollingText(text: String, style: TextStyle, modifier: Modifier = Modifier, c
 	val from = rolled.from
 	Row(whole) {
 		text.forEachIndexed { i, ch ->
-			val old = from.getOrNull(i)
+			val old = from.getOrNull(i - text.length + from.length)
 			if (rolling && old != null && old != ch) RollingChar(old, ch, progress, style, color)
 			else Text(ch.toString(), style = style, color = color, maxLines = 1)
 		}
