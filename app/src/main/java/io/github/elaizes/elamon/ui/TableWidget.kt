@@ -409,7 +409,9 @@ private fun TableRowView(scope: DashScope, w: Widget, row: TableRow, fraction: F
 	if (card) {
 		CardSurface { Column(click.padding(horizontal = Space.card, vertical = Space.m)) { content() } }
 	} else {
-		Column(Modifier.fillMaxWidth().then(click).heightIn(min = if (tap == null) Space.none else Sizes.touchTarget), verticalArrangement = Arrangement.Center) { content() }
+		// Rows to touch stand edge to edge: one of two lines keeps its own clear of the next one's.
+		val edge = if (tap != null && fit.under) Space.xs else Space.none
+		Column(Modifier.fillMaxWidth().then(click).heightIn(min = if (tap == null) Space.none else Sizes.touchTarget).padding(vertical = edge), verticalArrangement = Arrangement.Center) { content() }
 	}
 }
 

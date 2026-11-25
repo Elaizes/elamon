@@ -510,12 +510,12 @@ fun RollingText(text: String, style: TextStyle, modifier: Modifier = Modifier, c
 		return
 	}
 	val rolled = remember { Rolled(text) }
-	// A new text starts a roll from 0; the same one keeps the roll it has.
+	// A new text starts a roll from 0, but one that was missing is just there; the same one keeps the roll it has.
 	val progress = remember(text) {
 		if (rolled.text != text) {
 			rolled.from = rolled.text
 			rolled.text = text
-			Animatable(0f)
+			Animatable(if (rolled.from == DASH) 1f else 0f)
 		} else {
 			Animatable(1f)
 		}
