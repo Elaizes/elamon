@@ -181,13 +181,14 @@ object TextSizes {
 	val innerRowLeast = 120.dp
 
 	/** The least room a row's name has beside its figures; with less, they go under it. */
-	val nameLeast = 48.dp
+	val nameLeast = 72.dp
 
 	/** The least a choice takes: as many to a row as fit, three at most. */
 	val choiceLeast = 72.dp
 
-	/** From this scale of the phone's text on, a tile's label and caption may take more lines. */
+	/** From this scale of the phone's text on, and on cards narrower than this, text is large: see [largeText]. */
 	const val LARGE = 1.3f
+	val screenLeast = 280.dp
 }
 
 /** How long things move, in milliseconds; with animations off, all of them are instant. */

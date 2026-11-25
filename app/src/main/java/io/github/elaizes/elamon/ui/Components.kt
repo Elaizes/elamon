@@ -116,7 +116,7 @@ private fun SectionTitle(title: String, icon: ImageVector, accent: Color, inner:
 			title,
 			style = if (inner) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
 			modifier = Modifier.weight(1f),
-			maxLines = 1,
+			maxLines = if (largeText()) 2 else 1,
 			overflow = TextOverflow.Ellipsis,
 		)
 		if (trailing != null) {
@@ -285,7 +285,7 @@ fun Pill(text: String, color: Color = MaterialTheme.colorScheme.primary, modifie
 			Box(Modifier.size(Sizes.pillDot).clip(CircleShape).background(color))
 			Spacer(Modifier.width(Space.s))
 		}
-		Text(text, style = MaterialTheme.typography.labelMedium, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+		Text(text, style = MaterialTheme.typography.labelMedium, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.shrinkToFit(Shrink.WORDS))
 	}
 }
 

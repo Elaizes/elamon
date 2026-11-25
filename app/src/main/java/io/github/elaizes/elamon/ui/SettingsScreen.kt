@@ -236,6 +236,13 @@ private fun ScaleRow(scale: Int, onChange: (Int) -> Unit) {
 	var dragged by remember { mutableStateOf<Float?>(null) }
 	val shown = dragged?.let { Scale.of(it.roundToInt()) } ?: scale
 	val describe = stringResource(R.string.settings_scale_slider)
+	val large = largeText()
+	val reset = @Composable {
+		// Its words, not its own padding, end where the row's other text does.
+		TextButton(onClick = { onChange(Scale.DEFAULT) }, enabled = scale != Scale.DEFAULT, contentPadding = PaddingValues(Space.none)) {
+			Text(stringResource(R.string.settings_scale_reset, Fmt.percent(Scale.DEFAULT.toDouble())))
+		}
+	}
 	Column(Modifier.fillMaxWidth().padding(horizontal = Space.card, vertical = Space.m)) {
 		Row(verticalAlignment = Alignment.CenterVertically) {
 			Column(Modifier.weight(1f)) {
@@ -245,11 +252,11 @@ private fun ScaleRow(scale: Int, onChange: (Int) -> Unit) {
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
+				if (large) reset()
 			}
-			Spacer(Modifier.width(Space.s))
-			// Its words, not its own padding, end where the row's other text does.
-			TextButton(onClick = { onChange(Scale.DEFAULT) }, enabled = scale != Scale.DEFAULT, contentPadding = PaddingValues(Space.none)) {
-				Text(stringResource(R.string.settings_scale_reset, Fmt.percent(Scale.DEFAULT.toDouble())))
+			if (!large) {
+				Spacer(Modifier.width(Space.s))
+				reset()
 			}
 		}
 		Slider(

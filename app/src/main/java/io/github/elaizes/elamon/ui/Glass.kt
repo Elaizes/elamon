@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -89,7 +90,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import dev.chrisbanes.haze.HazeProgressive
@@ -307,7 +308,7 @@ fun FloatingNavBar(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit,
 		val shadow = Color.Black.copy(alpha = Alpha.SHADOW)
 		val moveMs = if (LocalPrefs.current.animations) Motion.NAV else 0
 		val label = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
-		val size = tabLabelSize(items, label)
+		val small = tabLabel(items, label)
 		Row(
 			Modifier
 				.fillMaxWidth()
@@ -349,7 +350,7 @@ fun FloatingNavBar(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit,
 					Icon(item.icon, null, tint = fg, modifier = Modifier.size(Sizes.icon))
 					Spacer(Modifier.height(Space.xxs))
 					// As heavy whichever tab is on: the labels stay where they are. A long one gets smaller, then ends in "…".
-					Text(item.label, style = label.copy(fontSize = size), color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+					Text(item.label, style = small, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
 				}
 			}
 		}
@@ -357,11 +358,11 @@ fun FloatingNavBar(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit,
 }
 
 /**
- * The size of the tabs' labels: one for all, the largest at which those that can be whole are, down to
- * [Shrink.TAB] of the phone's usual text; a longer one ends in "…".
+ * The style of the tabs' labels: of one size for all, the largest at which those that can be whole are,
+ * down to [Shrink.TAB] of the phone's usual text; a longer one ends in "…". Smaller ones are set closer.
  */
 @Composable
-private fun tabLabelSize(items: List<NavItem>, style: TextStyle): TextUnit {
+private fun tabLabel(items: List<NavItem>, style: TextStyle): TextStyle {
 	val measurer = rememberTextMeasurer()
 	val density = LocalDensity.current
 	val room = with(density) { ((contentWidth() - Space.xs * (items.size + 1)) / items.size.coerceAtLeast(1) - Space.xs * 2).roundToPx() }
@@ -370,11 +371,12 @@ private fun tabLabelSize(items: List<NavItem>, style: TextStyle): TextUnit {
 	val least = Shrink.TAB / (density.fontScale * scale).coerceAtLeast(1f)
 	return remember(items.map { it.label }, style, room, least) {
 		// Measured at each size: at a large text the smaller ones grow more than in step.
-		fun fits(label: String, share: Float) = measurer.measure(label, style.copy(fontSize = style.fontSize * share), maxLines = 1, softWrap = false).size.width <= room
+		fun at(share: Float) = if (share < 1f) style.copy(fontSize = style.fontSize * share, letterSpacing = 0.sp) else style
+		fun fits(label: String, share: Float) = measurer.measure(label, at(share), maxLines = 1, softWrap = false).size.width <= room
 		val whole = items.map { it.label }.filter { fits(it, least) }
 		var share = 1f
 		while (share > least && !whole.all { fits(it, share) }) share -= TAB_STEP
-		style.fontSize * share.coerceAtLeast(least)
+		at(share.coerceAtLeast(least))
 	}
 }
 
@@ -499,7 +501,8 @@ fun GlassDialog(
 		},
 		shape = CardShape,
 		// Laid out within the window's insets, so the keyboard shrinks the dialog instead of covering its buttons.
-		modifier = Modifier.imePadding(),
+		// No wider than the cards behind it: at the app's larger scales Material's least width would reach the screen's sides.
+		modifier = Modifier.imePadding().widthIn(max = contentWidth()),
 		properties = DialogProperties(decorFitsSystemWindows = false),
 	)
 }

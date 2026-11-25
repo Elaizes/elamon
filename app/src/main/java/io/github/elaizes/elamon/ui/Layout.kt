@@ -78,9 +78,9 @@ fun narrowCell(least: Dp): Boolean = LocalCellWidth.current < least.forText()
 @Composable
 fun Dp.forText(): Dp = this * with(LocalDensity.current) { TextSizes.words.toDp().value / TextSizes.words.value }
 
-/** Whether the phone's text is large: what is one line has more then. */
+/** Whether text is large on this screen, at the phone's text size or the app's scale: what is one line has more then. */
 @Composable
-fun largeText(): Boolean = LocalDensity.current.fontScale > TextSizes.LARGE
+fun largeText(): Boolean = LocalDensity.current.fontScale > TextSizes.LARGE || contentWidth() < TextSizes.screenLeast
 
 /** The width the screen's cards have: all of it but its sides. */
 @Composable

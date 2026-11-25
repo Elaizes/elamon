@@ -131,7 +131,7 @@ private fun columnFit(w: Widget, rows: List<TableRow>, card: Boolean, labelled: 
 	val barFigure = MaterialTheme.typography.titleSmall
 	val head = MaterialTheme.typography.labelSmall
 	val avatar = if (!avatars(w)) Space.none else (if (card) Sizes.avatar else Sizes.avatarS) + Space.m
-	val row = LocalCellWidth.current - (if (card) Space.m else cardPadding()) * 2
+	val row = LocalCellWidth.current - cardPadding() * 2
 	val least = TextSizes.nameLeast.forText()
 	// The longest few as written, the widest of which is the widest of all but for a hair.
 	val words = remember(w, rows, labelled) {
@@ -306,7 +306,7 @@ fun SearchField(query: String, hint: String, onChange: (String) -> Unit) {
 		modifier = Modifier.fillMaxWidth(),
 		singleLine = true,
 		shape = CardShape,
-		placeholder = { Text(hint, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+		placeholder = { Text(hint, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.shrinkToFit(Shrink.WORDS)) },
 		leadingIcon = { Icon(Icons.Default.Search, null) },
 		trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { onChange("") }) { Icon(Icons.Default.Clear, stringResource(R.string.processes_clear)) } },
 		colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = fill, focusedContainerColor = fill, unfocusedBorderColor = fill),
@@ -407,7 +407,7 @@ private fun TableRowView(scope: DashScope, w: Widget, row: TableRow, fraction: F
 		}
 	}
 	if (card) {
-		CardSurface { Column(click.padding(Space.m)) { content() } }
+		CardSurface { Column(click.padding(horizontal = Space.card, vertical = Space.m)) { content() } }
 	} else {
 		Column(Modifier.fillMaxWidth().then(click).heightIn(min = if (tap == null) Space.none else Sizes.touchTarget), verticalArrangement = Arrangement.Center) { content() }
 	}

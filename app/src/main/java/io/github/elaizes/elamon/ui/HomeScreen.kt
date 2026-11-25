@@ -432,6 +432,16 @@ private const val STATS_IN_A_ROW = 3
 private fun ComputerCard(s: Machine, live: Live, running: Set<String>, onClick: () -> Unit, onQuick: (QuickActions, QuickAction) -> Unit) {
 	val c = Metric.colors
 	val online = live is Live.Online
+	val large = largeText()
+	val status = @Composable {
+		when (live) {
+			is Live.Online -> Pill(stringResource(R.string.home_online), c.good, dot = true)
+			Live.Offline -> Pill(stringResource(R.string.offline), MaterialTheme.colorScheme.outline, dot = true)
+			Live.Unpaired -> Pill(stringResource(R.string.conn_unauthorized), c.warn, dot = true)
+			Live.Outdated -> Pill(stringResource(R.string.home_outdated), c.warn, dot = true)
+			Live.Unknown -> {}
+		}
+	}
 	CardSurface {
 		Column(
 			Modifier
@@ -449,15 +459,13 @@ private fun ComputerCard(s: Machine, live: Live, running: Set<String>, onClick: 
 					Text(s.name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.shrinkToFit(Shrink.LABEL))
 					Text(s.hostsToTry().firstOrNull().orEmpty(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
 				}
-				Spacer(Modifier.width(Space.s))
-				when (live) {
-					is Live.Online -> Pill(stringResource(R.string.home_online), c.good, dot = true)
-					Live.Offline -> Pill(stringResource(R.string.offline), MaterialTheme.colorScheme.outline, dot = true)
-					Live.Unpaired -> Pill(stringResource(R.string.conn_unauthorized), c.warn, dot = true)
-					Live.Outdated -> Pill(stringResource(R.string.home_outdated), c.warn, dot = true)
-					Live.Unknown -> {}
+				if (!large) {
+					Spacer(Modifier.width(Space.s))
+					status()
 				}
 			}
+			// Large text: the name has the line to itself.
+			if (large) status()
 			if (live !is Live.Online) return@Column
 			// The first tab's three figures in a row, as before 0.10; a card's, three to a row.
 			if (live.stats.isNotEmpty()) {
