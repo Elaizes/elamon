@@ -90,7 +90,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import dev.chrisbanes.haze.HazeProgressive
@@ -371,7 +371,7 @@ private fun tabLabel(items: List<NavItem>, style: TextStyle): TextStyle {
 	val least = Shrink.TAB / (density.fontScale * scale).coerceAtLeast(1f)
 	return remember(items.map { it.label }, style, room, least) {
 		// Measured at each size: at a large text the smaller ones grow more than in step.
-		fun at(share: Float) = if (share < 1f) style.copy(fontSize = style.fontSize * share, letterSpacing = 0.sp) else style
+		fun at(share: Float) = if (share < 1f) style.copy(fontSize = style.fontSize * share, letterSpacing = TextUnit.Unspecified) else style
 		fun fits(label: String, share: Float) = measurer.measure(label, at(share), maxLines = 1, softWrap = false).size.width <= room
 		val whole = items.map { it.label }.filter { fits(it, least) }
 		var share = 1f
