@@ -96,26 +96,32 @@ fun Section(
 				.padding(padding),
 			verticalArrangement = Arrangement.spacedBy(Space.m),
 		) {
-			Row(
-				// As tall with a figure at its end as without: the titles of a row stand on one line.
-				Modifier.heightIn(min = Sizes.icon).then(if (onTitleClick != null) Modifier.clip(InnerShape).clickable(onClick = onTitleClick) else Modifier),
-				verticalAlignment = Alignment.CenterVertically,
-			) {
-				if (inner) Icon(icon, null, tint = accent, modifier = Modifier.size(Sizes.iconM)) else IconBadge(icon, accent)
-				Spacer(Modifier.width(if (inner) Space.s else Space.m))
-				Text(
-					title,
-					style = if (inner) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
-					modifier = Modifier.weight(1f),
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis,
-				)
-				if (trailing != null) {
-					Spacer(Modifier.width(Space.s))
-					trailing()
-				}
-			}
+			SectionTitle(title, icon, accent, inner, trailing, onTitleClick)
 			content()
+		}
+	}
+}
+
+/** A card's title row: its icon in a disc, or [inner] alone, the title, and what stands at its end. */
+@Composable
+private fun SectionTitle(title: String, icon: ImageVector, accent: Color, inner: Boolean, trailing: (@Composable () -> Unit)?, onClick: (() -> Unit)?) {
+	Row(
+		// As tall with a figure at its end as without: the titles of a row stand on one line.
+		Modifier.heightIn(min = Sizes.icon).then(if (onClick != null) Modifier.clip(InnerShape).clickable(onClick = onClick) else Modifier),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		if (inner) Icon(icon, null, tint = accent, modifier = Modifier.size(Sizes.iconM)) else IconBadge(icon, accent)
+		Spacer(Modifier.width(if (inner) Space.s else Space.m))
+		Text(
+			title,
+			style = if (inner) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
+			modifier = Modifier.weight(1f),
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis,
+		)
+		if (trailing != null) {
+			Spacer(Modifier.width(Space.s))
+			trailing()
 		}
 	}
 }
@@ -378,11 +384,12 @@ fun ListGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.()
 private val RowPadding = Space.m
 
 /**
- * Chips side by side, scrolling where they don't all fit: from edge to edge of the card they are in
- * ([padding], what it keeps on its sides), so one half seen is cut by the card and not short of it.
+ * Chips side by side, scrolling where they don't all fit: from edge to edge of the card (or screen)
+ * they are in, so one half seen is cut by its edge and not short of it.
  */
 @Composable
-fun ChipRow(padding: Dp = Space.card, content: @Composable RowScope.() -> Unit) {
+fun ChipRow(content: @Composable RowScope.() -> Unit) {
+	val padding = if (LocalDepth.current > 1) Space.m else Space.card
 	Row(
 		Modifier
 			.layout { measurable, constraints ->

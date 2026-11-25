@@ -1,5 +1,6 @@
 package io.github.elaizes.elamon.ui
 
+import android.content.res.Resources
 import android.os.Build
 import android.view.WindowManager
 import androidx.compose.animation.AnimatedVisibility
@@ -74,6 +75,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -362,7 +364,9 @@ private fun tabLabelSize(items: List<NavItem>, style: TextStyle): TextUnit {
 	val measurer = rememberTextMeasurer()
 	val density = LocalDensity.current
 	val room = with(density) { ((contentWidth() - Space.xs * (items.size + 1)) / items.size.coerceAtLeast(1) - Space.xs * 2).roundToPx() }
-	val least = Shrink.TAB / density.fontScale.coerceAtLeast(1f)
+	// Of the phone's usual text: a larger text and the app's own scale don't make the least any larger.
+	val scale = LocalConfiguration.current.densityDpi / Resources.getSystem().configuration.densityDpi.toFloat()
+	val least = Shrink.TAB / (density.fontScale * scale).coerceAtLeast(1f)
 	return remember(items.map { it.label }, style, room, least) {
 		// Measured at each size: at a large text the smaller ones grow more than in step.
 		fun fits(label: String, share: Float) = measurer.measure(label, style.copy(fontSize = style.fontSize * share), maxLines = 1, softWrap = false).size.width <= room

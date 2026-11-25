@@ -60,25 +60,22 @@ fun MediaWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val players = s?.players.orEmpty()
 	var chosen by remember { mutableStateOf<String?>(null) }
 	val player = players.find { it.id == chosen } ?: players.firstOrNull()
-	val padding = cardPadding()
-	CardSurface(modifier) {
-		Column(Modifier.padding(padding), verticalArrangement = Arrangement.spacedBy(Space.m)) {
-			Row(verticalAlignment = Alignment.CenterVertically) {
-				IconBadge(icon(w.icon ?: "music"), if (w.color != null) accent(w.color) else MaterialTheme.colorScheme.tertiary)
-				Spacer(Modifier.width(Space.m))
-				Text(player?.name ?: w.label ?: stringResource(R.string.control_media), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+	Section(
+		player?.name ?: w.label ?: stringResource(R.string.control_media),
+		icon(w.icon ?: "music"),
+		modifier,
+		accent = if (w.color != null) accent(w.color) else MaterialTheme.colorScheme.tertiary,
+	) {
+		if (players.size > 1) {
+			ChipRow {
+				for (p in players) FilterChip(selected = p.id == player?.id, onClick = { chosen = p.id }, label = { Text(p.name) }, shape = PillShape)
 			}
-			if (players.size > 1) {
-				ChipRow(padding) {
-					for (p in players) FilterChip(selected = p.id == player?.id, onClick = { chosen = p.id }, label = { Text(p.name) }, shape = PillShape)
-				}
-			}
-			when {
-				player != null -> NowPlaying(scope, player)
-				s != null -> Text(stringResource(R.string.control_nothing_playing), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			}
-			s?.volume?.let { VolumeRow(scope, it) }
 		}
+		when {
+			player != null -> NowPlaying(scope, player)
+			s != null -> Text(stringResource(R.string.control_nothing_playing), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		}
+		s?.volume?.let { VolumeRow(scope, it) }
 	}
 }
 

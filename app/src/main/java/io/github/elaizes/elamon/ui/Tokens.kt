@@ -181,7 +181,7 @@ object TextSizes {
 	val innerRowLeast = 120.dp
 
 	/** The least room a row's name has beside its figures; with less, they go under it. */
-	val nameLeast = 64.dp
+	val nameLeast = 48.dp
 
 	/** The least a choice takes: as many to a row as fit, three at most. */
 	val choiceLeast = 72.dp
