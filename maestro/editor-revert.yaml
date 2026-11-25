@@ -14,16 +14,12 @@ appId: io.github.elaizes.elamon.debug
     visible: "Back to the files\\?"
     timeout: 10000
 - takeScreenshot: 86-editor-revert
-- tapOn:
-    text: "Back to the files"
-    rightOf: "Cancel"
+- tapOn: "Back to the files"
 # It writes the settings too: asked first, as Save is.
 - extendedWaitUntil:
     visible: "Write this to the computer.s settings\\?"
     timeout: 10000
-- tapOn:
-    text: "Back to the files"
-    rightOf: "Cancel"
+- tapOn: "Back to the files"
 - extendedWaitUntil:
     visible: "Back as the settings files have it"
     timeout: 20000
