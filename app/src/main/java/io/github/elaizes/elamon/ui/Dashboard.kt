@@ -79,7 +79,7 @@ class DashScope(
 	val logs: Map<String, LogFilter>,
 	/** The points of a graph or spark, by its id: the stream's, or (the editor's preview) the preview's own. */
 	val hist: (String) -> Hist? = vm::hist,
-	private val kept: Kept = Kept(),
+	internal val kept: Kept = Kept(),
 ) {
 	fun state(w: Widget): WidgetState? = states[w.id]
 
@@ -92,15 +92,16 @@ class DashScope(
 
 	fun hadCaption(w: Widget): Boolean = key(w) in kept.captioned
 
-	/** [modifier] as tall while [w] is [reading] as it was when last read: what is under it stays where it is as it fills in again. */
-	fun keepHeight(modifier: Modifier, w: Widget, reading: Boolean): Modifier = modifier.layout { measurable, constraints ->
-		val least = if (reading) kept.heights[key(w)]?.let(constraints::constrainHeight) ?: 0 else 0
-		val p = measurable.measure(constraints.copy(minHeight = maxOf(constraints.minHeight, least)))
-		if (!reading) kept.heights[key(w)] = p.height
-		layout(p.width, p.height) { p.place(0, 0) }
-	}
+	internal fun key(w: Widget) = "$dashboard/${w.id}"
+}
 
-	private fun key(w: Widget) = "$dashboard/${w.id}"
+/** As tall while [w] is [reading] as it was when last read: what is under it stays where it is as it fills in again. */
+fun Modifier.keepHeight(scope: DashScope, w: Widget, reading: Boolean): Modifier = layout { measurable, constraints ->
+	val heights = scope.kept.heights
+	val least = if (reading) heights[scope.key(w)]?.let(constraints::constrainHeight) ?: 0 else 0
+	val p = measurable.measure(constraints.copy(minHeight = maxOf(constraints.minHeight, least)))
+	if (!reading) heights[scope.key(w)] = p.height
+	layout(p.width, p.height) { p.place(0, 0) }
 }
 
 /** What a computer's screen keeps of its dashboards' widgets while it lives, for while they are read again: which have had a caption, and how tall what fills in was. */

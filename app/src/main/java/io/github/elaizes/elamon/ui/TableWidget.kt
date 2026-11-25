@@ -219,7 +219,7 @@ fun TableWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 			Text(pluralStringResource(R.plurals.table_more, more, more), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
 	}
-	val kept = scope.keepHeight(modifier, w, reading = s == null && !folded)
+	val kept = modifier.keepHeight(scope, w, reading = s == null && !folded)
 	if (tile) {
 		WidgetTile(scope, w, accent, kept, captionOf(scope, w, s)) { if (!folded) rowsShown() }
 	} else {

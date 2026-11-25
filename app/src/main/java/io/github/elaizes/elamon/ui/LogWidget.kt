@@ -84,7 +84,7 @@ fun LogWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val level = filter?.level ?: own
 	// A log the settings give no icon: the journal's terminal, or the bell of the events.
 	val mark = if (w.icon != null) icon(w.icon) else if (ofEvents(w)) Icons.Default.Notifications else ElIcons.Terminal
-	Section(w.label.orEmpty(), mark, scope.keepHeight(modifier, w, reading = log == null), accent = accent(w.color), onClick = w.open?.let { d -> { scope.open(d) } }) {
+	Section(w.label.orEmpty(), mark, modifier.keepHeight(scope, w, reading = log == null), accent = accent(w.color), onClick = w.open?.let { d -> { scope.open(d) } }) {
 		log?.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = ink(Metric.colors.warn)) }
 		ChipRow {
 			for (l in logLevels(own)) {
