@@ -306,7 +306,9 @@ fun FloatingNavBar(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit,
 		val shadow = Color.Black.copy(alpha = Alpha.SHADOW)
 		val moveMs = if (LocalPrefs.current.animations) Motion.NAV else 0
 		val label = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
-		val small = tabLabel(items, label)
+		// Many tabs stand closer: their labels need the room.
+		val gap = if (items.size > ROOMY_TABS) Space.xxs else Space.xs
+		val small = tabLabel(items, label, gap)
 		Row(
 			Modifier
 				.fillMaxWidth()
@@ -315,7 +317,7 @@ fun FloatingNavBar(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit,
 				.glass()
 				.padding(Space.xs)
 				.selectableGroup(),
-			horizontalArrangement = Arrangement.spacedBy(Space.xs),
+			horizontalArrangement = Arrangement.spacedBy(gap),
 		) {
 			items.forEachIndexed { i, item ->
 				val on = i == selected
@@ -341,7 +343,7 @@ fun FloatingNavBar(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit,
 							role = Role.Tab,
 							onClick = { onSelect(i) },
 						)
-						.padding(horizontal = Space.xs, vertical = Space.s),
+						.padding(horizontal = gap, vertical = Space.s),
 					horizontalAlignment = Alignment.CenterHorizontally,
 				) {
 					// The label below says it; the icon would only say it twice.
@@ -355,13 +357,16 @@ fun FloatingNavBar(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit,
 	}
 }
 
+/** The most tabs that stand as far apart as the bar's other parts. */
+private const val ROOMY_TABS = 5
+
 /**
  * The style of the tabs' labels: of one size for all, the largest at which those that can be whole are,
  * down to [Shrink.TAB] of the phone's usual text; a longer one ends in "…". Smaller ones are set closer.
  */
 @Composable
-private fun tabLabel(items: List<NavItem>, style: TextStyle): TextStyle {
-	val room = (contentWidth() - Space.xs * (items.size + 1)) / items.size.coerceAtLeast(1) - Space.xs * 2
+private fun tabLabel(items: List<NavItem>, style: TextStyle, gap: Dp): TextStyle {
+	val room = (contentWidth() - Space.xs * 2 - gap * (items.size - 1)) / items.size.coerceAtLeast(1) - gap * 2
 	// Of the phone's usual text: a larger text and the app's own scale don't make the least any larger.
 	val scale = LocalConfiguration.current.densityDpi / Resources.getSystem().configuration.densityDpi.toFloat()
 	val least = Shrink.TAB / (LocalDensity.current.fontScale * scale).coerceAtLeast(1f)

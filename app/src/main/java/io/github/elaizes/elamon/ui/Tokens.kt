@@ -43,7 +43,11 @@ import androidx.compose.ui.unit.sp
 object Space {
 	val none = 0.dp
 
-	/** Half a step: between the lines of a log, where a whole one would take every tenth line off the screen. */
+	/**
+	 * Half a step: between the lines of a log, where a whole one would take every tenth line off the
+	 * screen; between a tab's picture and its label, which are one; and between many tabs, whose labels
+	 * a whole one would cut short.
+	 */
 	val xxs = 2.dp
 	val xs = 4.dp
 	val s = 8.dp
