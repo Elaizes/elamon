@@ -36,7 +36,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import io.github.elaizes.elamon.BuildConfig
@@ -226,9 +225,8 @@ fun CodeBlock(code: String) {
 	Surface(shape = InnerShape, color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth()) {
 		Row(verticalAlignment = Alignment.Top) {
 			val style = MaterialTheme.typography.bodySmall
-			val line = with(LocalDensity.current) { style.lineHeight.toDp() }
 			// The first line in the middle of the button beside it.
-			val top = ((Sizes.touchTarget - line) / 2).coerceAtLeast(Space.m)
+			val top = besideFirstLine(style, Sizes.touchTarget).coerceAtLeast(Space.m)
 			Text(
 				code,
 				fontFamily = FontFamily.Monospace,

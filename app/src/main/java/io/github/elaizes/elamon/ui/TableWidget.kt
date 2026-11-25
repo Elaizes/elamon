@@ -3,12 +3,15 @@ package io.github.elaizes.elamon.ui
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -102,37 +105,67 @@ private fun barColumn(w: Widget): TableColumn? = w.columns?.firstOrNull { it.bar
 /** A cell's text: its value by its column's format and unit; a dash while it is missing. */
 private fun cell(row: TableRow, c: TableColumn): String = Fmt.format(row.f[c.field], c.format, c.unit, c.field) ?: DASH
 
+/** A cell's [text] with its column's label after it: "120 GiB free". */
+private fun named(text: String, c: TableColumn): String = if (c.label != null) "$text ${c.label}" else text
+
 /** Rows of processes and links get a letter avatar, as their lists had in 0.5. */
 private fun avatars(w: Widget) = w.source == "processes" || w.source == "links"
 
 /**
- * How wide each column of [w] but the growing one is, its [rows]' figures (and [labels], what stands
- * beside them) lined up: a figure's column as its longest figure would be, whatever it reads now, so
- * it doesn't move as they change; a column of words as its longest now, so a short one leaves the
- * rows' names their room. Heads fit too.
+ * How wide each column of [w] is but the one that takes the room left: a figure's as its longest
+ * figure would be, whatever it reads now, so it doesn't move as they change; one of words as its
+ * longest among all the [rows], a search's hits or not, so a short one leaves the rows' names their
+ * room, and no more than half of a row together, so long ones do too. Heads fit; with [labelled],
+ * the label after each figure.
  */
 @Composable
-private fun columnWidths(w: Widget, rows: List<TableRow>): Map<TableColumn, Dp> {
+private fun columnWidths(w: Widget, rows: List<TableRow>, labelled: Boolean = false): Map<TableColumn, Dp> {
 	val grow = growColumn(w)
 	val bar = barColumn(w)
-	val columns = w.columns.orEmpty().filter { it != grow }
 	val measurer = rememberTextMeasurer()
 	val density = LocalDensity.current
 	val figure = MaterialTheme.typography.bodySmall
 	val barFigure = MaterialTheme.typography.titleSmall
 	val head = MaterialTheme.typography.labelSmall
-	val words = columns.associateWith { c -> Fmt.longest(c.format, c.unit)?.let(::listOf) ?: rows.take(CARD_ROWS).map { cell(it, c) }.distinct() }
-	return remember(words, density, figure, barFigure, head) {
-		fun width(text: String, style: TextStyle) = measurer.measure(text, style, maxLines = 1, softWrap = false).size.width
-		columns.associateWith { c ->
-			val style = if (c == bar) barFigure else figure
-			val texts = words.getValue(c).maxOfOrNull { width(it, style) } ?: 0
-			val px = maxOf(texts, c.label?.let { width(it, head) } ?: 0)
-			// A pixel more than its text: rounded down on the way, it would be cut.
-			with(density) { minOf((px + 1).toDp(), Sizes.columnMax) }
+	val half = (LocalCellWidth.current - cardPadding() * 2) / 2
+	// The longest few as written, the widest of which is the widest of all but for a hair.
+	val words = remember(w, rows, labelled) {
+		w.columns.orEmpty().filter { it != grow || it == bar }.associateWith { c ->
+			val texts = Fmt.longest(c.format, c.unit)?.let(::listOf) ?: rows.mapTo(HashSet()) { cell(it, c) }.sortedByDescending { it.length }.take(LONGEST_MEASURED)
+			if (labelled && c != bar) texts.map { named(it, c) } else texts
 		}
 	}
+	return remember(words, density, half, figure, barFigure, head) {
+		fun width(text: String, style: TextStyle) = measurer.measure(text, style, maxLines = 1, softWrap = false).size.width
+		val widths = words.mapValues { (c, texts) ->
+			val px = maxOf(texts.maxOfOrNull { width(it, if (c == bar) barFigure else figure) } ?: 0, c.label?.takeUnless { labelled }?.let { width(it, head) } ?: 0)
+			// A pixel more than its text: rounded down on the way, it would be cut.
+			with(density) { (px + 1).toDp() }
+		}
+		val (ofWords, ofFigures) = widths.entries.partition { (c, _) -> Fmt.longest(c.format, c.unit) == null }
+		val room = half - Space.m * widths.size - ofFigures.fold(Space.none) { sum, e -> sum + e.value }
+		widths + columnsWithin(ofWords.associate { it.key to it.value }, room)
+	}
 }
+
+/** [widths] within [room] together: the widest made narrower, down to as much as the others have. */
+internal fun <T> columnsWithin(widths: Map<T, Dp>, room: Dp): Map<T, Dp> {
+	if (widths.isEmpty() || widths.values.fold(Space.none) { sum, v -> sum + v } <= room) return widths
+	// The narrow ones keep theirs, the rest share what is left of the room evenly.
+	var left = room
+	var open = widths.size
+	val kept = mutableMapOf<T, Dp>()
+	for ((k, v) in widths.entries.sortedBy { it.value }) {
+		val share = left / open
+		kept[k] = minOf(v, maxOf(share, Sizes.columnLeast))
+		left -= kept.getValue(k)
+		open--
+	}
+	return kept
+}
+
+/** How many of a column's texts are measured: its longest by their letters. */
+private const val LONGEST_MEASURED = 8
 
 /** An expanded field longer than this is set as a block of its own, like a command line. */
 private const val LONG_FIELD = 40
@@ -154,7 +187,7 @@ fun TableWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val accent = accent(w.color)
 	val open = w.open?.let { d -> { scope.open(d) } }
 	val tile = open != null && scope.dashboard in scope.ui.tabs
-	val widths = columnWidths(w, rows)
+	val widths = columnWidths(w, s?.rows.orEmpty(), labelled = tile)
 	val rowsShown: @Composable () -> Unit = {
 		if (w.search == true) TableControls(scope, w, s?.total, rows.size)
 		// A tile names its figures beside them ("120 GiB free"), a card over them.
@@ -165,14 +198,18 @@ fun TableWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 		// A card is drawn whole, every line: so many rows and no more (a table with a search field has the list's own).
 		val drawn = rows.take(CARD_ROWS)
 		val fractions = barColumn(w)?.let { Tables.barFractions(rows, it) }
-		drawn.forEachIndexed { i, r -> TableRowView(scope, w, r, fractions?.get(i), widths, card = false, labelled = tile) }
+		// Rows to touch are as tall as a finger, and so as far apart; others as far apart as a card's lines.
+		val touch = opensRow(w)
+		Column(verticalArrangement = Arrangement.spacedBy(if (touch) Space.none else Space.m)) {
+			drawn.forEachIndexed { i, r -> TableRowView(scope, w, r, fractions?.get(i), widths, card = false, labelled = tile) }
+		}
 		val more = rows.size - drawn.size
 		if (more > 0) {
 			Text(pluralStringResource(R.plurals.table_more, more, more), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
 	}
 	if (tile) {
-		WidgetTile(scope, w, accent, modifier, captionOf(w, s)) { if (!folded) rowsShown() }
+		WidgetTile(scope, w, accent, modifier, captionOf(scope, w, s)) { if (!folded) rowsShown() }
 	} else {
 		WidgetSection(
 			scope,
@@ -183,7 +220,7 @@ fun TableWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 			onTitleClick = if (foldable) ({ scope.folds.toggle(w) }) else null,
 		) {
 			// Under a card's title, as the Displays section's summary was.
-			captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+			captionOf(scope, w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 			if (!folded) rowsShown()
 		}
 	}
@@ -194,8 +231,7 @@ class ListTable(val w: Widget, val rows: List<TableRow>, val widths: Map<TableCo
 
 @Composable
 fun listTable(scope: DashScope, w: Widget): ListTable {
-	val rows = tableRows(scope, w)
-	return ListTable(w, rows, columnWidths(w, rows))
+	return ListTable(w, tableRows(scope, w), columnWidths(w, scope.state(w)?.rows.orEmpty()))
 }
 
 /**
@@ -209,7 +245,7 @@ fun LazyListScope.tableItems(scope: DashScope, table: ListTable, keys: UniqueKey
 	item(key = keys.of("table/${w.id}")) {
 		Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
 			w.label?.let { Text(it, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = Space.card)) }
-			captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Space.card)) }
+			captionOf(scope, w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Space.card)) }
 			TableControls(scope, w, s?.total, rows.size, Modifier.padding(horizontal = Space.card))
 			if (s == null || rows.isEmpty()) {
 				Text(stringResource(if (s == null) R.string.loading else R.string.table_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Space.card))
@@ -332,38 +368,49 @@ private fun TableRowView(scope: DashScope, w: Widget, row: TableRow, fraction: F
 	)
 	val name = grow?.let { cell(row, it) }.orEmpty()
 	val content: @Composable () -> Unit = {
-		Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-			Row(verticalAlignment = Alignment.CenterVertically) {
-				if (avatars(w)) {
-					LetterAvatar(name, if (card) Sizes.avatar else Sizes.avatarS)
-					Spacer(Modifier.width(Space.m))
-				}
-				Text(name, style = if (card) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-				for (c in others) {
-					// In a tile the figure's name follows it: as wide as it takes.
-					val named = labelled && c.label != null
-					val text = cell(row, c).let { v -> if (named) "$v ${c.label}" else v }
-					Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = Space.m).then(if (named) Modifier else Modifier.width(widths.getValue(c))), textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
-				}
-				if (bar != null && barColor != null) {
-					Column(Modifier.padding(start = Space.m).width(widths.getValue(bar)), horizontalAlignment = Alignment.End) {
-						Text(cell(row, bar), style = MaterialTheme.typography.titleSmall, color = barColor, maxLines = 1)
-						if (card) {
-							Spacer(Modifier.height(Space.xs))
-							UsageBar(fraction ?: 0f, barColor, height = Sizes.barThin)
-						}
+		val avatar = if (!avatars(w)) null else if (card) Sizes.avatar else Sizes.avatarS
+		val figures: @Composable RowScope.() -> Unit = {
+			for (c in others) {
+				// In a tile the figure's name follows it.
+				val text = cell(row, c).let { v -> if (labelled) named(v, c) else v }
+				Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = Space.m).width(widths.getValue(c)), textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
+			}
+			if (bar != null && barColor != null) {
+				Column(Modifier.padding(start = Space.m).width(widths.getValue(bar)), horizontalAlignment = Alignment.End) {
+					Text(cell(row, bar), style = MaterialTheme.typography.titleSmall, color = barColor, maxLines = 1)
+					if (card) {
+						Spacer(Modifier.height(Space.xs))
+						UsageBar(fraction ?: 0f, barColor, height = Sizes.barThin)
 					}
 				}
 			}
+		}
+		// The name's room beside the figures: where that is a few letters, they go under it.
+		val taken = widths.values.fold(avatar?.let { it + Space.m } ?: Space.none) { sum, width -> sum + width + Space.m }
+		val under = LocalCellWidth.current - (if (card) Space.m else Space.card) * 2 - taken < TextSizes.nameLeast.forText()
+		val style = if (card) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium
+		Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+			Row(verticalAlignment = Alignment.CenterVertically) {
+				if (avatar != null) {
+					LetterAvatar(name, avatar)
+					Spacer(Modifier.width(Space.m))
+				}
+				Text(name, style = style, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+				if (!under) figures()
+			}
+			if (under) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically, content = figures)
 			if (!card && bar != null && barColor != null) UsageBar(fraction ?: 0f, barColor, height = Sizes.bar)
 		}
 	}
 	if (card) {
 		CardSurface { Column(click.padding(Space.m)) { content() } }
 	} else {
-		Column(Modifier.fillMaxWidth().then(click)) { content() }
+		Column(Modifier.fillMaxWidth().then(click).heightIn(min = if (tap == null) Space.none else Sizes.touchTarget), verticalArrangement = Arrangement.Center) { content() }
 	}
 }
+
+/** Whether a row of [w] may be touched: it opens a link, or a sheet. */
+private fun opensRow(w: Widget): Boolean = w.rowOpen != null || !w.expand.isNullOrEmpty() || !w.rowActions.isNullOrEmpty()
 
 /** A row's link, at the address this phone reaches the computer at; a web page only. */
 private fun openRowLink(ctx: android.content.Context, scope: DashScope, url: String) {
@@ -395,14 +442,21 @@ fun TableSheet(scope: DashScope) {
 				LetterAvatar(name, Sizes.badgeL)
 				Spacer(Modifier.width(Space.m))
 			}
-			Text(breakable(name), style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).wholeWords())
+			Text(breakable(name), style = MaterialTheme.typography.headlineSmall, maxLines = if (largeText()) 4 else 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).wholeWords())
 		}
 		if (gone) Text(stringResource(R.string.table_row_gone), style = MaterialTheme.typography.bodySmall, color = Metric.colors.warn)
 		val figures = cols.filter { it != grow }
 		if (figures.isNotEmpty()) {
-			EvenRows(figures, FIGURES_IN_A_ROW, gap = Space.m) { c ->
-				val color = if (c.bar != null) levelColor(row.level, row.blend, if (c.format == "temp") Metric.colors.good else accent) ?: accent else MaterialTheme.colorScheme.onSurface
-				BigStat(c.label ?: fieldLabel(w, c.field), cell(row, c), color = color)
+			val measurer = rememberTextMeasurer()
+			val style = MaterialTheme.typography.titleLarge
+			// As many side by side as are whole there.
+			BoxWithConstraints {
+				val widest = with(LocalDensity.current) { figures.maxOf { measurer.measure(cell(row, it), style, maxLines = 1, softWrap = false).size.width }.toDp() }
+				val most = ((maxWidth + Space.m) / (widest + Space.m)).toInt().coerceIn(1, FIGURES_IN_A_ROW)
+				EvenRows(figures, most, gap = Space.m) { c ->
+					val color = if (c.bar != null) levelColor(row.level, row.blend, if (c.format == "temp") Metric.colors.good else accent) ?: accent else MaterialTheme.colorScheme.onSurface
+					BigStat(c.label ?: fieldLabel(w, c.field), cell(row, c), color = color)
+				}
 			}
 		}
 		for (e in w.expand.orEmpty()) {

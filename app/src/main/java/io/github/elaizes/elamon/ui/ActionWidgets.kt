@@ -47,7 +47,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
@@ -250,10 +249,10 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 		val accent = if (w.color != null) accent(w.color) else MaterialTheme.colorScheme.secondary
 		CardSurface(modifier) {
 			if (narrowCell(TextSizes.rowLeast)) {
-				ControlTile(label, captionOf(w, s), click, alpha, icon = { BusyBadge(mark, accent.copy(alpha = alpha), running) }, below = ended)
+				ControlTile(label, captionOf(scope, w, s), click, alpha, icon = { BusyBadge(mark, accent.copy(alpha = alpha), running) }, below = ended)
 			} else {
 				Column(Modifier.padding(vertical = Space.xs), verticalArrangement = Arrangement.Center) {
-					ListRow(label, captionOf(w, s), mark, accent, enabled = takesTap(enabled, running), onClick = run, busy = running, below = ended)
+					ListRow(label, captionOf(scope, w, s), mark, accent, enabled = takesTap(enabled, running), onClick = run, busy = running, below = ended)
 				}
 			}
 		}
@@ -262,10 +261,10 @@ fun ButtonWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val danger = action?.id in DANGER
 	CardSurface(modifier, color = if (danger) Metric.colors.hot.copy(alpha = Alpha.DANGER) else cardColor()) {
 		if (w.span <= 1 || narrowCell(TextSizes.innerRowLeast)) {
-			ControlTile(label, null, click, alpha, padding = Space.xl, icon = {
+			ControlTile(label, null, click, alpha, padding = Space.xl, side = Space.m, icon = {
 				if (running) Spinner(Sizes.icon)
 				else Icon(mark, null, tint = (if (danger) Metric.colors.hot else MaterialTheme.colorScheme.onSurface).copy(alpha = alpha))
-			}, below = ended)
+			}, below = ended.takeIf { w.span > 1 })
 		} else {
 			Column(click.padding(Space.m), verticalArrangement = Arrangement.spacedBy(Space.s, Alignment.CenterVertically)) {
 				Row(verticalAlignment = Alignment.CenterVertically) {
@@ -291,17 +290,18 @@ private fun ControlTile(
 	modifier: Modifier,
 	alpha: Float,
 	padding: Dp = Space.card,
+	side: Dp = Space.card,
 	icon: (@Composable () -> Unit)? = null,
 	below: (@Composable () -> Unit)? = null,
 ) {
 	Footed(
-		modifier.fillMaxWidth().padding(vertical = padding, horizontal = Space.s),
+		modifier.fillMaxWidth().padding(vertical = padding, horizontal = side),
 		gap = Space.s,
 		main = {
 			Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.s)) {
 				icon?.invoke()
-				Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.wholeWords())
-				if (caption != null) Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha), textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.wholeWords())
+				Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), textAlign = TextAlign.Center, modifier = Modifier.wholeWords())
+				if (caption != null) Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha), textAlign = TextAlign.Center, modifier = Modifier.wholeWords())
 			}
 		},
 		last = { if (below != null) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { below() } },
@@ -376,13 +376,13 @@ fun ToggleWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	CardSurface(modifier) {
 		if (narrowCell(TextSizes.rowLeast)) {
 			ControlTile(
-				label, captionOf(w, s),
+				label, captionOf(scope, w, s),
 				Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = set),
 				if (enabled) 1f else Alpha.DISABLED,
 				below = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
 			)
 		} else {
-			Column(Modifier.padding(vertical = padding), verticalArrangement = Arrangement.Center) { SwitchRow(label, captionOf(w, s), checked, enabled, onChange = set) }
+			Column(Modifier.padding(vertical = padding), verticalArrangement = Arrangement.Center) { SwitchRow(label, captionOf(scope, w, s), checked, enabled, onChange = set) }
 		}
 	}
 }
@@ -436,10 +436,10 @@ fun SelectWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val label = w.label ?: action?.name.orEmpty()
 	// The highlight moves to the choice taken, or with animations off is there at once.
 	val move: AnimationSpec<Color> = if (LocalPrefs.current.animations) spring() else snap()
-	val least = with(LocalDensity.current) { TextSizes.choiceLeast.toDp() }
+	val least = TextSizes.choiceLeast.forText()
 	val most = ((LocalCellWidth.current - Space.card * 2 + Space.inner) / (least + Space.inner)).coerceIn(1f, CHOICES_IN_A_ROW.toFloat()).toInt()
 	Section(label, icon(w.icon), modifier, accent = accent(w.color)) {
-		captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+		captionOf(scope, w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 		EvenRows(choices, most, Modifier.selectableGroup()) { c ->
 			val on = c.value == now
 			val bg by animateColorAsState(if (on) MaterialTheme.colorScheme.primaryContainer else cardColor(), move, label = "choice")
@@ -496,7 +496,7 @@ fun SliderWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 		accent = accent(w.color),
 		trailing = { Text(text, style = MaterialTheme.typography.titleMedium) },
 	) {
-		captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+		captionOf(scope, w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 		Slider(
 			value = shown.toFloat(),
 			// Without ticks it slides freely: what it shows is put on the step.
@@ -614,5 +614,3 @@ fun ControlOff(reason: String?) {
 		}
 	}
 }
-
-fun Color.disabled(enabled: Boolean): Color = if (enabled) this else copy(alpha = Alpha.DISABLED)

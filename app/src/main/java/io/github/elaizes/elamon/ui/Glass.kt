@@ -364,10 +364,17 @@ private fun tabLabelSize(items: List<NavItem>, style: TextStyle): TextUnit {
 	val room = with(density) { ((contentWidth() - Space.xs * (items.size + 1)) / items.size.coerceAtLeast(1) - Space.xs * 2).roundToPx() }
 	val least = Shrink.TAB / density.fontScale.coerceAtLeast(1f)
 	return remember(items.map { it.label }, style, room, least) {
-		val shares = items.map { shrinkTo(room, measurer.measure(it.label, style, maxLines = 1, softWrap = false).size.width, 0f) }
-		style.fontSize * (shares.filter { it >= least }.minOrNull() ?: least)
+		// Measured at each size: at a large text the smaller ones grow more than in step.
+		fun fits(label: String, share: Float) = measurer.measure(label, style.copy(fontSize = style.fontSize * share), maxLines = 1, softWrap = false).size.width <= room
+		val whole = items.map { it.label }.filter { fits(it, least) }
+		var share = 1f
+		while (share > least && !whole.all { fits(it, share) }) share -= TAB_STEP
+		style.fontSize * share.coerceAtLeast(least)
 	}
 }
+
+/** How much smaller the tabs' labels are tried at a time. */
+private const val TAB_STEP = 0.05f
 
 /** The bottom of the screen, where content fades into glass under what floats there: [bottomReserve] tall. */
 @Composable
@@ -513,7 +520,7 @@ fun EvenButtons(content: @Composable () -> Unit) {
 	Layout(content, Modifier.fillMaxWidth()) { buttons, constraints ->
 		val gap = Space.s.roundToPx()
 		val n = buttons.size
-		val width = constraints.maxWidth
+		val width = if (constraints.hasBoundedWidth) constraints.maxWidth else buttons.sumOf { it.maxIntrinsicWidth(Constraints.Infinity) } + gap * (n - 1)
 		val line = Grid.Line(List(n) { it to 1 }, n)
 		val share = line.cells.map { (i, span) -> Grid.extent(i, span, n, width, gap) }
 		if (buttons.indices.all { buttons[it].maxIntrinsicWidth(Constraints.Infinity) <= share[it].width }) {

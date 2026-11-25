@@ -120,7 +120,7 @@ class WidgetTest {
 		// A short one has its share of the ring; a long one is smaller, but never too small to read.
 		assertEquals(84 * 0.24f, ringText("7%", 84f, 0.24f))
 		assertTrue(ringText("11.7 GiB", 48f, 0.24f) < 48 * 0.24f)
-		assertEquals(7f, ringText("A label too long for any ring", 48f, 0.16f))
+		assertEquals(8f, ringText("A label too long for any ring", 48f, 0.16f))
 		for (text in listOf("100%", "Memory", "Temp", "Battery")) assertTrue(ringText(text, 84f, 0.24f) * 0.6f * text.length <= 84 * 0.7f + 0.01f, text)
 	}
 

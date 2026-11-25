@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.sp
  *     a kind are built alike, so label, value and caption stand at the same heights side by side.
  *  5. Figures that change keep their place: tabular digits, room for the longest, a unit on the
  *     number's baseline.
- *  6. A word is never broken: it gets smaller, then ends in an ellipsis (WholeWords). What stands
+ *  6. A word is never broken: it gets smaller, then ends in an ellipsis (wholeWords). What stands
  *     beside a name leaves it its room.
  *  7. Spacing in steps of 4 dp and five corners; a corner inside another is the outer one less the
  *     padding between them.
@@ -141,8 +141,8 @@ object Sizes {
 	/** A spinner's line, inside a button or a row. */
 	val spinnerStroke = 2.dp
 
-	/** The widest a table's column of words gets: past that they are cut, and the rows' names have the rest. */
-	val columnMax = 120.dp
+	/** The narrowest a table's column of words is made to leave the rows' names their room. */
+	val columnLeast = 40.dp
 
 	/** The bar of tabs' shadow, and that of a widget lifted in the editor. */
 	val shadow = 16.dp
@@ -173,12 +173,21 @@ object TextSizes {
 	val figureBaseline = 32.sp
 	val figureLine = 42.sp
 
+	/** A usual text, by which lengths made for words grow ([forText]): Android grows small text more than a length in sp. */
+	val words = 14.sp
+
 	/** The least room a button's or a switch's name has beside its picture, alone and inside a card; with less, it goes under it. */
-	val rowLeast = 200.sp
-	val innerRowLeast = 120.sp
+	val rowLeast = 200.dp
+	val innerRowLeast = 120.dp
+
+	/** The least room a row's name has beside its figures; with less, they go under it. */
+	val nameLeast = 64.dp
 
 	/** The least a choice takes: as many to a row as fit, three at most. */
-	val choiceLeast = 72.sp
+	val choiceLeast = 72.dp
+
+	/** From this scale of the phone's text on, a tile's label and caption may take more lines. */
+	const val LARGE = 1.3f
 }
 
 /** How long things move, in milliseconds; with animations off, all of them are instant. */

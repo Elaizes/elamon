@@ -303,7 +303,7 @@ private const val RING_LABEL = 0.16f
 /** How much of a ring's width its text has, how wide a letter is in its size, and the least size it gets. */
 private const val RING_ROOM = 0.7f
 private const val LETTER = 0.6f
-private const val RING_TEXT_MIN_SP = 7f
+private const val RING_TEXT_MIN_SP = 8f
 
 /** The size, in sp, of [text] in a ring [dp] across: its [share] of the ring, smaller where that would run into its sides. */
 internal fun ringText(text: String, dp: Float, share: Float): Float =

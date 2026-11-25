@@ -137,7 +137,7 @@ fun MachineScreen(
 	val kept: MachineDialogs = viewModel(viewModelStoreOwner = owner)
 	val haze = remember { HazeState() }
 	val snackbar = remember { SnackbarHostState() }
-	val lists = remember { mutableMapOf<String, LazyListState>() }
+	val lists = remember { mutableMapOf<OnScreen, LazyListState>() }
 	val folds = remember(machine.id) { Folds(Settings.get(ctx), machine.id) }
 	val tables = kept.tables
 	val form = kept.form
@@ -188,7 +188,7 @@ fun MachineScreen(
 	// a notice the bar is the computer's, and Back leaves it.
 	val page = pageShown(current, shownPages, turnedAway)
 	BackHandler(enabled = page != null) { pages = shownPages.dropLast(1) }
-	val currentList = lists.getOrPut(current ?: "") { LazyListState() }
+	val currentList = lists.getOrPut(OnScreen(current ?: "", page != null)) { LazyListState() }
 	val collapsed = rememberCollapsed(currentList)
 	val haptics = LocalHapticFeedback.current
 	val launcher = ui?.let {
@@ -200,6 +200,11 @@ fun MachineScreen(
 		)
 	}
 
+	// From when it couldn't be found until it answers: each look for it in between isn't a change.
+	var lost by rememberSaveable { mutableStateOf(false) }
+	LaunchedEffect(state.conn) {
+		if (state.conn == Conn.Offline) lost = true else if (state.conn == Conn.Live) lost = false
+	}
 	val tabBar = ui != null && shownPages.isEmpty() && !turnedAway && tabs.size > 1
 
 	CompositionLocalProvider(LocalHaze provides haze) {
@@ -220,7 +225,7 @@ fun MachineScreen(
 			// without its room, one scrolled to its end would move down as it left, and come back moved.
 			val covered = bottomReserve()
 			var underTabs by remember { mutableStateOf(covered) }
-			SideEffect { if (tabBar) underTabs = covered }
+			SideEffect { if (shownPages.isEmpty()) underTabs = covered }
 			Box(Modifier.fillMaxSize()) {
 				Box(Modifier.fillMaxSize().hazeSource(haze)) {
 					when {
@@ -276,8 +281,9 @@ fun MachineScreen(
 								}
 							},
 							label = "dashboard",
-						) { (d, isPage) ->
-							val list = lists.getOrPut(d) { LazyListState() }
+						) { shown ->
+							val (d, isPage) = shown
+							val list = lists.getOrPut(shown) { LazyListState() }
 							val scope = DashScope(
 								machine.id, ui, d, state.data[d]?.widgets.orEmpty(), vm, state, name,
 								open = { target -> if (target != d && ui.dashboard(target) != null) pages = shownPages + target },
@@ -301,7 +307,7 @@ fun MachineScreen(
 										)
 										if (state.compat != Compat.Ok) CompatBanner(state.compat, state.hello?.version.orEmpty())
 										// What is on screen is old: where the computer was looked for, as the screen without any says.
-										if (state.conn == Conn.Offline) {
+										if (lost) {
 											Banner(
 												ElIcons.Laptop,
 												Metric.colors.warn,

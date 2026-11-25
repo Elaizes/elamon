@@ -47,7 +47,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -550,8 +549,7 @@ private fun Step(n: Int, text: String, command: String?) {
 		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.s)) {
 			// Its first line in the middle of the number's disc.
 			val style = MaterialTheme.typography.bodyMedium
-			val line = with(LocalDensity.current) { style.lineHeight.toDp() }
-			Text(text, style = style, modifier = Modifier.padding(top = ((Sizes.stepNumber - line) / 2).coerceAtLeast(Space.none)))
+			Text(text, style = style, modifier = Modifier.padding(top = besideFirstLine(style, Sizes.stepNumber)))
 			if (command != null) {
 				Text(
 					command,

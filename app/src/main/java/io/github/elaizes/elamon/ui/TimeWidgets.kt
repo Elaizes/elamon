@@ -210,7 +210,7 @@ fun TimelineWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 				for ((st, text) in legend) Legend(stateColor(st), text)
 			}
 		}
-		captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+		captionOf(scope, w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 	}
 }
 

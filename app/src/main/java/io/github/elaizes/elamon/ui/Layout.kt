@@ -45,7 +45,7 @@ fun GridLine(line: Grid.Line, modifier: Modifier = Modifier, gap: Dp = Space.gap
 		val width = if (constraints.hasBoundedWidth) constraints.maxWidth else cells.sumOf { it.maxIntrinsicWidth(constraints.maxHeight) }
 		var column = 0
 		val extents = line.cells.map { (_, span) -> Grid.extent(column, span, line.columns, width, between).also { column += span } }
-		val tall = if (even && cells.size > 1) cells.indices.maxOf { cells[it].minIntrinsicHeight(extents[it].width) } else null
+		val tall = if (even && cells.size > 1) cells.indices.maxOf { cells[it].minIntrinsicHeight(extents[it].width.coerceAtLeast(0)) } else null
 		val placed = cells.mapIndexed { i, cell ->
 			val w = extents[i].width.coerceAtLeast(0)
 			cell.measure(if (tall == null) Constraints.fixedWidth(w) else Constraints.fixed(w, tall))
@@ -72,7 +72,15 @@ fun cellWidth(line: Grid.Line, span: Int, width: Dp, gap: Dp = Space.gap): Dp = 
 
 /** Whether the cell this is in is narrower than [least], which grows with the phone's text. */
 @Composable
-fun narrowCell(least: TextUnit): Boolean = LocalCellWidth.current < with(LocalDensity.current) { least.toDp() }
+fun narrowCell(least: Dp): Boolean = LocalCellWidth.current < least.forText()
+
+/** A length made for words, as much longer as the phone's text is larger. */
+@Composable
+fun Dp.forText(): Dp = this * with(LocalDensity.current) { TextSizes.words.toDp().value / TextSizes.words.value }
+
+/** Whether the phone's text is large: what is one line has more then. */
+@Composable
+fun largeText(): Boolean = LocalDensity.current.fontScale > TextSizes.LARGE
 
 /** The width the screen's cards have: all of it but its sides. */
 @Composable
@@ -100,7 +108,7 @@ fun sideInset(): Dp {
 fun Modifier.shrinkToFit(min: Float = Shrink.FIGURE): Modifier = shrink(min, line = true) { it.maxIntrinsicWidth(Constraints.Infinity) }
 
 /** Text that gets smaller where its longest word doesn't fit its room, rather than break inside it. */
-fun Modifier.wholeWords(): Modifier = shrink(Shrink.FIGURE, line = false) { it.minIntrinsicWidth(Constraints.Infinity) }
+fun Modifier.wholeWords(): Modifier = shrink(Shrink.WORDS, line = false) { it.minIntrinsicWidth(Constraints.Infinity) }
 
 /** A name of parts ("qemu-system-x86_64"), which may go on to the next line after one but not inside it. */
 internal fun breakable(name: String): String = name.replace(PART_END, "$1\u200b")
@@ -109,7 +117,10 @@ private val PART_END = Regex("([-_./])(?=[^-_./])")
 
 /** The least text gets smaller to, of its size. */
 object Shrink {
-	const val FIGURE = 0.6f
+	const val FIGURE = 0.45f
+
+	/** Words that may go on to the next line. */
+	const val WORDS = 0.6f
 
 	/** Labels side by side, which read as one kind: hardly smaller than each other. */
 	const val LABEL = 0.8f
@@ -144,14 +155,13 @@ private fun Modifier.shrink(min: Float, line: Boolean, needs: (IntrinsicMeasurab
 }
 
 /** On a line [height] tall with its baseline [baseline] down from its top, whatever its own size: a figure, or a word in its place. */
-@Composable
 fun Modifier.onLine(height: TextUnit, baseline: TextUnit): Modifier = layout { measurable, constraints ->
 	val p = measurable.measure(constraints.copy(minHeight = 0))
 	val tall = height.roundToPx()
 	val down = baseline.roundToPx()
 	val base = p[FirstBaseline]
-	val y = if (base == AlignmentLine.Unspecified) (tall - p.height) / 2 else down - base
-	layout(p.width, maxOf(tall, y + p.height), mapOf(FirstBaseline to down)) { p.place(0, y) }
+	val y = (if (base == AlignmentLine.Unspecified) (tall - p.height) / 2 else down - base).coerceAtLeast(0)
+	layout(p.width, maxOf(tall, y + p.height), mapOf(FirstBaseline to maxOf(down, base))) { p.place(0, y) }
 }
 
 /** Its baseline where text in [style] has it, whatever moves in it: a rolling digit carries its own along. */
@@ -191,5 +201,5 @@ fun Modifier.flush(empty: Dp): Modifier = layout { measurable, constraints ->
 /** Moves what ends in an icon's own empty margin out to the line its picture should end on. */
 fun Modifier.optical(by: Dp): Modifier = layout { measurable, constraints ->
 	val p = measurable.measure(constraints)
-	layout(p.width, p.height) { p.place(by.roundToPx(), 0) }
+	layout(p.width, p.height) { p.placeRelative(by.roundToPx(), 0) }
 }

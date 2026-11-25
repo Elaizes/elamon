@@ -165,28 +165,37 @@ fun Tile(
 
 @Composable
 private fun TileCaption(text: String) {
-	// One line, so a figure in it that grows doesn't make the tile taller; large text has two.
-	val large = LocalDensity.current.fontScale > LARGE_TEXT
+	// One line, so a figure in it that grows doesn't make the tile taller; large text has more.
+	val large = largeText()
 	Text(
 		text,
 		style = MaterialTheme.typography.bodySmall,
 		color = MaterialTheme.colorScheme.onSurfaceVariant,
-		maxLines = if (large) 2 else 1,
+		maxLines = if (large) LARGE_LINES else 1,
 		overflow = TextOverflow.Ellipsis,
 		modifier = if (large) Modifier.wholeWords() else Modifier.shrinkToFit(Shrink.LABEL),
 	)
 }
 
-/** From this scale of the phone's text on, captions have a second line. */
-private const val LARGE_TEXT = 1.3f
+/** The most lines a tile's label and caption take in large text. */
+private const val LARGE_LINES = 3
 
 /** The small caption over a tile's big number. */
 @Composable
 fun TileLabel(text: String, icon: ImageVector, accent: Color) {
-	Row(verticalAlignment = Alignment.CenterVertically) {
-		Icon(icon, null, tint = accent, modifier = Modifier.size(Sizes.iconS))
+	val style = MaterialTheme.typography.labelLarge
+	val large = largeText()
+	Row {
+		FirstLine(style) { Icon(icon, null, tint = accent, modifier = Modifier.size(Sizes.iconS)) }
 		Spacer(Modifier.width(Space.s))
-		Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.shrinkToFit(Shrink.LABEL))
+		Text(
+			text,
+			style = style,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			maxLines = if (large) LARGE_LINES else 1,
+			overflow = TextOverflow.Ellipsis,
+			modifier = if (large) Modifier.wholeWords() else Modifier.shrinkToFit(Shrink.LABEL),
+		)
 	}
 }
 
@@ -317,11 +326,18 @@ fun Banner(
 	}
 }
 
+/** A line of text in [style], as tall as the phone's text makes it. */
+@Composable
+fun lineHeight(style: TextStyle): Dp = with(LocalDensity.current) { style.lineHeight.toDp() }
+
+/** How far down text in [style] starts for its first line to be in the middle of what is [tall] beside it. */
+@Composable
+fun besideFirstLine(style: TextStyle, tall: Dp): Dp = ((tall - lineHeight(style)) / 2).coerceAtLeast(Space.none)
+
 /** Centred on the first line of the text beside it, set in [style], however many lines that takes. */
 @Composable
 fun FirstLine(style: TextStyle, content: @Composable () -> Unit) {
-	val line = with(LocalDensity.current) { style.lineHeight.toDp() }
-	Box(Modifier.heightIn(min = line), contentAlignment = Alignment.Center) { content() }
+	Box(Modifier.heightIn(min = lineHeight(style)), contentAlignment = Alignment.Center) { content() }
 }
 
 /** A message in the middle of an empty or failed screen. */

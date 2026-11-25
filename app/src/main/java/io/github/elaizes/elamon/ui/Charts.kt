@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -398,7 +397,7 @@ fun RingGauge(
 		} else null
 	}
 	val said = if (description != null) Modifier.clearAndSetSemantics { contentDescription = description } else Modifier
-	Box(modifier.widthIn(max = size).ringBox().then(said), contentAlignment = Alignment.Center) {
+	Box(modifier.ringBox(size).then(said), contentAlignment = Alignment.Center) {
 		Canvas(Modifier.fillMaxSize()) {
 			val inset = strokePx / 2 + Gauge.inset.toPx()
 			val arcSize = Size(this.size.width - inset * 2, this.size.height - inset * 2)
@@ -432,11 +431,12 @@ fun RingGauge(
 }
 
 /**
- * As wide as it may be and as tall, a ring being round, but for the open end at its bottom: what is
- * under the ring starts as far from where it ends as what is over it from where it begins.
+ * [size] across, or as wide as it may be, and as tall, a ring being round, but for the open end at its
+ * bottom: what is under the ring starts as far from where it ends as what is over it from where it
+ * begins.
  */
-private fun Modifier.ringBox(): Modifier = layout { measurable, constraints ->
-	val side = constraints.maxWidth
+private fun Modifier.ringBox(size: Dp): Modifier = layout { measurable, constraints ->
+	val side = minOf(constraints.maxWidth, size.roundToPx())
 	val p = measurable.measure(Constraints.fixed(side, side))
 	layout(side, (side * Gauge.SHOWN).roundToInt()) { p.place(0, 0) }
 }

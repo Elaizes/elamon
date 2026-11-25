@@ -45,6 +45,18 @@ class LayoutTest {
 	}
 
 	@Test
+	fun columnsOfWordsLeaveTheNamesTheirRoom() {
+		// What fits together stays as it is.
+		assertEquals(mapOf("a" to 35.dp, "b" to 32.dp), columnsWithin(mapOf("a" to 35.dp, "b" to 32.dp), 148.dp))
+		// A long one gives up what there isn't; a short one keeps its own.
+		assertEquals(mapOf("a" to 35.dp, "b" to 113.dp), columnsWithin(mapOf("a" to 35.dp, "b" to 300.dp), 148.dp))
+		// Two long ones share it.
+		assertEquals(mapOf("a" to 74.dp, "b" to 74.dp), columnsWithin(mapOf("a" to 200.dp, "b" to 300.dp), 148.dp))
+		// Never to nothing.
+		assertEquals(mapOf("a" to Sizes.columnLeast, "b" to Sizes.columnLeast), columnsWithin(mapOf("a" to 200.dp, "b" to 300.dp), 20.dp))
+	}
+
+	@Test
 	fun spacingInStepsOfFourAndFewCorners() {
 		assertTrue(listOf(Space.xs, Space.s, Space.m, Space.l, Space.xl, Space.xxl).all { it.value % 4 == 0f })
 		// A corner inside another is the outer one less what is between them.

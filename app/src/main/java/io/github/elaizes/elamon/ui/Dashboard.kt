@@ -122,11 +122,11 @@ fun DashboardList(scope: DashScope, list: LazyListState, header: @Composable () 
 	val widgets = dash?.widgets.orEmpty().filter { shown(it, scope.state(it)) }
 	val rows = Grid.place(widgets.map { it.span }, columns)
 	val controlOff = !scope.ui.control.enabled && widgets.any(::acts)
-	// A table with a search field, alone in its row, gives its rows to the list.
-	val tables = rows.map { row ->
-		widgets[row.cells[0].first].takeIf { row.cells.size == 1 && it.type == "table" && it.search == true }?.let { key(it.id) { listTable(scope, it) } }
-	}
 	CompositionLocalProvider(LocalCellWidth provides contentWidth()) {
+		// A table with a search field, alone in its row, gives its rows to the list.
+		val tables = rows.map { row ->
+			widgets[row.cells[0].first].takeIf { row.cells.size == 1 && it.type == "table" && it.search == true }?.let { key(it.id) { listTable(scope, it) } }
+		}
 		LazyColumn(
 			Modifier.fillMaxSize(),
 			state = list,
@@ -244,9 +244,11 @@ fun figureGood(format: String?): Color = if (format == "temp") Metric.colors.goo
 
 /**
  * A tile's or a card's line under it: its own text, or the state's where it holds values; before the
- * first state, one of those is an empty line, so what is under it stays where it is as it comes.
+ * dashboard's first states, one of those is an empty line, so what is under it stays where it is as
+ * it comes.
  */
-fun captionOf(w: Widget, s: WidgetState?): String? = w.captionText ?: if (s == null && w.caption != null) NO_WORDS else s?.caption?.ifEmpty { null }
+fun captionOf(scope: DashScope, w: Widget, s: WidgetState?): String? =
+	w.captionText ?: if (scope.states.isEmpty() && w.caption != null) NO_WORDS else s?.caption?.ifEmpty { null }
 
 /** A line with nothing on it yet. */
 private const val NO_WORDS = "\u00a0"
@@ -266,7 +268,7 @@ private class NoPoints(override val windowMs: Long) : Points {
 private fun ValueTile(scope: DashScope, w: Widget, modifier: Modifier) {
 	val s = scope.state(w)
 	val accent = accent(w.color)
-	WidgetTile(scope, w, accent, modifier, captionOf(w, s)) {
+	WidgetTile(scope, w, accent, modifier, captionOf(scope, w, s)) {
 		val color = levelColor(s?.level, s?.blend, figureGood(w.format))
 		Figure(w, s, color ?: MaterialTheme.colorScheme.onSurface)
 		if (w.spark == true) {
@@ -328,7 +330,7 @@ private fun GaugeTile(scope: DashScope, w: Widget, modifier: Modifier) {
 	// Its ring as large as its tile has room for; a small one thinner, and its figure smaller, as it is.
 	val size = minOf(Gauge.tile, LocalCellWidth.current - cardPadding() * 2)
 	val share = size / Gauge.tile
-	WidgetTile(scope, w, accent, modifier, captionOf(w, s)) {
+	WidgetTile(scope, w, accent, modifier, captionOf(scope, w, s)) {
 		Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
 			RingGauge(
 				fraction(w, s),
@@ -350,7 +352,7 @@ private fun MeterTile(scope: DashScope, w: Widget, modifier: Modifier) {
 	val s = scope.state(w)
 	val accent = accent(w.color)
 	val color = levelColor(s?.level, s?.blend, accent) ?: accent
-	WidgetTile(scope, w, accent, modifier, captionOf(w, s)) {
+	WidgetTile(scope, w, accent, modifier, captionOf(scope, w, s)) {
 		Figure(w, s, levelColor(s?.level, s?.blend, figureGood(w.format)) ?: MaterialTheme.colorScheme.onSurface)
 		UsageBar(fraction(w, s), color, height = Sizes.barTile)
 	}
@@ -385,7 +387,7 @@ private fun StatusTile(scope: DashScope, w: Widget, modifier: Modifier) {
 	val s = scope.state(w)
 	val accent = accent(w.color)
 	val text = s?.text ?: Fmt.format(s?.v, w.format, w.unit) ?: DASH
-	WidgetTile(scope, w, accent, modifier, captionOf(w, s)) {
+	WidgetTile(scope, w, accent, modifier, captionOf(scope, w, s)) {
 		Pill(text, levelColor(s?.level, s?.blend, Metric.colors.good) ?: MaterialTheme.colorScheme.secondary, dot = true)
 	}
 }
@@ -420,7 +422,7 @@ private fun GraphWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	val floor = w.floor?.toFloat() ?: 1f
 	val empty = s?.text
 	if (w.height == "small") {
-		WidgetTile(scope, w, accent, modifier, captionOf(w, s)) {
+		WidgetTile(scope, w, accent, modifier, captionOf(scope, w, s)) {
 			if (empty != null) Text(empty, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.secondary)
 			// Each in a share of its own, so a figure that grows a digit doesn't move the next one.
 			Row(horizontalArrangement = Arrangement.spacedBy(Space.gap)) {
@@ -438,7 +440,7 @@ private fun GraphWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 				}
 			}
 			LineChart(chart, maxValue = maxValue, minScale = floor, binary = binary, height = ChartStyle.tile, grid = false, interactive = false)
-			}
+		}
 		return
 	}
 	val single = series.size == 1
@@ -483,7 +485,7 @@ private fun GraphWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 				}
 			}
 		}
-		captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+		captionOf(scope, w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 	}
 }
 
@@ -522,11 +524,11 @@ private fun ListWidget(scope: DashScope, w: Widget, modifier: Modifier) {
 	WidgetSection(scope, w, accent, modifier) {
 		w.items.orEmpty().forEachIndexed { i, item ->
 			val st = s?.items?.getOrNull(i)
-			// Before the first state every row keeps its place.
-			val text = st?.text ?: Fmt.format(st?.v, item.format, item.unit) ?: if (s == null) DASH else return@forEachIndexed
+			// Before the first states every row keeps its place.
+			val text = st?.text ?: Fmt.format(st?.v, item.format, item.unit) ?: if (scope.states.isEmpty()) DASH else return@forEachIndexed
 			StatRow(item.label.orEmpty(), text, valueColor = levelColor(st?.level, null, figureGood(item.format)) ?: MaterialTheme.colorScheme.onSurface)
 		}
-		captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+		captionOf(scope, w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 	}
 }
 
@@ -574,7 +576,7 @@ private fun GroupWidget(scope: DashScope, w: Widget, modifier: Modifier, columns
 		trailing = if (foldable) ({ FoldMark(folded) }) else null,
 		onTitleClick = if (foldable) ({ scope.folds.toggle(w) }) else null,
 	) {
-		captionOf(w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+		captionOf(scope, w, s)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 		if (!folded) {
 			// Its widgets fill a grid as wide as the group, their spans halved the same way.
 			val inner = Grid.span(w.span, columns).coerceAtLeast(1)
