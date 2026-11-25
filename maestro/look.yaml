@@ -90,7 +90,9 @@ appId: io.github.elaizes.elamon.debug
     element: "Own theme"
     timeout: 10000
 - assertVisible: "140% of the phone.s own size.*"
-- assertVisible: "Set here, the same with every computer"
+- scrollUntilVisible:
+    element: "Set here, the same with every computer"
+    timeout: 10000
 - takeScreenshot: 47-settings-kept
 # Put back: 100%, and the theme each profile says, which own-profile.yaml changes next.
 - tapOn: "Reset to 100%"
