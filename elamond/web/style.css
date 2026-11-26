@@ -195,7 +195,7 @@
 :root[data-inset="large"] { --inset: var(--s6); }
 :root[data-width="fixed"] { --page-max: 1280px; }
 :root[data-side="rail"] { --side-now: var(--rail-w); }
-@media (max-width: 899.98px) { :root, :root[data-side="rail"] { --side-now: 0px; } }
+@media (max-width: 1099.98px) { :root, :root[data-side="rail"] { --side-now: 0px; } }
 @media (max-width: 600px) {
 	:root { --inset: var(--s2); }
 	:root[data-inset="small"] { --inset: var(--s1); }
@@ -209,6 +209,8 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
+/* What scrolls into view (the focus, a found widget) clears the bar that stays at the top (shell.js measures it). */
+html { scroll-padding-top: var(--head-h, 0px); }
 body { min-height: 100vh; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 /* The page as a whole: pairing and a failure fill it themselves; the computer's pages are in the frame (panels.css). */
 #app { max-width: var(--page-max); margin: 0 auto; padding: var(--inset); }
@@ -281,7 +283,7 @@ dialog .actions { display: flex; gap: var(--s2); justify-content: flex-end; marg
 .menu-item:hover, .menu-item:focus-visible { background: var(--surface-2); }
 
 /* A note at the bottom: the text's colour inverted, or its level's. */
-#toasts { position: fixed; left: 50%; bottom: calc(var(--s4) + env(safe-area-inset-bottom)); transform: translateX(-50%); display: grid; gap: var(--s2); z-index: 50; width: min(480px, 92vw); }
+#toasts { position: fixed; left: calc(50% + var(--side-now) / 2); bottom: calc(var(--s4) + env(safe-area-inset-bottom)); transform: translateX(-50%); display: grid; gap: var(--s2); z-index: 50; width: min(480px, 92vw); }
 .toast { padding: var(--s3) var(--s4); border-radius: var(--r3); background: var(--tone, var(--primary)); color: var(--on-tone, var(--on-primary)); box-shadow: var(--shadow); }
 
 .level-normal { --level: var(--good); }

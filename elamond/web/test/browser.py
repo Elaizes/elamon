@@ -493,7 +493,7 @@ def test_layout(T):
 		until(page, lambda: done(page.evaluate(FRAME)), what)
 
 	pick('Columns', '4', lambda f: f['cols'] == 4, 'four columns')
-	pick('Columns', '8', lambda f: f['cols'] == 8, 'eight columns')
+	pick('Columns', '8 where they fit', lambda f: f['cols'] == 8, 'eight columns')
 	pick('Density', 'Compact', lambda f: f['pad'] == 8 and f['gap'] == 8, 'compact cards')
 	pick('Density', 'Roomy', lambda f: f['pad'] == 16 and f['gap'] == 16, 'roomy cards')
 	pick('Space at the edges', 'None', lambda f: abs(f['left'] - f['side']) <= 1 and abs(f['vw'] - f['right']) <= 1, 'no space at the edges')
@@ -570,6 +570,17 @@ def test_shell(T):
 	expect(side.get_by_role('link', name='Clients')).to_have_attribute('aria-current', 'page')
 	expect(page.get_by_role('link', name=re.compile('Back'))).to_have_count(0)
 	expect(page.get_by_role('heading', name='Clients')).to_be_visible()
+	# The arrows move along the dashboards here without leaving the admin panel.
+	tablist.get_by_role('tab', name=titles[tabs[0]], exact=True).focus()
+	page.keyboard.press('ArrowDown')
+	expect(tablist.get_by_role('tab', name=titles[tabs[1]], exact=True)).to_be_focused()
+	expect(page).to_have_url(re.compile(r'#/admin/clients$'))
+	# A menu the focus leaves (Tab out of it) closes: Escape is the page's again.
+	page.get_by_role('button', name='Layout').click()
+	expect(page.get_by_role('menuitem', name='Reset')).to_be_visible()
+	page.get_by_role('menuitem', name='Reset').focus()
+	page.keyboard.press('Tab')
+	expect(page.get_by_role('menuitem', name='Reset')).to_be_hidden()
 	# A menu open: Escape closes it and stays.
 	page.get_by_role('button', name='More').click()
 	expect(page.get_by_role('menuitem', name='Forget this browser')).to_be_visible()
@@ -586,6 +597,14 @@ def test_shell(T):
 	page.keyboard.press('1')
 	expect(page).to_have_url(re.compile(f'#/tab/{re.escape(tabs[0])}$'))
 	expect(tablist.get_by_role('tab', name=titles[tabs[0]], exact=True)).to_have_attribute('aria-selected', 'true')
+
+	# A page opened over a tab: the tab marked, Edit for the page.
+	page.get_by_role('meter', name='CPU').click()
+	expect(page).to_have_url(re.compile(r'#/tab/cpu$'))
+	expect(tablist.get_by_role('tab', name=titles[tabs[0]], exact=True)).to_have_attribute('aria-selected', 'true')
+	expect(side.get_by_role('link', name='Edit this dashboard')).to_have_attribute('href', '#/edit/cpu')
+	page.go_back()
+	expect(page).to_have_url(re.compile(f'#/tab/{re.escape(tabs[0])}$'))
 
 	# The editor from the side bar, for the dashboard on screen; its tools stick under the bar.
 	side.get_by_role('link', name='Edit this dashboard').click()

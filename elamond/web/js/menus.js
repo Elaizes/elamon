@@ -7,7 +7,7 @@ import { PICKS, KEYS, current, choose as chooseLayout, reset } from './arrange.j
 import { onTheme } from './widgets/canvas.js';
 
 /**
- * A button and the menu it opens, closed by a pick, Escape or a press elsewhere; focus goes to the
+ * A button and the menu it opens, closed by a pick, Escape, a press elsewhere or the focus leaving it; focus goes to the
  * item picked now, or the first, and ↑ ↓ Home End move it among the items. The menu opens under the
  * button and ends under its right edge (⋮, last in a bar), or with `start` begins under its left one
  * (a button further in, whose menu would leave the window on a narrow screen); in the side bar's
@@ -32,6 +32,10 @@ export function dropdown(button, id, items, start = false) {
 	const outside = (/** @type {Event} */ e) => {
 		if (!wrap.contains(/** @type {Node} */ (e.target))) close();
 	};
+	// Focus gone elsewhere (Tab out of it): closed, so Escape and the page's keys are the page's again.
+	wrap.addEventListener('focusout', (e) => {
+		if (!list.hidden && !wrap.contains(/** @type {Node | null} */ (e.relatedTarget))) close();
+	});
 	button.addEventListener('click', () => {
 		if (!list.hidden) return close();
 		list.hidden = false;

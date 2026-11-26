@@ -274,7 +274,8 @@ export class Canvas {
 			/** @type {import('../types.js').Ui} */
 			const ui = { ...d.ui, header: null, tabs: [dash.id], dashboards: d.ui.dashboards.map((x) => (x.id === dash.id ? { ...x, widgets } : x)) };
 			try {
-				cell.view = dashboardView(ui, dash.id, { preview: true });
+				// Four columns whatever the layout picks: the canvas is where widths are given in the service's.
+				cell.view = dashboardView(ui, dash.id, { preview: true, columns: '4' });
 				if (d.data) cell.view.update(d.data);
 				draw.append(cell.view.el);
 			} catch {

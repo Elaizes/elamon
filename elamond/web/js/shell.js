@@ -23,8 +23,8 @@ const P = S.panels;
 
 /** The admin panel's sections, in its order, and the icon of each in the side bar. @type {[keyof typeof S.admin.nav, string][]} */
 export const ADMIN_SECTIONS = [
-	['overview', 'overview'],
-	['settings', 'control'],
+	['overview', 'eye'],
+	['settings', 'search'],
 	['clients', 'laptop'],
 	['pairing', 'lock'],
 	['control', 'power'],
@@ -42,8 +42,11 @@ export const ADMIN_SECTIONS = [
  * What a page gets of the frame: its title's place, the chips' and the state's places in the bar,
  * where its content goes, and the dashboard on screen to mark.
  * @typedef {{ title: (text: string) => void, chips: HTMLElement, status: HTMLElement, body: HTMLElement,
- *   select: (id: string | null) => void, destroy: () => void }} Frame
+ *   select: (id: string | null, edit?: string | null) => void, destroy: () => void }} Frame
  */
+
+/** The side bar's scroll and the place in it with the focus, from one frame to the next (each address draws its own). */
+const kept = { scroll: 0, focus: /** @type {string | null} */ (null) };
 
 /** The dashboards of `ui` that are tabs, once each, in order. @param {import('./types.js').Ui} ui */
 export function tabsOf(ui) {
@@ -92,13 +95,16 @@ export function mountFrame(root, ctx, where) {
 			e.preventDefault();
 			where.pick(id);
 		});
+		// The arrows along the list (↑ ↓ in the side bar, ← → in the row of tabs), Home, End: on the
+		// dashboards a tab is opened as it is reached; elsewhere (the admin panel, the editor) only reached.
 		a.addEventListener('keydown', (e) => {
-			const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+			const [back, on] = wide ? ['ArrowUp', 'ArrowDown'] : ['ArrowLeft', 'ArrowRight'];
+			const step = e.key === on ? 1 : e.key === back ? -1 : 0;
 			const to = e.key === 'Home' ? 0 : e.key === 'End' ? links.length - 1 : step ? (i + step + links.length) % links.length : -1;
 			if (to < 0) return;
 			e.preventDefault();
 			links[to].focus();
-			links[to].click();
+			if (where.pick) links[to].click();
 		});
 		links.push(a);
 		tablist.append(a);
@@ -141,8 +147,9 @@ export function mountFrame(root, ctx, where) {
 
 	let placeTitle = '';
 	let wide = false;
+	// Wide: the place (the name is in the side bar); narrow: the computer, and the place when it is the admin panel or the editor.
 	const showTitle = () => {
-		title.textContent = wide ? placeTitle || name : name;
+		title.textContent = wide ? placeTitle || name : where.at !== 'tab' && placeTitle ? fill(S.core.placeOf, placeTitle, name) : name;
 	};
 	const place = () => {
 		wide = wideQuery.matches;
@@ -214,8 +221,8 @@ export function mountFrame(root, ctx, where) {
 	};
 	window.addEventListener('keydown', keys);
 
-	/** @param {string | null} id */
-	const select = (id) => {
+	/** The tab `id` marked; Edit for `edit`, the dashboard shown (a page opened over the tab), the tab itself unless said. @param {string | null} id @param {string | null} [edit] */
+	const select = (id, edit = id) => {
 		selected = id;
 		if (id && tabs.includes(id)) last = id;
 		links.forEach((a, i) => {
@@ -225,13 +232,20 @@ export function mountFrame(root, ctx, where) {
 			a.tabIndex = on || (!links.some((x) => x.dataset.tab === selected) && i === 0) ? 0 : -1;
 		});
 		if (editLink) {
-			const to = where.at === 'tab' ? id : last;
+			const to = where.at === 'tab' ? edit : last;
 			editLink.hidden = !to;
 			if (to) editLink.href = `#/edit/${encodeURIComponent(to)}`;
 		}
 	};
 	select(null);
 	place();
+	// Where the side bar was scrolled to and the place in it that had the focus, as the page before left them.
+	sideScroll.scrollTop = kept.scroll;
+	if (kept.focus) {
+		const again = [...side.querySelectorAll('a[href]')].find((x) => x.getAttribute('href') === kept.focus);
+		if (again instanceof HTMLElement) again.focus({ preventScroll: true });
+		kept.focus = null;
+	}
 
 	return {
 		title(text) {
@@ -243,6 +257,9 @@ export function mountFrame(root, ctx, where) {
 		body,
 		select,
 		destroy() {
+			kept.scroll = sideScroll.scrollTop;
+			const at = document.activeElement;
+			kept.focus = at instanceof HTMLAnchorElement && side.contains(at) ? at.getAttribute('href') : null;
 			ro?.disconnect();
 			window.removeEventListener('resize', measure);
 			window.removeEventListener('keydown', keys);

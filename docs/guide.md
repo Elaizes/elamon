@@ -1546,7 +1546,7 @@ is the same kind of link.
 
 ### Finding your way
 
-- **On a wide window** (900 px and wider), a side bar: the computer's name, its dashboards, Edit for
+- **On a wide window** (1100 px and wider), a side bar: the computer's name, its dashboards, Edit for
   the dashboard on screen and the admin panel's sections (each only for a role that may use it), and
   at its foot the theme and the layout. ☰ folds it to a strip of icons, each one's name in its
   tooltip, and opens it out again; the browser keeps which. Over the page, a bar with where you

@@ -100,7 +100,7 @@ export function dashboardView(ui, dashboard, hooks = {}) {
 	let cols = 0;
 	// The columns for the grid's width and the layout's pick (html's data-columns, arrange.js).
 	const relayout = () => {
-		const c = columns(el.clientWidth || window.innerWidth, /** @type {any} */ (document.documentElement.dataset.columns || 'auto'));
+		const c = columns(el.clientWidth || window.innerWidth, hooks.columns || /** @type {any} */ (document.documentElement.dataset.columns || 'auto'));
 		if (c === cols) return;
 		cols = c;
 		grid.layout(c);
@@ -449,7 +449,7 @@ export function mountMachine(root, ctx, tab) {
 		const d = (ui.dashboards || []).find((x) => x.id === current);
 		const name = (ctx.hello && ctx.hello.name) || S.core.title;
 		document.title = d && d.title ? `${d.title} · ${name}` : name;
-		frame?.select(parent || current);
+		frame?.select(parent || current, current);
 		frame?.title(((parent && (ui.dashboards || []).find((x) => x.id === parent)) || d || { title: current }).title || current);
 		if (parent || !tabsNow().includes(current)) {
 			const back = h('button', { type: 'button', class: 'quiet back' }, icon('back', 'w-icon'), ` ${P.back}`);

@@ -31,9 +31,10 @@
  * (`{ ok, exit_code?, timed_out?, output? }`), or null when nothing ran. `phrase` names it in what
  * asks ("Mode: Server"). `asked` is what the stream was told before for this page (tables' orders,
  * logs' filters), for the chips to show; `memory` keeps widgets' choices (a graph's range, a
- * table's search) across views of the same page.
+ * table's search) across views of the same page. `columns` holds the grid to a pick of its own (the
+ * editor's canvas: always four) rather than the layout's.
  * @typedef {{ runAction?: (action: Action, params: Record<string, unknown>, widget: Widget, phrase?: string) => Promise<any>,
- *   change?: (body: Record<string, unknown>) => void, open?: (dashboard: string) => void, preview?: boolean,
+ *   change?: (body: Record<string, unknown>) => void, open?: (dashboard: string) => void, preview?: boolean, columns?: import('./layout.js').ColumnsPick,
  *   asked?: { sort?: Record<string, string>, log?: Record<string, { level: string, search?: string }> },
  *   memory?: Map<string, any> }} ViewHooks
  *

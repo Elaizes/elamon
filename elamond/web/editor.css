@@ -65,6 +65,8 @@
 
 /* ------------------------------------------------------------------ the canvas and the side */
 
+/* What scrolls into view clears the page's bar and the editor's tools under it. */
+:root:has(.ed-tools) { scroll-padding-top: calc(var(--head-h, 0px) + 64px); }
 .ed-tools { position: sticky; top: var(--head-h, 0px); z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); padding: var(--s2) 0; background: var(--bg); }
 .ed-preview-note { margin: 0; font-size: var(--t2); }
 .ed-preview-note.warn { color: var(--warn); }

@@ -12,12 +12,13 @@ export const S = {
 		admin: 'Admin',
 		back: 'Back',
 		themeIs: 'Theme: {0}',
+		placeOf: '{0} · {1}',
 		themes: { light: 'Light', dark: 'Dark', black: 'Black' },
 		// The layout menu (arrange.js): each choice's title and its values' words.
 		layout: {
 			button: 'Layout',
 			width: { title: 'Width', full: 'Whole window', fixed: 'At most 1280 px' },
-			columns: { title: 'Columns', auto: 'Auto: 8 on a wide window', 4: '4', 8: '8' },
+			columns: { title: 'Columns', auto: 'Auto: 8 on a wide window', 4: '4', 8: '8 where they fit' },
 			density: { title: 'Density', compact: 'Compact', normal: 'Normal', roomy: 'Roomy' },
 			inset: { title: 'Space at the edges', none: 'None', small: 'Small', normal: 'Normal', large: 'Large' },
 			reset: 'Reset',
