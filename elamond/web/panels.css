@@ -47,7 +47,7 @@ button.danger-soft { color: var(--hot); }
 
 .menu-wrap { position: relative; }
 .menu { position: absolute; right: 0; top: calc(100% + var(--s1)); z-index: 30; min-width: 220px; display: grid; }
-.menu-wrap.start .menu { left: 0; right: auto; }
+.menu-wrap.start .menu { left: 0; right: auto; min-width: 160px; }
 .menu-item[aria-checked="true"] { font-weight: 600; }
 .menu-item[aria-checked="true"]::after { content: "✓"; margin-left: auto; }
 .top-tools > button { display: inline-flex; align-items: center; gap: var(--s2); }
@@ -91,7 +91,9 @@ pre.code, .code { background: var(--surface-2); padding: var(--s2) var(--s3); bo
    within the head's one line, so a head is as tall with one as without. */
 .w-trailing:has(> .icon-button) { margin-block: calc((1lh - var(--tap-s)) / 2); }
 .w-trailing:has(> .icon-button:last-child) { margin-right: calc((var(--icon-l) - var(--tap-s)) / 2); }
-.w-body { display: flex; flex-direction: column; gap: var(--gap-in); min-width: 0; }
+/* The body takes the card's height; a caption stands at its foot, so captions line up across a row. */
+.w-body { display: flex; flex-direction: column; gap: var(--gap-in); min-width: 0; flex: 1; }
+.w-body > .w-caption:last-child { margin-top: auto; }
 .w.folded > .w-body { display: none; }
 .w-caption { margin: 0; font-size: var(--t2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile.opens { cursor: pointer; }
