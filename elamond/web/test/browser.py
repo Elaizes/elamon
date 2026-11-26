@@ -592,6 +592,8 @@ def test_shell(T):
 	expect(page).to_have_url(re.compile(f'#/edit/{re.escape(tabs[0])}$'))
 	expect(page.get_by_role('heading', name=re.compile('^Edit: '))).to_be_visible()
 	expect(side.get_by_role('link', name='Edit this dashboard')).to_have_attribute('aria-current', 'page')
+	# The wheel over the page, not over the side bar (which scrolls itself where it is taller than the window).
+	page.mouse.move(900, 400)
 	page.mouse.wheel(0, 2000)
 	until(page, lambda: page.evaluate('scrollY') > 0, 'the editor scrolled')
 	until(page, lambda: page.evaluate("Math.abs(document.querySelector('.ed-tools').getBoundingClientRect().top - document.querySelector('.page-top').getBoundingClientRect().bottom) <= 1"), 'the editor\'s tools under the bar')
@@ -601,6 +603,7 @@ def test_shell(T):
 
 	# The bar over the page stays while it scrolls.
 	page.set_viewport_size({'width': 1366, 'height': 480})
+	page.mouse.move(900, 300)
 	page.mouse.wheel(0, 1500)
 	until(page, lambda: page.evaluate('scrollY') > 0, 'the dashboard scrolled')
 	check(page.evaluate("document.querySelector('.page-top').getBoundingClientRect().top") == 0, 'the bar left the top while the page scrolled')
