@@ -739,7 +739,7 @@ class ProtocolContractTest {
 	@Test
 	fun theHelloOf011SaysItsCertificate() {
 		val hello = ProtocolJson.decodeFromJsonElement(Hello.serializer(), fixture("0.11/hello"))
-		assertEquals("0.11.1", hello.version)
+		assertEquals("0.11.3", hello.version)
 		assertEquals(64, hello.fingerprint!!.length)
 		// Before 0.11, none.
 		assertNull(ProtocolJson.decodeFromJsonElement(Hello.serializer(), fixture("0.8/hello")).fingerprint)

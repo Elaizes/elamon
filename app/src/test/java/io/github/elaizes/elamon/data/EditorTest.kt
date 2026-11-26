@@ -444,7 +444,7 @@ class EditorTest {
 		val p = previewFrom(preview.getValue("response").jsonObject)
 		// The ui the asking client would get with the draft: the computer, its control and the profile its own.
 		assertEquals("owner", p.ui.role)
-		assertEquals("0.11.1", p.ui.service.version)
+		assertEquals("0.11.3", p.ui.service.version)
 		assertTrue("editor" in p.ui.service.features)
 		assertTrue(p.ui.control.enabled)
 		assertEquals("default", p.ui.profile.id)
