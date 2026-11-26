@@ -111,7 +111,7 @@ with subtest("the page is served with the headers that keep it to itself, and he
 	assert answer("GET", "/web/test/mock.mjs", "") == (404, {"error": "not_found"})
 	# hello needs no token; an answer of the API is never kept.
 	status, h, hello = call("GET", "/api/v1/hello", "")
-	assert status == 200 and hello["api"] == 2 and hello["version"] == "0.11.3", hello
+	assert status == 200 and hello["api"] == 2 and hello["version"] == "0.11.4", hello
 	assert h["cache-control"] == ["no-store"] and h["x-content-type-options"] == ["nosniff"], h
 	# The certificate a client gets by the address, as the app connects: what hello says.
 	own = presented()
