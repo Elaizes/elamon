@@ -1,6 +1,6 @@
 // The frame of the computer's pages (its dashboards, the admin panel, the dashboard editor). On a
-// wide window, a side bar: the computer's name, its dashboards, the admin panel's sections, the
-// editor, and at its foot the theme and the layout; it folds to a strip of icons, as this browser
+// wide window, a side bar: the computer's name, its dashboards, the editor, the admin panel's
+// sections, and at its foot the theme and the layout; it folds to a strip of icons, as this browser
 // keeps (arrange.js). On a narrow one, as 0.11.3 had it: the name and the tools in a bar at the top,
 // the dashboards in a row of tabs under it, the admin panel's sections in a row of their own. Over
 // the page, a bar with the place's title, the computer's chips and the connection's state, which
@@ -147,7 +147,8 @@ export function mountFrame(root, ctx, where) {
 	const place = () => {
 		wide = wideQuery.matches;
 		if (wide) {
-			sideScroll.replaceChildren(...[tablist, adminGroup, editLink].filter((x) => x !== null));
+			// Edit under the dashboards it edits; the admin panel's nine sections after them.
+			sideScroll.replaceChildren(...[tablist, editLink, adminGroup].filter((x) => x !== null));
 			if (adminGroup && adminNav) adminGroup.append(adminNav);
 			sideFoot.replaceChildren(theme.el, layout.el);
 			tools.replaceChildren(role, more);

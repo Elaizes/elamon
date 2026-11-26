@@ -63,7 +63,6 @@ button.danger-soft { color: var(--hot); }
 .side .nav-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .nav-label { display: inline-block; }
 .nav-label::after { content: attr(data-label); display: block; height: 0; overflow: hidden; visibility: hidden; font-weight: 600; }
-.side .nav-item.edit { margin-top: var(--s1); }
 
 /* Folded: a strip of icons, each one's name for the screen reader and in its tooltip. */
 :root[data-side="rail"] .side-name, :root[data-side="rail"] .side-title { display: none; }
