@@ -786,8 +786,10 @@ The part every client reads:
 
 `[profiles.<id>.web]` is for the web page and takes no keys: the page takes `theme`, `pure_black`,
 `animations` and `confirm_actions` from the part every client reads, and its size from the browser.
-A theme picked in the page's top bar (Light, Dark or Black) goes over `theme` and `pure_black` in that
-browser alone; until one is picked, the page follows the profile.
+A theme picked in the page (Light, Dark or Black) goes over `theme` and `pure_black` in that browser
+alone; until one is picked, the page follows the profile. The page's layout (its width, the
+dashboards' columns, the density, the space at the window's edges) is picked in the browser too, in
+its Layout menu, and is nothing of the settings.
 
 A `use` chain is followed to its end (a loop is a mistake); `android` and `web` are inherited key by
 key as well. A profile that names a dashboard that doesn't exist is a mistake.

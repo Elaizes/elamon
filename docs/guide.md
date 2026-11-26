@@ -1541,8 +1541,41 @@ is the same kind of link.
 - A browser has a role, as a phone has (`admin` unless you give another), and a profile of its own
   in `elamond.d/phones.toml` ([section 14](#each-phones-own-profile)). The page takes `theme`,
   `pure_black`, `animations` and `confirm_actions` from it, and its size from the browser. The theme
-  button in the page's top bar picks Light, Dark or Black for that browser alone, over the profile's
-  `theme` and `pure_black`; until one is picked, the page follows the profile.
+  button picks Light, Dark or Black for that browser alone, over the profile's `theme` and
+  `pure_black`; until one is picked, the page follows the profile.
+
+### Finding your way
+
+- **On a wide window** (900 px and wider), a side bar: the computer's name, its dashboards, the admin
+  panel's sections and Edit for the dashboard on screen (each only for a role that may use it), and
+  at its foot the theme and the layout. ☰ folds it to a strip of icons, each one's name in its
+  tooltip, and opens it out again; the browser keeps which. Over the page, a bar with where you
+  are, the chips and the connection's state stays in place while the page scrolls; ⋮ there has what
+  is done rarely: a new dashboard, forgetting this browser.
+- **On a narrower one,** a phone's for one, the name and the tools are in a bar at the top, the
+  dashboards in a row of tabs under it, and the admin panel's sections in a row of their own.
+- **Keys:** 1 to 9 open the dashboards in their order (not while you type in a field or move a
+  slider); Escape goes from the admin panel or the editor back to the dashboard you were on, and
+  closes a menu or a dialog first when one is open. Tab goes through the side bar, then the bar
+  over the page, then the page.
+
+### The layout
+
+The layout button, beside the theme's, picks how the page is laid out in that browser alone. It
+keeps each pick (a reload starts with it, nothing jumps), and Reset goes back to what is there until
+one is picked:
+
+| Choice | Picks | Until picked |
+|---|---|---|
+| Width | the whole window, or at most 1280 px across, in the middle | the whole window |
+| Columns | Auto, 4 or 8: the dashboards' grid on a wide window | Auto: 4, and 8 where the grid is 1500 px wide or more |
+| Density | compact, normal or roomy: the space in and between cards | normal |
+| Space at the edges | none, small, normal or large: between the page and the window's edge | normal |
+
+A widget's width is its `span` in columns of four ([docs/config.md](config.md#widgets)): on 8 columns a span stays
+as it is, so two widgets of 4 stand side by side; a row its widgets leave incomplete is shared by
+them evenly. On a phone the grid has 2 columns (1 on a very narrow one) whatever is picked. The
+layout is the browser's: nothing of it is in the settings, and each browser picks its own.
 
 ### What the page shows
 
@@ -1613,7 +1646,8 @@ They apply as soon as the service rereads its settings. Every key of `[web]` is 
 
 ## 12. The admin panel
 
-With the `owner` role, the page has an **Admin** button in its top bar. The admin panel does from a
+With the `owner` role, the page has **Admin** with its sections in the side bar (on a narrow window,
+an Admin button in the top bar). The admin panel does from a
 browser much of what the commands do at the computer: it shows how the service runs and where each
 setting comes from, changes the paired phones and browsers and their roles, pairs new ones, holds
 control off, and edits the settings files.
@@ -1723,7 +1757,8 @@ It's for the role the admin panel is for (`owner`, [section 12](#12-the-admin-pa
 
 ### In the browser
 
-- **Edit**, in the top bar, opens the dashboard of the tab shown (*Edit: Overview*).
+- **Edit**, in the side bar (in the top bar on a narrow window), opens the dashboard shown (*Edit:
+  Overview*).
 - **Widgets** is the dashboard as it looks. Drag a widget by its handle to move it, or onto a group
   to put it in. The handle on its side changes its width, 1 to 4 columns. With the keyboard, Alt+↑
   and Alt+↓ move the widget in focus, Alt+← and Alt+→ change its width, Enter opens its keys, and
