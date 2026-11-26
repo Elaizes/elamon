@@ -28,7 +28,7 @@
 .ed-field-head > label { flex: 1; min-width: 0; }
 .ed-field input:not([type="checkbox"]), .ed-field select, .ed-field textarea, .ed-new-form input:not([type="checkbox"]), .ed-new-form select { width: 100%; min-width: 0; }
 .ed-req { color: var(--hot); margin-left: var(--s1); }
-.ed-unset { min-height: var(--tap-s); padding: 0 var(--s3); font-size: var(--t2); color: var(--muted); }
+.ed-unset { min-height: var(--tap-s); padding: 0 var(--s3); margin-block: calc((1lh - var(--tap-s)) / 2); font-size: var(--t2); color: var(--muted); }
 .ed-hint { font-size: var(--t2); margin: var(--s1) 0 0; }
 .ed-below { color: var(--warn); }
 .ed-mistake, .ed-local { color: var(--hot); font-size: var(--t2); margin: var(--s1) 0 0; }
@@ -99,12 +99,14 @@
 .ed-cell { position: relative; min-width: 0; min-height: 64px; border-radius: var(--radius); outline: 1px dashed transparent; outline-offset: 3px; }
 .ed-cell:focus { outline: none; }
 .ed-cell:hover:not(:has(.ed-cell:hover)) { outline-color: var(--line); }
-.ed-cell:focus-visible { outline: 2px solid var(--primary); }
+.ed-cell:focus-visible { outline: 4px double var(--primary); outline-offset: 4px; }
 .ed-cell.selected { outline: 2px solid var(--primary); }
 .ed-cell.bad { outline: 2px solid var(--hot); }
 .ed-cell.dragged { opacity: 0.35; }
 .ed-cell.resizing { outline: 2px dashed var(--primary); }
-.ed-draw { min-width: 0; }
+.ed-cell:not(.ed-groupcell) { display: flex; flex-direction: column; }
+.ed-draw { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.ed-draw > * { flex: 1; }
 .ed-draw > * { margin: 0; }
 .ed-placeholder { margin: 0; min-height: 64px; padding: 44px var(--pad) var(--pad); border: 1px dashed var(--line); border-radius: var(--radius); background: var(--surface); }
 .ed-over { position: absolute; inset: 0; z-index: 1; border-radius: var(--radius); cursor: pointer; }
@@ -189,6 +191,8 @@
 /* ------------------------------------------------------------------ the profile */
 
 .ed-profile summary { display: flex; align-items: center; gap: var(--s2); min-height: var(--tap); cursor: pointer; font-weight: 650; }
+.ed-profile summary::before, .ed-keys summary::before { content: "▸"; width: 1em; flex: none; color: var(--muted); }
+.ed-profile[open] summary::before, .ed-keys[open] summary::before { content: "▾"; }
 .ed-summary-title { margin-right: auto; }
 .ed-profile-body { display: grid; gap: var(--s2); margin-top: var(--s2); }
 .ed-profile h3 { margin: var(--s2) 0 var(--s1); }
@@ -209,7 +213,7 @@
 .ed-new-form { max-width: 560px; display: grid; gap: var(--s0); }
 .ed-new-form h1 { margin-bottom: var(--s1); }
 
-.ed-keys summary { display: flex; align-items: center; min-height: var(--tap); cursor: pointer; }
+.ed-keys summary { display: flex; align-items: center; gap: var(--s2); min-height: var(--tap); cursor: pointer; }
 .ed-keys summary h2 { margin: 0; }
 .ed-row-block { flex-direction: column-reverse; align-items: stretch; gap: 0; padding: var(--s1) 0 var(--s2); border-bottom: 1px solid var(--line); }
 .ed-row-block > .ed-row-tools { justify-content: flex-end; }

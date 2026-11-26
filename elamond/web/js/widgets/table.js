@@ -97,7 +97,7 @@ export function create(w, env) {
 		head.append(h('span', { class: 't-name' }, grow && grow.label ? grow.label : ''));
 		for (const c of others) head.append(h('span', { class: `t-cell ${widthClass(c)}` }, c.label || ''));
 		if (barCol) head.append(h('span', { class: `t-cell ${widthClass(barCol)}` }, barCol.label || ''));
-		if (hasSheet) head.append(h('span', { class: 't-more-space' }));
+		if (hasSheet && w.row_open) head.append(h('span', { class: 't-more-space' }));
 		body.append(head);
 	}
 	const list = h('ul', { class: 't-rows', 'aria-label': w.label || null });

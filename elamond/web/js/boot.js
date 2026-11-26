@@ -18,6 +18,9 @@
 		// No storage (a private window may refuse it): the system's.
 	}
 	document.documentElement.dataset.theme = theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+	// style.css is in by now (a script waits for the stylesheets before it): the browser's bar in this theme's background.
+	const meta = document.querySelector('meta[name="theme-color"]');
+	if (meta) meta.setAttribute('content', getComputedStyle(document.documentElement).getPropertyValue('--bg').trim());
 
 	window.addEventListener('error', (event) => {
 		const script = event.target;

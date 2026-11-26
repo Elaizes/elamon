@@ -96,6 +96,7 @@ export function dashboardView(ui, dashboard, hooks = {}) {
 	const widgets = Array.isArray(dash.widgets) ? dash.widgets : [];
 	if (!env.controlOn && widgets.some(acts)) el.append(controlOff(ui.control && ui.control.off_reason));
 	const grid = makeGrid(widgets, env);
+	if (!widgets.length && !hooks.preview) el.append(h('p', { class: 'note' }, P.empty));
 	el.append(grid.el);
 	let cols = 0;
 	const relayout = () => {

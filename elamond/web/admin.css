@@ -80,7 +80,8 @@
 .adm-chip.bad, .adm-chip.ch-removed, .adm-chip.lv-critical { color: var(--hot); border-color: color-mix(in srgb, var(--hot) 55%, transparent); }
 .adm-chip.ch-changed, .adm-chip.lv-warning { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 .adm-chip.off { color: var(--muted); }
-.adm-chip.you, .adm-chip.role-owner { background: var(--primary); color: var(--on-primary); border-color: transparent; }
+.adm-chip.role-owner { background: var(--primary); color: var(--on-primary); border-color: transparent; }
+.adm-chip.you { border-color: var(--primary); font-weight: 600; }
 
 /* Tables: a narrow screen scrolls them sideways. */
 .adm-table-wrap { overflow-x: auto; max-width: 100%; }
@@ -172,7 +173,7 @@
 	display: grid;
 	grid-template-columns: auto minmax(0, 1fr);
 	height: max(320px, 62vh);
-	border: 1px solid var(--line);
+	border: 1px solid var(--edge);
 	border-radius: var(--r2);
 	overflow: hidden;
 	background: var(--surface);

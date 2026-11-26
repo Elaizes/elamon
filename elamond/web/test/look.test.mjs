@@ -30,7 +30,7 @@ function themes() {
 	return { themes: out, rest };
 }
 
-const BASE = ['bg', 'surface', 'surface-2', 'surface-3', 'line', 'text', 'muted', 'primary', 'on-primary', 'secondary', 'tertiary'];
+const BASE = ['bg', 'surface', 'surface-2', 'surface-3', 'line', 'edge', 'text', 'muted', 'primary', 'on-primary', 'secondary', 'tertiary'];
 const STATES = ['good', 'warn', 'hot'];
 const ON_STATES = ['on-good', 'on-warn', 'on-hot'];
 const METRICS = ['cpu', 'memory', 'swap', 'gpu', 'rx', 'tx', 'read', 'write', 'battery'];
@@ -117,8 +117,10 @@ test('contrast in every theme: words 4.5 : 1, graphics 3 : 1', () => {
 		for (const s of STATES) need(name, th, `on-${s}`, s, 4.5);
 		// The states are words too (a mistake under a field, a note in a log): 4.5 on the page and its cards.
 		for (const s of STATES) for (const bg of ['bg', 'surface', 'surface-2']) need(name, th, s, bg, 4.5);
-		// Graphics: each metric and the tertiary accent on a card and on a tile.
-		for (const m of [...METRICS, 'tertiary']) for (const bg of ['surface', 'surface-2']) need(name, th, m, bg, 3);
+		// Graphics: each metric and the tertiary accent on a card, on a tile, and on what stands on a tile in a group.
+		for (const m of [...METRICS, 'tertiary']) for (const bg of ['surface', 'surface-2', 'surface-3']) need(name, th, m, bg, 3);
+		// A field's border against the card and the page (a control's edge, 3 : 1).
+		for (const bg of ['bg', 'surface']) need(name, th, 'edge', bg, 3);
 	}
 	assert.deepEqual(fails, []);
 });
@@ -126,7 +128,9 @@ test('contrast in every theme: words 4.5 : 1, graphics 3 : 1', () => {
 test('neighbouring metrics and the states are told apart', () => {
 	const { themes: t } = themes();
 	const fails = [];
-	const PAIRS = [['cpu', 'memory'], ['memory', 'swap'], ['cpu', 'swap'], ['rx', 'tx'], ['read', 'write'], ['good', 'warn'], ['warn', 'hot'], ['good', 'hot']];
+	// Neighbouring metrics; the states between them; and nothing that draws (a metric, the tertiary accent) taken for a warning.
+	const PAIRS = [['cpu', 'memory'], ['memory', 'swap'], ['cpu', 'swap'], ['rx', 'tx'], ['read', 'write'], ['good', 'warn'], ['warn', 'hot'], ['good', 'hot'],
+		...[...METRICS, 'tertiary'].flatMap((m) => [[m, 'warn'], [m, 'hot']])];
 	for (const [name, th] of Object.entries(t)) {
 		for (const [a, b] of PAIRS) {
 			const d = distance(th[a], th[b]);

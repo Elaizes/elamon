@@ -169,15 +169,17 @@ export function card(w, env, opts = {}) {
 	return { el, head, body, trailing };
 }
 
-/** A line under a widget, shown while there is one. @returns {{ el: HTMLElement, set: (text: string | null) => void }} */
+/** A line under a widget, from its first text on: kept (empty) while a reading is missing, so nothing below moves. @returns {{ el: HTMLElement, set: (text: string | null) => void }} */
 export function captionLine() {
 	const el = h('p', { class: 'w-caption muted' });
 	el.hidden = true;
+	let had = false;
 	return {
 		el,
 		set(text) {
-			el.hidden = !text;
-			setText(el, text || '');
+			if (text) had = true;
+			el.hidden = !had;
+			setText(el, text || (had ? '\u00a0' : ''));
 		},
 	};
 }

@@ -93,8 +93,10 @@ export function create(w, env) {
 	const figures = series.map((ser) => {
 		const value = h('span', { class: 'fig-num' });
 		const unit = h('span', { class: 'fig-unit' });
-		const label = h('span', { class: 'graph-series-label' }, ser.label || '');
-		setStyle(label, { color: colorOf(ser) });
+		// Its colour on a dot, its words in the text's colour (a metric's colour is too light for words on a tile).
+		const swatch = h('span', { class: 'legend-dot', 'aria-hidden': 'true' });
+		setStyle(swatch, { background: colorOf(ser) });
+		const label = h('span', { class: 'graph-series-label' }, swatch, ser.label || '');
 		return { el: h('div', { class: 'graph-figure' }, series.length > 1 || ser.label ? label : null, h('div', { class: 'fig' }, value, unit)), value, unit };
 	});
 	const legend = series.map((ser) => {
@@ -305,7 +307,6 @@ export function create(w, env) {
 		});
 		if (series.length === 1) {
 			setText(now, values[0] == null ? '' : F.number(values[0], first.format, first.unit));
-			setStyle(now, { color: colorOf(first) });
 		}
 		cap.set(captionOf(w, s));
 		describe();
