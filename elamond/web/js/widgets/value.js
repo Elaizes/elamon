@@ -22,7 +22,7 @@ export function create(w, env) {
 			const color = levelColor(spark ? spark.el : el, last?.level, last?.blend, accent(w.color)) || cssColor(el, accent(w.color));
 			const max = typeof last?.max === 'number' ? last.max : typeof w.max === 'number' ? w.max : w.format === 'percent' ? 100 : null;
 			drawChart(ctx, width, height, {
-				lines: [{ t: hist.t, v: hist.v[0], color, gapMs: hist.gapMs }],
+				lines: [{ t: hist.t, v: hist.v[0], color, gapMs: hist.gapsMs() }],
 				windowMs: hist.windowMs,
 				maxValue: max,
 				minScale: 1,

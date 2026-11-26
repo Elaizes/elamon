@@ -109,7 +109,7 @@ export function create(w, env) {
 	const hist = () => (long && long.hist ? long.hist : live);
 	const chart = sharpCanvas(`chart${small ? ' small' : w.height === 'large' ? ' large' : ''}`, (ctx, width, height) => {
 		const hh = hist();
-		const lines = series.map((ser, k) => ({ t: hh.t, v: hh.v[k], color: cssColor(el, colorOf(ser)), gapMs: long && long.hist ? long.step * 3 : hh.gapMs }));
+		const lines = series.map((ser, k) => ({ t: hh.t, v: hh.v[k], color: cssColor(el, colorOf(ser)), gapMs: long && long.hist ? long.step * 3 : hh.gapsMs() }));
 		const max = last && typeof last.max === 'number' ? last.max : typeof w.max === 'number' ? w.max : null;
 		const muted = cssColor(el, 'var(--muted)');
 		const drawn = drawChart(ctx, width, height, {

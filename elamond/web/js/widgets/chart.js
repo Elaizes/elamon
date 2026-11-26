@@ -10,7 +10,7 @@ const HALO = 6;
 const FILL_ALPHA = 0.22;
 
 /**
- * @typedef {{ t: number[], v: (number | null)[], color: string, gapMs: number }} Line
+ * @typedef {{ t: number[], v: (number | null)[], color: string, gapMs: number | number[] }} Line
  * @typedef {{ lines: Line[], windowMs: number, tLast?: number, maxValue?: number | null, minScale: number, binary: boolean,
  *   grid?: boolean, gridColor?: string, label?: (scale: number) => string, labelColor?: string, font?: string, fill?: boolean }} ChartOpts
  */
@@ -92,7 +92,7 @@ function drawLine(ctx, l, scale, tLast, windowMs, width, height, fill) {
 			run = [];
 			continue;
 		}
-		if (run.length && t - pt > l.gapMs) {
+		if (run.length && t - pt > (Array.isArray(l.gapMs) ? l.gapMs[i] : l.gapMs)) {
 			runs.push(run);
 			run = [];
 		}

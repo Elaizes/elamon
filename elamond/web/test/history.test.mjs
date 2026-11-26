@@ -61,25 +61,31 @@ test('memory guard and gaps', () => {
 	const h = new Hist(1, 1e12);
 	for (let i = 0; i < MAX_POINTS + 10; i++) h.append(i * 1000, [i]);
 	assert.equal(h.size, MAX_POINTS);
-	assert.equal(h.medianStepMs(), 1000);
-	assert.equal(h.gapMs, 3000);
+	const gaps = h.gapsMs();
+	assert.equal(gaps.length, h.size);
+	assert.equal(gaps[0], Infinity);
+	assert.ok(gaps.slice(1).every((g) => g === 3000));
 });
 
-test('the history\'s steps are no gaps once the stream\'s points outnumber them (G107); a hole in it still is', () => {
-	// Ten minutes of history a point each 10 s with a 2-minute hole, then 7 minutes of the stream at 1 s.
+test('the history\'s two steps and the stream\'s are no gaps, however many of each (G107); a hole is', () => {
+	// The service's history: a point each 10 s, a 2-minute hole, then its last minutes a point a second; then the stream's.
 	const t = [];
-	for (let x = 0; x <= 600_000; x += 10_000) if (x < 200_000 || x >= 320_000) t.push(x);
+	for (let x = 0; x < 300_000; x += 10_000) if (x < 100_000 || x >= 220_000) t.push(x);
+	for (let x = 300_000; x <= 600_000; x += 1000) t.push(x);
 	const h = new Hist(1, 900_000, 1000);
 	h.replace({ t, v: [t.map(() => 1)] });
-	for (let x = 601_000; x <= 1_020_000; x += 1000) h.append(x, [2]);
-	assert.ok(h.size - t.length > t.length, 'the stream\'s points outnumber the history\'s');
+	for (let x = 601_000; x <= 900_000; x += 1000) h.append(x, [2]);
+	const gaps = h.gapsMs();
 	const breaks = [];
-	for (let i = 1; i < h.size; i++) if (h.t[i] - h.t[i - 1] > h.gapMs) breaks.push([h.t[i - 1], h.t[i]]);
-	assert.deepEqual(breaks, [[190_000, 320_000]]);
-	// Nothing from the history: the stream's own steps.
+	for (let i = 1; i < h.size; i++) if (h.t[i] - h.t[i - 1] > gaps[i]) breaks.push([h.t[i - 1], h.t[i]]);
+	assert.deepEqual(breaks, [[90_000, 220_000]]);
+	// A hole among the stream's points, and one point alone between two holes.
 	const live = new Hist(1, 600_000, 1000);
-	for (let x = 0; x <= 60_000; x += 1000) live.append(x, [1]);
-	assert.equal(live.gapMs, 3000);
+	for (const x of [0, 1000, 2000, 3000, 63_000, 64_000, 65_000, 200_000, 400_000, 401_000, 402_000]) live.append(x, [1]);
+	const g = live.gapsMs();
+	const cut = [];
+	for (let i = 1; i < live.size; i++) if (live.t[i] - live.t[i - 1] > g[i]) cut.push(live.t[i]);
+	assert.deepEqual(cut, [63_000, 200_000, 400_000]);
 });
 
 test('range chips: its own and the long ones, shortest first, none as long as its own', () => {

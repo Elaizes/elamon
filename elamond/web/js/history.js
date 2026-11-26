@@ -71,6 +71,8 @@ export function keptHist(memory, id, series, windowMs, stepHintMs) {
 export const MAX_POINTS = 7200;
 /** A step this many times the usual one is a gap: no line across it. */
 export const GAP_FACTOR = 3;
+/** The usual step is the median of this many steps on either side. */
+const GAP_AROUND = 5;
 const MIN_WINDOW_MS = 10_000;
 
 /**
@@ -91,8 +93,8 @@ export class Hist {
 		this.v = Array.from({ length: this.series }, () => []);
 		/** Counts changes, for a drawing that has to tell a redraw apart. */
 		this.version = 0;
-		/** The usual step of the service's history this was last given (its points are further apart than the stream's). */
-		this.historyStepMs = 0;
+		/** `gapsMs` as last worked out, and for which version and hint. */
+		this.gaps = { key: '', ms: /** @type {number[]} */ ([]) };
 	}
 
 	get size() {
@@ -115,7 +117,6 @@ export class Hist {
 	clear() {
 		this.t = [];
 		this.v = Array.from({ length: this.series }, () => []);
-		this.historyStepMs = 0;
 		this.version++;
 	}
 
@@ -127,7 +128,6 @@ export class Hist {
 			if (this.t.length && ts[i] <= this.lastTime) continue;
 			this.push(ts[i], (entry.v || []).map((s) => (s ? s[i] : null)));
 		}
-		this.historyStepMs = this.medianStepMs();
 		this.prune();
 		this.version++;
 	}
@@ -168,22 +168,25 @@ export class Hist {
 		if (t > this.lastTime) this.append(t, values);
 	}
 
-	/** The usual time between points: what a gap is measured against. */
-	medianStepMs() {
-		if (this.t.length < 2) return 0;
-		const steps = [];
-		for (let i = 1; i < this.t.length; i++) steps.push(this.t[i] - this.t[i - 1]);
-		steps.sort((a, b) => a - b);
-		return steps[Math.floor(steps.length / 2)];
-	}
-
 	/**
-	 * A step longer than this is a gap: a few of the usual ones, the history's where it came (its
-	 * points are further apart than the stream's, which soon outnumber them and would make every
-	 * step of the history a gap — G107).
+	 * For each point, the longest step to it from the one before that is no gap: GAP_FACTOR times
+	 * the usual step around it (the median of the GAP_AROUND steps on either side), never less than
+	 * the hint's. Around, not over the whole graph: the service's history comes at two steps (a
+	 * second for its last minutes, ten before them) and the stream's points soon outnumber the older
+	 * ones, so one usual step made every step of the older part a gap, the line dots (G107).
+	 * @returns {number[]}
 	 */
-	get gapMs() {
-		return GAP_FACTOR * Math.max(this.medianStepMs(), this.historyStepMs, this.stepHintMs);
+	gapsMs() {
+		const key = `${this.version}/${this.stepHintMs}`;
+		if (this.gaps.key === key) return this.gaps.ms;
+		const steps = this.t.slice(1).map((t, i) => t - this.t[i]);
+		const ms = [Infinity];
+		for (let k = 0; k < steps.length; k++) {
+			const around = steps.slice(Math.max(0, k - GAP_AROUND), k + GAP_AROUND + 1).sort((a, b) => a - b);
+			ms.push(GAP_FACTOR * Math.max(around[(around.length - 1) >> 1], this.stepHintMs));
+		}
+		this.gaps = { key, ms };
+		return ms;
 	}
 
 	/** @param {number} t @param {(number | null | undefined)[]} values */
