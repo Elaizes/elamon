@@ -13,6 +13,15 @@ export const S = {
 		back: 'Back',
 		themeIs: 'Theme: {0}',
 		themes: { light: 'Light', dark: 'Dark', black: 'Black' },
+		// The layout menu (arrange.js): each choice's title and its values' words.
+		layout: {
+			button: 'Layout',
+			width: { title: 'Width', full: 'Whole window', fixed: 'At most 1280 px' },
+			columns: { title: 'Columns', auto: 'Auto: 8 on a wide window', 4: '4', 8: '8' },
+			density: { title: 'Density', compact: 'Compact', normal: 'Normal', roomy: 'Roomy' },
+			inset: { title: 'Space at the edges', none: 'None', small: 'Small', normal: 'Normal', large: 'Large' },
+			reset: 'Reset',
+		},
 		close: 'Close',
 		cancel: 'Cancel',
 		ok: 'OK',
@@ -76,6 +85,9 @@ export const S = {
 		forgetFailed: 'The computer didn’t unpair this browser: {0}. Run elamond revoke there to be sure.',
 		noTabs: 'This browser’s role or profile has no dashboards on this computer.',
 		back: 'Back',
+		sideLabel: '{0}: dashboards and tools',
+		sideFold: 'Fold the side bar to its icons',
+		sideUnfold: 'Open the side bar out',
 
 		// Widgets
 		loading: 'Loading…',
@@ -212,7 +224,6 @@ export const S = {
 
 	// ---------------------------------------------------------------- the admin panel
 	admin: {
-		title: 'Admin · {0}',
 		docTitle: '{0} · Admin · {1}',
 		refresh: 'Refresh',
 		yes: 'Yes',

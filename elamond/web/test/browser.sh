@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The page in a real browser: a headless Chromium driven by Playwright (browser.py) against a
 # throwaway elamond on 127.0.0.1, with settings, data and a port of its own. Pairing by code, the
-# dashboards live from the stream, an action with its question, the admin panel (clients, pairing
+# dashboards live from the stream, the theme and the layout picked in the page, the frame (the side
+# bar, its keys, a phone's width), an action with its question, the admin panel (clients, pairing
 # from the page, the files editor, control) and the dashboard editor; see browser.py.
 #
 #   nix develop .#browser -c elamond/web/test/browser.sh

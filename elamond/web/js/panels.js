@@ -5,20 +5,19 @@ import { api, ApiError } from './api.js';
 import { h, setText, breakAfter } from './dom.js';
 import { S, fill } from './strings.js';
 import { icon } from './icons.js';
-import { THEMES, THEME_ICONS, choose, shown } from './theme.js';
 import * as state from './state.js';
 import { columns } from './layout.js';
+import { onLayout } from './arrange.js';
+import { mountFrame, tabsOf } from './shell.js';
 import { makeGrid } from './widgets/grid.js';
 import { make } from './widgets/index.js';
 import { setLevel } from './widgets/common.js';
-import { onTheme } from './widgets/canvas.js';
 import { Stream, keptAsked, offlineAfter } from './stream.js';
-import { actionRunner, confirmDialog } from './actions.js';
+import { actionRunner } from './actions.js';
 import { errorText } from './errors.js';
 import { isFingerprint, colonFingerprint, printedFingerprint } from './cert.js';
 import * as F from './format.js';
 import { intervalOf, historyMsOf, PAIR_WAIT_MS, ADOPT_MS } from './consts.js';
-import { roleName } from './roles.js';
 
 /** Every widget type this page draws, as `ui`, the stream and a preview ask for them: keep it to the types widgets/ has. */
 export const DRAWS = 'value,gauge,meter,status,graph,list,bars,table,button,toggle,select,slider,text,group,media,timeline,log';
@@ -99,14 +98,16 @@ export function dashboardView(ui, dashboard, hooks = {}) {
 	if (!widgets.length && !hooks.preview) el.append(h('p', { class: 'note' }, P.empty));
 	el.append(grid.el);
 	let cols = 0;
+	// The columns for the grid's width and the layout's pick (html's data-columns, arrange.js).
 	const relayout = () => {
-		const c = columns(el.clientWidth || window.innerWidth);
+		const c = columns(el.clientWidth || window.innerWidth, /** @type {any} */ (document.documentElement.dataset.columns || 'auto'));
 		if (c === cols) return;
 		cols = c;
 		grid.layout(c);
 	};
 	const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(relayout) : null;
 	ro?.observe(el);
+	const layoutOff = onLayout(relayout);
 	relayout();
 	return {
 		el,
@@ -117,6 +118,7 @@ export function dashboardView(ui, dashboard, hooks = {}) {
 		clear: () => grid.clear(),
 		destroy() {
 			ro?.disconnect();
+			layoutOff();
 			grid.destroy();
 		},
 	};
@@ -234,81 +236,18 @@ export function mountPair(root, ctx, code) {
 let session = null;
 
 /**
- * A button and the menu it opens under it, closed by a pick, Escape or a press elsewhere; focus goes
- * to the item picked now, or the first. The menu ends under the button's right edge (⋮, last in the
- * bar), or with `start` begins under its left one (a button further in, whose menu would leave the
- * window on a narrow screen).
- * @param {HTMLButtonElement} button @param {string} id @param {HTMLElement[]} items @param {boolean} [start]
- * @returns {{ wrap: HTMLElement, close: () => void }}
- */
-function dropdown(button, id, items, start = false) {
-	button.setAttribute('aria-haspopup', 'menu');
-	button.setAttribute('aria-expanded', 'false');
-	button.setAttribute('aria-controls', id);
-	const list = h('div', { id, role: 'menu', class: 'menu card' }, ...items);
-	list.hidden = true;
-	const wrap = h('div', { class: start ? 'menu-wrap start' : 'menu-wrap' }, button, list);
-	const close = () => {
-		list.hidden = true;
-		button.setAttribute('aria-expanded', 'false');
-		document.removeEventListener('pointerdown', outside);
-	};
-	const outside = (/** @type {Event} */ e) => {
-		if (!wrap.contains(/** @type {Node} */ (e.target))) close();
-	};
-	button.addEventListener('click', () => {
-		if (!list.hidden) return close();
-		list.hidden = false;
-		button.setAttribute('aria-expanded', 'true');
-		document.addEventListener('pointerdown', outside);
-		(items.find((i) => i.getAttribute('aria-checked') === 'true') || items[0])?.focus();
-	});
-	list.addEventListener('keydown', (e) => {
-		if (e.key === 'Escape') {
-			close();
-			button.focus();
-		}
-	});
-	return { wrap, close };
-}
-
-/** The theme menu: light, dark or black for this browser; its button shows the theme shown, `show` brings it up to date. */
-function themeMenu() {
-	const button = h('button', { type: 'button', class: 'icon-button quiet' });
-	const items = THEMES.map((t) => h('button', { type: 'button', role: 'menuitemradio', class: 'menu-item', 'data-pick': t }, icon(THEME_ICONS[t]), S.core.themes[t]));
-	const menu = dropdown(button, 'theme-menu', items, true);
-	const show = () => {
-		const now = shown();
-		const text = fill(S.core.themeIs, S.core.themes[now]);
-		button.setAttribute('aria-label', text);
-		button.title = text;
-		button.replaceChildren(icon(THEME_ICONS[now]));
-		for (const b of items) b.setAttribute('aria-checked', String(b.dataset.pick === now));
-	};
-	for (const b of items) {
-		b.addEventListener('click', () => {
-			choose(/** @type {import('./theme.js').Theme} */ (b.dataset.pick));
-			menu.close();
-			show();
-			button.focus();
-		});
-	}
-	show();
-	return { el: menu.wrap, show };
-}
-
-/**
- * The computer: its header, its tabs and the dashboard on screen, live from the stream.
+ * The computer: the dashboard on screen in the frame (shell.js), live from the stream, the header's
+ * chips and the connection's state in the frame's bar.
  * @param {HTMLElement} root @param {Ctx} ctx @param {string | null} tab
  * @returns {() => void} what tears it down
  */
 export function mountMachine(root, ctx, tab) {
 	let ui = /** @type {Ui} */ (ctx.ui());
-	const tabsOf = () => (ui.tabs || []).filter((t, i, all) => all.indexOf(t) === i && (ui.dashboards || []).some((d) => d.id === t));
+	const tabsNow = () => tabsOf(ui);
 	const known = (/** @type {string | null | undefined} */ id) => !!id && (ui.dashboards || []).some((d) => d.id === id);
 	const remembered = state.load('tab', null);
 	/** The dashboard on screen. */
-	let current = known(tab) ? /** @type {string} */ (tab) : tabsOf().includes(remembered) ? remembered : tabsOf()[0] || null;
+	let current = known(tab) ? /** @type {string} */ (tab) : tabsNow().includes(remembered) ? remembered : tabsNow()[0] || null;
 	/** The tab a dashboard on screen was opened from (none for a tab). */
 	let parent = /** @type {string | null} */ (null);
 	/** Pages this view put in the browser's history, which Back can return through. */
@@ -317,18 +256,15 @@ export function mountMachine(root, ctx, tab) {
 
 	const banner = h('p', { class: 'note warning banner', role: 'status' });
 	banner.hidden = true;
-	const top = h('header', { class: 'topbar machine-top' });
-	const nav = h('nav', { class: 'tabs', role: 'tablist', 'aria-label': P.tabs });
 	const pageHead = h('div', { class: 'page-head' });
-	const main = h('main', { class: 'machine-main', id: 'dashboard-panel', tabindex: '-1' });
-	root.append(top, nav, banner, pageHead, main);
+	const main = h('main', { class: 'machine-main', tabindex: '-1' });
+	/** @type {import('./shell.js').Frame | null} */
+	let frame = null;
 
 	/** @type {import('./types.js').DashboardView & { clear: () => void } | null} */
 	let view = null;
 	/** @type {ReturnType<typeof headerChips> | null} */
 	let chips = null;
-	/** Stops the theme button following the theme (it does while drawn). */
-	let themeOff = () => {};
 	/** The last line of the dashboard on screen, to draw it again at once when the settings change. @type {Data | null} */
 	let lastData = null;
 
@@ -463,7 +399,7 @@ export function mountMachine(root, ctx, tab) {
 		ui = u;
 		pruneAsked();
 		if (!known(current)) {
-			current = tabsOf()[0] || null;
+			current = tabsNow()[0] || null;
 			parent = null;
 		}
 		render();
@@ -484,76 +420,22 @@ export function mountMachine(root, ctx, tab) {
 		if (s.status === 'stopped') s.stream.start();
 	}
 
-	function drawTop() {
-		const name = (ctx.hello && ctx.hello.name) || (ui.service && ui.service.name) || S.core.title;
-		const themes = themeMenu();
-		themeOff();
-		themeOff = onTheme(themes.show);
-		const theme = themes.el;
-		const role = h('span', { class: 'pill role', title: fill(P.roleAbout, roleName(ui.role || '')), 'aria-label': fill(P.roleAbout, roleName(ui.role || '')) }, roleName(ui.role || ''));
-		/** @type {Node[]} */
-		const tools = [role, theme];
-		if (ctx.has('editor') && current) {
-			tools.push(h('button', { type: 'button', class: 'quiet edit', 'aria-label': P.editThis, title: P.editThis, onclick: () => current && ctx.go(`#/edit/${encodeURIComponent(current)}`) }, icon('edit', 'w-icon'), h('span', { class: 'tool-label' }, P.edit)));
-		}
-		if (ctx.has('admin')) tools.push(h('a', { class: 'button quiet', href: '#/admin' }, icon('control', 'w-icon'), h('span', { class: 'tool-label' }, S.core.admin)));
-		tools.push(menu());
+	/** The frame for this `ui`, anew: its tabs, its tools, the chips; the page's parts in it. */
+	function drawFrame() {
+		frame?.destroy();
+		root.replaceChildren();
+		frame = mountFrame(root, ctx, {
+			at: 'tab',
+			pick: (id) => show(id, null, 'push'),
+			forgotten: () => {
+				s.stream.stop();
+				if (session === s) session = null;
+			},
+		});
 		chips = headerChips(ui);
-		top.replaceChildren(h('div', { class: 'machine-title' }, h('h1', { class: 'name' }, name), chips.el), h('div', { class: 'top-tools' }, ...tools));
-	}
-
-	/** The menu with what is done rarely: a new dashboard, forgetting this browser. */
-	function menu() {
-		const button = h('button', { type: 'button', class: 'icon-button quiet', 'aria-label': P.menu, title: P.menu }, icon('more'));
-		const forget = h('button', { type: 'button', role: 'menuitem', class: 'menu-item danger-text' }, P.forget);
-		// A new dashboard, for the role the editor is open to.
-		const add = ctx.has('editor') ? h('button', { type: 'button', role: 'menuitem', class: 'menu-item', onclick: () => (menu.close(), ctx.go('#/edit')) }, P.newDashboard) : null;
-		const menu = dropdown(button, 'machine-menu', add ? [add, forget] : [forget]);
-		forget.addEventListener('click', async () => {
-			menu.close();
-			const yes = await confirmDialog(P.forgetQuestion, P.forgetBody, P.forget, true, null);
-			if (!yes) return;
-			try {
-				await api('/api/v1/unpair', { method: 'POST' });
-			} catch (e) {
-				if (!(e instanceof ApiError && e.status === 401)) {
-					ctx.toast(fill(P.forgetFailed, errorText(e)), 'critical');
-					return;
-				}
-			}
-			s.stream.stop();
-			if (session === s) session = null;
-			toPairing();
-		});
-		return menu.wrap;
-	}
-
-	function drawTabs() {
-		const tabs = tabsOf();
-		const selected = parent || current;
-		/** @type {HTMLAnchorElement[]} */
-		const links = [];
-		tabs.forEach((id, i) => {
-			const d = (ui.dashboards || []).find((x) => x.id === id);
-			const on = id === selected;
-			const a = h('a', { href: `#/tab/${encodeURIComponent(id)}`, role: 'tab', class: 'tab', 'aria-selected': String(on), 'aria-controls': 'dashboard-panel', tabindex: on ? '0' : '-1' }, icon(d && d.icon, 'w-icon'), h('span', { 'data-label': (d && d.title) || id }, (d && d.title) || id));
-			a.addEventListener('click', (e) => {
-				if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-				e.preventDefault();
-				show(id, null, 'push');
-			});
-			a.addEventListener('keydown', (e) => {
-				const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
-				const to = e.key === 'Home' ? 0 : e.key === 'End' ? links.length - 1 : step ? (i + step + links.length) % links.length : -1;
-				if (to < 0) return;
-				e.preventDefault();
-				links[to].focus();
-				links[to].click();
-			});
-			links.push(a);
-		});
-		nav.replaceChildren(...links);
-		nav.hidden = tabs.length < 2 && !parent;
+		frame.chips.append(chips.el);
+		frame.status.append(banner);
+		frame.body.append(pageHead, main);
 	}
 
 	function drawView() {
@@ -567,11 +449,13 @@ export function mountMachine(root, ctx, tab) {
 		const d = (ui.dashboards || []).find((x) => x.id === current);
 		const name = (ctx.hello && ctx.hello.name) || S.core.title;
 		document.title = d && d.title ? `${d.title} · ${name}` : name;
-		if (parent || !tabsOf().includes(current)) {
+		frame?.select(parent || current);
+		frame?.title(((parent && (ui.dashboards || []).find((x) => x.id === parent)) || d || { title: current }).title || current);
+		if (parent || !tabsNow().includes(current)) {
 			const back = h('button', { type: 'button', class: 'quiet back' }, icon('back', 'w-icon'), ` ${P.back}`);
 			back.addEventListener('click', () => {
 				if (pushed > 0) history.back();
-				else show(parent || tabsOf()[0] || '', null, 'replace');
+				else show(parent || tabsNow()[0] || '', null, 'replace');
 			});
 			pageHead.append(back, h('h2', { class: 'page-title' }, (d && d.title) || current));
 		}
@@ -597,8 +481,7 @@ export function mountMachine(root, ctx, tab) {
 	}
 
 	function render() {
-		drawTop();
-		drawTabs();
+		drawFrame();
 		drawView();
 		showStatus(s.status);
 	}
@@ -609,7 +492,7 @@ export function mountMachine(root, ctx, tab) {
 	 */
 	function show(id, from, how) {
 		if (!known(id)) return;
-		const isTab = tabsOf().includes(id) && !from;
+		const isTab = tabsNow().includes(id) && !from;
 		current = id;
 		parent = isTab ? null : from;
 		lastData = null;
@@ -620,7 +503,6 @@ export function mountMachine(root, ctx, tab) {
 			pushed++;
 		} else if (how === 'replace') history.replaceState(null, '', hash);
 		if (how === 'replace' && pushed > 0) pushed--;
-		drawTabs();
 		drawView();
 		s.stream.set({ dashboard: id });
 		if (s.status === 'stopped') s.stream.start();
@@ -628,9 +510,9 @@ export function mountMachine(root, ctx, tab) {
 	}
 
 	// A dashboard named in the address that isn't a tab is a page opened over one.
-	if (current && !tabsOf().includes(current)) parent = tabsOf().includes(remembered) ? remembered : tabsOf()[0] || null;
+	if (current && !tabsNow().includes(current)) parent = tabsNow().includes(remembered) ? remembered : tabsNow()[0] || null;
 	if (current && location.hash !== `#/tab/${encodeURIComponent(current)}`) history.replaceState(null, '', `#/tab/${encodeURIComponent(current)}`);
-	if (current && tabsOf().includes(current) && !parent) state.save('tab', current);
+	if (current && tabsNow().includes(current) && !parent) state.save('tab', current);
 	// A stream taken over from the page before may have been asked for what this `ui` no longer has.
 	pruneAsked();
 	render();
@@ -638,7 +520,7 @@ export function mountMachine(root, ctx, tab) {
 
 	return () => {
 		gone = true;
-		themeOff();
+		frame?.destroy();
 		view?.destroy();
 		view = null;
 		s.sink = {};

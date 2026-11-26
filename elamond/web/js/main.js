@@ -62,7 +62,8 @@ function toast(text, level = 'normal') {
 }
 
 /**
- * Draws what the address asks for. Routes overlap (Back twice fast, two refusals at once each
+ * Draws what the address asks for, once it knows what to draw (the page before stays until then).
+ * Routes overlap (Back twice fast, two refusals at once each
  * going to pairing): one that finds a newer one started after it waited draws nothing, so only the
  * newest mounts, and what it mounted is torn down once.
  */
@@ -71,7 +72,6 @@ async function route() {
 	const old = teardown;
 	teardown = () => {};
 	old();
-	clear(root);
 	const hash = location.hash;
 	// A code in the address is taken and dropped from it, so it stays out of the history.
 	const code = pairCode(hash);
@@ -80,6 +80,7 @@ async function route() {
 		if (!hello) hello = await api('/api/v1/hello');
 		if (routes.stale(run)) return;
 		if (hello && hello.api !== API) {
+			clear(root);
 			root.append(h('p', { class: 'note critical' }, fill(S.core.tooOld, API, hello.api)));
 			return;
 		}
@@ -87,9 +88,12 @@ async function route() {
 		if (routes.stale(run)) return;
 	} catch (e) {
 		if (routes.stale(run)) return;
+		clear(root);
 		root.append(h('p', { class: 'note critical' }, S.core.unreachable), h('button', { onclick: () => route() }, S.core.retry));
 		return;
 	}
+	// What was drawn goes only now that the next is ready: no blank page while `ui` comes.
+	clear(root);
 	document.title = hello ? `${hello.name} · ${S.core.title}` : S.core.title;
 	if (!ui) {
 		teardown = once(mountPair(root, ctx, code));

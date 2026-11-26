@@ -1,7 +1,7 @@
 /* panels: pairing, the computer's page (its top bar, tabs, chips) and every widget type. Colours,
    spaces, corners and type only from style.css's tokens, so the three themes follow. */
 
-.dashboard [hidden], .machine-top [hidden], .pair [hidden], .panels-dialog [hidden], .tabs[hidden], .banner[hidden], .menu[hidden] { display: none !important; }
+.dashboard [hidden], .page-top [hidden], .side [hidden], .pair [hidden], .panels-dialog [hidden], .tabs[hidden], .banner[hidden], .menu[hidden] { display: none !important; }
 .color-probe { position: absolute; visibility: hidden; pointer-events: none; }
 
 /* ---- icons, small controls ---------------------------------------------------------------------- */
@@ -35,9 +35,80 @@ button.danger-soft { color: var(--hot); }
 .chip[aria-checked="true"] { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
 [aria-disabled="true"] > .chip { cursor: default; }
 
+/* ---- the frame (shell.js): the side bar, the bar over the page ----------------------------------- */
+
+/* A wide window: the side bar, then the page; the page as wide as the layout says, its space at the
+   window's edges the layout's too. Narrower than SIDE_PX (consts.js), no side bar: its parts are in
+   the top bar and the rows under it, as in 0.11.3. */
+.shell { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); min-height: 100vh; }
+:root[data-side="rail"] .shell { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
+.page { min-width: 0; width: 100%; max-width: var(--page-max); margin: 0 auto; padding: var(--inset); }
+
+.side { position: sticky; top: 0; z-index: 30; height: 100vh; height: 100dvh; display: flex; flex-direction: column; min-width: 0; background: var(--surface); border-right: 1px solid var(--line); }
+.side-head { display: flex; align-items: center; gap: var(--s1); padding: var(--s3) var(--s3) var(--s2); min-width: 0; }
+.side-name { flex: 1; min-width: 0; font-size: var(--t4); font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-fold { flex: none; }
+.side-scroll { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: var(--s2); padding: 0 var(--s3) var(--s3); scrollbar-width: thin; }
+.side-foot { display: flex; align-items: center; gap: var(--s1); padding: var(--s2) var(--s3); border-top: 1px solid var(--line); }
+.side-group { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s1); }
+.side-title { margin: var(--s2) var(--s3) 0; font-size: var(--t1); font-weight: 600; color: var(--muted); }
+
+/* A place in the side bar: its icon and name, "…" where the name is too long (all of it in the
+   tooltip); the one open in the text's colour, bold (its name keeps the room its bold takes), on a
+   tile with a stripe at its start. */
+.side .tabs, .side .adm-nav { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s0); margin: 0; padding: 0; border: 0; overflow: visible; }
+.side .tab, .side .nav-item, .side .adm-nav a { position: relative; display: flex; align-items: center; gap: var(--s3); min-width: 0; min-height: var(--tap-s); padding: 0 var(--s3); border: 0; border-radius: var(--r2); color: var(--muted); background: transparent; text-decoration: none; white-space: nowrap; }
+.side .tab:hover, .side .nav-item:hover, .side .adm-nav a:hover { color: var(--text); background: var(--surface-2); }
+.side .tab[aria-selected="true"], .side .nav-item[aria-current="page"], .side .adm-nav a[aria-current="page"] { color: var(--text); font-weight: 600; background: var(--surface-2); }
+.side .tab[aria-selected="true"]::before, .side .nav-item[aria-current="page"]::before, .side .adm-nav a[aria-current="page"]::before { content: ""; position: absolute; left: 0; top: var(--s2); bottom: var(--s2); width: var(--underline); border-radius: var(--r-pill); background: var(--primary); }
+.side .nav-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.nav-label { display: inline-block; }
+.nav-label::after { content: attr(data-label); display: block; height: 0; overflow: hidden; visibility: hidden; font-weight: 600; }
+.side .nav-item.edit { margin-top: var(--s1); }
+
+/* Folded: a strip of icons, each one's name for the screen reader and in its tooltip. */
+:root[data-side="rail"] .side-name, :root[data-side="rail"] .side-title { display: none; }
+:root[data-side="rail"] .side-head, :root[data-side="rail"] .side-foot { flex-direction: column; justify-content: center; }
+:root[data-side="rail"] .side .tab, :root[data-side="rail"] .side .nav-item, :root[data-side="rail"] .side .adm-nav a { justify-content: center; padding: 0; }
+:root[data-side="rail"] .side .nav-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+:root[data-side="rail"] .side-group { padding-top: var(--s2); border-top: 1px solid var(--line); }
+
+/* The side bar's menus open above their buttons, out over the page. */
+.side-foot .menu { top: auto; bottom: calc(100% + var(--s1)); }
+
+/* Narrower than SIDE_PX: no side bar. */
+@media (max-width: 899.98px) {
+	.shell { display: block; }
+	.side { display: none; }
+}
+
+/* The bar over the page: the place's title, the chips, the connection's state and the tools. On a
+   wide window it stays at the top while the page scrolls, as wide as the page with its edges. */
+.page-top { align-items: flex-start; }
+.head-status { flex-basis: 100%; }
+.head-status:empty { display: none; }
+@media (min-width: 900px) {
+	.page-top { position: sticky; top: 0; z-index: 20; margin: calc(-1 * var(--inset)) calc(-1 * var(--inset)) var(--s3); padding: var(--inset) var(--inset) var(--s2); background: var(--bg); }
+}
+.page-rows:empty { display: none; }
+.page-rows .adm-nav .icon { display: none; }
+
+/* The top bar's places, on a narrow window: Edit, Admin. */
+.top-tools .nav-item { display: inline-flex; align-items: center; gap: var(--s2); min-height: var(--tap); padding: 0 var(--s4); border-radius: var(--r-pill); color: var(--text); text-decoration: none; }
+.top-tools .nav-item:hover { background: var(--surface-2); }
+.top-tools .nav-item[aria-current="page"] { font-weight: 600; box-shadow: inset 0 calc(-1 * var(--underline)) 0 var(--primary); }
+
+/* The layout menu: four groups of choices and Reset. */
+.menu-wrap.start .menu.layout-menu { min-width: 256px; max-height: min(80vh, 640px); overflow-y: auto; }
+.layout-menu .menu-item { white-space: nowrap; }
+.menu-group { display: grid; }
+.menu-group + .menu-group, .menu-reset { margin-top: var(--s1); padding-top: var(--s1); border-top: 1px solid var(--line); }
+.menu-reset { border-radius: 0 0 var(--r3) var(--r3); }
+.menu-title { padding: var(--s1) var(--s3); font-size: var(--t1); font-weight: 600; color: var(--muted); }
+.layout-menu .menu-item { min-height: var(--tap-s); }
+
 /* ---- the computer's page ------------------------------------------------------------------------- */
 
-.machine-top { align-items: flex-start; }
 .machine-title { margin-right: auto; min-width: 0; display: grid; gap: var(--s2); }
 .machine-title .name { margin: 0; font-size: var(--t5); overflow-wrap: break-word; }
 .top-tools { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; justify-content: flex-end; }
@@ -49,7 +120,8 @@ button.danger-soft { color: var(--hot); }
 .menu { position: absolute; right: 0; top: calc(100% + var(--s1)); z-index: 30; min-width: 220px; display: grid; }
 .menu-wrap.start .menu { left: 0; right: auto; min-width: 160px; }
 .menu-item[aria-checked="true"] { font-weight: 600; }
-.menu-item[aria-checked="true"]::after { content: "✓"; margin-left: auto; }
+/* The tick is for the eye: the screen reader hears aria-checked, and the item's name stays its words. */
+.menu-item[aria-checked="true"]::after { content: "✓"; content: "✓" / ""; margin-left: auto; }
 .top-tools > button { display: inline-flex; align-items: center; gap: var(--s2); }
 
 /* The tabs: the picked one in the text's colour, bold, with a line under it. Each label keeps the
@@ -58,8 +130,6 @@ button.danger-soft { color: var(--hot); }
 .tab { display: inline-flex; align-items: center; gap: var(--s2); min-height: var(--tap); padding: 0 var(--s4); color: var(--muted); text-decoration: none; border-block: var(--underline) solid transparent; white-space: nowrap; border-radius: var(--r3) var(--r3) 0 0; }
 .tab:hover { color: var(--text); background: var(--surface-2); }
 .tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--primary); font-weight: 600; }
-.tab span { display: inline-block; }
-.tab span::after { content: attr(data-label); display: block; height: 0; overflow: hidden; visibility: hidden; font-weight: 600; }
 
 .banner { margin: 0 0 var(--s3); }
 .page-head { display: flex; align-items: center; gap: var(--s2); margin: 0 0 var(--s3); }
@@ -351,11 +421,11 @@ button.primary .icon, .media-play .icon { fill: currentColor; }
 /* ---- a phone's width ---------------------------------------------------------------------------------- */
 
 @media (max-width: 600px) {
-	#app { padding: var(--s2); }
 	.machine-title .name { font-size: var(--t4); }
 	/* The tools on one line under the name: words of the tools that have an icon go to the screen reader. */
 	.top-tools { width: 100%; flex-wrap: nowrap; }
-	.top-tools .tool-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+	.top-tools .nav-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+	.top-tools .nav-item { padding: 0; min-width: var(--tap); justify-content: center; }
 	.fig.large .fig-num { font-size: var(--t5); }
 	.panels-dialog .actions button { flex: 1; }
 	.pair { margin: 2vh auto; padding: var(--s4); }
@@ -364,7 +434,7 @@ button.primary .icon, .media-play .icon { fill: currentColor; }
 	.c-wide { width: 80px; }
 	.c-time { width: 104px; }
 	.bar-cells { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-	.tab span { max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
+	.tab .nav-label { max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
 }
 
 /* A slider with no reading: no thumb to say a value it hasn't. */

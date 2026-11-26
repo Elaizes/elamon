@@ -18,6 +18,7 @@ import { profileCard } from './profile.js';
 import { widgetForm } from './side.js';
 import { addDialog } from './add.js';
 import { confirmDialog } from '../actions.js';
+import { mountFrame } from '../shell.js';
 import { errorSentence } from '../admin/errors.js';
 import { PREVIEW_MIN_MS, PREVIEW_AFTER_SHAPE_MS, PREVIEW_AFTER_TYPING_MS, intervalOf } from '../consts.js';
 
@@ -40,14 +41,24 @@ window.addEventListener('hashchange', (e) => {
 });
 
 /**
- * @param {HTMLElement} root @param {import('../types.js').Ctx} ctx @param {string | null} dashboard the one to edit, none for a new one
+ * The editor in the page's frame (shell.js). @param {HTMLElement} root @param {import('../types.js').Ctx} ctx
+ * @param {string | null} dashboard the one to edit, none for a new one
  * @returns {() => void} what tears it down
  */
 export function mountEditor(root, ctx, dashboard) {
-	if (dashboard == null) return mountNew(root, ctx);
-	const editor = new Editor(root, ctx, dashboard);
-	editor.start();
-	return () => editor.destroy();
+	const frame = mountFrame(root, ctx, { at: 'edit' });
+	frame.title(S.panels.edit);
+	let off;
+	if (dashboard == null) off = mountNew(frame.body, ctx);
+	else {
+		const editor = new Editor(frame.body, ctx, dashboard);
+		editor.start();
+		off = () => editor.destroy();
+	}
+	return () => {
+		frame.destroy();
+		off();
+	};
 }
 
 /** The description, read. @returns {Promise<import('./describe.js').Editor>} */
@@ -206,6 +217,8 @@ class Editor {
 		};
 		this.onKey = (/** @type {KeyboardEvent} */ e) => {
 			if (e.key === 'Escape' && this.selected && !document.querySelector('dialog[open]')) {
+				// The editor's: Escape leaves the page (shell.js) only with nothing picked.
+				e.preventDefault();
 				const was = this.selected;
 				this.select(null);
 				this.canvas.focus(was);
@@ -487,7 +500,7 @@ class Editor {
 		this.canvas.select(path);
 		if (!same || open) this.renderSide();
 		else this.side && this.side.classList.toggle('open', this.sheetOpen);
-		if (path && open && this.side && (into || window.matchMedia('(max-width: 900px)').matches)) {
+		if (path && open && this.side && (into || (document.documentElement.dataset.room || '').split(' ').includes('sheet'))) {
 			const first = this.side.querySelector(into ? '.ed-section input, .ed-section select, .ed-section textarea' : 'button');
 			if (first instanceof HTMLElement) first.focus({ preventScroll: !into });
 		}

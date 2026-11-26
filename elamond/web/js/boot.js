@@ -18,6 +18,21 @@
 		// No storage (a private window may refuse it): the system's.
 	}
 	document.documentElement.dataset.theme = theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+	// The layout this browser picked (arrange.js, `layoutOf`: each value one of its choice's, else the
+	// first, what is there until picked) and whether the side bar is folded, so the page doesn't jump
+	// once the modules run.
+	const PICKS = { width: ['full', 'fixed'], columns: ['auto', '4', '8'], density: ['normal', 'compact', 'roomy'], inset: ['normal', 'none', 'small', 'large'] };
+	let layout = null;
+	let side = null;
+	try {
+		layout = JSON.parse(localStorage.getItem('elamon.layout') || 'null');
+		side = JSON.parse(localStorage.getItem('elamon.side') || 'null');
+	} catch {
+		// None kept, or none readable: what is there until picked.
+	}
+	const kept = layout && typeof layout === 'object' && !Array.isArray(layout) ? layout : {};
+	for (const [key, values] of Object.entries(PICKS)) document.documentElement.dataset[key] = values.includes(kept[key]) ? kept[key] : values[0];
+	document.documentElement.dataset.side = side === 'rail' ? 'rail' : 'open';
 	// style.css is in by now (a script waits for the stylesheets before it): the browser's bar in this theme's background.
 	const meta = document.querySelector('meta[name="theme-color"]');
 	if (meta) meta.setAttribute('content', getComputedStyle(document.documentElement).getPropertyValue('--bg').trim());

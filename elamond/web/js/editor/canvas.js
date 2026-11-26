@@ -7,7 +7,7 @@ import { S, fill } from '../strings.js';
 import { dashboardView } from '../panels.js';
 import { pathKey, samePath, within, WIDGETS } from './draft.js';
 import { tracks } from '../layout.js';
-import { COLUMNS, NARROW_PX, ONE_COLUMN_PX } from '../consts.js';
+import { COLUMNS } from '../consts.js';
 import { spanOf, spanRange, nameOf, typeLabel, isGroup, matchDrawn, widgetType } from './describe.js';
 
 /**
@@ -31,10 +31,11 @@ const TWELFTHS = 12;
 /** @param {string} key @returns {import('./draft.js').WidgetPath} */
 const parsePath = (key) => (key ? key.split('/').map(Number) : []);
 
-/** The columns the editor's grid has now, as editor.css's media queries give it. */
+/** The columns the editor's grid has now, as editor.css gives it by the room the page has (html's data-room, shell.js). */
 function columns() {
-	if (window.matchMedia(`(max-width: ${ONE_COLUMN_PX}px)`).matches) return 1;
-	if (window.matchMedia(`(max-width: ${NARROW_PX}px)`).matches) return COLUMNS / 2;
+	const room = (document.documentElement.dataset.room || '').split(' ');
+	if (room.includes('one')) return 1;
+	if (room.includes('two')) return COLUMNS / 2;
 	return COLUMNS;
 }
 

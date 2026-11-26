@@ -152,12 +152,18 @@
 	--t4: 1.2rem;
 	--t5: 1.5rem;
 	--t6: 2rem;
-	/* A card: its padding on every side, its corner; a tile in a card: its corner (the card's less its padding). */
+	/* A card: its padding on every side, its corner; a tile in a card: its corner (the card's less its padding).
+	   The layout's density (below) changes them, the rest of the page following. */
 	--pad: var(--s3);
 	--radius: var(--r4);
 	--radius-in: var(--r2);
 	--gap: var(--s3);
 	--gap-in: var(--s2);
+	/* The page: its space at the window's edges (the layout's), how wide it may be, the side bar's width. */
+	--inset: var(--s3);
+	--page-max: none;
+	--side-w: 248px;
+	--rail-w: calc(var(--tap) + 2 * var(--s3));
 	/* A finger's target; the smaller one a mouse is given, a finger's again on a touch screen. */
 	--tap: 44px;
 	--tap-s: 36px;
@@ -177,6 +183,21 @@
 }
 @media (pointer: coarse) { :root { --tap-s: var(--tap); } }
 
+/* The layout this browser picked (arrange.js; boot.js sets it before the first frame): normal is 0.11.3's.
+   Denser or roomier cards, gaps and tiles, a tile's corner still the card's less its padding; the
+   space at the window's edges; the page at most 1280 px wide. A phone has a step less of space. */
+:root[data-density="compact"] { --pad: var(--s2); --gap: var(--s2); --gap-in: var(--s1); --radius-in: var(--r3); }
+:root[data-density="roomy"] { --pad: var(--s4); --gap: var(--s4); --gap-in: var(--s3); --radius-in: var(--r1); }
+:root[data-inset="none"] { --inset: 0px; }
+:root[data-inset="small"] { --inset: var(--s2); }
+:root[data-inset="large"] { --inset: var(--s6); }
+:root[data-width="fixed"] { --page-max: 1280px; }
+@media (max-width: 600px) {
+	:root { --inset: var(--s2); }
+	:root[data-inset="small"] { --inset: var(--s1); }
+	:root[data-inset="large"] { --inset: var(--s4); }
+}
+
 :root[data-still="true"] * { transition: none !important; animation: none !important; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
@@ -185,7 +206,9 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
 body { min-height: 100vh; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-#app { max-width: 1280px; margin: 0 auto; padding: var(--s3); }
+/* The page as a whole: pairing and a failure fill it themselves; the computer's pages are in the frame (panels.css). */
+#app { max-width: var(--page-max); margin: 0 auto; padding: var(--inset); }
+#app:has(> .shell) { max-width: none; padding: 0; }
 
 h1, h2, h3 { margin: 0 0 var(--s2); line-height: 1.2; }
 h1 { font-size: var(--t5); }

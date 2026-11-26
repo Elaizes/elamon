@@ -7,7 +7,6 @@
 }
 .adm [hidden] { display: none !important; }
 .adm a.button, .adm-dialog a.button { display: inline-flex; align-items: center; text-decoration: none; }
-.adm-back { padding: 0 var(--s3); }
 
 /* The sections, as a row of links that scrolls sideways on a narrow screen; the one open filled. */
 .adm-nav {

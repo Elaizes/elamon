@@ -426,6 +426,221 @@ def test_theme(T):
 	expect(page.get_by_role('menuitemradio', name='Dark')).to_be_hidden()
 
 
+# The frame as drawn: the side bar's right edge (0 without one), the outermost cards of the dashboard
+# (its own, not a group's), the window's width, the grid's columns, a card's padding, the page's box
+# and html's attributes.
+FRAME = """() => {
+	const R = (e) => e.getBoundingClientRect();
+	const side = document.querySelector('.side');
+	const cards = [...document.querySelectorAll('.dashboard > .dash-grid > .dash-row > .card')].map(R).filter((r) => r.width > 0);
+	const grid = document.querySelector('.dashboard > .dash-grid');
+	const page = R(document.querySelector('.page'));
+	const head = document.querySelector('.page-top');
+	return {
+		side: side && getComputedStyle(side).display !== 'none' ? R(side).right : 0,
+		left: Math.min(...cards.map((c) => c.left)), right: Math.max(...cards.map((c) => c.right)),
+		vw: document.documentElement.clientWidth,
+		cols: grid ? Number(getComputedStyle(grid).getPropertyValue('--cols')) : 0,
+		pad: cards.length ? parseFloat(getComputedStyle(document.querySelector('.dashboard > .dash-grid > .dash-row > .card')).paddingLeft) : 0,
+		gap: grid ? parseFloat(getComputedStyle(grid).rowGap) : 0,
+		page: [page.left, page.right], head: head ? R(head).top : null,
+		html: { ...document.documentElement.dataset },
+	};
+}"""
+
+
+def near(a, b, what):
+	check(abs(a - b) <= 1, f'{what}: {a} px, not {b}')
+
+
+def held_hello(page, then):
+	"""Reloads the page with its hello held: `then()` while the computer hasn't been asked anything."""
+	held = []
+	page.route(re.compile(r'/api/v1/hello'), lambda r: held.append(r))
+	page.reload()
+	until(page, lambda: held, 'the page asking for hello')
+	then()
+	for r in held:
+		r.continue_()
+	page.unroute(re.compile(r'/api/v1/hello'))
+
+
+def test_layout(T):
+	"""The layout menu: the page's width, the dashboards' columns, the density and the space at the
+	window's edges, each doing what it says; kept across a reload and in place before the computer is
+	asked anything (no jump); Reset; a kept value that is no pick counts as none; on a phone's width
+	two columns whatever is picked."""
+	page = T.page(viewport={'width': 1920, 'height': 1080})
+	page.goto(BASE + '/#/tab/overview')
+	expect(page.get_by_role('meter', name='CPU')).to_have_attribute('aria-valuetext', re.compile(r'\d'))
+	f = page.evaluate(FRAME)
+	check(f['html'].get('width') == 'full' and f['html'].get('columns') == 'auto' and f['html'].get('density') == 'normal' and f['html'].get('inset') == 'normal', f'until picked: {f["html"]}')
+	# The whole window: its edges 12 px from the side bar and from the window; 8 columns on 1920.
+	near(f['left'] - f['side'], 12, 'the page\'s space beside the side bar')
+	near(f['vw'] - f['right'], 12, 'the page\'s space at the window\'s edge')
+	check(f['cols'] == 8, f'{f["cols"]} columns on 1920 px, not 8')
+	near(f['pad'], 12, 'a card\'s padding')
+	shot(page, '06-layout-default', full=False)
+
+	button = page.get_by_role('button', name='Layout')
+	button.click()
+	menu = page.get_by_role('menu')
+	expect(menu.get_by_role('menuitemradio')).to_have_count(12)
+
+	def pick(group, item, done, what):
+		menu.get_by_role('group', name=group).get_by_role('menuitemradio', name=item, exact=True).click()
+		expect(menu.get_by_role('group', name=group).get_by_role('menuitemradio', name=item, exact=True)).to_have_attribute('aria-checked', 'true')
+		until(page, lambda: done(page.evaluate(FRAME)), what)
+
+	pick('Columns', '4', lambda f: f['cols'] == 4, 'four columns')
+	pick('Columns', '8', lambda f: f['cols'] == 8, 'eight columns')
+	pick('Density', 'Compact', lambda f: f['pad'] == 8 and f['gap'] == 8, 'compact cards')
+	pick('Density', 'Roomy', lambda f: f['pad'] == 16 and f['gap'] == 16, 'roomy cards')
+	pick('Space at the edges', 'None', lambda f: abs(f['left'] - f['side']) <= 1 and abs(f['vw'] - f['right']) <= 1, 'no space at the edges')
+	pick('Space at the edges', 'Large', lambda f: abs(f['left'] - f['side'] - 24) <= 1 and abs(f['vw'] - f['right'] - 24) <= 1, '24 px at the edges')
+	pick('Width', 'At most 1280 px', lambda f: abs(f['page'][1] - f['page'][0] - 1280) <= 1, 'a page 1280 px wide')
+	f = page.evaluate(FRAME)
+	near(f['page'][0] - f['side'], f['vw'] - f['page'][1], 'the narrow page between the side bar and the window\'s edge')
+	page.keyboard.press('Escape')
+	expect(menu).to_be_hidden()
+	shot(page, '06-layout-picked', full=False)
+
+	# A reload: every pick in place before the computer is asked anything, and after.
+	picked = {'width': 'fixed', 'columns': '8', 'density': 'roomy', 'inset': 'large'}
+	held_hello(page, lambda: check({k: page.evaluate(f'document.documentElement.dataset.{k}') for k in picked} == picked, 'the picks before the computer answers'))
+	expect(page.get_by_role('meter', name='CPU')).to_have_attribute('aria-valuetext', re.compile(r'\d'))
+	f = page.evaluate(FRAME)
+	check(f['pad'] == 16 and abs(f['page'][1] - f['page'][0] - 1280) <= 1, f'after a reload: {f}')
+
+	# Reset: what is there until picked.
+	button.click()
+	menu.get_by_role('menuitem', name='Reset').click()
+	until(page, lambda: page.evaluate(FRAME)['html'].get('width') == 'full' and page.evaluate(FRAME)['pad'] == 12, 'the layout reset')
+	check(page.evaluate("localStorage.getItem('elamon.layout')") is None, 'Reset kept a layout')
+	page.keyboard.press('Escape')
+
+	# What is no pick counts as none; a pick that is, as picked.
+	page.evaluate("""localStorage.setItem('elamon.layout', JSON.stringify({ density: 'huge', columns: '12', inset: 'small' }))""")
+	page.reload()
+	expect(page.get_by_role('meter', name='CPU')).to_have_attribute('aria-valuetext', re.compile(r'\d'))
+	f = page.evaluate(FRAME)
+	check(f['html'].get('density') == 'normal' and f['html'].get('columns') == 'auto' and f['html'].get('inset') == 'small', f'kept nonsense: {f["html"]}')
+	near(f['vw'] - f['right'], 8, 'small space at the edges')
+
+	# A phone: two columns, eight picked or not.
+	phone = T.page(viewport=PHONE, is_mobile=True, has_touch=True, device_scale_factor=2)
+	phone.add_init_script("localStorage.setItem('elamon.layout', JSON.stringify({ columns: '8' }))")
+	phone.goto(BASE + '/#/tab/overview')
+	expect(phone.get_by_role('meter', name='CPU')).to_have_attribute('aria-valuetext', re.compile(r'\d'))
+	check(phone.evaluate(FRAME)['cols'] == 2, 'a phone with eight columns picked')
+
+
+SIDE = re.compile(r'dashboards and tools$')
+
+
+def test_shell(T):
+	"""The frame on a wide window: one side bar with the dashboards, the admin panel's sections and
+	the editor; the admin panel and the editor in it, Escape back to the dashboards (a menu's Escape
+	closes the menu); keys 1–9; the side bar folded to its icons and back, kept before the computer is
+	asked anything; the bar over the page in place while it scrolls, the editor's tools under it; Tab
+	from the side bar to the bar to the page. On a phone's width: no side bar, the tabs at the top."""
+	page = T.page()
+	page.goto(BASE + '/#/tab/overview')
+	side = page.get_by_role('navigation', name=SIDE)
+	tablist = side.get_by_role('tablist', name='Dashboards')
+	expect(tablist).to_be_visible()
+	expect(tablist.get_by_role('tab', name='Overview')).to_have_attribute('aria-selected', 'true')
+	u = ui(page)
+	titles = {d['id']: d.get('title') or d['id'] for d in u['dashboards']}
+	tabs = [t for t in dict.fromkeys(u['tabs']) if t in titles]
+	check(len(tabs) >= 2, f'the test profile has {len(tabs)} tabs')
+	# One navigation: no "Back" to the dashboards anywhere, Edit and Admin only in the side bar.
+	expect(page.locator('.page-top').get_by_role('link', name='Admin')).to_have_count(0)
+	expect(page.locator('.page-top').get_by_role('link', name='Edit this dashboard')).to_have_count(0)
+
+	# 2: the second tab, the same stream (the address follows).
+	page.locator('main').focus()
+	page.keyboard.press('2')
+	expect(tablist.get_by_role('tab', name=titles[tabs[1]], exact=True)).to_have_attribute('aria-selected', 'true')
+	expect(page).to_have_url(re.compile(f'#/tab/{re.escape(tabs[1])}$'))
+
+	# The admin panel from the side bar, its section marked there; no header of its own.
+	side.get_by_role('navigation', name='Admin sections').get_by_role('link', name='Clients').click()
+	expect(page).to_have_url(re.compile(r'#/admin/clients$'))
+	expect(side.get_by_role('link', name='Clients')).to_have_attribute('aria-current', 'page')
+	expect(page.get_by_role('link', name=re.compile('Back'))).to_have_count(0)
+	expect(page.get_by_role('heading', name='Clients')).to_be_visible()
+	# A menu open: Escape closes it and stays.
+	page.get_by_role('button', name='More').click()
+	expect(page.get_by_role('menuitem', name='Forget this browser')).to_be_visible()
+	page.keyboard.press('Escape')
+	expect(page.get_by_role('menuitem', name='Forget this browser')).to_be_hidden()
+	expect(page).to_have_url(re.compile(r'#/admin/clients$'))
+	# Escape: back to the dashboard last open.
+	page.keyboard.press('Escape')
+	expect(page).to_have_url(re.compile(f'#/tab/{re.escape(tabs[1])}$'))
+	expect(tablist.get_by_role('tab', name=titles[tabs[1]], exact=True)).to_have_attribute('aria-selected', 'true')
+	# 1 from the admin panel: the first tab.
+	page.goto(BASE + '/#/admin/overview')
+	expect(page.get_by_role('heading', name='Overview')).to_be_visible()
+	page.keyboard.press('1')
+	expect(page).to_have_url(re.compile(f'#/tab/{re.escape(tabs[0])}$'))
+	expect(tablist.get_by_role('tab', name=titles[tabs[0]], exact=True)).to_have_attribute('aria-selected', 'true')
+
+	# The editor from the side bar, for the dashboard on screen; its tools stick under the bar.
+	side.get_by_role('link', name='Edit this dashboard').click()
+	expect(page).to_have_url(re.compile(f'#/edit/{re.escape(tabs[0])}$'))
+	expect(page.get_by_role('heading', name=re.compile('^Edit: '))).to_be_visible()
+	expect(side.get_by_role('link', name='Edit this dashboard')).to_have_attribute('aria-current', 'page')
+	page.mouse.wheel(0, 2000)
+	until(page, lambda: page.evaluate('scrollY') > 0, 'the editor scrolled')
+	until(page, lambda: page.evaluate("Math.abs(document.querySelector('.ed-tools').getBoundingClientRect().top - document.querySelector('.page-top').getBoundingClientRect().bottom) <= 1"), 'the editor\'s tools under the bar')
+	check(page.evaluate("document.querySelector('.page-top').getBoundingClientRect().top") == 0, 'the bar left the top while the editor scrolled')
+	page.keyboard.press('Escape')
+	expect(page).to_have_url(re.compile(f'#/tab/{re.escape(tabs[0])}$'))
+
+	# The bar over the page stays while it scrolls.
+	page.set_viewport_size({'width': 1366, 'height': 480})
+	page.mouse.wheel(0, 1500)
+	until(page, lambda: page.evaluate('scrollY') > 0, 'the dashboard scrolled')
+	check(page.evaluate("document.querySelector('.page-top').getBoundingClientRect().top") == 0, 'the bar left the top while the page scrolled')
+	page.set_viewport_size(WIDE)
+
+	# Tab: the side bar first, then the bar, then the page.
+	order = page.evaluate("""() => {
+		const all = [...document.querySelectorAll('button, a[href], [tabindex="0"], input, select')].filter((e) => e.getBoundingClientRect().width > 0 && !e.closest('[hidden]'));
+		const at = (sel) => all.findIndex((e) => e.closest(sel));
+		return [at('.side'), at('.page-top'), at('.page-body')];
+	}""")
+	check(order[0] < order[1] < order[2], f'Tab goes side bar, bar, page at {order}')
+
+	# Folded to its icons: names for the screen reader and in the tooltips, kept across a reload.
+	wide = page.evaluate("document.querySelector('.side').getBoundingClientRect().width")
+	side.get_by_role('button', name='Fold the side bar to its icons').click()
+	until(page, lambda: page.evaluate('document.documentElement.dataset.side') == 'rail', 'the side bar folded')
+	until(page, lambda: page.evaluate("document.querySelector('.side').getBoundingClientRect().width") < wide / 2, 'a narrow side bar')
+	expect(tablist.get_by_role('tab', name=titles[tabs[0]], exact=True)).to_be_visible()
+	check(page.evaluate("document.querySelector('.side .tab').title") != '', 'a folded tab has no tooltip')
+	held_hello(page, lambda: check(page.evaluate('document.documentElement.dataset.side') == 'rail', 'unfolded before the computer answers'))
+	expect(tablist).to_be_visible()
+	side.get_by_role('button', name='Open the side bar out').click()
+	until(page, lambda: page.evaluate('document.documentElement.dataset.side') == 'open', 'the side bar open again')
+	shot(page, '07-shell-wide', full=False)
+
+	# A phone's width: no side bar; the tabs at the top; the admin panel's sections a row of their own.
+	phone = T.page(viewport=PHONE, is_mobile=True, has_touch=True, device_scale_factor=2)
+	phone.goto(BASE + '/#/tab/overview')
+	expect(phone.get_by_role('tablist', name='Dashboards')).to_be_visible()
+	expect(phone.get_by_role('navigation', name=SIDE)).to_be_hidden()
+	phone.locator('.page-top').get_by_role('link', name='Admin').click()
+	expect(phone).to_have_url(re.compile(r'#/admin$'))
+	expect(phone.get_by_role('navigation', name='Admin sections')).to_be_visible()
+	expect(phone.get_by_role('tablist', name='Dashboards')).to_be_visible()
+	width = phone.evaluate('[document.documentElement.scrollWidth, document.documentElement.clientWidth]')
+	check(width[0] <= width[1] + 1, f'the page is wider than a phone: {width[0]} px in {width[1]}')
+	shot(phone, '07-shell-phone-admin')
+
+
 def activity(page, what):
 	return [e for e in api(page, '/api/v1/admin/activity?limit=200')['entries'] if e.get('what') == what]
 
@@ -839,7 +1054,7 @@ def test_forget(T):
 	check('web/' not in listed, f'elamond clients still lists a browser: {listed}')
 
 
-SCENARIOS = [test_pair, test_blocked, test_panels, test_theme, test_action, test_admin, test_files, test_control, test_editor, test_forget]
+SCENARIOS = [test_pair, test_blocked, test_panels, test_theme, test_layout, test_shell, test_action, test_admin, test_files, test_control, test_editor, test_forget]
 
 
 def main():

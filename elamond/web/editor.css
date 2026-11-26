@@ -65,11 +65,11 @@
 
 /* ------------------------------------------------------------------ the canvas and the side */
 
-.ed-tools { position: sticky; top: 0; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); padding: var(--s2) 0; background: var(--bg); }
+.ed-tools { position: sticky; top: var(--head-h, 0px); z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); padding: var(--s2) 0; background: var(--bg); }
 .ed-preview-note { margin: 0; font-size: var(--t2); }
 .ed-preview-note.warn { color: var(--warn); }
 .ed-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: var(--gap); align-items: start; }
-.ed-side { position: sticky; top: 64px; max-height: calc(100vh - 80px); overflow: auto; overscroll-behavior: contain;
+.ed-side { position: sticky; top: calc(var(--head-h, 0px) + 64px); max-height: calc(100vh - 80px - var(--head-h, 0px)); overflow: auto; overscroll-behavior: contain;
 	background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--pad); min-width: 0; }
 .ed-side-head { display: flex; align-items: center; gap: var(--s2); }
 .ed-side-head h2 { flex: 1; min-width: 0; margin: 0; overflow-wrap: break-word; }
@@ -159,36 +159,32 @@
 	.ed-placeholder { padding-top: var(--pad); }
 }
 
-/* The side becomes a sheet from the bottom. */
-@media (max-width: 900px) {
-	.ed-main { grid-template-columns: minmax(0, 1fr); }
-	.ed-side { position: fixed; z-index: 40; left: 0; right: 0; bottom: 0; top: auto; max-height: 80vh; border-radius: var(--radius) var(--radius) 0 0;
-		padding-bottom: calc(var(--pad) + env(safe-area-inset-bottom)); box-shadow: var(--shadow); transform: translateY(105%); visibility: hidden;
-		transition: transform 0.2s, visibility 0.2s; }
-	.ed-side.open { transform: none; visibility: visible; }
-}
+/* The side becomes a sheet from the bottom: where the page has 900 px or less beside the frame's side
+   bar (shell.js sets html's data-room: `sheet`, and `two` at 600 px, `one` at 320 px, as the
+   window's width did before the side bar). */
+:root[data-room~="sheet"] .ed-main { grid-template-columns: minmax(0, 1fr); }
+:root[data-room~="sheet"] .ed-side { position: fixed; z-index: 40; left: 0; right: 0; bottom: 0; top: auto; max-height: 80vh; border-radius: var(--radius) var(--radius) 0 0;
+	padding-bottom: calc(var(--pad) + env(safe-area-inset-bottom)); box-shadow: var(--shadow); transform: translateY(105%); visibility: hidden;
+	transition: transform 0.2s, visibility 0.2s; }
+:root[data-room~="sheet"] .ed-side.open { transform: none; visibility: visible; }
 
 /* Two columns: widths halved; forms one field to a row; every button a finger wide. */
-@media (max-width: 600px) {
-	.ed-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-	.ed-w2-1 { grid-column: span 1; }
-	.ed-w2-2 { grid-column: span 2; }
-	.ed-fields { grid-template-columns: minmax(0, 1fr); }
-	.ed-bar { position: static; opacity: 1; margin-bottom: var(--s2); box-shadow: none; }
-	.ed-cell:not(.ed-groupcell) { display: flex; flex-direction: column; }
-	.ed-cell:not(.ed-groupcell) > .ed-bar { order: -1; }
-	.ed-groupcell { padding-top: var(--pad); }
-	.ed-over { cursor: default; }
-	.ed-bar button, .ed-unset { min-height: var(--tap); min-width: var(--tap); }
-	.ed-widths, .ed-resize { display: none; }
-	.ed-cell:not(.selected) > .ed-bar .ed-remove { display: none; }
-	.ed-placeholder { padding-top: var(--pad); }
-	.ed-origin .ed-row-buttons { margin-left: 0; }
-}
-@media (max-width: 320px) {
-	.ed-grid { grid-template-columns: minmax(0, 1fr); }
-	.ed-cell { grid-column: span 1; }
-}
+:root[data-room~="two"] .ed-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+:root[data-room~="two"] .ed-w2-1 { grid-column: span 1; }
+:root[data-room~="two"] .ed-w2-2 { grid-column: span 2; }
+:root[data-room~="two"] .ed-fields { grid-template-columns: minmax(0, 1fr); }
+:root[data-room~="two"] .ed-bar { position: static; opacity: 1; margin-bottom: var(--s2); box-shadow: none; }
+:root[data-room~="two"] .ed-cell:not(.ed-groupcell) { display: flex; flex-direction: column; }
+:root[data-room~="two"] .ed-cell:not(.ed-groupcell) > .ed-bar { order: -1; }
+:root[data-room~="two"] .ed-groupcell { padding-top: var(--pad); }
+:root[data-room~="two"] .ed-over { cursor: default; }
+:root[data-room~="two"] .ed-bar button, :root[data-room~="two"] .ed-unset { min-height: var(--tap); min-width: var(--tap); }
+:root[data-room~="two"] .ed-widths, :root[data-room~="two"] .ed-resize { display: none; }
+:root[data-room~="two"] .ed-cell:not(.selected) > .ed-bar .ed-remove { display: none; }
+:root[data-room~="two"] .ed-placeholder { padding-top: var(--pad); }
+:root[data-room~="two"] .ed-origin .ed-row-buttons { margin-left: 0; }
+:root[data-room~="one"] .ed-grid { grid-template-columns: minmax(0, 1fr); }
+:root[data-room~="one"] .ed-cell { grid-column: span 1; }
 
 /* ------------------------------------------------------------------ the profile */
 
@@ -212,7 +208,7 @@
 .ed-mini { max-height: 130px; overflow: hidden; pointer-events: none; border-radius: var(--r2); }
 .ed-mini:empty { display: none; }
 
-.ed-new-form { max-width: 560px; display: grid; gap: var(--s0); }
+.ed-new-form { max-width: 560px; margin-inline: auto; display: grid; gap: var(--s0); }
 .ed-new-form h1 { margin-bottom: var(--s1); }
 
 .ed-keys summary { display: flex; align-items: center; gap: var(--s2); min-height: var(--tap); cursor: pointer; }

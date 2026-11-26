@@ -33,6 +33,9 @@ export const AUTO_WIDE_PX = 1500;
 /** Narrower than this (CSS px), the grid has two columns. */
 export const NARROW_PX = 600;
 
+/** From this width of the window (CSS px) on, the page has its side bar (shell.js, and style.css's media queries). */
+export const SIDE_PX = 900;
+
 /** Narrower than this, one: two would leave a tile too narrow for a name beside its icon. */
 export const ONE_COLUMN_PX = 320;
 
