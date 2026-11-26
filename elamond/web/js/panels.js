@@ -234,17 +234,19 @@ let session = null;
 
 /**
  * A button and the menu it opens under it, closed by a pick, Escape or a press elsewhere; focus goes
- * to the item picked now, or the first.
- * @param {HTMLButtonElement} button @param {string} id @param {HTMLElement[]} items
+ * to the item picked now, or the first. The menu ends under the button's right edge (⋮, last in the
+ * bar), or with `start` begins under its left one (a button further in, whose menu would leave the
+ * window on a narrow screen).
+ * @param {HTMLButtonElement} button @param {string} id @param {HTMLElement[]} items @param {boolean} [start]
  * @returns {{ wrap: HTMLElement, close: () => void }}
  */
-function dropdown(button, id, items) {
+function dropdown(button, id, items, start = false) {
 	button.setAttribute('aria-haspopup', 'menu');
 	button.setAttribute('aria-expanded', 'false');
 	button.setAttribute('aria-controls', id);
 	const list = h('div', { id, role: 'menu', class: 'menu card' }, ...items);
 	list.hidden = true;
-	const wrap = h('div', { class: 'menu-wrap' }, button, list);
+	const wrap = h('div', { class: start ? 'menu-wrap start' : 'menu-wrap' }, button, list);
 	const close = () => {
 		list.hidden = true;
 		button.setAttribute('aria-expanded', 'false');
@@ -273,7 +275,7 @@ function dropdown(button, id, items) {
 function themeMenu() {
 	const button = h('button', { type: 'button', class: 'icon-button quiet' });
 	const items = THEMES.map((t) => h('button', { type: 'button', role: 'menuitemradio', class: 'menu-item', 'data-pick': t }, icon(THEME_ICONS[t]), S.core.themes[t]));
-	const menu = dropdown(button, 'theme-menu', items);
+	const menu = dropdown(button, 'theme-menu', items, true);
 	const show = () => {
 		const now = shown();
 		const text = fill(S.core.themeIs, S.core.themes[now]);

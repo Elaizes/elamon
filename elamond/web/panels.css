@@ -47,6 +47,7 @@ button.danger-soft { color: var(--hot); }
 
 .menu-wrap { position: relative; }
 .menu { position: absolute; right: 0; top: calc(100% + var(--s1)); z-index: 30; min-width: 220px; display: grid; }
+.menu-wrap.start .menu { left: 0; right: auto; }
 .menu-item[aria-checked="true"] { font-weight: 600; }
 .menu-item[aria-checked="true"]::after { content: "✓"; margin-left: auto; }
 .top-tools > button { display: inline-flex; align-items: center; gap: var(--s2); }
