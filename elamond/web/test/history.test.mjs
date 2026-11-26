@@ -65,6 +65,23 @@ test('memory guard and gaps', () => {
 	assert.equal(h.gapMs, 3000);
 });
 
+test('the history\'s steps are no gaps once the stream\'s points outnumber them (G107); a hole in it still is', () => {
+	// Ten minutes of history a point each 10 s with a 2-minute hole, then 7 minutes of the stream at 1 s.
+	const t = [];
+	for (let x = 0; x <= 600_000; x += 10_000) if (x < 200_000 || x >= 320_000) t.push(x);
+	const h = new Hist(1, 900_000, 1000);
+	h.replace({ t, v: [t.map(() => 1)] });
+	for (let x = 601_000; x <= 1_020_000; x += 1000) h.append(x, [2]);
+	assert.ok(h.size - t.length > t.length, 'the stream\'s points outnumber the history\'s');
+	const breaks = [];
+	for (let i = 1; i < h.size; i++) if (h.t[i] - h.t[i - 1] > h.gapMs) breaks.push([h.t[i - 1], h.t[i]]);
+	assert.deepEqual(breaks, [[190_000, 320_000]]);
+	// Nothing from the history: the stream's own steps.
+	const live = new Hist(1, 600_000, 1000);
+	for (let x = 0; x <= 60_000; x += 1000) live.append(x, [1]);
+	assert.equal(live.gapMs, 3000);
+});
+
 test('range chips: its own and the long ones, shortest first, none as long as its own', () => {
 	const all = ['1h', '24h', '7d', '30d', '1y', 'all'];
 	const chips = rangeChips(600_000, all);

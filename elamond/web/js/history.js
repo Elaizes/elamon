@@ -91,6 +91,8 @@ export class Hist {
 		this.v = Array.from({ length: this.series }, () => []);
 		/** Counts changes, for a drawing that has to tell a redraw apart. */
 		this.version = 0;
+		/** The usual step of the service's history this was last given (its points are further apart than the stream's). */
+		this.historyStepMs = 0;
 	}
 
 	get size() {
@@ -113,6 +115,7 @@ export class Hist {
 	clear() {
 		this.t = [];
 		this.v = Array.from({ length: this.series }, () => []);
+		this.historyStepMs = 0;
 		this.version++;
 	}
 
@@ -124,6 +127,7 @@ export class Hist {
 			if (this.t.length && ts[i] <= this.lastTime) continue;
 			this.push(ts[i], (entry.v || []).map((s) => (s ? s[i] : null)));
 		}
+		this.historyStepMs = this.medianStepMs();
 		this.prune();
 		this.version++;
 	}
@@ -173,8 +177,13 @@ export class Hist {
 		return steps[Math.floor(steps.length / 2)];
 	}
 
+	/**
+	 * A step longer than this is a gap: a few of the usual ones, the history's where it came (its
+	 * points are further apart than the stream's, which soon outnumber them and would make every
+	 * step of the history a gap — G107).
+	 */
 	get gapMs() {
-		return GAP_FACTOR * Math.max(this.medianStepMs(), this.stepHintMs);
+		return GAP_FACTOR * Math.max(this.medianStepMs(), this.historyStepMs, this.stepHintMs);
 	}
 
 	/** @param {number} t @param {(number | null | undefined)[]} values */
