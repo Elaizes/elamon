@@ -1541,7 +1541,8 @@ is the same kind of link.
 - A browser has a role, as a phone has (`admin` unless you give another), and a profile of its own
   in `elamond.d/phones.toml` ([section 14](#each-phones-own-profile)). The page takes `theme`,
   `pure_black`, `animations` and `confirm_actions` from it, and its size from the browser. The theme
-  button in the page's top bar changes the theme in that browser alone.
+  button in the page's top bar picks Light, Dark or Black for that browser alone, over the profile's
+  `theme` and `pure_black`; until one is picked, the page follows the profile.
 
 ### What the page shows
 

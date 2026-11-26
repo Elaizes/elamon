@@ -2,15 +2,16 @@
 // type in widgets/. The dashboard editor and the admin panel's preview draw with `dashboardView`
 // too, so a draft looks as it will.
 import { api, ApiError } from './api.js';
-import { h, setText } from './dom.js';
+import { h, setText, breakAfter } from './dom.js';
 import { S, fill } from './strings.js';
 import { icon } from './icons.js';
-import { cycleTheme, chosen } from './theme.js';
+import { THEMES, THEME_ICONS, choose, shown } from './theme.js';
 import * as state from './state.js';
 import { columns } from './layout.js';
 import { makeGrid } from './widgets/grid.js';
 import { make } from './widgets/index.js';
 import { setLevel } from './widgets/common.js';
+import { onTheme } from './widgets/canvas.js';
 import { Stream, keptAsked, offlineAfter } from './stream.js';
 import { actionRunner, confirmDialog } from './actions.js';
 import { errorText } from './errors.js';
@@ -174,7 +175,7 @@ export function mountPair(root, ctx, code) {
 	const certificate = isFingerprint(fp)
 		? h('section', { class: 'pair-certificate', 'aria-labelledby': 'pair-cert-title' },
 				h('h2', { id: 'pair-cert-title' }, P.pairCertificate),
-				h('p', { class: 'mono fingerprint' }, colonFingerprint(fp)),
+				h('p', { class: 'mono fingerprint' }, breakAfter(colonFingerprint(fp), ':')),
 				h('p', { class: 'muted' }, fill(P.pairPrinted, printedFingerprint(fp))),
 				h('p', null, P.pairCompare))
 		: h('p', { class: 'note warning' }, P.pairNoFingerprint);
@@ -231,10 +232,66 @@ export function mountPair(root, ctx, code) {
 /** @type {Session | null} */
 let session = null;
 
-/** The theme button's words for this browser's choice. */
-function themeWords() {
-	const c = chosen();
-	return c === 'light' ? [S.core.themeLight, 'sun'] : c === 'dark' ? [S.core.themeDark, 'moon'] : [S.core.themeSystem, 'contrast'];
+/**
+ * A button and the menu it opens under it, closed by a pick, Escape or a press elsewhere; focus goes
+ * to the item picked now, or the first.
+ * @param {HTMLButtonElement} button @param {string} id @param {HTMLElement[]} items
+ * @returns {{ wrap: HTMLElement, close: () => void }}
+ */
+function dropdown(button, id, items) {
+	button.setAttribute('aria-haspopup', 'menu');
+	button.setAttribute('aria-expanded', 'false');
+	button.setAttribute('aria-controls', id);
+	const list = h('div', { id, role: 'menu', class: 'menu card' }, ...items);
+	list.hidden = true;
+	const wrap = h('div', { class: 'menu-wrap' }, button, list);
+	const close = () => {
+		list.hidden = true;
+		button.setAttribute('aria-expanded', 'false');
+		document.removeEventListener('pointerdown', outside);
+	};
+	const outside = (/** @type {Event} */ e) => {
+		if (!wrap.contains(/** @type {Node} */ (e.target))) close();
+	};
+	button.addEventListener('click', () => {
+		if (!list.hidden) return close();
+		list.hidden = false;
+		button.setAttribute('aria-expanded', 'true');
+		document.addEventListener('pointerdown', outside);
+		(items.find((i) => i.getAttribute('aria-checked') === 'true') || items[0])?.focus();
+	});
+	list.addEventListener('keydown', (e) => {
+		if (e.key === 'Escape') {
+			close();
+			button.focus();
+		}
+	});
+	return { wrap, close };
+}
+
+/** The theme menu: light, dark or black for this browser; its button shows the theme shown, `show` brings it up to date. */
+function themeMenu() {
+	const button = h('button', { type: 'button', class: 'icon-button quiet' });
+	const items = THEMES.map((t) => h('button', { type: 'button', role: 'menuitemradio', class: 'menu-item', 'data-pick': t }, icon(THEME_ICONS[t]), S.core.themes[t]));
+	const menu = dropdown(button, 'theme-menu', items);
+	const show = () => {
+		const now = shown();
+		const text = fill(S.core.themeIs, S.core.themes[now]);
+		button.setAttribute('aria-label', text);
+		button.title = text;
+		button.replaceChildren(icon(THEME_ICONS[now]));
+		for (const b of items) b.setAttribute('aria-checked', String(b.dataset.pick === now));
+	};
+	for (const b of items) {
+		b.addEventListener('click', () => {
+			choose(/** @type {import('./theme.js').Theme} */ (b.dataset.pick));
+			menu.close();
+			show();
+			button.focus();
+		});
+	}
+	show();
+	return { el: menu.wrap, show };
 }
 
 /**
@@ -267,6 +324,8 @@ export function mountMachine(root, ctx, tab) {
 	let view = null;
 	/** @type {ReturnType<typeof headerChips> | null} */
 	let chips = null;
+	/** Stops the theme button following the theme (it does while drawn). */
+	let themeOff = () => {};
 	/** The last line of the dashboard on screen, to draw it again at once when the settings change. @type {Data | null} */
 	let lastData = null;
 
@@ -424,22 +483,17 @@ export function mountMachine(root, ctx, tab) {
 
 	function drawTop() {
 		const name = (ctx.hello && ctx.hello.name) || (ui.service && ui.service.name) || S.core.title;
-		const [themeText, themeIcon] = themeWords();
-		const theme = h('button', { type: 'button', class: 'icon-button quiet', 'aria-label': themeText, title: themeText }, icon(themeIcon));
-		theme.addEventListener('click', () => {
-			cycleTheme();
-			const [t, i] = themeWords();
-			theme.setAttribute('aria-label', t);
-			theme.title = t;
-			theme.replaceChildren(icon(i));
-		});
+		const themes = themeMenu();
+		themeOff();
+		themeOff = onTheme(themes.show);
+		const theme = themes.el;
 		const role = h('span', { class: 'pill role', title: fill(P.roleAbout, roleName(ui.role || '')), 'aria-label': fill(P.roleAbout, roleName(ui.role || '')) }, roleName(ui.role || ''));
 		/** @type {Node[]} */
 		const tools = [role, theme];
 		if (ctx.has('editor') && current) {
-			tools.push(h('button', { type: 'button', class: 'quiet edit', 'aria-label': P.editThis, title: P.editThis, onclick: () => current && ctx.go(`#/edit/${encodeURIComponent(current)}`) }, icon('edit', 'w-icon'), ` ${P.edit}`));
+			tools.push(h('button', { type: 'button', class: 'quiet edit', 'aria-label': P.editThis, title: P.editThis, onclick: () => current && ctx.go(`#/edit/${encodeURIComponent(current)}`) }, icon('edit', 'w-icon'), h('span', { class: 'tool-label' }, P.edit)));
 		}
-		if (ctx.has('admin')) tools.push(h('a', { class: 'button quiet', href: '#/admin' }, icon('control', 'w-icon'), ` ${S.core.admin}`));
+		if (ctx.has('admin')) tools.push(h('a', { class: 'button quiet', href: '#/admin' }, icon('control', 'w-icon'), h('span', { class: 'tool-label' }, S.core.admin)));
 		tools.push(menu());
 		chips = headerChips(ui);
 		top.replaceChildren(h('div', { class: 'machine-title' }, h('h1', { class: 'name' }, name), chips.el), h('div', { class: 'top-tools' }, ...tools));
@@ -447,37 +501,13 @@ export function mountMachine(root, ctx, tab) {
 
 	/** The menu with what is done rarely: a new dashboard, forgetting this browser. */
 	function menu() {
-		const id = 'machine-menu';
-		const button = h('button', { type: 'button', class: 'icon-button quiet', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-controls': id, 'aria-label': P.menu, title: P.menu }, icon('more'));
+		const button = h('button', { type: 'button', class: 'icon-button quiet', 'aria-label': P.menu, title: P.menu }, icon('more'));
 		const forget = h('button', { type: 'button', role: 'menuitem', class: 'menu-item danger-text' }, P.forget);
 		// A new dashboard, for the role the editor is open to.
-		const add = ctx.has('editor') ? h('button', { type: 'button', role: 'menuitem', class: 'menu-item', onclick: () => (close(), ctx.go('#/edit')) }, P.newDashboard) : null;
-		const list = h('div', { id, role: 'menu', class: 'menu card' }, add, forget);
-		list.hidden = true;
-		const wrap = h('div', { class: 'menu-wrap' }, button, list);
-		const close = () => {
-			list.hidden = true;
-			button.setAttribute('aria-expanded', 'false');
-			document.removeEventListener('pointerdown', outside);
-		};
-		const outside = (/** @type {Event} */ e) => {
-			if (!wrap.contains(/** @type {Node} */ (e.target))) close();
-		};
-		button.addEventListener('click', () => {
-			if (!list.hidden) return close();
-			list.hidden = false;
-			button.setAttribute('aria-expanded', 'true');
-			document.addEventListener('pointerdown', outside);
-			(add || forget).focus();
-		});
-		list.addEventListener('keydown', (e) => {
-			if (e.key === 'Escape') {
-				close();
-				button.focus();
-			}
-		});
+		const add = ctx.has('editor') ? h('button', { type: 'button', role: 'menuitem', class: 'menu-item', onclick: () => (menu.close(), ctx.go('#/edit')) }, P.newDashboard) : null;
+		const menu = dropdown(button, 'machine-menu', add ? [add, forget] : [forget]);
 		forget.addEventListener('click', async () => {
-			close();
+			menu.close();
 			const yes = await confirmDialog(P.forgetQuestion, P.forgetBody, P.forget, true, null);
 			if (!yes) return;
 			try {
@@ -492,7 +522,7 @@ export function mountMachine(root, ctx, tab) {
 			if (session === s) session = null;
 			toPairing();
 		});
-		return wrap;
+		return menu.wrap;
 	}
 
 	function drawTabs() {
@@ -503,7 +533,7 @@ export function mountMachine(root, ctx, tab) {
 		tabs.forEach((id, i) => {
 			const d = (ui.dashboards || []).find((x) => x.id === id);
 			const on = id === selected;
-			const a = h('a', { href: `#/tab/${encodeURIComponent(id)}`, role: 'tab', class: 'tab', 'aria-selected': String(on), 'aria-controls': 'dashboard-panel', tabindex: on ? '0' : '-1' }, icon(d && d.icon, 'w-icon'), h('span', null, (d && d.title) || id));
+			const a = h('a', { href: `#/tab/${encodeURIComponent(id)}`, role: 'tab', class: 'tab', 'aria-selected': String(on), 'aria-controls': 'dashboard-panel', tabindex: on ? '0' : '-1' }, icon(d && d.icon, 'w-icon'), h('span', { 'data-label': (d && d.title) || id }, (d && d.title) || id));
 			a.addEventListener('click', (e) => {
 				if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
 				e.preventDefault();
@@ -605,6 +635,7 @@ export function mountMachine(root, ctx, tab) {
 
 	return () => {
 		gone = true;
+		themeOff();
 		view?.destroy();
 		view = null;
 		s.sink = {};

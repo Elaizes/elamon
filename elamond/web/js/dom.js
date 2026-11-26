@@ -33,6 +33,16 @@ export function h(tag, attrs, ...children) {
 	return el;
 }
 
+/** `text` with a place to break after each `ch` (a <wbr>, which copying leaves out). @param {string} text @param {string} ch */
+export function breakAfter(text, ch) {
+	const out = document.createDocumentFragment();
+	text.split(ch).forEach((part, i, all) => {
+		out.append(i < all.length - 1 ? part + ch : part);
+		if (i < all.length - 1) out.append(document.createElement('wbr'));
+	});
+	return out;
+}
+
 /** An SVG element, for icons. */
 export function svg(tag, attrs, ...children) {
 	const el = document.createElementNS('http://www.w3.org/2000/svg', tag);

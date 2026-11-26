@@ -19,7 +19,7 @@ export function create(w, env) {
 	const button = h('button', { type: 'button', class: `action-button${tile ? ' tile-button' : ' row-button'}${isDanger(action && action.id) ? ' danger-soft' : ''}` },
 		mark, h('span', { class: 'button-text' }, h('span', { class: 'button-label' }, label), caption));
 	const el = env.inGroup ? h('div', { class: 'w w-button in-group' }, button, outcome) : h('section', { class: 'card w w-button' }, button, outcome);
-	setAccent(el, w.color || (opensOnly ? null : 'tertiary'));
+	setAccent(el, w.color);
 	let running = false;
 	/** @type {import('./common.js').WidgetState | undefined} */
 	let last;

@@ -376,6 +376,56 @@ def test_panels(T):
 	shot(phone, '05-overview-phone')
 
 
+THEME = 'document.documentElement.dataset.theme'
+BG = 'getComputedStyle(document.body).backgroundColor'
+
+
+def test_theme(T):
+	"""The theme menu: Light, Dark or Black for this browser, over its profile; kept across a reload
+	and in place before the page has asked the computer anything (no other theme flashes first).
+	Without a choice (and with 0.11.2's `auto`), the profile's: here `system`, the browser's own."""
+	page = T.page(color_scheme='light')
+	page.goto(BASE + '/#/tab/overview')
+	expect(page.get_by_role('tablist', name='Dashboards')).to_be_visible()
+	check(page.evaluate(THEME) == 'light', f'a light system shows {page.evaluate(THEME)}')
+	button = page.get_by_role('button', name=re.compile('^Theme: '))
+	expect(button).to_have_attribute('aria-label', 'Theme: Light')
+	button.click()
+	items = page.get_by_role('menuitemradio')
+	expect(items).to_have_count(3)
+	expect(page.get_by_role('menuitemradio', name='Light')).to_have_attribute('aria-checked', 'true')
+	page.get_by_role('menuitemradio', name='Black').click()
+	until(page, lambda: page.evaluate(THEME) == 'black', 'the black theme')
+	check(page.evaluate(BG) == 'rgb(0, 0, 0)', f'black, but the page is {page.evaluate(BG)}')
+	expect(button).to_have_attribute('aria-label', 'Theme: Black')
+	check(page.evaluate("document.querySelector('meta[name=\"theme-color\"]').content") == '#000000', 'theme-color is not the black theme\'s')
+	shot(page, '04-theme-black', full=False)
+
+	# A reload: black before the computer is asked anything, and after.
+	held = []
+	page.route(re.compile(r'/api/v1/hello'), lambda r: held.append(r))
+	page.reload()
+	until(page, lambda: held, 'the page asking for hello')
+	check(page.evaluate(THEME) == 'black', f'before the computer answers, the page is {page.evaluate(THEME)}')
+	for r in held:
+		r.continue_()
+	page.unroute(re.compile(r'/api/v1/hello'))
+	expect(page.get_by_role('tablist', name='Dashboards')).to_be_visible()
+	check(page.evaluate(THEME) == 'black', 'the choice is gone after a reload')
+
+	# What 0.11.2 kept is no choice: the profile's (system), following the browser.
+	page.evaluate("localStorage.setItem('elamon.theme', JSON.stringify('auto'))")
+	page.reload()
+	expect(page.get_by_role('tablist', name='Dashboards')).to_be_visible()
+	until(page, lambda: page.evaluate(THEME) == 'light', 'the profile\'s theme again')
+	page.emulate_media(color_scheme='dark')
+	until(page, lambda: page.evaluate(THEME) == 'dark', 'the system\'s dark theme')
+	page.get_by_role('button', name='Theme: Dark').click()
+	expect(page.get_by_role('menuitemradio', name='Dark')).to_have_attribute('aria-checked', 'true')
+	page.keyboard.press('Escape')
+	expect(page.get_by_role('menuitemradio', name='Dark')).to_be_hidden()
+
+
 def activity(page, what):
 	return [e for e in api(page, '/api/v1/admin/activity?limit=200')['entries'] if e.get('what') == what]
 
@@ -569,8 +619,11 @@ def test_files(T):
 	expect(text).to_have_value(first)
 	text.fill(first + STAMP)
 	expect(page.get_by_text('The settings with this text are sound.')).to_be_visible()
-	page.get_by_role('button', name='Save', exact=True).click()
-	expect(page.get_by_text(re.compile(r'^Saved; the service took the settings up')).first).to_be_visible()
+	# The save itself, not its words: those of the first save may still be on the page in its note.
+	with page.expect_response(lambda r: urlsplit(r.url).path == '/api/v1/admin/file/save') as saved:
+		page.get_by_role('button', name='Save', exact=True).click()
+	check(saved.value.status == 200, f'saving the action and its button answered {saved.value.status}: {saved.value.text()[:300]}')
+	check((CFG / DROPIN).read_text() == first + STAMP, f'{DROPIN} on disk isn\'t what was saved the second time')
 	page.goto(BASE + '/#/tab/pagetest')
 	stamp = page.get_by_role('button', name='Stamp', exact=True)
 	expect(stamp).to_be_enabled()
@@ -786,7 +839,7 @@ def test_forget(T):
 	check('web/' not in listed, f'elamond clients still lists a browser: {listed}')
 
 
-SCENARIOS = [test_pair, test_blocked, test_panels, test_action, test_admin, test_files, test_control, test_editor, test_forget]
+SCENARIOS = [test_pair, test_blocked, test_panels, test_theme, test_action, test_admin, test_files, test_control, test_editor, test_forget]
 
 
 def main():

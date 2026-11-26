@@ -211,8 +211,10 @@ UPSes and power stations came with 0.7, your own readings and the system journal
 phone's own scale and theme with 0.8.1, events and notifications through ntfy with 0.9, monitors
 under Hyprland, a home-screen widget and Quick Settings tiles with 0.10, the widget's rings with
 0.10.1, the web page with its admin panel and the dashboard editor with 0.11, an evener look of the
-app with 0.11.2. Next: 0.11.3, the web page without the browsers' warning about its certificate;
-then 1.0, once a month of use goes by without a change to the settings or the protocol. Not planned:
+app with 0.11.2, the web page's new colours and its light, dark and black themes with 0.11.3. Next:
+0.11.4, the page's navigation and layout, and 0.11.5, its admin panel; then 1.0, once a month of use
+goes by without a change to the settings or the protocol, and after it a certificate the browsers
+take without a warning. Not planned:
 the service for Windows or macOS, app stores (the app is the APK in each release).
 
 ## License

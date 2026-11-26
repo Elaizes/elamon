@@ -9,7 +9,8 @@ import { qrMatrix, qrScale } from './qr.js';
 import { countdown, ago, nowS } from './time.js';
 import { groupCode } from './text.js';
 import { errorSentence } from './errors.js';
-import { PAIRING_POLL_MS, TICK_MS, QR_QUIET, QR_PIXELS, QR_DARK, QR_LIGHT } from '../consts.js';
+import { PAIRING_POLL_MS, TICK_MS, QR_QUIET, QR_PIXELS } from '../consts.js';
+import { cssColor } from '../widgets/canvas.js';
 
 /** @typedef {import('./types.js').Pending} Pending */
 /** @typedef {import('./types.js').AdminClients} AdminClients */
@@ -286,9 +287,9 @@ function drawQr(canvas, m) {
 	canvas.height = side;
 	const g = canvas.getContext('2d');
 	if (!g) return;
-	g.fillStyle = QR_LIGHT;
+	g.fillStyle = cssColor(canvas, 'var(--qr-paper)');
 	g.fillRect(0, 0, side, side);
-	g.fillStyle = QR_DARK;
+	g.fillStyle = cssColor(canvas, 'var(--qr-ink)');
 	m.forEach((row, y) =>
 		row.forEach((dark, x) => {
 			if (dark) g.fillRect((x + QR_QUIET) * scale, (y + QR_QUIET) * scale, scale, scale);

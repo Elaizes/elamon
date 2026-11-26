@@ -1,118 +1,244 @@
-/* The page's base: colours of both themes, type, the grid, controls. panels.css, admin.css and
-   editor.css add their own parts; index.html links all four. No inline styles (the CSP refuses
-   them): what a script sizes it sets through the CSSOM. */
+/* The page's base: the three themes' colours, the scales, type, the grid, controls. panels.css,
+   admin.css and editor.css add their own parts; index.html links all four. No inline styles (the CSP
+   refuses them): what a script sizes it sets through the CSSOM.
+
+   Rules of the look (0.11.3), for every part of the page:
+   1. Mirrored: a box's left inset equals its right, its top its bottom; a row that reaches into a
+      card's padding (a hover, a table's row) does so by the same on both sides, its text on the line.
+   2. One scale: spaces are --s0…--s6 (4 px steps; --s0, 2 px, only between rows of a list), corners
+      --r1…--r4 and --r-pill. A corner inside a box is the box's corner less its padding.
+   3. One scale of type: --t1…--t6.
+   4. Figures don't jump: tabular digits, one line, the unit on the figure's baseline; a figure that
+      can't fit ends in "…", it never breaks.
+   5. Words break between words. One line with "…" for names, titles, labels and figures; several
+      lines for sentences; identifiers with no words (paths, addresses, fingerprints, code) may
+      break anywhere, a fingerprint after its colons.
+   6. A row of a grid is one height; heads, figures and switches stand at one height across it.
+   7. A state (loading, empty, failed, offline, control off) looks the same and stands in one place
+      everywhere: a note at the top of what it is about.
+   8. What is picked or pressed shows by its shape, not only its colour (the accent is the text's own
+      colour): a line under the picked tab, a filled chip, underlined links, a ring where the focus is.
+   Colours only from the theme blocks below (a test reads this and fails on any other). */
+
+/* ---- colours: light, dark, black; each block whole ------------------------------------------------- */
+
+:root,
+:root[data-theme="light"] {
+	color-scheme: light;
+	--bg: #f4f4f3;
+	--surface: #ffffff;
+	--surface-2: #ebebea;
+	--surface-3: #dfdfdd;
+	--line: #d9d9d7;
+	--text: #161616;
+	--muted: #606060;
+	--primary: #161616;
+	--on-primary: #ffffff;
+	--secondary: #606060;
+	--tertiary: #a3532b;
+	--good: #0f7945;
+	--warn: #945e0e;
+	--hot: #c52f3a;
+	--on-good: #ffffff;
+	--on-warn: #ffffff;
+	--on-hot: #ffffff;
+	--cpu: #2f6fe0;
+	--memory: #7a4fd6;
+	--swap: #5058af;
+	--gpu: #069874;
+	--rx: #0b8fc2;
+	--tx: #d2690b;
+	--read: #6b8e00;
+	--write: #d6336c;
+	--battery: #3c982b;
+	--shadow: 0 8px 24px rgb(0 0 0 / 0.14);
+	--shadow-s: 0 1px 3px rgb(0 0 0 / 0.25);
+	--scrim: rgb(0 0 0 / 0.4);
+	--qr-ink: #000000;
+	--qr-paper: #ffffff;
+}
+
+:root[data-theme="dark"] {
+	color-scheme: dark;
+	--bg: #111111;
+	--surface: #1a1a1a;
+	--surface-2: #252525;
+	--surface-3: #303030;
+	--line: #333333;
+	--text: #ededed;
+	--muted: #9b9b9b;
+	--primary: #f2f2f2;
+	--on-primary: #111111;
+	--secondary: #9b9b9b;
+	--tertiary: #e08a5c;
+	--good: #4cc38a;
+	--warn: #f5b83d;
+	--hot: #f2555a;
+	--on-good: #111111;
+	--on-warn: #111111;
+	--on-hot: #111111;
+	--cpu: #5b9dff;
+	--memory: #b388ff;
+	--swap: #867cde;
+	--gpu: #2fd0a5;
+	--rx: #38c6f4;
+	--tx: #ff9f43;
+	--read: #c3d94e;
+	--write: #ff6f91;
+	--battery: #7bd65a;
+	--shadow: 0 8px 24px rgb(0 0 0 / 0.5);
+	--shadow-s: 0 1px 3px rgb(0 0 0 / 0.5);
+	--scrim: rgb(0 0 0 / 0.6);
+	--qr-ink: #000000;
+	--qr-paper: #ffffff;
+}
+
+:root[data-theme="black"] {
+	color-scheme: dark;
+	--bg: #000000;
+	--surface: #0e0e0e;
+	--surface-2: #1a1a1a;
+	--surface-3: #262626;
+	--line: #2e2e2e;
+	--text: #ededed;
+	--muted: #9b9b9b;
+	--primary: #f2f2f2;
+	--on-primary: #000000;
+	--secondary: #9b9b9b;
+	--tertiary: #e08a5c;
+	--good: #4cc38a;
+	--warn: #f5b83d;
+	--hot: #f2555a;
+	--on-good: #000000;
+	--on-warn: #000000;
+	--on-hot: #000000;
+	--cpu: #5b9dff;
+	--memory: #b388ff;
+	--swap: #867cde;
+	--gpu: #2fd0a5;
+	--rx: #38c6f4;
+	--tx: #ff9f43;
+	--read: #c3d94e;
+	--write: #ff6f91;
+	--battery: #7bd65a;
+	--shadow: 0 8px 24px rgb(0 0 0 / 0.7);
+	--shadow-s: 0 1px 3px rgb(0 0 0 / 0.7);
+	--scrim: rgb(0 0 0 / 0.7);
+	--qr-ink: #000000;
+	--qr-paper: #ffffff;
+}
+
+/* ---- scales -------------------------------------------------------------------------------------------- */
 
 :root {
-	color-scheme: light dark;
-	--bg: #f6f8fb;
-	--surface: #ffffff;
-	--surface-2: #eef1f6;
-	--line: #d6dce5;
-	--text: #18202a;
-	--muted: #5b6878;
-	--primary: #0b63c4;
-	--on-primary: #ffffff;
-	--good: #1e8e4e;
-	--warn: #b7791f;
-	--hot: #c62f3a;
-	--cpu: #3b82f6;
-	--memory: #8b5cf6;
-	--swap: #a78bfa;
-	--gpu: #10b981;
-	--rx: #0ea5e9;
-	--tx: #f97316;
-	--read: #14b8a6;
-	--write: #e11d48;
-	--battery: #22c55e;
-	--secondary: #64748b;
-	--tertiary: #b45309;
-	--radius: 14px;
-	--gap: 12px;
+	--s0: 2px;
+	--s1: 4px;
+	--s2: 8px;
+	--s3: 12px;
+	--s4: 16px;
+	--s5: 20px;
+	--s6: 24px;
+	--r1: 4px;
+	--r2: 8px;
+	--r3: 12px;
+	--r4: 20px;
+	--r-pill: 999px;
+	--t1: 0.8rem;
+	--t2: 0.9rem;
+	--t3: 1rem;
+	--t4: 1.2rem;
+	--t5: 1.5rem;
+	--t6: 2rem;
+	/* A card: its padding on every side, its corner; a tile in a card: its corner (the card's less its padding). */
+	--pad: var(--s3);
+	--radius: var(--r4);
+	--radius-in: var(--r2);
+	--gap: var(--s3);
+	--gap-in: var(--s2);
+	/* A finger's target; the smaller one a mouse is given, a finger's again on a touch screen. */
 	--tap: 44px;
+	--tap-s: 36px;
+	/* One line of a control: a switch's height, and a label's line beside it. */
+	--row-h: 28px;
+	--icon: 1.25rem;
+	--icon-l: 1.4rem;
+	--stripe: 4px;
+	--dot: 8px;
+	--underline: 3px;
+	/* A tile's background: the surface one step up from the card it stands in. */
+	--tile: var(--surface-2);
+	--mono: ui-monospace, "JetBrains Mono", Menlo, monospace;
 	font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Inter", sans-serif;
 	font-size: 15px;
 	line-height: 1.4;
 }
-
-@media (prefers-color-scheme: dark) {
-	:root:not([data-theme="light"]) {
-		--bg: #101418;
-		--surface: #181d23;
-		--surface-2: #222830;
-		--line: #2e3640;
-		--text: #e6ebf1;
-		--muted: #97a3b2;
-		--primary: #7cc4ff;
-		--on-primary: #06223d;
-	}
-}
-
-:root[data-theme="dark"] {
-	--bg: #101418;
-	--surface: #181d23;
-	--surface-2: #222830;
-	--line: #2e3640;
-	--text: #e6ebf1;
-	--muted: #97a3b2;
-	--primary: #7cc4ff;
-	--on-primary: #06223d;
-}
-
-@media (prefers-color-scheme: dark) {
-	:root[data-black="true"]:not([data-theme="light"]) { --bg: #000; --surface: #0b0d10; --surface-2: #15191e; }
-}
-:root[data-theme="dark"][data-black="true"] { --bg: #000; --surface: #0b0d10; --surface-2: #15191e; }
+@media (pointer: coarse) { :root { --tap-s: var(--tap); } }
 
 :root[data-still="true"] * { transition: none !important; animation: none !important; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
+/* ---- type, links, focus ---------------------------------------------------------------------------------- */
+
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
 body { min-height: 100vh; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-#app { max-width: 1280px; margin: 0 auto; padding: 12px; }
+#app { max-width: 1280px; margin: 0 auto; padding: var(--s3); }
 
-h1, h2, h3 { margin: 0 0 8px; line-height: 1.2; }
-h1 { font-size: 1.4rem; }
-h2 { font-size: 1.15rem; }
-h3 { font-size: 1rem; }
-p { margin: 0 0 8px; }
+h1, h2, h3 { margin: 0 0 var(--s2); line-height: 1.2; }
+h1 { font-size: var(--t5); }
+h2 { font-size: var(--t4); }
+h3 { font-size: var(--t3); }
+p { margin: 0 0 var(--s2); }
 .muted { color: var(--muted); }
-.mono { font-family: ui-monospace, "JetBrains Mono", Menlo, monospace; font-size: 0.92em; }
+.mono { font-family: var(--mono); font-size: var(--t2); }
 
-a { color: var(--primary); }
+a { color: var(--primary); text-decoration: underline; text-underline-offset: 0.15em; }
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ---- controls -------------------------------------------------------------------------------------------- */
 
 button, .button {
 	min-height: var(--tap);
-	padding: 0 16px;
+	padding: 0 var(--s4);
 	border: 1px solid var(--line);
-	border-radius: 999px;
+	border-radius: var(--r-pill);
 	background: var(--surface-2);
 	color: var(--text);
 	font: inherit;
 	cursor: pointer;
 }
 button.primary { background: var(--primary); color: var(--on-primary); border-color: transparent; }
-button.danger { background: var(--hot); color: #fff; border-color: transparent; }
+button.danger { background: var(--hot); color: var(--on-hot); border-color: transparent; }
 button.quiet { background: transparent; border-color: transparent; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 input, select, textarea {
 	min-height: var(--tap);
-	padding: 8px 12px;
+	padding: var(--s2) var(--s3);
 	border: 1px solid var(--line);
-	border-radius: 10px;
+	border-radius: var(--r2);
 	background: var(--surface);
 	color: var(--text);
 	font: inherit;
 }
-textarea { min-height: 8rem; width: 100%; font-family: ui-monospace, Menlo, monospace; font-size: 0.9rem; }
-label { display: block; margin: 8px 0 4px; color: var(--muted); font-size: 0.9rem; }
+textarea { min-height: 8rem; width: 100%; font-family: var(--mono); font-size: var(--t2); }
+label { display: block; margin: var(--s2) 0 var(--s1); color: var(--muted); font-size: var(--t2); }
 
-.topbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
-.topbar .name { font-size: 1.3rem; font-weight: 650; margin-right: auto; }
+.topbar { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); flex-wrap: wrap; }
+.topbar .name { font-size: var(--t5); font-weight: 650; margin-right: auto; }
 
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+/* ---- boxes: a card, a note ----------------------------------------------------------------------------- */
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--pad); }
+.card > :first-child, .note > :first-child, dialog > :first-child, dialog form > :first-child { margin-top: 0; }
+.card > :last-child, .note > :last-child, dialog > :last-child, dialog form > :last-child { margin-bottom: 0; }
+
+/* A state's note, and every box with a level: a stripe of its tone inside its left padding, so its
+   insets stay the card's. */
+.note { padding: var(--pad); border: 1px solid transparent; border-radius: var(--r3); background: var(--surface-2); }
+.note.warning, .note.critical, .striped { box-shadow: inset var(--stripe) 0 0 var(--tone, var(--secondary)); }
+.warning { --tone: var(--warn); --on-tone: var(--on-warn); }
+.critical { --tone: var(--hot); --on-tone: var(--on-hot); }
 
 /* The dashboards' grid: four columns, two on a narrow screen, one on a very narrow one, as in the app. */
 .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); }
@@ -129,18 +255,19 @@ label { display: block; margin: 8px 0 4px; color: var(--muted); font-size: 0.9re
 	.span-1, .span-2, .span-3, .span-4 { grid-column: span 1; }
 }
 
-.note { padding: 10px 14px; border-radius: 10px; background: var(--surface-2); }
-.note.warning { border-left: 4px solid var(--warn); }
-.note.critical { border-left: 4px solid var(--hot); }
+/* ---- dialogs, menus, toasts -------------------------------------------------------------------------- */
 
-dialog { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--text); max-width: min(560px, 92vw); }
-dialog::backdrop { background: rgb(0 0 0 / 0.45); }
-dialog .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; flex-wrap: wrap; }
+dialog { padding: var(--s5); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--text); max-width: min(560px, 92vw); box-shadow: var(--shadow); }
+dialog::backdrop { background: var(--scrim); }
+dialog .actions { display: flex; gap: var(--s2); justify-content: flex-end; margin-top: var(--s3); flex-wrap: wrap; }
 
-#toasts { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); display: grid; gap: 8px; z-index: 50; width: min(480px, 92vw); }
-.toast { padding: 10px 14px; border-radius: 10px; background: var(--text); color: var(--bg); }
-.toast.warning { background: var(--warn); color: #000; }
-.toast.critical { background: var(--hot); color: #fff; }
+.menu { padding: var(--s2); box-shadow: var(--shadow); }
+.menu-item { display: flex; align-items: center; gap: var(--s2); border: 0; background: transparent; border-radius: var(--r3); text-align: left; padding: 0 var(--s3); width: 100%; }
+.menu-item:hover, .menu-item:focus-visible { background: var(--surface-2); }
+
+/* A note at the bottom: the text's colour inverted, or its level's. */
+#toasts { position: fixed; left: 50%; bottom: calc(var(--s4) + env(safe-area-inset-bottom)); transform: translateX(-50%); display: grid; gap: var(--s2); z-index: 50; width: min(480px, 92vw); }
+.toast { padding: var(--s3) var(--s4); border-radius: var(--r3); background: var(--tone, var(--primary)); color: var(--on-tone, var(--on-primary)); box-shadow: var(--shadow); }
 
 .level-normal { --level: var(--good); }
 .level-warning { --level: var(--warn); }

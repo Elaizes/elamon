@@ -7,7 +7,7 @@ import { mix } from './chart.js';
 const themeListeners = new Set();
 let watching = false;
 
-/** Hears the theme change: the page's choice (html's data-theme) or the system's. @param {() => void} cb @returns {() => void} */
+/** Hears the theme change: html's data-theme, which theme.js sets for a choice and for the system's. @param {() => void} cb @returns {() => void} */
 export function onTheme(cb) {
 	themeListeners.add(cb);
 	if (!watching && typeof MutationObserver !== 'undefined') {
@@ -15,8 +15,7 @@ export function onTheme(cb) {
 		const all = () => {
 			for (const f of themeListeners) f();
 		};
-		new MutationObserver(all).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-black'] });
-		window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', all);
+		new MutationObserver(all).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 	}
 	return () => themeListeners.delete(cb);
 }

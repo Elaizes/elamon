@@ -55,7 +55,7 @@ export function create(w, env) {
 	const volumeRow = h('div', { class: 'media-volume-row' }, mute, volume, volumeText);
 	const body = h('div', { class: 'w-body' }, pickers, nothing, nowPlaying, seekRow, buttons, volumeRow);
 	const el = h('section', { class: 'card w w-media', 'aria-label': w.label || S.panels.media }, head, body);
-	setAccent(el, w.color || 'tertiary');
+	setAccent(el, w.color);
 
 	/** @param {string} id */
 	const action = (id) => env.action(id);

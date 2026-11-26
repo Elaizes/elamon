@@ -68,11 +68,9 @@ export const FILTER_DEBOUNCE_MS = 150;
 /** How many entries of the activity log and of the events are asked for. */
 export const LIST_LIMIT = 200;
 
-/** A QR code: the quiet zone around it, in modules; about how wide it is drawn, in CSS pixels; its colours (always dark on light, for the cameras). */
+/** A QR code: the quiet zone around it, in modules; about how wide it is drawn, in CSS pixels. Its colours are style.css's --qr-ink and --qr-paper (dark on light in every theme, for the cameras). */
 export const QR_QUIET = 4;
 export const QR_PIXELS = 240;
-export const QR_DARK = '#000000';
-export const QR_LIGHT = '#ffffff';
 
 /** A list of plain values this long or shorter is shown on one line in the settings' tree. */
 export const INLINE_LIST_MAX = 80;

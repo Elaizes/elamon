@@ -1,6 +1,6 @@
 // The service at a glance (`GET admin/state`): what runs, where it listens, control, the page's
 // switches and certificate, whether the settings are sound, `elamond setup --check`, the files.
-import { h } from '../dom.js';
+import { h, breakAfter } from '../dom.js';
 import { S, fill } from '../strings.js';
 import { loadInto, head, button, card, kv, chip, onOff, table } from './ui.js';
 import { duration, dateTime, nowS } from './time.js';
@@ -33,7 +33,7 @@ function draw(main, st, reload) {
 					[T.version, s.version],
 					[T.up, s.started ? fill(T.upSince, duration(nowS() - s.started), dateTime(s.started)) : S.admin.none],
 					[T.features, h('span', { class: 'adm-chips' }, ...(s.features || []).map((f) => chip(f)))],
-					[T.fingerprint, h('span', { class: 'mono adm-fp' }, isFingerprint(s.fingerprint) ? colonFingerprint(s.fingerprint) : String(s.fingerprint ?? ''))],
+					[T.fingerprint, h('span', { class: 'mono adm-fp' }, isFingerprint(s.fingerprint) ? breakAfter(colonFingerprint(s.fingerprint), ':') : String(s.fingerprint ?? ''))],
 					[T.listening, lines(s.listening)],
 					[T.endpoints, lines(s.endpoints)],
 					[T.you, st.you ? fill(T.youAre, roleName(st.you.role), st.you.id) : null],
