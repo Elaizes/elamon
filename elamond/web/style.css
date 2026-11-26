@@ -164,6 +164,8 @@
 	--page-max: none;
 	--side-w: 248px;
 	--rail-w: calc(var(--tap) + 2 * var(--s3));
+	/* What the side bar takes now: its width, a strip's folded, none on a narrow window (panels.css). */
+	--side-now: var(--side-w);
 	/* A finger's target; the smaller one a mouse is given, a finger's again on a touch screen. */
 	--tap: 44px;
 	--tap-s: 36px;
@@ -192,6 +194,8 @@
 :root[data-inset="small"] { --inset: var(--s2); }
 :root[data-inset="large"] { --inset: var(--s6); }
 :root[data-width="fixed"] { --page-max: 1280px; }
+:root[data-side="rail"] { --side-now: var(--rail-w); }
+@media (max-width: 899.98px) { :root, :root[data-side="rail"] { --side-now: 0px; } }
 @media (max-width: 600px) {
 	:root { --inset: var(--s2); }
 	:root[data-inset="small"] { --inset: var(--s1); }

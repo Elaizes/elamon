@@ -163,7 +163,7 @@
    bar (shell.js sets html's data-room: `sheet`, and `two` at 600 px, `one` at 320 px, as the
    window's width did before the side bar). */
 :root[data-room~="sheet"] .ed-main { grid-template-columns: minmax(0, 1fr); }
-:root[data-room~="sheet"] .ed-side { position: fixed; z-index: 40; left: 0; right: 0; bottom: 0; top: auto; max-height: 80vh; border-radius: var(--radius) var(--radius) 0 0;
+:root[data-room~="sheet"] .ed-side { position: fixed; z-index: 40; left: var(--side-now, 0px); right: 0; bottom: 0; top: auto; max-height: 80vh; border-radius: var(--radius) var(--radius) 0 0;
 	padding-bottom: calc(var(--pad) + env(safe-area-inset-bottom)); box-shadow: var(--shadow); transform: translateY(105%); visibility: hidden;
 	transition: transform 0.2s, visibility 0.2s; }
 :root[data-room~="sheet"] .ed-side.open { transform: none; visibility: visible; }

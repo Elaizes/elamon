@@ -40,8 +40,7 @@ button.danger-soft { color: var(--hot); }
 /* A wide window: the side bar, then the page; the page as wide as the layout says, its space at the
    window's edges the layout's too. Narrower than SIDE_PX (consts.js), no side bar: its parts are in
    the top bar and the rows under it, as in 0.11.3. */
-.shell { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); min-height: 100vh; }
-:root[data-side="rail"] .shell { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
+.shell { display: grid; grid-template-columns: var(--side-now) minmax(0, 1fr); min-height: 100vh; }
 .page { min-width: 0; width: 100%; max-width: var(--page-max); margin: 0 auto; padding: var(--inset); }
 
 .side { position: sticky; top: 0; z-index: 30; height: 100vh; height: 100dvh; display: flex; flex-direction: column; min-width: 0; background: var(--surface); border-right: 1px solid var(--line); }
