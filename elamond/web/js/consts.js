@@ -18,8 +18,17 @@ export const LOG_LINES_DEFAULT = 200;
 
 // ---------------------------------------------------------------- the grid (style.css, the app's Grid)
 
-/** The grid's columns on a wide screen; a narrow one has half. */
+/** The columns a widget's span counts in (the service's), and the grid's on a screen that isn't narrow; a narrow one has half. */
 export const COLUMNS = 4;
+
+/** The most columns a wide grid has: a span of 4 is half a row there. */
+export const WIDE_COLUMNS = 8;
+
+/** A column of the grid is never narrower than this (CSS px): four of them at NARROW_PX. */
+export const COLUMN_MIN_PX = 150;
+
+/** From this width of the grid (CSS px) on, the layout's "Auto" has WIDE_COLUMNS: a span of 1 is then about 190 px. */
+export const AUTO_WIDE_PX = 1500;
 
 /** Narrower than this (CSS px), the grid has two columns. */
 export const NARROW_PX = 600;

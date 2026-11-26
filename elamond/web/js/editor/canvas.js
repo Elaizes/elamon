@@ -6,7 +6,7 @@ import { h, svg, clear, setStyle } from '../dom.js';
 import { S, fill } from '../strings.js';
 import { dashboardView } from '../panels.js';
 import { pathKey, samePath, within, WIDGETS } from './draft.js';
-import { placedSpans } from '../layout.js';
+import { tracks } from '../layout.js';
 import { COLUMNS, NARROW_PX, ONE_COLUMN_PX } from '../consts.js';
 import { spanOf, spanRange, nameOf, typeLabel, isGroup, matchDrawn, widgetType } from './describe.js';
 
@@ -24,6 +24,9 @@ import { spanOf, spanRange, nameOf, typeLabel, isGroup, matchDrawn, widgetType }
  * it and its data.
  * @typedef {{ ui: import('../types.js').Ui, dashboard: import('../types.js').Dashboard | null, data: import('../types.js').Data | null }} Drawn
  */
+
+/** The wide canvas's tracks: 3 to a column of four, so a row of one, two or three shares it evenly. */
+const TWELFTHS = 12;
 
 /** @param {string} key @returns {import('./draft.js').WidgetPath} */
 const parsePath = (key) => (key ? key.split('/').map(Number) : []);
@@ -160,8 +163,9 @@ export class Canvas {
 		const spans = list.map((w, i) => this.info(w && typeof w === 'object' ? w : {}, drawn[i]).span);
 		// A widget made for each item of something takes the whole width: its items flow inside.
 		const cells = spans.map((n, i) => (drawn[i] && /** @type {any[]} */ (drawn[i]).length > 1 ? COLUMNS : n));
-		const wide = placedSpans(cells, COLUMNS);
-		const narrow = placedSpans(cells, COLUMNS / 2);
+		// In twelfths of four columns (a row they leave incomplete shared by one, two or three), and in two.
+		const wide = tracks(cells, COLUMNS, TWELFTHS);
+		const narrow = tracks(cells, COLUMNS / 2, COLUMNS / 2);
 		list.forEach((w, i) => g.append(this.cell(w && typeof w === 'object' ? w : {}, [...parent, i], drawn[i], wide[i], narrow[i])));
 		g.append(
 			h(
@@ -197,7 +201,7 @@ export class Canvas {
 
 	/**
 	 * @param {Record<string, any>} w @param {import('./draft.js').WidgetPath} path @param {any[] | null} drawn
-	 * @param {number} wide its width on four columns @param {number} narrow on two
+	 * @param {number} wide its width in twelfths of four columns @param {number} narrow in two columns
 	 */
 	cell(w, path, drawn, wide, narrow) {
 		const desc = this.opts.desc();
@@ -208,7 +212,7 @@ export class Canvas {
 		const mistakes = this.mistakes.get(key);
 		const sel = !!this.selected && samePath(this.selected, path);
 		const cell = h('div', {
-			class: `ed-cell ed-w4-${wide} ed-w2-${narrow}${group ? ' ed-groupcell' : ''}${sel ? ' selected' : ''}${mistakes ? ' bad' : ''}`,
+			class: `ed-cell ed-w12-${wide} ed-w2-${narrow}${group ? ' ed-groupcell' : ''}${sel ? ' selected' : ''}${mistakes ? ' bad' : ''}`,
 			tabindex: 0,
 			role: 'listitem',
 			'data-path': key,
@@ -490,7 +494,7 @@ export class Canvas {
 		const handle = /** @type {HTMLElement} */ (e.currentTarget);
 		const grid = cell.parentElement;
 		const { min, max } = spanRange(this.opts.desc());
-		const was = [...cell.classList].find((c) => c.startsWith('ed-w4-')) || '';
+		const was = [...cell.classList].find((c) => c.startsWith('ed-w12-')) || '';
 		let now = span;
 		try {
 			handle.setPointerCapture(e.pointerId);
@@ -503,8 +507,8 @@ export class Canvas {
 			const col = (gr.width - gap * (COLUMNS - 1)) / COLUMNS;
 			const r = cell.getBoundingClientRect();
 			now = Math.max(min, Math.min(max, Math.round((ev.clientX - r.left + gap) / (col + gap))));
-			cell.classList.remove(...[...cell.classList].filter((c) => c.startsWith('ed-w4-')));
-			cell.classList.add(`ed-w4-${now}`);
+			cell.classList.remove(...[...cell.classList].filter((c) => c.startsWith('ed-w12-')));
+			cell.classList.add(`ed-w12-${(now * TWELFTHS) / COLUMNS}`);
 		};
 		const up = () => {
 			handle.removeEventListener('pointermove', move);
@@ -517,7 +521,7 @@ export class Canvas {
 			if (now !== span) this.opts.hooks.span(path, now);
 			else if (this.pending) this.render();
 			else if (was) {
-				cell.classList.remove(...[...cell.classList].filter((c) => c.startsWith('ed-w4-')));
+				cell.classList.remove(...[...cell.classList].filter((c) => c.startsWith('ed-w12-')));
 				cell.classList.add(was);
 			}
 		};

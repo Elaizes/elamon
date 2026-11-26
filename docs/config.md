@@ -910,8 +910,10 @@ levels = { OB = "warning", LB = "critical" }
 
 Widgets fill a grid of 4 columns, in order, each as wide as its `span`; on a narrow screen the grid
 has 2 and each span is halved, rounding up. A widget that doesn't fit beside the one before starts
-a row, and the last widget of a row takes the columns left free, so no row ends in a gap (a lone
-tile under two others is as wide as the screen).
+a row, and a row its widgets leave incomplete is shared evenly by them, so no row ends in a gap (a
+lone tile under two others is as wide as the screen; three tiles of 1 are a third of it each). The
+web page in a wide window may give the grid 8 columns (its Layout menu): a span stays as it is
+there, so a widget of 4 is half a row.
 
 Every widget takes:
 

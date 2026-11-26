@@ -243,21 +243,6 @@ label { display: block; margin: var(--s2) 0 var(--s1); color: var(--muted); font
 .warning { --tone: var(--warn); --on-tone: var(--on-warn); }
 .critical { --tone: var(--hot); --on-tone: var(--on-hot); }
 
-/* The dashboards' grid: four columns, two on a narrow screen, one on a very narrow one, as in the app. */
-.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); }
-.span-1 { grid-column: span 1; }
-.span-2 { grid-column: span 2; }
-.span-3 { grid-column: span 3; }
-.span-4 { grid-column: span 4; }
-@media (max-width: 600px) {
-	.grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-	.span-3, .span-4 { grid-column: span 2; }
-}
-@media (max-width: 320px) {
-	.grid { grid-template-columns: minmax(0, 1fr); }
-	.span-1, .span-2, .span-3, .span-4 { grid-column: span 1; }
-}
-
 /* ---- dialogs, menus, toasts -------------------------------------------------------------------------- */
 
 dialog { padding: var(--s5); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--text); max-width: min(560px, 92vw); box-shadow: var(--shadow); }

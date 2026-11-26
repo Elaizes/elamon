@@ -7,7 +7,7 @@ import {
 	draft, isDirty, rebase, clone, stable, setKey, listAt, widgetAt, addWidget, removeWidget, moveWidget, nudge,
 	setSpan, allPaths, addTab, changes, writeInTurn, isId,
 } from '../js/editor/draft.js';
-import { placedSpans } from '../js/layout.js';
+import { tracks } from '../js/layout.js';
 import { normalise, exampleOf, unknownKeys, spanOf, isGroup } from '../js/editor/describe.js';
 
 const fx = (name) => JSON.parse(readFileSync(new URL(`../../fixtures/0.11/${name}`, import.meta.url), 'utf8'));
@@ -162,15 +162,24 @@ test('widths: the widget\'s own, else its type\'s, clamped', () => {
 	assert.equal(setSpan(w, 2.6), 3);
 });
 
-test('the grid: rows filled, the last of a row taking the columns left', () => {
-	assert.deepEqual(placedSpans([2, 2, 2, 2], 4), [2, 2, 2, 2]);
-	assert.deepEqual(placedSpans([2, 1], 4), [2, 2]);
-	assert.deepEqual(placedSpans([2, 2, 2], 4), [2, 2, 4]);
-	assert.deepEqual(placedSpans([1, 1, 1, 4, 3, 3], 4), [1, 1, 2, 4, 4, 4]);
-	assert.deepEqual(placedSpans([2, 1, 1, 3], 2), [1, 1, 2, 2]);
-	assert.deepEqual(placedSpans([4, 1], 2), [2, 2]);
-	assert.deepEqual(placedSpans([1, 2, 3], 1), [1, 1, 1]);
-	assert.deepEqual(placedSpans([], 4), []);
+test('the canvas: twelfths of four columns, a row left incomplete shared evenly; two columns on a narrow one', () => {
+	assert.deepEqual(tracks([2, 2, 2, 2], 4, 12), [6, 6, 6, 6]);
+	assert.deepEqual(tracks([2, 1], 4, 12), [6, 6]);
+	assert.deepEqual(tracks([2, 2, 2], 4, 12), [6, 6, 12]);
+	assert.deepEqual(tracks([1, 1, 1, 4, 3, 3], 4, 12), [4, 4, 4, 12, 12, 12]);
+	assert.deepEqual(tracks([1, 3, 1, 1, 2], 4, 12), [3, 9, 3, 3, 6]);
+	assert.deepEqual(tracks([2, 1, 1, 3], 2, 2), [1, 1, 2, 2]);
+	assert.deepEqual(tracks([4, 1], 2, 2), [2, 2]);
+	assert.deepEqual(tracks([1, 2, 3], 1, 1), [1, 1, 1]);
+	assert.deepEqual(tracks([], 4, 12), []);
+	// Every row of every list of up to five spans fills the twelve tracks in whole ones.
+	const lists = (n) => (n === 0 ? [[]] : lists(n - 1).flatMap((l) => [1, 2, 3, 4].map((s) => [...l, s])));
+	for (let n = 0; n <= 5; n++) {
+		for (const spans of lists(n)) {
+			for (const t of tracks(spans, 4, 12)) assert.ok(Number.isInteger(t) && [3, 4, 6, 9, 12].includes(t), `${spans}: ${t}`);
+			for (const t of tracks(spans, 2, 2)) assert.ok(t === 1 || t === 2, `${spans} on two: ${t}`);
+		}
+	}
 });
 
 test("a profile's write holds what was changed here, never what the files set", () => {

@@ -1,6 +1,7 @@
 /* The dashboard editor: its bar, the dashboard's keys, the canvas of widgets with a frame over each,
    the form beside it (a sheet from the bottom on a narrow screen), the profile's tabs, the dialogs.
-   Everything is `ed-`; the grid's widths are its own (`ed-w4-N` on four columns, `ed-w2-N` on two).
+   Everything is `ed-`; the grid's widths are its own (`ed-w12-N` in twelfths of four columns, so a row the
+   widgets leave incomplete is shared evenly; `ed-w2-N` on two).
    Colours, spaces, corners and type only from style.css's tokens. */
 
 .ed { display: grid; gap: var(--gap); }
@@ -90,11 +91,12 @@
 .ed-canvas { min-width: 0; }
 .ed-canvas.stale .ed-draw { opacity: 0.5; transition: opacity 0.2s; }
 .ed-empty { padding: var(--s5); text-align: center; }
-.ed-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); }
-.ed-w4-1 { grid-column: span 1; }
-.ed-w4-2 { grid-column: span 2; }
-.ed-w4-3 { grid-column: span 3; }
-.ed-w4-4 { grid-column: span 4; }
+.ed-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--gap); }
+.ed-w12-3 { grid-column: span 3; }
+.ed-w12-4 { grid-column: span 4; }
+.ed-w12-6 { grid-column: span 6; }
+.ed-w12-9 { grid-column: span 9; }
+.ed-w12-12 { grid-column: span 12; }
 
 .ed-cell { position: relative; min-width: 0; min-height: 64px; border-radius: var(--radius); outline: 1px dashed transparent; outline-offset: 3px; }
 .ed-cell:focus { outline: none; }

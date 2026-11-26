@@ -75,9 +75,12 @@ pre.code, .code { background: var(--surface-2); padding: var(--s2) var(--s3); bo
 
 /* ---- the grid -------------------------------------------------------------------------------------- */
 
-.dash-grid { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); gap: var(--gap); align-items: stretch; }
-.dash-grid.inner { gap: var(--gap-in); }
-.dash-grid > * { min-width: 0; }
+/* Rows stacked; each row a grid of its own columns (layout.js): the grid's, or one for each widget
+   of a row they leave incomplete. Its widgets as tall as the row. */
+.dash-grid { display: grid; gap: var(--gap); }
+.dash-row { display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); gap: var(--gap); align-items: stretch; }
+.dash-grid.inner, .dash-grid.inner > .dash-row { gap: var(--gap-in); }
+.dash-row > * { min-width: 0; }
 
 /* ---- a widget's card ------------------------------------------------------------------------------ */
 
@@ -101,8 +104,8 @@ pre.code, .code { background: var(--surface-2); padding: var(--s2) var(--s3); bo
 
 /* A group: its widgets on tiles a step up from its card (corner: the card's less its padding), and
    what stands on a tile a step up again. */
-.dash-grid.inner > .card { background: var(--tile); border-color: transparent; border-radius: var(--radius-in); }
-.dash-grid.inner > * { --surface-2: var(--surface-3); }
+.dash-grid.inner > .dash-row > .card { background: var(--tile); border-color: transparent; border-radius: var(--radius-in); }
+.dash-grid.inner > .dash-row > * { --surface-2: var(--surface-3); }
 
 /* A figure large, its unit smaller, on its baseline; one line, "…" where it can't fit. */
 .fig { display: flex; align-items: baseline; gap: 0; color: var(--text); font-variant-numeric: tabular-nums; min-width: 0; }
