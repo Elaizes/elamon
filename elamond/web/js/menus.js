@@ -101,8 +101,9 @@ export function layoutMenu() {
 		});
 		return h('div', { role: 'group', class: 'menu-group', 'aria-labelledby': `layout-${key}` }, title, ...items);
 	});
-	const again = h('button', { type: 'button', role: 'menuitem', class: 'menu-item menu-reset' }, L.reset);
-	const menu = dropdown(button, 'layout-menu', [...groups, again], true);
+	const again = h('button', { type: 'button', role: 'menuitem', class: 'menu-item' }, L.reset);
+	const menu = dropdown(button, 'layout-menu', [...groups, h('div', { role: 'separator', class: 'menu-sep' }), again], true);
+	menu.wrap.classList.add('layout-wrap');
 	menu.wrap.querySelector('.menu')?.classList.add('layout-menu');
 	const show = () => {
 		const now = current();

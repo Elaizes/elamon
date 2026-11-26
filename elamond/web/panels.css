@@ -102,10 +102,16 @@ button.danger-soft { color: var(--hot); }
 .menu-wrap.start .menu.layout-menu { min-width: 256px; max-height: min(80vh, 640px); overflow-y: auto; }
 .layout-menu .menu-item { white-space: nowrap; }
 .menu-group { display: grid; }
-.menu-group + .menu-group, .menu-reset { margin-top: var(--s1); padding-top: var(--s1); border-top: 1px solid var(--line); }
-.menu-reset { border-radius: 0 0 var(--r3) var(--r3); }
+.menu-group + .menu-group { margin-top: var(--s1); padding-top: var(--s1); border-top: 1px solid var(--line); }
+.menu-sep { margin: var(--s1) 0; border-top: 1px solid var(--line); }
 .menu-title { padding: var(--s1) var(--s3); font-size: var(--t1); font-weight: 600; color: var(--muted); }
 .layout-menu .menu-item { min-height: var(--tap-s); }
+/* In the top bar (a narrow window): under the bar's end, inside the window whichever tool it opens from. */
+@media (max-width: 899.98px) {
+	.page-top { position: relative; }
+	.top-tools .menu-wrap.layout-wrap { position: static; }
+	.menu-wrap.start .menu.layout-menu { left: auto; right: 0; }
+}
 
 /* ---- the computer's page ------------------------------------------------------------------------- */
 
@@ -426,6 +432,8 @@ button.primary .icon, .media-play .icon { fill: currentColor; }
 	.top-tools { width: 100%; flex-wrap: nowrap; }
 	.top-tools .nav-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 	.top-tools .nav-item { padding: 0; min-width: var(--tap); justify-content: center; }
+	/* The layout menu as wide as the page, the page scrolling for it. */
+	.menu-wrap.start .menu.layout-menu { left: 0; right: 0; min-width: 0; max-height: none; overflow: visible; }
 	.fig.large .fig-num { font-size: var(--t5); }
 	.panels-dialog .actions button { flex: 1; }
 	.pair { margin: 2vh auto; padding: var(--s4); }
