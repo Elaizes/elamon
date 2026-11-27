@@ -1,92 +1,105 @@
 # Elamon
 
-Watch and control a Linux computer from your Android phone, live.
+Watch and control a Linux computer from your Android phone or a browser, live.
 
-> **A personal project.** Elamon is made for its author's own use, on NixOS, and grows with what
-> that needs: what comes next is decided by that, not by requests. Still, nothing in it is tied to
-> one computer. Every change is built and tested on NixOS (a VM test of
-> the module) and on Debian, Ubuntu, Fedora, Arch and openSUSE Tumbleweed (the service installed
-> and started in each), so it should work on yours too. Use it if it fits; there is no support
-> beyond the guide, and settings and the protocol may still change between versions: update the
-> app and the service together.
+It has two parts:
 
 - **Elamon**, the Android app (Android 8 and newer). No Google services, no trackers, no ads.
-- **elamond**, the Elamon service, a small program on the computer (Linux, any distribution, any
-  desktop or none). It reads the kernel's own counters and serves them over HTTPS, only to phones
-  and browsers paired with it.
+- **elamond**, the Elamon service: a small program on the computer (Linux with systemd, any
+  desktop or none). It reads the computer's own counters and serves them over HTTPS, only to the
+  phones and browsers you paired with it. It also serves a web page that shows the same as the app.
 
 **Setting it up and using it: [the user guide](docs/guide.md).**
 
+> **A personal project.** Elamon is made for its author's own use, on NixOS, and what comes next is
+> decided by that, not by requests. Nothing in it is tied to one computer, though: every change is
+> built and tested on NixOS (a VM test of the module) and on Debian, Ubuntu, Fedora, Arch and
+> openSUSE Tumbleweed (the service installed and started in each). Use it if it fits. There is no
+> support beyond the guide, and the settings and the protocol may still change between versions:
+> update the app and the service together.
+
 ## What it does
 
-Every screen is a dashboard of widgets that the service describes, set in its settings on the
-computer (`~/.config/elamon`, or Nix on NixOS): the standard Overview, Processes, Sensors and
-Control, a tab for each UPS and a Journal page come in the settings it starts with, and you can
-change them or add your own — any reading, table, graph, button or choice — without updating the
-app ([settings reference](docs/config.md)). How the app looks and behaves on each phone is that
-phone's profile, set on the computer too.
+### Watch
 
-Watching, always:
+| | |
+|---|---|
+| **The computer** | CPU, memory, each graphics card, temperatures and fans, network, storage, battery; each with a page of its own and charts you read with a finger |
+| **Processes** | sortable and searchable, with the ones using the most on every page |
+| **History** | charts from the last ten minutes back to everything the service has kept on disk |
+| **Monitors** | the connected ones with their modes and arrangement, under any desktop |
+| **A UPS or an EcoFlow power station** | through NUT: status, charge and time left, power in and out, each outlet, and a timeline of when it was on battery |
+| **Your own readings** | a program's output, a web service's answer or a file's contents, shown with the unit and format you give |
+| **The journal** | the system journal, warnings first, with search; and the journal of one service |
+| **Events** | rules tell of a disk filling, a unit that failed, a low battery, a UPS on battery, or any value of yours past its limit. The service keeps them, the app lists them, and it can send them to an [ntfy](https://ntfy.sh) topic, so the phone notifies you with Elamon closed |
 
-- a dashboard of the CPU, memory, each graphics card, temperatures, network, storage and battery,
-  each with a page of its own: charts you can read with a finger, from the last ten minutes back to
-  all the service has kept, and the processes using the most;
-- processes, sortable and searchable;
-- every temperature sensor and fan;
-- connected monitors with their modes and arrangement, read from the kernel, so under any desktop
-  (under Hyprland, whether each is on and its brightness too);
-- a UPS, or an EcoFlow power station, through NUT: its status, charge and time left, the power in
-  and out and each outlet's, the battery, and a timeline of when it was on battery, kept for good
-  (its last 10 000 changes), its legend in hours or in shares of the time;
-- your own readings: a program's output, a web service's answer or a file's contents, each
-  shown with its own unit and format in a dashboard of yours;
-- the system journal, warnings first, with search and older lines on request, and the journal of
-  a link's unit from its row;
-- events: rules in the settings tell of a disk filling, a unit that failed, a low battery, a UPS
-  on battery or any value of yours past its limit, once as it begins and once as it ends; the
-  service keeps them, the app lists them, and the service sends them to an [ntfy](https://ntfy.sh)
-  topic, so the ntfy app notifies you with Elamon closed. Which rules, their limits and words,
-  and what is sent (without names, unless you say so) are all settings.
+### Control
 
-Controlling, once the computer allows it:
+Off until the computer's settings allow it (`control = true`). Then:
 
-- links to the web pages it hosts: open them, see if they answer, start, stop and restart their
-  units;
-- media players and the volume;
-- the power profile, locking, restarting and shutting down;
-- commands you define on the computer, with a parameter to choose from the values you allow;
-- quitting and killing processes;
-- a station's outlets and settings (charge limits, charging power, X-Boost…), those the computer's
-  settings list and within the station's limits; one that cuts the computer's own power is typed in
-  first.
-- monitors under Hyprland: each on or off, its picture asleep or awake, its brightness (a laptop's
-  panel, or an external monitor over DDC/CI); turning off the last one that shows a picture asks
-  for its name.
+| | |
+|---|---|
+| **Links** | open the web pages the computer hosts, see if they answer, start, stop and restart their units |
+| **Media** | players and the volume |
+| **Power** | the power profile, lock, sleep, restart, shut down |
+| **Your own commands** | defined on the computer, with a parameter picked from the values you allow. A phone only presses the button; it never writes a command |
+| **Processes** | quit and kill |
+| **Monitors under Hyprland** | each on or off, asleep or awake, its brightness (a laptop's panel, or an external monitor over DDC/CI) |
+| **A power station** | its outlets and settings (charge limits, charging power, X-Boost…), only those the computer's settings list. Cutting the computer's own power has to be typed in first |
 
-In a browser too: the service serves a web page of its own, paired with the same code, that shows
-the same dashboards and runs the same actions. Given the role `owner`, your own browser also has an
-admin panel (the service's state, the settings merged with where each part comes from, the paired
-clients and their roles, pairing, holding control off, and the settings files, checked before
-they're saved and backed up) and, in the page and the app, a dashboard editor: forms the service
-describes, saved to a drop-in of its own, never a command.
+### The settings are files on the computer
 
-Each phone or browser has a role, set on the computer: glancing at the basics, watching everything,
-everyday control, all of it, or, for your own, the settings too. Every request to act is kept in an
-activity log, and `elamond control off` stops every phone and browser at once.
+Every screen is a dashboard of widgets that the service describes. The standard ones (Overview,
+Processes, Sensors, Control, a tab for each UPS, the Journal) are in the settings the service starts
+with, in `~/.config/elamon` or in Nix. Change them or add your own, with any reading, table, graph,
+button or choice, without updating the app: [settings reference](docs/config.md). How the app looks
+on each phone, and which tabs it has, is that phone's profile, set on the computer too.
 
-Moving is kept simple: `elamond backup` saves the computer's identity and its paired phones in one
-file only you can read, which `elamond restore` puts back on a reinstalled or new computer without
-pairing the phones again; a new phone pairs with `elamond pair`.
+### Who may do what
 
-The app: Material You with frosted glass on Android 12 and newer, light, dark or pure black. It
-opens on the computer you opened last. Two things are the phone's own, not the computer's: the
-app's scale, 80 to 140%, and, if you want one, a theme that stays whatever the profiles say. On
-the phone's home screen, a widget with figures of the computer's, its gauges as small rings, and
-four Quick Settings tiles that run its actions; which, the computer's profile says.
+Each phone or browser has a role, given at the computer:
+
+| Role | May |
+|---|---|
+| `glance` | see the basics |
+| `monitor` | see everything |
+| `operate` | everyday control |
+| `admin` | everything a phone can do |
+| `owner` | also change the settings from the page or the app; only for your own devices |
+
+Every request to act is kept in an activity log, and `elamond control off` stops every phone and
+browser at once.
+
+### In a browser
+
+The service's own web page pairs with the same code as the app, shows the same dashboards and runs
+the same actions. On a wide window it has a side bar and fills the window; its theme and layout are
+picked in the browser. With the role `owner` it also has:
+
+- an **admin panel**: the service's state, the merged settings and where each part comes from, the
+  paired clients and their roles, pairing, holding control off, and the settings files (checked
+  before they're saved, and backed up);
+- a **dashboard editor**, in the page and in the app: forms the service describes, saved to a file
+  of its own. It never writes a command.
+
+### On the phone
+
+- Material You with frosted glass on Android 12 and newer; light, dark or pure black.
+- The app opens on the computer you opened last.
+- Two things belong to the phone, not the computer: the app's scale (80 to 140%) and, if you want
+  one, a theme that stays whatever the profiles say.
+- A home-screen widget with the computer's figures (gauges as small rings) and four Quick Settings
+  tiles that run its actions. Which ones, the computer's profile says.
+
+### Moving
+
+`elamond backup` saves the computer's identity and its paired phones in one file only you can read.
+`elamond restore` puts it back on a reinstalled or new computer, and the phones connect without
+pairing again. A new phone pairs with `elamond pair`.
 
 ## Quick start
 
-1. Install the service. On NixOS, from this flake (Home Manager has a module too):
+1. **Install the service.** On NixOS, from this flake (Home Manager has a module too):
 
    ```nix
    imports = [ inputs.elamon.nixosModules.default ];
@@ -96,48 +109,46 @@ four Quick Settings tiles that run its actions; which, the computer's profile sa
    };
    ```
 
-   On another distribution with systemd and glibc 2.28 or newer, this puts the newest release's
-   `elamond` in `~/.local/bin`, its checksum checked, and lets `elamond setup` install it for your
-   user; then run what it prints as root (lingering, the firewall, the polkit rule):
+   On another distribution with systemd and glibc 2.28 or newer:
 
    ```sh
    curl -fsSL https://raw.githubusercontent.com/Elaizes/elamon/main/install.sh | sh
    ```
 
-   `elamond update` installs a newer release later. By hand, from the
-   [releases](https://github.com/Elaizes/elamon/releases) or `cargo`, and the details:
-   [section 1 of the guide](docs/guide.md#1-install-the-service).
+   This puts the newest release's `elamond` in `~/.local/bin` (its checksum checked) and runs
+   `elamond setup`, which installs it for your user. Then run, as root, the commands it prints:
+   lingering, the firewall, the polkit rule. `elamond update` installs a newer release later.
+   Installing by hand or from source: [section 1 of the guide](docs/guide.md#1-install-the-service).
 
-2. Run `elamond pair` on the computer and point the phone's camera at the QR code it prints, or
-   enter its six-digit code in the app, then let the phone in where `elamond pair` asks
+2. **Pair the phone.** Run `elamond pair` on the computer. Point the phone's camera at the QR code
+   it prints, or enter its six-digit code in the app. Then answer `y` on the computer
    ([details](docs/guide.md#3-pair-the-phone)).
 
-3. For the control panel, add `control = true` to the service's settings
-   ([details](docs/guide.md#5-the-control-panel)).
+That is enough to watch. The rest is optional, each a few lines in the settings:
 
-4. For a UPS or a power station, add it to the settings as a source, `[sources.<id>]`, with what
-   phones may switch on it ([details](docs/guide.md#7-upses-and-power-stations)).
+| For | Add | Guide |
+|---|---|---|
+| the control panel | `control = true` | [section 5](docs/guide.md#5-the-control-panel) |
+| a UPS or a power station | a source, `[sources.<id>]`, with what phones may switch on it | [section 7](docs/guide.md#7-upses-and-power-stations) |
+| readings of your own | sources of the kind `command`, `http` or `file` | [section 8](docs/guide.md#8-your-own-readings) |
+| notifications | an ntfy topic's file, `[notify.<id>]` | [section 10](docs/guide.md#10-events-and-notifications) |
+| a browser | nothing: open `https://<computer>:47823/` and type in the code of `elamond pair` | [section 11](docs/guide.md#11-in-a-browser) |
 
-5. For readings of your own, add sources of the kind `command`, `http` or `file`
-   ([details](docs/guide.md#8-your-own-readings)); the system journal is on the Control tab
-   ([details](docs/guide.md#9-the-journal)).
+## How it connects
 
-6. For notifications, name an ntfy topic's file in the settings, `[notify.<id>]`
-   ([details](docs/guide.md#10-events-and-notifications)).
-
-7. For a browser, open `https://<computer>:47823/` and type in the code of `elamond pair`
-   ([details](docs/guide.md#11-in-a-browser)).
-
-Phones and browsers talk to the computer directly, over the local network or a VPN they share: TCP
-47823, and UDP 5353 for the app to find the computer by itself. The service can listen on chosen
-interfaces only (`listen = ["tailscale0"]`), and announces itself only on the local network. Its
-pairing QR code carries the computer's Tailscale name and names you give (`names = [...]`) after its
-addresses, so the phone still finds it when they change. Everything is encrypted, a phone or a
-browser is paired only when you let it in at the computer, each has its own key that the computer
-can revoke, and the service only acts on the computer when told it may, starting and stopping only
-the units its settings name ([security](docs/guide.md#17-security)). Nothing goes through a server
-of anyone's, with one exception that is yours to make: name an ntfy topic, and the service posts its
-events to that ntfy server, without names of units, disks or the computer unless you ask for them.
+- Phones and browsers talk to the computer **directly**, over the local network or a VPN they
+  share: TCP 47823, and UDP 5353 for the app to find the computer by itself.
+- Everything is encrypted. A phone or a browser is paired only when you let it in at the computer.
+  Each has its own key, which the computer can revoke.
+- The service acts on the computer only when its settings say it may, and starts and stops only
+  the units its settings name ([security](docs/guide.md#17-security)).
+- It can listen on chosen interfaces only (`listen = ["tailscale0"]`), and announces itself only on
+  the local network.
+- The pairing QR code carries the computer's addresses, then its Tailscale name and the names you
+  give (`names = [...]`), so the phone still finds it when addresses change.
+- Nothing goes through anyone's server, with one exception that is yours to make: name an ntfy
+  topic, and the service posts its events to that ntfy server, without the names of units, disks
+  or the computer unless you ask for them.
 
 ## Technical notes
 
@@ -207,15 +218,25 @@ The protocol between the service and its clients, the app and the page:
 
 ## Where it's going
 
-UPSes and power stations came with 0.7, your own readings and the system journal with 0.8, the
-phone's own scale and theme with 0.8.1, events and notifications through ntfy with 0.9, monitors
-under Hyprland, a home-screen widget and Quick Settings tiles with 0.10, the widget's rings with
-0.10.1, the web page with its admin panel and the dashboard editor with 0.11, an evener look of the
-app with 0.11.2, the web page's new colours and its light, dark and black themes with 0.11.3, the
-page's side bar and a layout picked in the browser, as wide as the window, with 0.11.4. Next: 0.11.5,
-the page's admin panel; then 1.0, once a month of use goes by without a change to the settings or
-the protocol, and after it a certificate the browsers take without a warning. Not planned:
-the service for Windows or macOS, app stores (the app is the APK in each release).
+| Version | Brought |
+|---|---|
+| 0.7 | UPSes and power stations |
+| 0.8 | your own readings, the system journal |
+| 0.8.1 | the phone's own scale and theme |
+| 0.9 | events, and notifications through ntfy |
+| 0.10 | monitors under Hyprland, a home-screen widget, Quick Settings tiles (0.10.1: the widget's rings) |
+| 0.11 | the web page with its admin panel, the dashboard editor |
+| 0.11.2 | an evener look of the app |
+| 0.11.3 | the web page's new colours and its light, dark and black themes |
+| 0.11.4 | the page's side bar, the page as wide as the window, a layout picked in the browser |
+
+Next:
+
+- **0.11.5**: the page's admin panel.
+- **1.0**: once a month of use goes by without a change to the settings or the protocol.
+- **After 1.0**: a certificate the browsers take without a warning.
+
+Not planned: the service for Windows or macOS, and app stores (the app is the APK in each release).
 
 ## License
 

@@ -6,7 +6,8 @@
 > too. This guide is all the support there is; settings and the protocol may still change between
 > versions, so update the app and the service together.
 
-Elamon lets you watch and control a Linux computer from an Android phone. It has two parts:
+Elamon lets you watch and control a Linux computer from an Android phone or a browser. It has two
+parts:
 
 - **The app**, on an Android phone (Android 8 or newer).
 - **elamond**, the Elamon service, on the computer. It reads the computer's own counters and serves
@@ -17,6 +18,12 @@ The service also serves a web page of its own, for a browser you pair the same w
 ([section 11](#11-in-a-browser)). The phone, or the browser, talks to the computer directly: on the
 same network, or over a VPN both are on (Tailscale, WireGuard and the like). Nothing goes through a
 server.
+
+**Where to look.** Sections 1 to 3 set it up. Section 4 is the app, section 11 the web page. The
+rest is optional, each on one thing: control (5), roles (6), a UPS (7), your own readings (8), the
+journal (9), notifications (10), the admin panel and the dashboard editor (12, 13). Section 14
+explains the settings files, and [section 16](#16-troubleshooting) is where to go when something
+doesn't work.
 
 ## Quick start
 
@@ -401,11 +408,8 @@ told, the app says so: remove the phone there with `elamond revoke`
 
 ### Graphs that reach back: the long history
 
-Beside the last ten minutes it keeps in memory (`history_minutes`), the service keeps on disk every
-value a graph or a spark of the settings shows, and every number of a source that keeps its
-history, 256 a source at most: a UPS's or a power station's unless it says `history = false`
-([section 7](#7-upses-and-power-stations)), and one of your own readings with `history = true`
-([section 8](#8-your-own-readings)). Each point is the mean of the readings in it:
+The service keeps the last ten minutes in memory (`history_minutes`). It also keeps readings on
+disk, fewer points the older they are. Each point is the mean of the readings in it:
 
 | Every | Kept | For the ranges |
 |---|---|---|
@@ -413,9 +417,20 @@ history, 256 a source at most: a UPS's or a power station's unless it says `hist
 | 5 minutes | 30 days | 7 days, 30 days |
 | hour | for good, or `keep` days | Year, All |
 
-A medium or large graph, and a timeline, offers them as chips over it, beside its own range
-(*10 min* on most graphs): tap one to see that far back, and drag a finger across it to read a
-moment. A small graph never does, and `ranges = false` in a widget's settings leaves them out.
+**What is kept:**
+
+- every value that a graph or a spark in the settings shows;
+- every number of a UPS or a power station, unless its source says `history = false`
+  ([section 7](#7-upses-and-power-stations));
+- every number of one of your own readings whose source says `history = true`
+  ([section 8](#8-your-own-readings)).
+
+A source keeps 256 numbers at most.
+
+**Reading it.** A medium or large graph, and a timeline, has the ranges as chips over it, beside its
+own range (*10 min* on most graphs). Tap one to see that far back, and drag a finger across the
+graph to read a moment. A small graph has no chips, and `ranges = false` in a widget's settings
+leaves them out.
 
 - **It survives restarts.** The service writes it every 5 minutes and as it stops, so a crash loses
   those minutes at most; after a restart, the graphs start from it.
@@ -458,14 +473,35 @@ opens the pairing instead, and a computer you forget isn't opened again.
 
 ### Outside the app: a widget, tiles and the card
 
-What the app shows outside its own screens is set where everything else is: in the phone's profile
-on the computer, `[profiles.<id>.android]`, each a dashboard of the settings. None is set at first.
+The app can also show the computer outside its own screens: in a home-screen widget, in Quick
+Settings tiles, and on the computer's card on the app's home screen. Each shows a dashboard that you
+name in the phone's profile on the computer, under `[profiles.<id>.android]`. None is set at first.
 
-| key | what it shows |
-|---|---|
-| `widget` | the **home-screen widget**: the dashboard's values, gauges, statuses, lists and texts, groups opened out, with the levels the computer gives them: the gauges as small rings at the top, as their tiles have them, as many as the widget's size holds, the rest as lines under them. Read in the background every `widget_minutes` (30; Android allows no less than 15) and when you tap it; it shows when it last read them, and that the computer can't be reached rather than old numbers as new. With more than one computer paired, the phone asks which when you add the widget. Without a `widget`, the widget says to set one |
-| `tiles` | the four **Quick Settings tiles** (add them from the panel's edit view): the dashboard's first four buttons and switches, in order, each named and drawn as the widget or its action. A switch shows its state. A tile asks, and unlocks the phone, as the app does; from the lock screen it unlocks the phone first. A tile without one says *No action*. With more than one computer, the app's Settings says which one the tiles act on |
-| `card` | the **computer's card** on the app's home screen: the dashboard's figures (a `value` with `spark` as a small graph) and its buttons and switches as quick actions. Without it, the card shows the first figures of the first tab, as before |
+**`widget`: the home-screen widget.**
+
+- It shows the dashboard's values, gauges, statuses, lists and texts, with the levels the computer
+  gives them. Gauges are small rings at the top, as many as the widget's size holds; the rest are
+  lines under them.
+- It reads the computer in the background every `widget_minutes` (30; Android allows no less than
+  15), and when you tap it.
+- It says when it last read. When the computer can't be reached, it says so rather than showing old
+  numbers as new.
+- With more than one computer paired, the phone asks which one when you add the widget.
+
+**`tiles`: four Quick Settings tiles.** Add them from the edit view of the phone's Quick Settings
+panel.
+
+- They are the dashboard's first four buttons and switches, in order, each named and drawn as its
+  widget or its action. A switch shows its state. A tile with nothing behind it says *No action*.
+- A tile asks before it acts, and unlocks the phone, as the app does. From the lock screen it
+  unlocks the phone first.
+- With more than one computer, the app's Settings says which one the tiles act on.
+
+**`card`: the computer's card** on the app's home screen.
+
+- It shows the dashboard's figures (a `value` with `spark` as a small graph), and its buttons and
+  switches as quick actions.
+- Without `card`, the card shows the first three figures of the first tab.
 
 ```toml
 [profiles.owner.android]
@@ -670,15 +706,21 @@ NixOS `/run/current-system/sw/bin/…`, `/etc/profiles/per-user/YOUR_USER/bin/�
 
 ### Monitors
 
-Under Hyprland whose settings are Lua (`hyprland.lua`), Control has a **Monitors** group under
-*Displays*: for each monitor a switch that turns it on or off, one for its picture (DPMS: the
-screen sleeps, the windows stay where they are), and a brightness slider where the brightness can
-be read. The service finds the running Hyprland by itself with `hyprctl`, also as a user unit
-outside your session; `elamond check` and `elamond setup --check` say what is missing, and
-`elamond values displays` shows what it sees. Without Hyprland, or with settings that aren't Lua,
-there is no group and *Displays* is as before. Hyprland is read while a phone shows the monitors
-(Control, or a widget, tile or card that shows them), as the service starts and after an action;
-not otherwise.
+Under Hyprland with Lua settings (`hyprland.lua`), Control has a **Monitors** group under
+*Displays*. Each monitor has:
+
+- a switch that turns it on or off;
+- a switch for its picture (DPMS: the screen sleeps, the windows stay where they are);
+- a brightness slider, where the brightness can be read.
+
+Without Hyprland, or with settings that aren't Lua, there is no such group, and *Displays* only
+lists the monitors.
+
+The service finds the running Hyprland by itself with `hyprctl`, also when it runs as a user unit
+outside your session. When something is missing, `elamond check` and `elamond setup --check` say
+what, and `elamond values displays` shows what the service sees. It asks Hyprland only as it
+starts, after an action, and while a phone shows the monitors (on Control, or in a widget, tile or
+card).
 
 - **Turning one off** takes it out of Hyprland's layout, as a key of yours bound to
   `hl.monitor({ output = …, disabled = true })` does: its windows move to the others. **Turning it
@@ -1401,9 +1443,9 @@ module's defaults. Settings from before 0.9 have none: `elamond defaults rules` 
 defaults events` print them to copy, with `elamond defaults dashboards.events` and the Events
 button of `dashboards.control`.
 
-Change one by naming its key, in `elamond.d/events.toml` itself or in a file of elamond.d/ whose
-name comes after it (files are read by name, the later one winning; the same lines in elamond.toml
-would lose to events.toml):
+To change a rule, set its key again. Do it in `elamond.d/events.toml` itself, or in another file of
+`elamond.d/` whose name sorts after `events.toml`: the files are read by name, and the later one
+wins. Don't do it in `elamond.toml`, which is read first and would lose.
 
 ```toml
 # ~/.config/elamon/elamond.d/mine.toml
@@ -1529,53 +1571,67 @@ is the same kind of link.
 - Each time you open the page, the cookie lasts another 30 days (`[web] cookie_days`). A browser
   that stays away longer forgets it and pairs again. Its old entry stays in `elamond clients` until
   you revoke it.
-- The cookie belongs to the address you opened the page at. The same computer at another address,
-  or by a name, is another site to the browser, and pairs there on its own. Keep to one address.
-- The cookie is this computer's own (its name carries the service's id), so the pages of two
-  computers at one address on other ports don't log each other out. Like any cookie, the browser
-  also sends it to other HTTPS sites on that same name and address (on any port): keep the page on
-  a name that serves nothing else you don't trust.
+- The cookie belongs to the address you opened the page at. To the browser, the same computer at
+  another address, or by a name, is another site, and has to be paired separately. Keep to one
+  address.
+- Like any cookie, the browser also sends it to other HTTPS sites on that same name or address,
+  whatever their port. Open the page by a name that serves nothing you don't trust. (Two computers'
+  pages at one address on different ports don't log each other out: each cookie's name carries its
+  service's id.)
 - **⋮ → Forget this browser** unpairs it at once and clears the cookie. At the computer,
   `elamond clients` lists a browser by its name, with `web 0.11.0` as its app, and
   `elamond revoke ID` unpairs it.
 - A browser has a role, as a phone has (`admin` unless you give another), and a profile of its own
-  in `elamond.d/phones.toml` ([section 14](#each-phones-own-profile)). The page takes `theme`,
-  `pure_black`, `animations` and `confirm_actions` from it, and its size from the browser. The theme
-  button picks Light, Dark or Black for that browser alone, over the profile's `theme` and
-  `pure_black`; until one is picked, the page follows the profile.
+  in `elamond.d/phones.toml` ([section 14](#each-phones-own-profile)). From the profile the page
+  takes `theme`, `pure_black`, `animations` and `confirm_actions`.
+- **The theme button** picks Light, Dark or Black for that browser alone. Until you pick one, the
+  page follows the profile.
 
 ### Finding your way
 
-- **On a wide window** (1100 px and wider), a side bar: the computer's name, its dashboards, Edit for
-  the dashboard on screen and the admin panel's sections (each only for a role that may use it), and
-  at its foot the theme and the layout. ☰ folds it to a strip of icons, each one's name in its
-  tooltip, and opens it out again; the browser keeps which. Over the page, a bar with where you
-  are, the chips and the connection's state stays in place while the page scrolls; ⋮ there has what
-  is done rarely: a new dashboard, forgetting this browser.
-- **On a narrower one,** a phone's for one, the name and the tools are in a bar at the top, the
-  dashboards in a row of tabs under it, and the admin panel's sections in a row of their own.
-- **Keys:** 1 to 9 open the dashboards in their order (not while you type in a field or move a
-  slider); Escape goes from the admin panel or the editor back to the dashboard you were on, and
-  closes a menu or a dialog first when one is open. Tab goes through the side bar, then the bar
-  over the page, then the page.
+**On a wide window** (1100 px and wider) the page has a side bar and a bar over the page.
+
+- The side bar lists the computer's name, its dashboards, **Edit** (for the dashboard on screen)
+  and the admin panel's sections. Edit and the sections are there only for a role that may use them.
+  At its foot are the theme and layout buttons.
+- ☰ folds the side bar to a strip of icons and opens it again. Folded, each icon's name is in its
+  tooltip. The browser remembers whether it is folded.
+- The bar over the page says where you are, and has the chips and the connection's state. It stays
+  in place while the page scrolls. Its ⋮ menu has what is rarely needed: *New dashboard* and
+  *Forget this browser*.
+
+**On a narrower window**, such as a phone's, there is no side bar. The name and the tools are in a
+bar at the top, the dashboards are a row of tabs under it, and the admin panel's sections are a row
+of their own.
+
+**Keys:**
+
+| Key | Does |
+|---|---|
+| 1 to 9 | open the dashboards, in their order (not while you type in a field or move a slider) |
+| Escape | closes an open menu or dialog; otherwise goes from the admin panel or the editor back to the dashboard you were on |
+| Tab | goes through the side bar, then the bar over the page, then the page |
 
 ### The layout
 
-The layout button, beside the theme's, picks how the page is laid out in that browser alone. It
-keeps each pick (a reload starts with it, nothing jumps), and Reset goes back to what is there until
-one is picked:
+The layout button, beside the theme button, changes how the page is laid out. Like the theme, it is
+that browser's own: nothing of it is in the settings, and each browser picks its own. The browser
+remembers each pick, so a reload starts with it. **Reset** goes back to the defaults.
 
-| Choice | Picks | Until picked |
+| Choice | Options | Default |
 |---|---|---|
-| Width | the whole window, or at most 1280 px across, in the middle | the whole window |
-| Columns | Auto, 4 or 8: the dashboards' grid on a wide window | Auto: 4, and 8 where the grid is 1500 px wide or more |
+| Width | the whole window, or at most 1280 px, in the middle | the whole window |
+| Columns | Auto, 4, or 8 where they fit | Auto: 8 columns where the grid is 1500 px wide or more, otherwise 4 |
 | Density | compact, normal or roomy: the space in and between cards | normal |
 | Space at the edges | none, small, normal or large: between the page and the window's edge | normal |
 
-A widget's width is its `span` in columns of four ([docs/config.md](config.md#widgets)): on 8 columns a span stays
-as it is, so two widgets of 4 stand side by side; a row its widgets leave incomplete is shared by
-them evenly. On a phone the grid has 2 columns (1 on a very narrow one) whatever is picked. The
-layout is the browser's: nothing of it is in the settings, and each browser picks its own.
+How widgets fill the columns:
+
+- A widget's width is its `span`, 1 to 4 columns ([docs/config.md](config.md#widgets)). On 8 columns
+  a span stays as it is, so a widget of span 4 takes half a row and two of them stand side by side.
+- When the widgets of a row don't fill it, they share it evenly.
+- "8 where they fit" gives 8 columns only where each would be at least 150 px wide; otherwise 4.
+- On a phone the grid has 2 columns (1 on a very narrow one), whatever is picked.
 
 ### What the page shows
 
@@ -1646,11 +1702,14 @@ They apply as soon as the service rereads its settings. Every key of `[web]` is 
 
 ## 12. The admin panel
 
-With the `owner` role, the page has **Admin** with its sections in the side bar (on a narrow window,
-an Admin button in the top bar). The admin panel does from a
-browser much of what the commands do at the computer: it shows how the service runs and where each
-setting comes from, changes the paired phones and browsers and their roles, pairs new ones, holds
-control off, and edits the settings files.
+With the `owner` role, the page has **Admin**: its sections are in the side bar (on a narrow
+window, behind an Admin button in the top bar). The admin panel does from a browser much of what the
+commands do at the computer:
+
+- shows how the service runs, and where each setting comes from;
+- changes the paired phones and browsers and their roles, and pairs new ones;
+- holds control off;
+- edits the settings files.
 
 ### Who has it
 
@@ -1686,10 +1745,10 @@ from the cookie to the backups and the activity log, is in
 
 | Section | What it does |
 |---|---|
-| **Overview** | the service: its name and version, since when it runs, its certificate's fingerprint, where it listens and the addresses and names it's reached by; your client and role; control; the web page's settings, with the certificate for browsers and until when it's valid; whether the settings parse, and if not, why; what `elamond setup --check` says; the settings files |
-| **Settings** | the settings as the service merged them from the files, each part with the file and line that set it last: choose a `file:line` to open the file there. A filter; the changes from the defaults, as `elamond defaults --diff` prints them; the warnings of `elamond check` |
+| **Overview** | the service at a glance: name, version, since when it runs, its certificate's fingerprint, where it listens and how it's reached; your client and role; whether control is on; the web page's settings and its certificate for browsers; whether the settings parse, and if not, why; what `elamond setup --check` says; the settings files |
+| **Settings** | the settings as the service merged them from the files. Each part names the file and line that set it last: choose a `file:line` to open the file there. Also a filter, the changes from the defaults (as `elamond defaults --diff` prints them) and the warnings of `elamond check` |
 | **Clients** | the paired phones and browsers: app, address, when last seen, when paired, the key it was added with. Change a role or a profile (with the entries added with its key, if you like), or *Revoke* |
-| **Pairing** | *Make a code*, for a role and a profile. It replaces any code that waits, `elamond pair`'s too. Two QR codes, *For the Elamon app* and *For a phone's browser*; whoever gives the code waits for you to *Allow* or *Turn away*; *Withdraw* takes the code back. A code `elamond pair` made can be answered here too |
+| **Pairing** | *Make a code*, for a role and a profile; it replaces any code that waits, `elamond pair`'s too. It shows two QR codes, *For the Elamon app* and *For a phone's browser*. Whoever gives the code waits for you to *Allow* or *Turn away*; *Withdraw* takes the code back. A code that `elamond pair` made can be answered here too |
 | **Control** | whether control is on, and if not, why; *Turn control off*, as `elamond control off` does |
 | **Files** | the settings files, and an editor for them ([below](#the-settings-files)) |
 | **Activity** | the activity log, newest first |
